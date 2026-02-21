@@ -9,6 +9,11 @@ const Navbar = () => {
         <span className="pill-badge text-[10px] py-0.5 px-2">BETA</span>
       </Link>
       <div className="flex items-center gap-3">
+        <Link to="/app">
+          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-5">
+            Editor
+          </Button>
+        </Link>
         <Link to="/login">
           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-5">
             Log in
