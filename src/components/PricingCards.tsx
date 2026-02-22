@@ -57,7 +57,9 @@ const PricingCards = ({
         const priceLabel = isLifetime ? plan.priceLabel : isAnnual ? annualLabel : plan.priceLabel;
         const cadenceLabel = isLifetime || tier === "free" ? "" : isAnnual ? "/year" : "/month";
         const billingNote = isLifetime
-          ? "One-time payment"
+          ? tier === "founder"
+            ? "1-time purchase"
+            : "One-time payment"
           : tier === "free"
           ? "Free forever"
           : isAnnual
