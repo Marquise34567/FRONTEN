@@ -13,7 +13,6 @@ import {
   RefreshCw,
   ArrowLeft,
   Sparkles,
-  Film,
   Lock,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -43,7 +42,6 @@ const JobDetail = () => {
   const { toast } = useToast();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rendering, setRendering] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [selectedQuality, setSelectedQuality] = useState<ExportQuality>("720p");
 
@@ -81,27 +79,6 @@ const JobDetail = () => {
       return;
     }
     setSelectedQuality(quality);
-  };
-
-  const handleRender = async () => {
-    if (!accessToken || !id) return;
-    try {
-      setRendering(true);
-      await apiFetch(`/api/jobs/${id}/process`, {
-        method: "POST",
-        body: JSON.stringify({ requestedQuality: selectedQuality }),
-        token: accessToken,
-      });
-      fetchJob();
-    } catch (err: any) {
-      if (err?.status === 402) {
-        setUpgradeOpen(true);
-      } else {
-        toast({ title: "Render failed", description: err?.message || "Please try again." });
-      }
-    } finally {
-      setRendering(false);
-    }
   };
 
   const handleDownload = async () => {
@@ -202,9 +179,9 @@ const JobDetail = () => {
                     </div>
                   )}
 
-                  <Button onClick={handleRender} disabled={rendering} className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg">
-                    <Film className="w-4 h-4" /> {rendering ? "Rendering..." : "Render Final Video"}
-                  </Button>
+                  <div className="text-xs text-muted-foreground bg-muted/40 border border-border/60 rounded-lg p-3">
+                    Rendering starts automatically after analysis completes.
+                  </div>
 
                   {job.status === "completed" && (
                     <div className="grid grid-cols-2 gap-2">
