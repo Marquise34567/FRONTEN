@@ -15,24 +15,25 @@ import type { PlanTier } from "@shared/planConfig";
 const Settings = () => {
   const { accessToken } = useAuth();
   const { data } = useMe();
-  const [actionTier, setActionTier] = useState<PlanTier | null>(null);
+  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" | "trial" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const { toast } = useToast();
 
-  const handleCheckout = async (tier: PlanTier) => {
+  const handleCheckout = async (tier: PlanTier, options?: { trial?: boolean }) => {
     if (!accessToken) return;
     try {
-      setActionTier(tier);
+      const kind = options?.trial ? "trial" : "subscribe";
+      setAction({ tier, kind });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval }),
+        body: JSON.stringify({ tier, interval: billingInterval, trial: !!options?.trial }),
         token: accessToken,
       });
       window.location.href = result.url;
     } catch (err: any) {
       toast({ title: "Checkout failed", description: err?.message || "Please try again." });
     } finally {
-      setActionTier(null);
+      setAction(null);
     }
   };
 
@@ -161,10 +162,11 @@ const Settings = () => {
             <PricingCards
               currentTier={tier}
               isAuthenticated={true}
-              loading={actionTier !== null}
+              loading={action !== null}
               onCheckout={handleCheckout}
               onPortal={handlePortal}
-              actionTier={actionTier}
+              actionTier={action?.tier ?? null}
+              actionKind={action?.kind ?? null}
               billingInterval={billingInterval}
             />
           </div>

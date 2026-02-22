@@ -8,9 +8,10 @@ type PricingCardsProps = {
   currentTier?: string;
   isAuthenticated: boolean;
   loading?: boolean;
-  onCheckout: (tier: PlanTier) => void;
+  onCheckout: (tier: PlanTier, options?: { trial?: boolean }) => void;
   onPortal: () => void;
   actionTier?: PlanTier | null;
+  actionKind?: "subscribe" | "trial" | null;
   billingInterval?: "monthly" | "annual";
 };
 
@@ -21,6 +22,7 @@ const PricingCards = ({
   onCheckout,
   onPortal,
   actionTier,
+  actionKind,
   billingInterval = "monthly",
 }: PricingCardsProps) => {
   return (
@@ -101,16 +103,27 @@ const PricingCards = ({
                 </Button>
               )}
               {showSubscribe && (
-                <Button
-                  onClick={() => onCheckout(tier)}
-                  disabled={loading && actionTier === tier}
-                  className={cn(
-                    "w-full rounded-lg",
-                    isPopular ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "bg-white/10 hover:bg-white/20 text-foreground"
+                <div className="grid gap-2">
+                  {tier === "starter" && (
+                    <Button
+                      onClick={() => onCheckout(tier, { trial: true })}
+                      disabled={loading && actionTier === tier && actionKind === "trial"}
+                      className="w-full rounded-lg bg-white/10 hover:bg-white/20 text-foreground"
+                    >
+                      {loading && actionTier === tier && actionKind === "trial" ? "Redirecting..." : "Start free trial"}
+                    </Button>
                   )}
-                >
-                  {loading && actionTier === tier ? "Redirecting..." : isCurrent ? "Manage" : "Subscribe"}
-                </Button>
+                  <Button
+                    onClick={() => onCheckout(tier)}
+                    disabled={loading && actionTier === tier && actionKind === "subscribe"}
+                    className={cn(
+                      "w-full rounded-lg",
+                      isPopular ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "bg-white/10 hover:bg-white/20 text-foreground"
+                    )}
+                  >
+                    {loading && actionTier === tier && actionKind === "subscribe" ? "Redirecting..." : isCurrent ? "Manage" : "Subscribe"}
+                  </Button>
+                </div>
               )}
               {showLogin && (
                 <Link to="/login">
