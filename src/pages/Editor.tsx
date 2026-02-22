@@ -430,8 +430,8 @@ const Editor = () => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold font-premium text-foreground">Studio Console</h1>
-              <p className="text-muted-foreground mt-1">Orchestrate projects and monitor your production pipeline</p>
+              <h1 className="text-3xl font-bold font-premium text-foreground">Creator Command</h1>
+              <p className="text-muted-foreground mt-1">Ship edits faster with a live production view</p>
             </div>
             <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
               <Plus className="w-4 h-4" /> New Project
