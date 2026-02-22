@@ -5,15 +5,17 @@ import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Upload, Plus, Clock, CheckCircle2, Loader2, FileVideo, Sparkles, Scissors, Gauge } from "lucide-react";
+import { Upload, Plus, Clock, CheckCircle2, Loader2, FileVideo, Sparkles, Scissors, Gauge, Captions, Volume2, ListChecks, BarChart3 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { apiFetch } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useMe } from "@/hooks/use-me";
 import { supabase } from "@/integrations/supabase/client";
+import { PLAN_CONFIG, type PlanTier } from "@shared/planConfig";
 
 interface Job {
   id: string;
-  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "rendering" | "completed" | "failed";
+  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "story" | "subtitling" | "audio" | "retention" | "rendering" | "completed" | "failed";
   progress: number;
   inputPath: string;
   outputPath?: string | null;
@@ -28,6 +30,10 @@ const statusConfig = {
   hooking: { icon: Sparkles, label: "Hooking", color: "text-primary", spin: true },
   cutting: { icon: Scissors, label: "Cutting", color: "text-primary", spin: true },
   pacing: { icon: Gauge, label: "Pacing", color: "text-primary", spin: true },
+  story: { icon: ListChecks, label: "Story", color: "text-primary", spin: true },
+  subtitling: { icon: Captions, label: "Subtitles", color: "text-primary", spin: true },
+  audio: { icon: Volume2, label: "Audio", color: "text-primary", spin: true },
+  retention: { icon: BarChart3, label: "Retention", color: "text-primary", spin: true },
   rendering: { icon: Sparkles, label: "Rendering", color: "text-primary", spin: true },
   completed: { icon: CheckCircle2, label: "Completed", color: "text-success" },
   failed: { icon: Clock, label: "Failed", color: "text-destructive" },
@@ -40,8 +46,20 @@ const Dashboard = () => {
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const prevJobStatusRef = useRef<Map<string, Job["status"]>>(new Map());
   const { accessToken } = useAuth();
   const { toast } = useToast();
+  const hasActiveJobs = jobs.some((job) =>
+    ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "story", "subtitling", "audio", "retention", "rendering"].includes(job.status),
+  );
+  const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
+  const tier = (me?.subscription?.tier as PlanTier) || "free";
+  const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
+  const maxRendersPerMonth = plan.maxRendersPerMonth;
+  const rendersUsed = me?.usage?.rendersUsed ?? 0;
+  const rendersRemaining = Math.max(0, maxRendersPerMonth - rendersUsed);
+  const rendersRemainingLabel = rendersRemaining;
+  const rendersLimitLabel = maxRendersPerMonth;
 
   const fetchJobs = useCallback(async () => {
     if (!accessToken) return;
@@ -60,15 +78,55 @@ const Dashboard = () => {
   }, [fetchJobs]);
 
   useEffect(() => {
-    const active = jobs.some((job) =>
-      ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "rendering"].includes(job.status),
-    );
-    if (!active) return;
+    if (!accessToken || !API_URL) return;
+    const wsUrl = API_URL.replace(/^http/, "ws") + `/ws?token=${accessToken}`;
+    const socket = new WebSocket(wsUrl);
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message?.type !== "job:update") return;
+        const job = message.payload?.job as Job | undefined;
+        if (!job) return;
+        setJobs((prev) => {
+          const next = Array.isArray(prev) ? [...prev] : [];
+          const index = next.findIndex((item) => item.id === job.id);
+          if (index >= 0) {
+            next[index] = { ...next[index], ...job };
+            return next;
+          }
+          return [job, ...next];
+        });
+      } catch (err) {
+        // ignore parse errors
+      }
+    };
+    return () => {
+      socket.close();
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!hasActiveJobs) return;
     const timer = setInterval(() => {
       fetchJobs();
     }, 2500);
     return () => clearInterval(timer);
-  }, [jobs, fetchJobs]);
+  }, [hasActiveJobs, fetchJobs]);
+
+  useEffect(() => {
+    const prev = prevJobStatusRef.current;
+    let completed = false;
+    const next = new Map<string, Job["status"]>();
+    for (const job of jobs) {
+      next.set(job.id, job.status);
+      const prevStatus = prev.get(job.id);
+      if (prevStatus && prevStatus !== "completed" && job.status === "completed") {
+        completed = true;
+      }
+    }
+    prevJobStatusRef.current = next;
+    if (completed) refetchMe();
+  }, [jobs, refetchMe]);
 
   const uploadWithProgress = (url: string, file: File, onProgress: (value: number) => void) => {
     return new Promise<void>((resolve, reject) => {
@@ -159,6 +217,16 @@ const Dashboard = () => {
             <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
               <Plus className="w-4 h-4" /> New Project
             </Button>
+          </div>
+
+          <div className="glass-card p-4 mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground">Renders remaining this month</p>
+              <p className="text-2xl font-bold font-display text-foreground">{rendersRemainingLabel}</p>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Used {rendersUsed} / {rendersLimitLabel}
+            </div>
           </div>
 
           <input

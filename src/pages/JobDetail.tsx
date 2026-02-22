@@ -14,23 +14,32 @@ import {
   ArrowLeft,
   Sparkles,
   Lock,
+  BarChart3,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/providers/AuthProvider";
-import { apiFetch } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 import { useMe } from "@/hooks/use-me";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality } from "@shared/planConfig";
 
 interface Job {
   id: string;
-  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "rendering" | "completed" | "failed";
+  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "story" | "subtitling" | "audio" | "retention" | "rendering" | "completed" | "failed";
   progress: number;
   inputPath: string;
   outputPath?: string | null;
   requestedQuality?: string | null;
   finalQuality?: string | null;
   watermarkApplied?: boolean;
+  retentionScore?: number | null;
+  optimizationNotes?: string[] | null;
+  analysis?: {
+    hook_start_time?: number | null;
+    hook_end_time?: number | null;
+    hook_score?: number | null;
+    removed_segments?: Array<{ start: number; end: number }>;
+  } | null;
   createdAt: string;
   error?: string | null;
 }
@@ -45,7 +54,8 @@ const JobDetail = () => {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [selectedQuality, setSelectedQuality] = useState<ExportQuality>("720p");
 
-  const tier = (me?.subscription?.tier as keyof typeof PLAN_CONFIG) || "free";
+  const rawTier = (me?.subscription?.tier as string) || "free";
+  const tier = (PLAN_CONFIG as Record<string, typeof PLAN_CONFIG.free>)[rawTier] ? (rawTier as keyof typeof PLAN_CONFIG) : "free";
   const plan = PLAN_CONFIG[tier];
   const maxQuality = plan.exportQuality;
 
@@ -61,6 +71,26 @@ const JobDetail = () => {
   useEffect(() => {
     fetchJob();
   }, [id, accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || !id || !API_URL) return;
+    const wsUrl = API_URL.replace(/^http/, "ws") + `/ws?token=${accessToken}`;
+    const socket = new WebSocket(wsUrl);
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message?.type !== "job:update") return;
+        const update = message.payload?.job as Job | undefined;
+        if (!update || update.id !== id) return;
+        setJob((prev) => (prev ? { ...prev, ...update } : update));
+      } catch (err) {
+        // ignore
+      }
+    };
+    return () => {
+      socket.close();
+    };
+  }, [accessToken, id]);
 
   useEffect(() => {
     if (!job) return;
@@ -93,7 +123,11 @@ const JobDetail = () => {
 
   const jobName = job?.inputPath?.split("/").pop() || "Untitled";
   const statusLabel = job?.status ? job.status : "queued";
-  const isProcessing = job && ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "rendering"].includes(job.status);
+  const isProcessing = job && ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "story", "subtitling", "audio", "retention", "rendering"].includes(job.status);
+  const hookStart = job?.analysis?.hook_start_time;
+  const hookEnd = job?.analysis?.hook_end_time;
+  const hookScore = job?.analysis?.hook_score;
+  const removedCount = job?.analysis?.removed_segments?.length ?? 0;
   const pipelineSteps = [
     { key: "queued", label: "Queued" },
     { key: "uploading", label: "Uploading" },
@@ -101,6 +135,10 @@ const JobDetail = () => {
     { key: "hooking", label: "Hook" },
     { key: "cutting", label: "Cuts" },
     { key: "pacing", label: "Pacing" },
+    { key: "story", label: "Story" },
+    { key: "subtitling", label: "Subtitles" },
+    { key: "audio", label: "Audio" },
+    { key: "retention", label: "Retention" },
     { key: "rendering", label: "Rendering" },
     { key: "completed", label: "Ready" },
   ] as const;
@@ -211,7 +249,7 @@ const JobDetail = () => {
                   )}
 
                   <div className="text-xs text-muted-foreground bg-muted/40 border border-border/60 rounded-lg p-3">
-                    Rendering starts automatically after analysis completes.
+                    Rendering starts automatically after the hook, cuts, pacing, and polish steps finish.
                   </div>
 
                   {job.status === "completed" && (
@@ -234,6 +272,13 @@ const JobDetail = () => {
                     <span className="text-foreground capitalize">{statusLabel}</span>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Retention Score</span>
+                    <span className="text-foreground flex items-center gap-1">
+                      <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                      {job?.retentionScore ?? "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Requested Quality</span>
                     <span className="text-foreground">{selectedQuality.toUpperCase()}</span>
                   </div>
@@ -242,10 +287,36 @@ const JobDetail = () => {
                     <span className="text-foreground">{plan.watermark ? "Yes" : "No"}</span>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Hook Window</span>
+                    <span className="text-foreground">
+                      {hookStart != null && hookEnd != null ? `${hookStart.toFixed(1)}s - ${hookEnd.toFixed(1)}s` : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Hook Score</span>
+                    <span className="text-foreground">
+                      {hookScore != null ? hookScore.toFixed(2) : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Boring Cuts</span>
+                    <span className="text-foreground">{removedCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Created</span>
                     <span className="text-foreground">{new Date(job.createdAt).toLocaleString()}</span>
                   </div>
                 </div>
+                {job?.optimizationNotes && job.optimizationNotes.length > 0 && (
+                  <div className="glass-card p-4 text-sm space-y-2">
+                    <h4 className="text-sm font-semibold text-foreground">Optimization Notes</h4>
+                    {job.optimizationNotes.map((note, idx) => (
+                      <p key={idx} className="text-xs text-muted-foreground">
+                        {note}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
