@@ -521,6 +521,9 @@ const Editor = () => {
     return `${remSecs}s`;
   };
 
+  const etaLabel = etaSeconds !== null ? formatEta(etaSeconds) : "Estimating...";
+  const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+
   return (
     <GlowBackdrop>
       <Navbar />
@@ -699,9 +702,10 @@ const Editor = () => {
                         </div>
                         <Progress value={activeJob.progress ?? 0} className="h-2 bg-muted [&>div]:bg-primary" />
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span className="uppercase tracking-[0.2em] text-muted-foreground/80">ETA</span>
+                          <span className="uppercase tracking-[0.2em] text-muted-foreground/80">Estimated time</span>
                           <span className="font-premium text-[12px] text-foreground">
-                            {etaSeconds !== null ? formatEta(etaSeconds) : "Calibrating..."}
+                            {etaLabel}
+                            {etaSuffix}
                           </span>
                         </div>
                       </div>
