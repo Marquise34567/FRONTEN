@@ -539,7 +539,7 @@ const Editor = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept="video/*"
+            accept="video/*,.mkv"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -606,7 +606,7 @@ const Editor = () => {
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
                   <p className="font-medium text-foreground">Drop your video here or click to upload</p>
-                  <p className="text-sm text-muted-foreground">MP4, MOV, AVI up to 2GB</p>
+                  <p className="text-sm text-muted-foreground">MP4, MOV, MKV, AVI up to 2GB</p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
