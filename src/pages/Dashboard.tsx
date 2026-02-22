@@ -5,7 +5,7 @@ import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Upload, Plus, Clock, CheckCircle2, Loader2, FileVideo, Sparkles } from "lucide-react";
+import { Upload, Plus, Clock, CheckCircle2, Loader2, FileVideo, Sparkles, Scissors, Gauge } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 interface Job {
   id: string;
-  status: "queued" | "uploading" | "analyzing" | "rendering" | "completed" | "failed";
+  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "rendering" | "completed" | "failed";
   progress: number;
   inputPath: string;
   outputPath?: string | null;
@@ -25,6 +25,9 @@ const statusConfig = {
   queued: { icon: Clock, label: "Queued", color: "text-muted-foreground" },
   uploading: { icon: Upload, label: "Uploading", color: "text-warning" },
   analyzing: { icon: Loader2, label: "Analyzing", color: "text-primary", spin: true },
+  hooking: { icon: Sparkles, label: "Hooking", color: "text-primary", spin: true },
+  cutting: { icon: Scissors, label: "Cutting", color: "text-primary", spin: true },
+  pacing: { icon: Gauge, label: "Pacing", color: "text-primary", spin: true },
   rendering: { icon: Sparkles, label: "Rendering", color: "text-primary", spin: true },
   completed: { icon: CheckCircle2, label: "Completed", color: "text-success" },
   failed: { icon: Clock, label: "Failed", color: "text-destructive" },
@@ -57,7 +60,9 @@ const Dashboard = () => {
   }, [fetchJobs]);
 
   useEffect(() => {
-    const active = jobs.some((job) => ["queued", "uploading", "analyzing", "rendering"].includes(job.status));
+    const active = jobs.some((job) =>
+      ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "rendering"].includes(job.status),
+    );
     if (!active) return;
     const timer = setInterval(() => {
       fetchJobs();

@@ -24,7 +24,7 @@ import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type
 
 interface Job {
   id: string;
-  status: "queued" | "uploading" | "analyzing" | "rendering" | "completed" | "failed";
+  status: "queued" | "uploading" | "analyzing" | "hooking" | "cutting" | "pacing" | "rendering" | "completed" | "failed";
   progress: number;
   inputPath: string;
   outputPath?: string | null;
@@ -93,7 +93,18 @@ const JobDetail = () => {
 
   const jobName = job?.inputPath?.split("/").pop() || "Untitled";
   const statusLabel = job?.status ? job.status : "queued";
-  const isProcessing = job && ["queued", "uploading", "analyzing", "rendering"].includes(job.status);
+  const isProcessing = job && ["queued", "uploading", "analyzing", "hooking", "cutting", "pacing", "rendering"].includes(job.status);
+  const pipelineSteps = [
+    { key: "queued", label: "Queued" },
+    { key: "uploading", label: "Uploading" },
+    { key: "analyzing", label: "Analyzing" },
+    { key: "hooking", label: "Hook" },
+    { key: "cutting", label: "Cuts" },
+    { key: "pacing", label: "Pacing" },
+    { key: "rendering", label: "Rendering" },
+    { key: "completed", label: "Ready" },
+  ] as const;
+  const currentStepIndex = job ? pipelineSteps.findIndex((step) => step.key === job.status) : -1;
 
   const qualityButtons = useMemo(() => {
     return QUALITY_ORDER.map((quality) => {
@@ -176,6 +187,26 @@ const JobDetail = () => {
                         <span className="text-xs text-muted-foreground">{job.progress}%</span>
                       </div>
                       <Progress value={job.progress} className="h-2 bg-muted [&>div]:bg-primary" />
+                    </div>
+                  )}
+
+                  {job && (
+                    <div className="flex flex-wrap gap-2">
+                      {pipelineSteps.map((step, idx) => {
+                        const active = currentStepIndex !== -1 && idx <= currentStepIndex && job.status !== "failed";
+                        return (
+                          <Badge
+                            key={step.key}
+                            variant="secondary"
+                            className={`border ${active ? "border-primary/30 text-primary bg-primary/10" : "border-border/50 text-muted-foreground bg-muted/30"}`}
+                          >
+                            {step.label}
+                          </Badge>
+                        );
+                      })}
+                      {job.status === "failed" && (
+                        <Badge variant="destructive">Failed</Badge>
+                      )}
                     </div>
                   )}
 
