@@ -27,6 +27,7 @@ type EditorSettings = {
   autoZoomMax: number;
   emotionalBoost: boolean;
   aggressiveMode: boolean;
+  onlyCuts: boolean;
 };
 
 const tierIndex = (tier: PlanTier) => PLAN_TIERS.indexOf(tier);
@@ -144,8 +145,10 @@ const Settings = () => {
     autoZoomMax: features.autoZoomMax,
     emotionalBoost: false,
     aggressiveMode: false,
+    onlyCuts: false,
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
+  const onlyCutsEnabled = resolvedSettings.onlyCuts;
 
   const mergeSettings = (updates: Partial<EditorSettings>) => {
     setEditorSettings((prev) => ({
@@ -304,16 +307,37 @@ const Settings = () => {
 
             {!settingsQuery.isLoading && (
               <div className="space-y-6">
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Only Cuts Mode</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Remove boring sections only. No hook move, pacing, zoom, or effects.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.onlyCuts}
+                      onCheckedChange={(checked) => {
+                        mergeSettings({ onlyCuts: checked });
+                      }}
+                    />
+                  </div>
+                  {onlyCutsEnabled && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Other enhancements are ignored while Only Cuts is enabled.
+                    </p>
+                  )}
+                </div>
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Subtitle Presets</h3>
                       <p className="text-xs text-muted-foreground">Pick a caption style for exports.</p>
-                    </div>
-                    <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                      {subtitleBadge}
-                    </Badge>
-                  </div>
+                </div>
+                <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                  {subtitleBadge}
+                </Badge>
+              </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {subtitlePresets.map((preset) => {
                       const required = getRequiredPlanForPreset(preset.id);
@@ -372,8 +396,10 @@ const Settings = () => {
                     min={1}
                     max={1.15}
                     step={0.01}
+                    disabled={onlyCutsEnabled}
                     value={[resolvedSettings.autoZoomMax]}
                     onValueChange={(values) => {
+                      if (onlyCutsEnabled) return;
                       const next = Number(values?.[0] ?? features.autoZoomMax);
                       const required = getRequiredPlanForAutoZoom(next);
                       if (tierIndex(required) > currentTierIndex) {
@@ -386,6 +412,7 @@ const Settings = () => {
                   />
                   <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
                     <span>Plan max: {features.autoZoomMax.toFixed(2)}x</span>
+                    {onlyCutsEnabled && <span>Disabled in Only Cuts</span>}
                     {features.autoZoomMax < 1.15 && (
                       <button type="button" className="text-primary" onClick={() => openUpgrade("studio")}>
                         Unlock 1.15x
@@ -416,12 +443,13 @@ const Settings = () => {
                       <span className="text-muted-foreground">Emotional Boost</span>
                       <Switch
                         checked={resolvedSettings.emotionalBoost}
-                        disabled={advancedLocked}
+                        disabled={advancedLocked || onlyCutsEnabled}
                         onCheckedChange={(checked) => {
                           if (advancedLocked) {
                             openUpgrade("studio");
                             return;
                           }
+                          if (onlyCutsEnabled) return;
                           mergeSettings({ emotionalBoost: checked });
                         }}
                       />
@@ -430,12 +458,13 @@ const Settings = () => {
                       <span className="text-muted-foreground">Aggressive Mode</span>
                       <Switch
                         checked={resolvedSettings.aggressiveMode}
-                        disabled={advancedLocked}
+                        disabled={advancedLocked || onlyCutsEnabled}
                         onCheckedChange={(checked) => {
                           if (advancedLocked) {
                             openUpgrade("studio");
                             return;
                           }
+                          if (onlyCutsEnabled) return;
                           mergeSettings({ aggressiveMode: checked });
                         }}
                       />
@@ -529,6 +558,3 @@ const Settings = () => {
 };
 
 export default Settings;
-
-
-
