@@ -120,6 +120,8 @@ const Editor = () => {
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
+  const pipelineStartRef = useRef<Record<string, number>>({});
+  const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken } = useAuth();
   const { toast } = useToast();
@@ -170,6 +172,11 @@ const Editor = () => {
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!selectedJobId && jobs.length > 0) {
@@ -311,6 +318,7 @@ const Editor = () => {
       );
 
       setUploadingJobId(create.job.id);
+      pipelineStartRef.current[create.job.id] = Date.now();
       setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       const nextParams = new URLSearchParams(searchParams);
@@ -383,6 +391,37 @@ const Editor = () => {
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && activeJob.outputUrl);
+
+  const etaSeconds = useMemo(() => {
+    if (!activeJob) return null;
+    const normalized = normalizeStatus(activeJob.status);
+    if (normalized === "ready" || normalized === "failed") return null;
+    const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
+    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
+    const uploadContribution = Math.min(10, Math.max(1, Math.round(uploadProgress * 0.1)));
+    const effectiveProgress =
+      normalized === "uploading"
+        ? uploadContribution
+        : jobProgress > 0
+          ? Math.max(uploadContribution, jobProgress)
+          : uploadContribution;
+    const boundedProgress = Math.max(1, Math.min(99, effectiveProgress));
+    if (boundedProgress < 2) return null;
+    const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
+    return Math.max(0, Math.round(remaining));
+  }, [activeJob, etaTick, uploadProgress]);
+
+  const formatEta = (seconds: number | null) => {
+    if (!seconds || seconds <= 0) return "Finalizing...";
+    const mins = Math.floor(seconds / 60);
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    const remSecs = seconds % 60;
+    if (hrs > 0) return `${hrs}h ${remMins}m`;
+    if (mins > 0) return `${mins}m ${remSecs}s`;
+    return `${remSecs}s`;
+  };
 
   return (
     <GlowBackdrop>
@@ -559,6 +598,10 @@ const Editor = () => {
                           <span className="text-xs text-muted-foreground">{activeJob.progress ?? 0}%</span>
                         </div>
                         <Progress value={activeJob.progress ?? 0} className="h-2 bg-muted [&>div]:bg-primary" />
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>Estimated time remaining</span>
+                          <span>{etaSeconds !== null ? formatEta(etaSeconds) : "Estimating..."}</span>
+                        </div>
                       </div>
                     )}
 
