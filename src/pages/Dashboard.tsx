@@ -43,8 +43,8 @@ const Dashboard = () => {
   const fetchJobs = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const data = await apiFetch<{ jobs: Job[] }>("/api/jobs", { token: accessToken });
-      setJobs(data.jobs);
+      const data = await apiFetch<{ jobs?: Job[] }>("/api/jobs", { token: accessToken });
+      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err) {
       toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
     } finally {
@@ -95,7 +95,7 @@ const Dashboard = () => {
       });
 
       setUploadingJobId(create.job.id);
-      setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...prev]);
+      setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       if (create.uploadUrl) {
         try {
