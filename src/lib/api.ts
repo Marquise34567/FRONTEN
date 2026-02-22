@@ -2,8 +2,12 @@ const DEV_FALLBACK = "http://localhost:4000";
 const rawApiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? DEV_FALLBACK : "");
 const normalizeApiUrl = (value: string) => {
   if (!value) return "";
-  const trimmed = value.trim();
+  let trimmed = value.trim();
   if (!trimmed) return "";
+  // If someone pasted "VITE_API_URL=..." into the value, strip the key.
+  trimmed = trimmed.replace(/^\s*vite_api_url\s*=\s*/i, "");
+  // Fix common "https//" typo.
+  trimmed = trimmed.replace(/^https\/\//i, "https://").replace(/^http\/\//i, "http://");
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
   return `https://${trimmed}`;
 };
