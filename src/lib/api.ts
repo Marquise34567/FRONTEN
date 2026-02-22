@@ -1,6 +1,13 @@
 const DEV_FALLBACK = "http://localhost:4000";
 const rawApiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? DEV_FALLBACK : "");
-export const API_URL = rawApiUrl.replace(/\/$/, "");
+const normalizeApiUrl = (value: string) => {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  return `https://${trimmed}`;
+};
+export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
