@@ -71,8 +71,8 @@ const PricingCards = ({
           <div
             key={tier}
             className={cn(
-              "relative rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c111f] to-[#11172a] p-6 shadow-[0_20px_60px_rgba(5,8,20,0.45)]",
-              "flex flex-col min-h-[420px]",
+              "relative rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c111f] to-[#11172a] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.35)]",
+              "flex flex-col",
               isPopular && "ring-1 ring-primary/40 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
               isFounder && "ring-1 ring-amber-400/50 shadow-[0_25px_80px_rgba(251,191,36,0.18)]"
             )}
@@ -121,25 +121,25 @@ const PricingCards = ({
                 </span>
               </div>
             )}
-            <div className="mb-6">
+            <div className="mb-4">
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold font-display text-foreground">{priceLabel}</span>
+                <span className="text-3xl font-bold font-display text-foreground">{priceLabel}</span>
                 {cadenceLabel ? <span className="text-sm text-muted-foreground">{cadenceLabel}</span> : null}
               </div>
               <p className="text-xs text-muted-foreground mt-1">{billingNote}</p>
-              <p className="text-xs text-muted-foreground mt-2">{renderLimitLabel}</p>
+              <p className="text-xs text-muted-foreground mt-1">{renderLimitLabel}</p>
             </div>
-            <ul className="space-y-3 text-sm text-foreground mb-6">
+            <ul className="space-y-2 text-sm text-foreground mb-4">
               {plan.features.map((feature) => (
                 <li key={feature} className="flex items-center gap-2">
                   <span className="h-5 w-5 rounded-full bg-white/5 flex items-center justify-center">
                     <Check className="w-3 h-3 text-success" />
                   </span>
-                  {feature}
+                  <span className="text-[13px]">{feature}</span>
                 </li>
               ))}
             </ul>
-            <div className="mt-auto">
+            <div>
               {showSignup && (
                 <Link to="/signup">
                   <Button className="w-full rounded-lg bg-foreground text-background hover:bg-foreground/90">Sign up</Button>
