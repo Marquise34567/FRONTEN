@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
 import * as tus from "tus-js-client";
 import { useAuth } from "@/providers/AuthProvider";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
 import { supabase } from "@/integrations/supabase/client";
@@ -146,6 +146,12 @@ const Editor = () => {
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
+  const rendersUsed = me?.usage?.rendersUsed ?? 0;
+  const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
+  const rendersRemaining = useMemo(() => {
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
+    return Math.max(0, maxRendersPerMonth - rendersUsed);
+  }, [maxRendersPerMonth, rendersUsed]);
 
   const fetchJobs = useCallback(async () => {
     if (!accessToken) return;
@@ -382,6 +388,13 @@ const Editor = () => {
 
   const handleFile = async (file: File) => {
     if (!accessToken) return;
+    if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
+      toast({
+        title: "Render limit reached",
+        description: `You've used all ${maxRendersPerMonth} renders for this month.`,
+      });
+      return;
+    }
     setUploadProgress(0);
     try {
       const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
@@ -447,8 +460,21 @@ const Editor = () => {
       fetchJobs();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Upload failed", description: err?.message || "Please try again." });
+      if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
+        const remaining = typeof err.data?.rendersRemaining === "number" ? err.data.rendersRemaining : rendersRemaining;
+        const maxRenders = err.data?.maxRendersPerMonth ?? maxRendersPerMonth;
+        const detail =
+          typeof remaining === "number"
+            ? `You have ${remaining} render${remaining === 1 ? "" : "s"} left this month.`
+            : maxRenders
+              ? `You've used all ${maxRenders} renders for this month.`
+              : "You've reached your monthly render limit.";
+        toast({ title: "Render limit reached", description: detail });
+      } else {
+        toast({ title: "Upload failed", description: err?.message || "Please try again." });
+      }
       setUploadingJobId(null);
+      setUploadProgress(0);
     }
   };
 
@@ -534,9 +560,18 @@ const Editor = () => {
               <h1 className="text-3xl font-bold font-premium text-foreground">Creator Studio</h1>
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
-            <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
-              <Plus className="w-4 h-4" /> New Project
-            </Button>
+            <div className="flex items-center gap-3">
+              {me && (
+                <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                  {maxRendersPerMonth === null || maxRendersPerMonth === undefined
+                    ? "Unlimited renders"
+                    : `${rendersRemaining ?? 0} renders left`}
+                </Badge>
+              )}
+              <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
+                <Plus className="w-4 h-4" /> New Project
+              </Button>
+            </div>
           </div>
 
           <input
