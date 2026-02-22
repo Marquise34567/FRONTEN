@@ -147,6 +147,7 @@ const Editor = () => {
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
+  const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
   const rendersRemaining = useMemo(() => {
@@ -564,6 +565,11 @@ const Editor = () => {
             <div className="flex items-center gap-3">
               {me && (
                 <>
+                  {isDevAccount && (
+                    <Badge className="bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-orange-500/20 text-amber-200 border border-amber-400/40 uppercase tracking-[0.25em] text-[10px] px-3 py-1">
+                      Dev
+                    </Badge>
+                  )}
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
                     {tierLabel} plan
                   </Badge>

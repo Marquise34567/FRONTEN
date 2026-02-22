@@ -10,9 +10,12 @@ export type MeResponse = {
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
   };
+  flags?: {
+    dev?: boolean;
+  };
   usage: { month: string; rendersUsed: number; minutesUsed: number };
   limits: {
-    maxRendersPerMonth: number | null;
+    maxRendersPerMonth: number;
     maxMinutesPerMonth: number | null;
     exportQuality: string;
     watermark: boolean;
@@ -20,11 +23,16 @@ export type MeResponse = {
   };
 };
 
-export const useMe = () => {
+type UseMeOptions = {
+  refetchInterval?: number | false;
+};
+
+export const useMe = (options?: UseMeOptions) => {
   const { accessToken, user } = useAuth();
   return useQuery({
     queryKey: ["me", user?.id],
     queryFn: () => apiFetch<MeResponse>("/api/me", { token: accessToken || "" }),
     enabled: !!accessToken,
+    refetchInterval: options?.refetchInterval,
   });
 };
