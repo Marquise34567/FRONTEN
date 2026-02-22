@@ -9,12 +9,26 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
+import * as tus from "tus-js-client";
 import { useAuth } from "@/providers/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
 import { supabase } from "@/integrations/supabase/client";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
+
+const MB = 1024 * 1024;
+const LARGE_UPLOAD_THRESHOLD = 200 * MB;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const RESUMABLE_ENDPOINT = SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1/upload/resumable` : null;
+
+const chunkSizeForFile = (size: number) => {
+  if (size >= 2 * 1024 * MB) return 24 * MB;
+  if (size >= 1024 * MB) return 16 * MB;
+  if (size >= 512 * MB) return 12 * MB;
+  return 8 * MB;
+};
 
 type JobStatus =
   | "queued"
@@ -304,6 +318,68 @@ const Editor = () => {
     });
   };
 
+  const uploadResumable = ({
+    file,
+    bucket,
+    inputPath,
+    token,
+    onProgress,
+  }: {
+    file: File;
+    bucket: string;
+    inputPath: string;
+    token: string;
+    onProgress: (value: number) => void;
+  }) => {
+    return new Promise<void>((resolve, reject) => {
+      if (!RESUMABLE_ENDPOINT || !SUPABASE_PUBLISHABLE_KEY) {
+        reject(new Error("Resumable upload is not configured."));
+        return;
+      }
+
+      const upload = new tus.Upload(file, {
+        endpoint: RESUMABLE_ENDPOINT,
+        retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
+        chunkSize: chunkSizeForFile(file.size),
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        metadata: {
+          bucketName: bucket,
+          objectName: inputPath,
+          contentType: file.type || "application/octet-stream",
+          cacheControl: "3600",
+        },
+        headers: {
+          authorization: `Bearer ${token}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          "x-upsert": "true",
+        },
+        onError: (error) => reject(error),
+        onProgress: (bytesUploaded, bytesTotal) => {
+          if (!bytesTotal) return;
+          const percent = Math.round((bytesUploaded / bytesTotal) * 100);
+          onProgress(Math.min(100, Math.max(0, percent)));
+        },
+        onSuccess: () => {
+          onProgress(100);
+          resolve();
+        },
+      });
+
+      upload
+        .findPreviousUploads()
+        .then((previousUploads) => {
+          if (previousUploads.length > 0) {
+            upload.resumeFromPreviousUpload(previousUploads[0]);
+          }
+          upload.start();
+        })
+        .catch(() => {
+          upload.start();
+        });
+    });
+  };
+
   const handleFile = async (file: File) => {
     if (!accessToken) return;
     setUploadProgress(0);
@@ -325,16 +401,38 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      if (create.uploadUrl) {
+      const useResumable = file.size >= LARGE_UPLOAD_THRESHOLD;
+      if (useResumable) {
+        try {
+          await uploadResumable({
+            file,
+            bucket: create.bucket,
+            inputPath: create.inputPath,
+            token: accessToken,
+            onProgress: setUploadProgress,
+          });
+        } catch (err) {
+          console.warn("Resumable upload failed, falling back.", err);
+          if (create.uploadUrl) {
+            await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
+          } else {
+            const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
+            if (error) throw error;
+            setUploadProgress(100);
+          }
+        }
+      } else if (create.uploadUrl) {
         try {
           await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
         } catch (err) {
           const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
           if (error) throw error;
+          setUploadProgress(100);
         }
       } else {
         const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
         if (error) throw error;
+        setUploadProgress(100);
       }
 
       await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
@@ -430,8 +528,8 @@ const Editor = () => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold font-premium text-foreground">Creator Command</h1>
-              <p className="text-muted-foreground mt-1">Ship edits faster with a live production view</p>
+              <h1 className="text-3xl font-bold font-premium text-foreground">Creator Studio</h1>
+              <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
             <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
               <Plus className="w-4 h-4" /> New Project
@@ -469,9 +567,11 @@ const Editor = () => {
                     type="button"
                     onClick={() => handleSelectJob(job.id)}
                     className={`w-full text-left rounded-xl border px-3 py-3 transition ${
-                      selectedJobId === job.id
-                        ? "border-primary/40 bg-primary/10"
-                        : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
+                      normalizeStatus(job.status) === "ready"
+                        ? "border-success/40 bg-success/10"
+                        : selectedJobId === job.id
+                          ? "border-primary/40 bg-primary/10"
+                          : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
