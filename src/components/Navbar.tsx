@@ -23,7 +23,7 @@ const Navbar = () => {
             Pricing
           </Button>
         </Link>
-        <Link to="/app">
+        <Link to="/editor">
           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-5">
             Editor
           </Button>

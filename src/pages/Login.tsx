@@ -14,20 +14,45 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const { signIn } = useAuth();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const { signIn, resendConfirmation } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setErrorMessage(null);
+    setErrorCode(null);
     const result = await signIn(email, password);
     setSubmitting(false);
     if (result.error) {
+      setErrorMessage(result.error);
+      setErrorCode(result.code ?? null);
       toast({ title: "Login failed", description: result.error });
       return;
     }
-    navigate("/app");
+    navigate("/editor");
+  };
+
+  const canResendConfirmation =
+    errorCode === "email_not_confirmed" || errorCode === "provider_email_needs_verification";
+
+  const handleResend = async () => {
+    if (!email.trim()) {
+      toast({ title: "Email required", description: "Enter your email to resend confirmation." });
+      return;
+    }
+    setResending(true);
+    const result = await resendConfirmation(email);
+    setResending(false);
+    if (result.error) {
+      toast({ title: "Resend failed", description: result.error });
+      return;
+    }
+    toast({ title: "Confirmation sent", description: "Check your inbox for the verification link." });
   };
 
   return (
@@ -79,6 +104,20 @@ const Login = () => {
                 {submitting ? "Signing in..." : "Sign in"}
                 {submitting ? <Lock className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
               </Button>
+              {errorMessage ? (
+                <p className="text-sm text-destructive text-center">{errorMessage}</p>
+              ) : null}
+              {canResendConfirmation ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={resending}
+                  onClick={handleResend}
+                  className="w-full"
+                >
+                  {resending ? "Resending..." : "Resend confirmation email"}
+                </Button>
+              ) : null}
               <p className="text-xs text-muted-foreground text-center">
                 New here?{" "}
                 <Link to="/signup" className="text-primary hover:text-primary/80">

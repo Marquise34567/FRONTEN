@@ -53,7 +53,7 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.65, duration: 0.6 }}
           >
-            <Link to="/app">
+            <Link to="/editor">
               <Button size="lg" className="rounded-full px-8 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground glow-sm">
                 Get Started Free
                 <ArrowRight className="w-4 h-4" />

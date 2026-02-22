@@ -37,7 +37,7 @@ const Signup = () => {
       setEmailSent(true);
       return;
     }
-    navigate("/app");
+    navigate("/editor");
   };
 
   return (

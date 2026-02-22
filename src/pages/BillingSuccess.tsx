@@ -1,4 +1,6 @@
 import { motion } from "framer-motion";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
@@ -6,6 +8,13 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle2 } from "lucide-react";
 
 const BillingSuccess = () => {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["subscription"] });
+    queryClient.invalidateQueries({ queryKey: ["me"] });
+  }, [queryClient]);
+
   return (
     <GlowBackdrop>
       <Navbar />
@@ -21,11 +30,11 @@ const BillingSuccess = () => {
           </div>
           <h1 className="text-2xl font-bold font-display text-foreground mb-2">Subscription active</h1>
           <p className="text-sm text-muted-foreground mb-6">
-            Your plan is now active. You can start exporting without limits.
+            Your plan is now active. You can start exporting right away.
           </p>
-          <Link to="/app">
+          <Link to="/editor">
             <Button className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground w-full">
-              Go to Dashboard
+              Go to Editor
             </Button>
           </Link>
         </motion.div>
