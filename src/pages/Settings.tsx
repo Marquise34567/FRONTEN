@@ -7,20 +7,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 import { CreditCard, Shield, Sparkles } from "lucide-react";
 import PricingCards from "@/components/PricingCards";
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
 import { useMe } from "@/hooks/use-me";
 import { useSubscription } from "@/hooks/use-subscription";
+import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import { getPriceIdForTier } from "@/lib/stripe";
-import { useFounderAvailability } from "@/hooks/use-founder-availability";
 
 type EditorSettings = {
   subtitleStyle: string;
@@ -35,8 +35,15 @@ const getRequiredPlanForAutoZoom = (value: number): PlanTier => {
   if (value <= 1.1) return "free";
   if (value <= 1.12) return "starter";
   if (value <= 1.15) return "creator";
-  if (value <= 1.2) return "studio";
-  return "founder";
+  return "studio";
+};
+
+const getRequiredPlanForPreset = (presetId: string): PlanTier => {
+  for (const tier of PLAN_TIERS) {
+    const allowed = PLAN_CONFIG[tier].allowedSubtitlePresets;
+    if (allowed === "ALL" || allowed.includes(presetId)) return tier;
+  }
+  return "studio";
 };
 
 const Settings = () => {
@@ -46,6 +53,8 @@ const Settings = () => {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const { toast } = useToast();
   const { plan: currentPlan, features, subtitlePresets } = useSubscription();
+  const { data: founderAvailability } = useFounderAvailability();
+  const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
   const allowedSubtitlePresets = features.subtitles.allowedPresets;
   const subtitlesEnabled = features.subtitles.enabled;
   const isPresetAllowed = (presetId: string) =>
@@ -56,7 +65,6 @@ const Settings = () => {
       : subtitlesEnabled
       ? `${allowedSubtitlePresets.length} styles`
       : "Locked";
-  const { data: founderAvailability } = useFounderAvailability();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [requiredPlan, setRequiredPlan] = useState<PlanTier>("starter");
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null);
@@ -87,7 +95,7 @@ const Settings = () => {
       if (!priceId) {
         throw new Error("Missing Stripe price ID for this plan.");
       }
-      const result = await apiFetch<{ url: string }>("/api/create-checkout-session", {
+      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
         method: "POST",
         body: JSON.stringify({ priceId }),
         token: accessToken,
@@ -120,7 +128,7 @@ const Settings = () => {
       if (!priceId) {
         throw new Error("Missing Stripe price ID for this plan.");
       }
-      const result = await apiFetch<{ url: string }>("/api/create-checkout-session", {
+      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
         method: "POST",
         body: JSON.stringify({ priceId }),
         token: accessToken,
@@ -149,8 +157,9 @@ const Settings = () => {
   const handleSaveSettings = async () => {
     if (!accessToken || !editorSettings) return;
     if (!isPresetAllowed(editorSettings.subtitleStyle)) {
-      openUpgrade("creator");
-      toast({ title: "Upgrade required", description: "Upgrade to Creator to unlock this subtitle style." });
+      const required = getRequiredPlanForPreset(editorSettings.subtitleStyle);
+      openUpgrade(required);
+      toast({ title: "Upgrade required", description: `Upgrade to ${required} to unlock this subtitle style.` });
       return;
     }
     try {
@@ -163,7 +172,7 @@ const Settings = () => {
       setEditorSettings(result.settings);
       toast({ title: "Settings saved", description: "Your editor preferences have been updated." });
     } catch (err: any) {
-      if (err instanceof ApiError && (err.code === "PLAN_LIMIT_EXCEEDED" || err.code === "FEATURE_LOCKED")) {
+      if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
         const required = (err.data?.requiredPlan as PlanTier) || "creator";
         openUpgrade(required);
         toast({ title: "Upgrade required", description: err?.message || "Upgrade to unlock this feature." });
@@ -183,12 +192,11 @@ const Settings = () => {
   const maxRendersPerMonth = limits?.maxRendersPerMonth ?? plan.maxRendersPerMonth;
   const rendersUsed = usage?.rendersUsed ?? 0;
   const rendersRemaining = Math.max(0, maxRendersPerMonth - rendersUsed);
-  const rendersRemainingLabel = rendersRemaining;
-  const rendersLimitLabel = maxRendersPerMonth;
+  const rendersUsagePercent =
+    maxRendersPerMonth > 0 ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100) : 0;
+  const isFounderPlan = tier === "founder";
   const currentTierIndex = tierIndex(currentPlan || "free");
   const advancedLocked = !features.advancedEffects;
-  const founderAvailable = founderAvailability ? !founderAvailability.soldOut : true;
-  const founderUsagePercent = maxRendersPerMonth > 0 ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100) : 0;
 
   return (
     <GlowBackdrop>
@@ -197,7 +205,6 @@ const Settings = () => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <h1 className="text-3xl font-bold font-display text-foreground mb-8">Settings</h1>
 
-          {/* Plan */}
           <div className="glass-card p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -209,7 +216,9 @@ const Settings = () => {
                   <p className="text-sm text-muted-foreground">Manage your subscription</p>
                 </div>
               </div>
-              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">{tier}</Badge>
+              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                {isFounderPlan ? "Founder (Lifetime)" : tier}
+              </Badge>
             </div>
             <div className="flex items-center gap-3">
               <Button onClick={() => handleCheckout("starter")} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg gap-2">
@@ -221,44 +230,65 @@ const Settings = () => {
             </div>
           </div>
 
-          {/* Usage */}
           <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <Shield className="w-5 h-5 text-muted-foreground" />
               <h2 className="font-semibold text-foreground">Monthly Usage</h2>
             </div>
-            {tier === "founder" && (
-              <div className="mb-4 text-sm text-muted-foreground">
-                <p className="text-foreground font-medium">Plan: Founder (Lifetime)</p>
-                <p>Monthly Limit: {maxRendersPerMonth} renders</p>
-                <p>Usage: {rendersUsed} / {maxRendersPerMonth} this month</p>
-                <Progress value={founderUsagePercent} className="h-2 bg-muted [&>div]:bg-primary mt-3" />
+            {isFounderPlan ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Plan</p>
+                  <p className="text-lg font-semibold text-foreground">Founder (Lifetime)</p>
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between">
+                      <span>Monthly Limit</span>
+                      <span>{maxRendersPerMonth} renders</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Usage</span>
+                      <span>
+                        {rendersUsed} / {maxRendersPerMonth} this month
+                      </span>
+                    </div>
+                    <Progress value={rendersUsagePercent} className="mt-2" />
+                  </div>
+                </div>
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Minutes Used</p>
+                  <p className="text-2xl font-bold font-display text-foreground">
+                    {usage?.minutesUsed ?? 0}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      / {limits?.maxMinutesPerMonth ?? "Unlimited"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Renders Remaining</p>
+                  <p className="text-2xl font-bold font-display text-foreground">
+                    {rendersRemaining}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">/ {maxRendersPerMonth}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Used {rendersUsed} / {maxRendersPerMonth}
+                  </p>
+                </div>
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Minutes Used</p>
+                  <p className="text-2xl font-bold font-display text-foreground">
+                    {usage?.minutesUsed ?? 0}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      / {limits?.maxMinutesPerMonth ?? "Unlimited"}
+                    </span>
+                  </p>
+                </div>
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className="glass-card p-4">
-                <p className="text-muted-foreground mb-1">Renders Remaining</p>
-                <p className="text-2xl font-bold font-display text-foreground">
-                  {rendersRemainingLabel}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    / {rendersLimitLabel}
-                  </span>
-                </p>
-                <p className="text-xs text-muted-foreground">Used {rendersUsed} / {rendersLimitLabel}</p>
-              </div>
-              <div className="glass-card p-4">
-                <p className="text-muted-foreground mb-1">Minutes Used</p>
-                <p className="text-2xl font-bold font-display text-foreground">
-                  {usage?.minutesUsed ?? 0}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    / {limits?.maxMinutesPerMonth ?? "Unlimited"}
-                  </span>
-                </p>
-              </div>
-            </div>
           </div>
 
-          {/* Editor Features */}
           <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
@@ -286,14 +316,16 @@ const Settings = () => {
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {subtitlePresets.map((preset) => {
+                      const required = getRequiredPlanForPreset(preset.id);
                       const locked = !isPresetAllowed(preset.id);
                       const active = resolvedSettings.subtitleStyle === preset.id;
                       const card = (
                         <button
+                          key={preset.id}
                           type="button"
                           onClick={() => {
                             if (locked) {
-                              openUpgrade("creator");
+                              openUpgrade(required);
                               return;
                             }
                             mergeSettings({ subtitleStyle: preset.id });
@@ -306,7 +338,7 @@ const Settings = () => {
                             <span className="text-sm text-foreground">{preset.label}</span>
                           </div>
                           <p className="mt-1 text-[11px] text-muted-foreground">{preset.description}</p>
-                          {locked && <LockedOverlay label="Upgrade to Creator" />}
+                          {locked && <LockedOverlay label={`Upgrade to ${required}`} />}
                         </button>
                       );
 
@@ -314,7 +346,7 @@ const Settings = () => {
                         return (
                           <Tooltip key={preset.id}>
                             <TooltipTrigger asChild>{card}</TooltipTrigger>
-                            <TooltipContent>Upgrade to Creator to unlock</TooltipContent>
+                            <TooltipContent>Upgrade to {required} to unlock</TooltipContent>
                           </Tooltip>
                         );
                       }
@@ -338,7 +370,7 @@ const Settings = () => {
                   </div>
                   <Slider
                     min={1}
-                    max={1.2}
+                    max={1.15}
                     step={0.01}
                     value={[resolvedSettings.autoZoomMax]}
                     onValueChange={(values) => {
@@ -354,9 +386,9 @@ const Settings = () => {
                   />
                   <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
                     <span>Plan max: {features.autoZoomMax.toFixed(2)}x</span>
-                    {features.autoZoomMax < 1.2 && (
+                    {features.autoZoomMax < 1.15 && (
                       <button type="button" className="text-primary" onClick={() => openUpgrade("studio")}>
-                        Unlock 1.20x
+                        Unlock 1.15x
                       </button>
                     )}
                   </div>
@@ -425,7 +457,6 @@ const Settings = () => {
             )}
           </div>
 
-          {/* Account */}
           <div className="glass-card p-6">
             <h2 className="font-semibold text-foreground mb-4">Account</h2>
             <div className="space-y-3 text-sm">
@@ -480,7 +511,7 @@ const Settings = () => {
               actionTier={action?.tier ?? null}
               actionKind={action?.kind ?? null}
               billingInterval={billingInterval}
-              founderAvailable={founderAvailable}
+              founderSlotsRemaining={founderSlotsRemaining}
             />
           </div>
         </motion.div>
@@ -491,9 +522,13 @@ const Settings = () => {
         currentPlan={currentPlan}
         requiredPlan={requiredPlan}
         onUpgrade={handleUpgrade}
+        founderSlotsRemaining={founderSlotsRemaining}
       />
     </GlowBackdrop>
   );
 };
 
 export default Settings;
+
+
+

@@ -3,27 +3,34 @@ import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import PricingCards from "@/components/PricingCards";
 import { useAuth } from "@/providers/AuthProvider";
-import { useMe } from "@/hooks/use-me";
+import { useSubscription } from "@/hooks/use-subscription";
+import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { apiFetch } from "@/lib/api";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
+import { getPriceIdForTier } from "@/lib/stripe";
 
 const Pricing = () => {
   const { accessToken, user } = useAuth();
-  const { data } = useMe();
-  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" | "trial" } | null>(null);
+  const { plan: currentPlan } = useSubscription();
+  const { data: founderAvailability } = useFounderAvailability();
+  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const { toast } = useToast();
+  const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
 
-  const handleCheckout = async (tier: PlanTier, options?: { trial?: boolean }) => {
+  const handleCheckout = async (tier: PlanTier) => {
     if (!accessToken) return;
     try {
-      const kind = options?.trial ? "trial" : "subscribe";
-      setAction({ tier, kind });
-      const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
+      setAction({ tier, kind: "subscribe" });
+      const priceId = getPriceIdForTier(tier, billingInterval);
+      if (!priceId) {
+        throw new Error("Missing Stripe price ID for this plan.");
+      }
+      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval, trial: !!options?.trial }),
+        body: JSON.stringify({ priceId }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -91,7 +98,7 @@ const Pricing = () => {
 
         <div className="max-w-6xl mx-auto">
           <PricingCards
-            currentTier={data?.subscription?.tier}
+            currentTier={currentPlan}
             isAuthenticated={!!user}
             loading={action !== null}
             onCheckout={handleCheckout}
@@ -99,6 +106,7 @@ const Pricing = () => {
             actionTier={action?.tier ?? null}
             actionKind={action?.kind ?? null}
             billingInterval={billingInterval}
+            founderSlotsRemaining={founderSlotsRemaining}
           />
         </div>
       </main>
@@ -107,3 +115,4 @@ const Pricing = () => {
 };
 
 export default Pricing;
+

@@ -10,9 +10,23 @@ type UpgradeModalProps = {
   currentPlan: PlanTier;
   requiredPlan: PlanTier;
   onUpgrade: () => void;
+  founderSlotsRemaining?: number;
 };
 
-const UpgradeModal = ({ open, onOpenChange, currentPlan, requiredPlan, onUpgrade }: UpgradeModalProps) => {
+const UpgradeModal = ({
+  open,
+  onOpenChange,
+  currentPlan,
+  requiredPlan,
+  onUpgrade,
+  founderSlotsRemaining = 0,
+}: UpgradeModalProps) => {
+  const showFounder = (founderSlotsRemaining ?? 0) > 0;
+  const displayTiers: PlanTier[] = showFounder
+    ? ["founder", ...PLAN_TIERS.filter((tier) => tier !== "founder")]
+    : PLAN_TIERS.filter((tier) => tier !== "founder");
+  const visibleTiers = displayTiers;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl bg-background/95 backdrop-blur-xl border border-white/10">
@@ -22,11 +36,12 @@ const UpgradeModal = ({ open, onOpenChange, currentPlan, requiredPlan, onUpgrade
             Compare plans and upgrade instantly. Your current plan is highlighted.
           </p>
         </DialogHeader>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-          {PLAN_TIERS.map((tier) => {
+        <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-4 mt-4", showFounder ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
+          {visibleTiers.map((tier) => {
             const plan = PLAN_CONFIG[tier];
             const isCurrent = tier === currentPlan;
             const isTarget = tier === requiredPlan;
+            const isLifetime = plan.lifetime;
             return (
               <div
                 key={tier}
@@ -42,7 +57,7 @@ const UpgradeModal = ({ open, onOpenChange, currentPlan, requiredPlan, onUpgrade
                 </div>
                 <div className="text-2xl font-bold text-foreground mb-2">
                   {plan.priceLabel}
-                  {plan.priceMonthly > 0 && <span className="text-xs text-muted-foreground">/mo</span>}
+                  {!isLifetime && plan.priceMonthly > 0 && <span className="text-xs text-muted-foreground">/mo</span>}
                 </div>
                 <ul className="text-xs text-muted-foreground space-y-1">
                   {plan.features.map((feature) => (
