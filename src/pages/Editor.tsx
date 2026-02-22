@@ -146,6 +146,7 @@ const Editor = () => {
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
+  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
   const rendersRemaining = useMemo(() => {
@@ -562,11 +563,16 @@ const Editor = () => {
             </div>
             <div className="flex items-center gap-3">
               {me && (
-                <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                  {maxRendersPerMonth === null || maxRendersPerMonth === undefined
-                    ? "Unlimited renders"
-                    : `${rendersRemaining ?? 0} renders left`}
-                </Badge>
+                <>
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {tierLabel} plan
+                  </Badge>
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {maxRendersPerMonth === null || maxRendersPerMonth === undefined
+                      ? "Unlimited renders"
+                      : `${rendersRemaining ?? 0} renders left`}
+                  </Badge>
+                </>
               )}
               <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
                 <Plus className="w-4 h-4" /> New Project
