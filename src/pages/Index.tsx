@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { Progress } from "@/components/ui/progress";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, ScissorsSquare, Sparkles } from "lucide-react";
 
 const Index = () => {
   return (
@@ -62,6 +62,12 @@ const Index = () => {
             <Link to="/pricing">
               <Button variant="ghost" size="lg" className="rounded-full px-8 text-muted-foreground hover:text-foreground">
                 View Pricing
+              </Button>
+            </Link>
+            <Link to="/editor?mode=vertical">
+              <Button variant="outline" size="lg" className="rounded-full px-8 gap-2 border-border/60">
+                <ScissorsSquare className="w-4 h-4" />
+                Vertical Mode
               </Button>
             </Link>
           </motion.div>
