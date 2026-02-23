@@ -25,6 +25,8 @@ export class ApiError extends Error {
   }
 }
 
+import { supabase } from "@/integrations/supabase/client";
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
@@ -36,7 +38,17 @@ export async function apiFetch<T>(
       "missing_api_url",
     );
   }
-  const { token, headers, ...rest } = options;
+  let { token, headers, ...rest } = options;
+  // If no token provided, try to fetch from Supabase session
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token ?? undefined;
+    } catch (e) {
+      token = undefined;
+    }
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
     headers: {
@@ -46,10 +58,17 @@ export async function apiFetch<T>(
     },
   });
 
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text().catch(() => "");
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (err) {
+    data = { raw: text };
+  }
+
   if (!res.ok) {
     throw new ApiError(
-      data?.message || data?.error || "Request failed",
+      data?.message || data?.error || `HTTP ${res.status}`,
       res.status,
       data?.error,
       data,

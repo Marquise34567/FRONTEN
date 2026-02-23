@@ -153,7 +153,7 @@ const Editor = () => {
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { accessToken } = useAuth();
+  const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
 
   const selectedJobId = searchParams.get("jobId");
@@ -174,17 +174,29 @@ const Editor = () => {
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
 
+  const [authError, setAuthError] = useState(false);
+
   const fetchJobs = useCallback(async () => {
-    if (!accessToken) return;
     try {
-      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
+      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs");
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err) {
-      toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+      if (err instanceof ApiError && err.status === 401) {
+        // Stop further polling and surface a clear message
+        setAuthError(true);
+        toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
+        try {
+          await signOut();
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+      }
     } finally {
       setLoadingJobs(false);
     }
-  }, [accessToken, toast]);
+  }, [toast, signOut]);
 
   const fetchJob = useCallback(
     async (jobId: string) => {
@@ -251,12 +263,12 @@ const Editor = () => {
   }, [selectedJobId, fetchJob]);
 
   useEffect(() => {
-    if (!hasActiveJobs) return;
+    if (!hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
     }, 2500);
     return () => clearInterval(timer);
-  }, [hasActiveJobs, fetchJobs]);
+  }, [hasActiveJobs, fetchJobs, authError]);
 
   useEffect(() => {
     if (!activeJob || !selectedJobId) return;
