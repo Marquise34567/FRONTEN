@@ -9,19 +9,20 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
-import * as tus from "tus-js-client";
 import { useAuth } from "@/providers/AuthProvider";
-import { apiFetch, ApiError } from "@/lib/api";
+import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
-import { supabase } from "@/integrations/supabase/client";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const RESUMABLE_ENDPOINT = SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1/upload/resumable` : null;
+// Supabase storage removed — use R2 via backend pre-signed multipart URLs only
+const FILE_INPUT_ACCEPT = ".mp4,.mkv,video/mp4,video/x-matroska";
+const isAllowedUploadFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  return lowerName.endsWith(".mp4") || lowerName.endsWith(".mkv");
+};
 
 const chunkSizeForFile = (size: number) => {
   if (size >= 2 * 1024 * MB) return 32 * MB;
@@ -471,72 +472,13 @@ const Editor = () => {
     });
   };
 
-  const uploadResumable = ({
-    file,
-    bucket,
-    inputPath,
-    token,
-    onProgress,
-    onProgressBytes,
-  }: {
-    file: File;
-    bucket: string;
-    inputPath: string;
-    token: string;
-    onProgress: (value: number) => void;
-    onProgressBytes?: (loaded: number, total: number) => void;
-  }) => {
-    return new Promise<void>((resolve, reject) => {
-      if (!RESUMABLE_ENDPOINT || !SUPABASE_PUBLISHABLE_KEY) {
-        reject(new Error("Resumable upload is not configured."));
-        return;
-      }
-
-      const upload = new tus.Upload(file, {
-        endpoint: RESUMABLE_ENDPOINT,
-        retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
-        chunkSize: chunkSizeForFile(file.size),
-        uploadDataDuringCreation: true,
-        removeFingerprintOnSuccess: true,
-        metadata: {
-          bucketName: bucket,
-          objectName: inputPath,
-          contentType: file.type || "application/octet-stream",
-          cacheControl: "3600",
-        },
-        headers: {
-          authorization: `Bearer ${token}`,
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          "x-upsert": "true",
-        },
-        onError: (error) => reject(error),
-        onProgress: (bytesUploaded, bytesTotal) => {
-          if (!bytesTotal) return;
-          const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-          onProgress(Math.min(100, Math.max(0, percent)));
-          if (onProgressBytes) onProgressBytes(bytesUploaded, bytesTotal);
-        },
-        onSuccess: () => {
-          onProgress(100);
-          resolve();
-        },
-      });
-
-      upload
-        .findPreviousUploads()
-        .then((previousUploads) => {
-          if (previousUploads.length > 0) {
-            upload.resumeFromPreviousUpload(previousUploads[0]);
-          }
-          upload.start();
-        })
-        .catch(() => {
-          upload.start();
-        });
-    });
-  };
+  // Resumable upload logic removed — we use backend-presigned multipart upload to R2
 
   const handleFile = async (file: File) => {
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+      return;
+    }
     if (!accessToken) return;
     if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
       toast({
@@ -564,48 +506,37 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      const useResumable = Boolean(RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY);
-      // New R2 multipart upload flow
+      // Attempt R2 multipart first (preferred for large files)
       const tryR2Multipart = async () => {
         try {
           const r2create = await apiFetch<{
-            jobId: string
-            objectKey: string
             uploadId: string
-            partSizeBytes: number
+            key: string
+            partSize: number
+            presignedParts: { partNumber: number; url: string }[]
           }>(`/api/uploads/create`, {
-            method: "POST",
-            body: JSON.stringify({ fileName: file.name, fileSizeBytes: file.size, mimeType: file.type }),
+            method: 'POST',
+            body: JSON.stringify({ jobId: create.job.id, filename: file.name, contentType: file.type, sizeBytes: file.size }),
             token: accessToken,
           })
 
-          const { jobId, objectKey, uploadId, partSizeBytes } = r2create
+          const { uploadId, key, partSize, presignedParts } = r2create
+          if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error('invalid_r2_create')
 
-          // chunk and upload
           const total = file.size
-          const partSize = partSizeBytes || 10 * MB
-          const partsCount = Math.ceil(total / partSize)
+          const actualPartSize = partSize || 10 * MB
           const parts: { ETag: string; PartNumber: number }[] = []
           let uploaded = 0
-          jobFileSizeRef.current[jobId] = total
-          uploadStartRef.current[jobId] = Date.now()
+          jobFileSizeRef.current[create.job.id] = total
+          uploadStartRef.current[create.job.id] = Date.now()
 
-          for (let partNumber = 1; partNumber <= partsCount; partNumber++) {
-            const start = (partNumber - 1) * partSize
-            const end = Math.min(total, start + partSize)
+          // presignedParts should be ordered by partNumber; iterate and upload corresponding slices
+          for (const p of presignedParts) {
+            const partNumber = p.partNumber
+            const start = (partNumber - 1) * actualPartSize
+            const end = Math.min(total, start + actualPartSize)
             const chunk = file.slice(start, end)
-            const signRes = await apiFetch<{ url: string }>(`/api/uploads/sign-part`, {
-              method: 'POST',
-              body: JSON.stringify({ jobId, objectKey, uploadId, partNumber }),
-              token: accessToken,
-            })
-            const url = signRes.url
-            // PUT chunk
-            const resp = await fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/octet-stream' },
-              body: chunk,
-            })
+            const resp = await fetch(p.url, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk })
             if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
             const etag = resp.headers.get('ETag') || resp.headers.get('etag') || ''
             parts.push({ ETag: etag, PartNumber: partNumber })
@@ -615,14 +546,13 @@ const Editor = () => {
             setUploadProgress(Math.round((uploaded / total) * 100))
           }
 
-          // complete
+          // Complete multipart upload on backend
           await apiFetch('/api/uploads/complete', {
             method: 'POST',
-            body: JSON.stringify({ jobId, objectKey, uploadId, parts }),
+            body: JSON.stringify({ jobId: create.job.id, key, uploadId, parts }),
             token: accessToken,
           })
 
-          // reflect completion in UI
           setUploadProgress(100)
           setUploadingJobId(null)
           setUploadBytesUploaded(null)
@@ -631,99 +561,88 @@ const Editor = () => {
           toast({ title: 'Upload complete', description: 'Your job is now processing.' })
           return true
         } catch (err) {
-          console.warn('R2 multipart upload failed, falling back', err)
+          console.warn('R2 multipart upload failed', err)
+          // best-effort abort if we have uploadId
+          try {
+            const maybe = err as any
+            if (maybe?.uploadId && maybe?.key) {
+              await apiFetch('/api/uploads/abort', { method: 'POST', body: JSON.stringify({ key: maybe.key, uploadId: maybe.uploadId }), token: accessToken })
+            }
+          } catch (e) {}
           return false
         }
       }
-      if (useResumable && RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY) {
-        try {
-          // record file size and upload start time for ETA
-          jobFileSizeRef.current[create.job.id] = file.size;
-          uploadStartRef.current[create.job.id] = Date.now();
-          await uploadResumable({
-            file,
-            bucket: create.bucket,
-            inputPath: create.inputPath,
-            token: accessToken,
-            onProgress: ((percent: number) => setUploadProgress(percent)) as any,
-            onProgressBytes: (loaded: number, total: number) => {
-              setUploadBytesUploaded(loaded);
-              setUploadBytesTotal(total);
-              setUploadProgress(Math.round((loaded / total) * 100));
-              if (!uploadStartRef.current[create.job.id]) uploadStartRef.current[create.job.id] = Date.now();
-            },
-          });
-        } catch (err) {
-          console.warn("Resumable upload failed, falling back.", err);
-          // Try R2 multipart first before falling back to uploadUrl or supabase
-          const usedR2 = await tryR2Multipart()
-          if (usedR2) {
-            // already handled completion inside tryR2Multipart
-            return
-          }
-          if (create.uploadUrl) {
-            // record file size and upload start time for ETA
-            jobFileSizeRef.current[create.job.id] = file.size;
-            uploadStartRef.current[create.job.id] = Date.now();
-            await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-              setUploadBytesUploaded(loaded);
-              setUploadBytesTotal(total);
-              setUploadProgress(Math.round((loaded / total) * 100));
-            });
-          } else {
-            const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-            if (error) throw error;
-            setUploadProgress(100);
-          }
-        }
-      } else if (create.uploadUrl) {
-        // Try R2 multipart before using create.uploadUrl
-        const usedR2 = await tryR2Multipart()
-        if (usedR2) return
-        try {
-          // record file size and upload start time for ETA
-          jobFileSizeRef.current[create.job.id] = file.size;
-          uploadStartRef.current[create.job.id] = Date.now();
-          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-            setUploadBytesUploaded(loaded);
-            setUploadBytesTotal(total);
-            setUploadProgress(Math.round((loaded / total) * 100));
-          });
-        } catch (err) {
-          const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-          if (error) throw error;
-          setUploadProgress(100);
-        }
-      } else {
-        // No resumable or uploadUrl: try R2 multipart then fallback to supabase
-        const usedR2 = await tryR2Multipart()
-        if (usedR2) return
-        const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-        if (error) throw error;
-        setUploadProgress(100);
-      }
-      // For non-R2 flows, notify backend that upload is complete so pipeline can start
-      if (!create.uploadUrl) {
-        await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
+
+      // Always try R2 multipart first
+      const usedR2 = await tryR2Multipart()
+      if (usedR2) return
+
+      const uploadViaProxy = async () => {
+        const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
+        const proxyUrl = API_URL ? `${API_URL}${proxyPath}` : proxyPath
+        const proxyResp = await fetch(proxyUrl, {
           method: "POST",
-          body: JSON.stringify({ inputPath: create.inputPath }),
-          token: accessToken,
-        });
-
-        toast({ title: "Upload complete", description: "Your job is now processing." });
-        // briefly highlight this job so the user knows which one is processing
-        try {
-          if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
-        } catch (e) {}
-        setHighlightedJobId(create.job.id);
-        highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000);
-
-        setUploadingJobId(null);
-        setUploadProgress(0);
-        setUploadBytesUploaded(null);
-        setUploadBytesTotal(null);
-        fetchJobs();
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        })
+        if (!proxyResp.ok) throw new Error('Proxy upload failed')
+        setUploadProgress(100)
       }
+
+      // Fallback: if server provided a single PUT uploadUrl, use it. Otherwise use proxy upload.
+      if (create.uploadUrl) {
+        jobFileSizeRef.current[create.job.id] = file.size
+        uploadStartRef.current[create.job.id] = Date.now()
+        try {
+          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+            setUploadBytesUploaded(loaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((loaded / total) * 100))
+          })
+        } catch (err) {
+          console.warn('Direct upload failed, falling back to proxy', err)
+          await uploadViaProxy()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          setUploadingJobId(null)
+          setUploadProgress(0)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          return
+        }
+
+        // Notify backend of completion for single-PUT flow
+        await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
+          method: 'POST',
+          body: JSON.stringify({ key: create.inputPath }),
+          token: accessToken,
+        })
+
+        toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+        setUploadingJobId(null)
+        setUploadProgress(0)
+        setUploadBytesUploaded(null)
+        setUploadBytesTotal(null)
+        fetchJobs()
+        return
+      }
+
+      // No direct upload URL available; proxy upload will update job and enqueue processing server-side.
+      await uploadViaProxy()
+      toast({ title: "Upload complete", description: "Your job is now processing." })
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any)
+      } catch (e) {}
+      setHighlightedJobId(create.job.id)
+      highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000)
+      setUploadingJobId(null)
+      setUploadProgress(0)
+      setUploadBytesUploaded(null)
+      setUploadBytesTotal(null)
+      fetchJobs()
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -809,7 +728,7 @@ const Editor = () => {
       }
       // fallback: estimate from upload percent progress if byte counts aren't available
       // Use the actual upload percent (0-100) rather than an unnecessarily scaled value.
-      const startAtFallback = pipelineStartRef.current[create.job.id] ?? new Date(activeJob.createdAt).getTime();
+      const startAtFallback = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
       const elapsed = Math.max(1, (Date.now() - startAtFallback) / 1000);
       const boundedProgress = Math.max(1, Math.min(99, uploadProgress ?? 0));
       const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
@@ -878,7 +797,7 @@ const Editor = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept="video/*,.mkv"
+            accept={FILE_INPUT_ACCEPT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -947,7 +866,7 @@ const Editor = () => {
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
                   <p className="font-medium text-foreground">Drop your video here or click to upload</p>
-                  <p className="text-sm text-muted-foreground">MP4, MOV, MKV, AVI up to 2GB</p>
+                  <p className="text-sm text-muted-foreground">MP4 or MKV up to 2GB</p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
