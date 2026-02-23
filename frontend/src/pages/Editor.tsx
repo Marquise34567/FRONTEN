@@ -105,8 +105,10 @@ const STATUS_LABELS: Record<string, string> = {
 
 const normalizeStatus = (status?: JobStatus | string | null) => {
   if (!status) return "queued";
-  if (status === "completed") return "ready";
-  return status;
+  const raw = String(status).toLowerCase();
+  if (raw === "completed" || raw === "ready") return "ready";
+  if (raw === "processing") return "rendering";
+  return raw as JobStatus;
 };
 
 const isTerminalStatus = (status?: JobStatus | string | null) => {
@@ -155,6 +157,9 @@ const Editor = () => {
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
   const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
+  const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
+  const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
@@ -208,6 +213,20 @@ const Editor = () => {
   }, [fetchJobs]);
 
   useEffect(() => {
+    if (!accessToken) {
+      const local = typeof window !== "undefined" ? window.localStorage.getItem("autoDownloadEnabled") : null;
+      setAutoDownloadEnabled(local === "true");
+      return;
+    }
+    apiFetch('/api/billing/entitlements', { token: accessToken })
+      .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
+      .catch(() => setEntitlements(null));
+    apiFetch('/api/settings', { token: accessToken })
+      .then((d) => setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload)))
+      .catch(() => setAutoDownloadEnabled(null));
+  }, [accessToken]);
+
+  useEffect(() => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -248,18 +267,98 @@ const Editor = () => {
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
-    let completed = false;
     const next = new Map<string, JobStatus>();
+    const transitioned: string[] = [];
     for (const job of jobs) {
       next.set(job.id, job.status);
       const prevStatus = prev.get(job.id);
-      if (prevStatus && !isTerminalStatus(prevStatus) && normalizeStatus(job.status) === "ready") {
-        completed = true;
+      const prevNorm = normalizeStatus(prevStatus);
+      const newNorm = normalizeStatus(job.status);
+      if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
+        transitioned.push(job.id);
       }
     }
     prevJobStatusRef.current = next;
-    if (completed) refetchMe();
-  }, [jobs, refetchMe]);
+    if (transitioned.length > 0) {
+      refetchMe();
+      for (const id of transitioned) {
+        ;(async () => {
+          try {
+            // ensure entitlements/settings are loaded
+            if (entitlements === null && accessToken) {
+              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
+              setEntitlements(d?.entitlements ?? null);
+            }
+            if (autoDownloadEnabled === null) {
+              if (accessToken) {
+                const s = await apiFetch('/api/settings', { token: accessToken });
+                setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+              } else {
+                const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
+                setAutoDownloadEnabled(local === 'true');
+              }
+            }
+            // decide whether to auto-download
+            const allowed = entitlements?.autoDownloadAllowed ?? false;
+            const enabled = autoDownloadEnabled ?? false;
+            const downloadedKey = `auto_downloaded_${id}`;
+            if (!allowed || !enabled) return;
+            if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
+
+            // fetch job detail to get URL or fileName
+            const j = jobs.find((x) => x.id === id);
+            let fileName: string | undefined;
+            let url: string | undefined;
+            if (j && (j as any).outputUrl) {
+              url = (j as any).outputUrl;
+              fileName = (j as any).fileName ?? undefined;
+            } else {
+              try {
+                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
+                url = resp?.job?.outputUrl ?? undefined;
+                fileName = resp?.job?.fileName ?? undefined;
+              } catch (e) {
+                // fallback to download-url endpoint
+              }
+            }
+            if (!url) {
+              try {
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: 'POST', token: accessToken });
+                url = out.url;
+              } catch (e) {
+                return;
+              }
+            }
+
+            // attempt programmatic download
+            const a = document.createElement('a');
+            a.href = url as string;
+            if (fileName) a.download = fileName;
+            a.target = '_blank';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            try {
+              a.click();
+              // assume success; if browser blocked, user can tap in modal
+              // set a short timeout to mark as downloaded optimistically
+              setTimeout(() => {
+                try {
+                  window.localStorage.setItem(downloadedKey, 'true');
+                } catch (e) {}
+              }, 1200);
+            } catch (e) {
+              // show modal fallback
+              setAutoDownloadModal({ open: true, url, fileName, jobId: id });
+            } finally {
+              document.body.removeChild(a);
+            }
+          } catch (e) {
+            // ignore
+          }
+        })();
+      }
+    }
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -867,6 +966,44 @@ const Editor = () => {
               </Button>
               <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleDownload}>
                 <Download className="w-4 h-4" /> Final MP4
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
+        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
+            <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="ghost" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
+              <Button
+                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+                onClick={() => {
+                  try {
+                    const url = autoDownloadModal.url;
+                    const fileName = autoDownloadModal.fileName;
+                    if (!url) return;
+                    const a = document.createElement('a');
+                    a.href = url;
+                    if (fileName) a.download = fileName;
+                    a.target = '_blank';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    if (autoDownloadModal.jobId) window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
+                  } catch (e) {
+                    // ignore
+                  }
+                  setAutoDownloadModal({ open: false });
+                }}
+              >
+                <Download className="w-4 h-4" /> Download
               </Button>
             </div>
           </div>

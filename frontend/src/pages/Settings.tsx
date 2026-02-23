@@ -28,6 +28,7 @@ type EditorSettings = {
   emotionalBoost: boolean;
   aggressiveMode: boolean;
   onlyCuts: boolean;
+  autoDownload?: boolean;
 };
 
 const tierIndex = (tier: PlanTier) => PLAN_TIERS.indexOf(tier);
@@ -50,6 +51,7 @@ const getRequiredPlanForPreset = (presetId: string): PlanTier => {
 const Settings = () => {
   const { accessToken } = useAuth();
   const { data } = useMe();
+  const [entitlements, setEntitlements] = useState<any | null>(null);
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const { toast } = useToast();
@@ -82,6 +84,13 @@ const Settings = () => {
       setEditorSettings(settingsQuery.data.settings);
     }
   }, [settingsQuery.data]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    apiFetch('/api/billing/entitlements', { token: accessToken })
+      .then((d) => setEntitlements(d))
+      .catch(() => setEntitlements(null));
+  }, [accessToken]);
 
   const openUpgrade = (plan: PlanTier) => {
     setRequiredPlan(plan);
@@ -146,6 +155,7 @@ const Settings = () => {
     emotionalBoost: false,
     aggressiveMode: false,
     onlyCuts: false,
+    autoDownload: false,
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
   const onlyCutsEnabled = resolvedSettings.onlyCuts;
@@ -241,6 +251,29 @@ const Settings = () => {
             {isFounderPlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div className="glass-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Auto-download when render finishes</h3>
+                      <p className="text-xs text-muted-foreground">Automatically download finished videos (paid only)</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={Boolean(resolvedSettings.autoDownload)}
+                        onCheckedChange={(checked) => {
+                          mergeSettings({ autoDownload: Boolean(checked) });
+                        }}
+                        disabled={!entitlements?.entitlements?.autoDownloadAllowed}
+                      />
+                      {!entitlements?.entitlements?.autoDownloadAllowed && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-xs text-muted-foreground">Locked</span>
+                          </TooltipTrigger>
+                          <TooltipContent>Upgrade to enable auto-download</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
                   <p className="text-muted-foreground mb-1">Plan</p>
                   <p className="text-lg font-semibold text-foreground">Founder (Lifetime)</p>
                   <div className="mt-3 space-y-1 text-xs text-muted-foreground">
