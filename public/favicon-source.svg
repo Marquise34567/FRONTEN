@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1">
+      <stop offset="0" stop-color="#2f7bff"/>
+      <stop offset="1" stop-color="#1e5cff"/>
+    </linearGradient>
+    <filter id="s" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20" result="b" />
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="1200" height="1200" rx="180" fill="url(#g1)" />
+  <g transform="translate(200,200) scale(0.6)">
+    <rect x="0" y="0" width="800" height="800" rx="160" fill="#1f4fdc" opacity="0.06"/>
+  </g>
+  <!-- vertical bar left -->
+  <rect x="300" y="300" width="90" height="600" rx="45" fill="#ffffff" opacity="0.95" />
+  <!-- play triangle -->
+  <polygon points="500,350 880,600 500,850" fill="#ffffff" opacity="0.98" />
+  <!-- vertical bar right -->
+  <rect x="930" y="300" width="90" height="600" rx="45" fill="#ffffff" opacity="0.95" />
+</svg>
