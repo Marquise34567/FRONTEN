@@ -67,12 +67,14 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    throw new ApiError(
-      data?.message || data?.error || `HTTP ${res.status}`,
-      res.status,
-      data?.error,
-      data,
-    );
+    const message = data?.message || data?.error || `HTTP ${res.status}`
+    // If unauthorized, dispatch a global event so UI can stop polling and prompt login
+    if (res.status === 401) {
+      try {
+        window.dispatchEvent(new CustomEvent('auth:expired'))
+      } catch (e) {}
+    }
+    throw new ApiError(message, res.status, data?.error, data)
   }
   return data as T;
 }

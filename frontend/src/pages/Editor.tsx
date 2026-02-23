@@ -213,7 +213,13 @@ const Editor = () => {
           return next;
         });
       } catch (err) {
-        toast({ title: "Failed to load job", description: "Please refresh and try again." });
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true)
+          toast({ title: "Session expired", description: "Please sign in again." })
+          try { await signOut() } catch (e) {}
+        } else {
+          toast({ title: "Failed to load job", description: "Please refresh and try again." });
+        }
         setActiveJob(null);
       } finally {
         setLoadingJob(false);
