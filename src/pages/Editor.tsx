@@ -9,32 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
-import * as tus from "tus-js-client";
 import { useAuth } from "@/providers/AuthProvider";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
-import { supabase } from "@/integrations/supabase/client";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 
 const MB = 1024 * 1024;
-const LARGE_UPLOAD_THRESHOLD = 64 * MB;
 // Supabase resumable endpoint removed; server-side proxy/presign used instead
-
-const chunkSizeForFile = (size: number) => {
-  if (size >= 2 * 1024 * MB) return 32 * MB;
-  if (size >= 1024 * MB) return 24 * MB;
-  if (size >= 512 * MB) return 16 * MB;
-  if (size >= 256 * MB) return 12 * MB;
-  return 8 * MB;
-};
-
-const uploadParallelismForFile = (size: number) => {
-  if (size >= 1024 * MB) return 4;
-  if (size >= 512 * MB) return 3;
-  if (size >= 256 * MB) return 2;
-  return 1;
-};
 
 type JobStatus =
   | "queued"
@@ -103,10 +85,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 const normalizeStatus = (status?: JobStatus | string | null) => {
   if (!status) return "queued";
-  const raw = String(status).toLowerCase();
-  if (raw === "completed" || raw === "ready") return "ready";
-  if (raw === "processing") return "rendering";
-  return raw as JobStatus;
+  if (status === "completed") return "ready";
+  return status;
 };
 
 const isTerminalStatus = (status?: JobStatus | string | null) => {
@@ -137,18 +117,12 @@ const Editor = () => {
   const [activeJob, setActiveJob] = useState<JobDetail | null>(null);
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
-  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
-  const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
   const pipelineStartRef = useRef<Record<string, number>>({});
-  const uploadStartRef = useRef<Record<string, number>>({});
-  const jobFileSizeRef = useRef<Record<string, number>>({});
-  const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken } = useAuth();
@@ -157,9 +131,6 @@ const Editor = () => {
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
   const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
-  const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
-  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
-  const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
@@ -213,20 +184,6 @@ const Editor = () => {
   }, [fetchJobs]);
 
   useEffect(() => {
-    if (!accessToken) {
-      const local = typeof window !== "undefined" ? window.localStorage.getItem("autoDownloadEnabled") : null;
-      setAutoDownloadEnabled(local === "true");
-      return;
-    }
-    apiFetch('/api/billing/entitlements', { token: accessToken })
-      .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
-      .catch(() => setEntitlements(null));
-    apiFetch('/api/settings', { token: accessToken })
-      .then((d) => setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload)))
-      .catch(() => setAutoDownloadEnabled(null));
-  }, [accessToken]);
-
-  useEffect(() => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -267,98 +224,18 @@ const Editor = () => {
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
+    let completed = false;
     const next = new Map<string, JobStatus>();
-    const transitioned: string[] = [];
     for (const job of jobs) {
       next.set(job.id, job.status);
       const prevStatus = prev.get(job.id);
-      const prevNorm = normalizeStatus(prevStatus);
-      const newNorm = normalizeStatus(job.status);
-      if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
-        transitioned.push(job.id);
+      if (prevStatus && !isTerminalStatus(prevStatus) && normalizeStatus(job.status) === "ready") {
+        completed = true;
       }
     }
     prevJobStatusRef.current = next;
-    if (transitioned.length > 0) {
-      refetchMe();
-      for (const id of transitioned) {
-        ;(async () => {
-          try {
-            // ensure entitlements/settings are loaded
-            if (entitlements === null && accessToken) {
-              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
-              setEntitlements(d?.entitlements ?? null);
-            }
-            if (autoDownloadEnabled === null) {
-              if (accessToken) {
-                const s = await apiFetch('/api/settings', { token: accessToken });
-                setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
-              } else {
-                const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
-                setAutoDownloadEnabled(local === 'true');
-              }
-            }
-            // decide whether to auto-download
-            const allowed = entitlements?.autoDownloadAllowed ?? false;
-            const enabled = autoDownloadEnabled ?? false;
-            const downloadedKey = `auto_downloaded_${id}`;
-            if (!allowed || !enabled) return;
-            if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
-
-            // fetch job detail to get URL or fileName
-            const j = jobs.find((x) => x.id === id);
-            let fileName: string | undefined;
-            let url: string | undefined;
-            if (j && (j as any).outputUrl) {
-              url = (j as any).outputUrl;
-              fileName = (j as any).fileName ?? undefined;
-            } else {
-              try {
-                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
-                url = resp?.job?.outputUrl ?? undefined;
-                fileName = resp?.job?.fileName ?? undefined;
-              } catch (e) {
-                // fallback to download-url endpoint
-              }
-            }
-            if (!url) {
-              try {
-                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: 'POST', token: accessToken });
-                url = out.url;
-              } catch (e) {
-                return;
-              }
-            }
-
-            // attempt programmatic download
-            const a = document.createElement('a');
-            a.href = url as string;
-            if (fileName) a.download = fileName;
-            a.target = '_blank';
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            try {
-              a.click();
-              // assume success; if browser blocked, user can tap in modal
-              // set a short timeout to mark as downloaded optimistically
-              setTimeout(() => {
-                try {
-                  window.localStorage.setItem(downloadedKey, 'true');
-                } catch (e) {}
-              }, 1200);
-            } catch (e) {
-              // show modal fallback
-              setAutoDownloadModal({ open: true, url, fileName, jobId: id });
-            } finally {
-              document.body.removeChild(a);
-            }
-          } catch (e) {
-            // ignore
-          }
-        })();
-      }
-    }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken]);
+    if (completed) refetchMe();
+  }, [jobs, refetchMe]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -369,14 +246,6 @@ const Editor = () => {
     window.localStorage.setItem(key, "true");
     setExportOpen(true);
   }, [activeJob?.id, activeJob?.status]);
-
-  useEffect(() => {
-    return () => {
-      try {
-        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
-      } catch (e) {}
-    };
-  }, []);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -426,19 +295,13 @@ const Editor = () => {
     });
   }, [activeJob, maxQuality, selectedQuality]);
 
-  const uploadWithProgress = (
-    url: string,
-    file: File,
-    onProgress: (value: number) => void,
-    onProgressBytes?: (loaded: number, total: number) => void,
-  ) => {
+  const uploadWithProgress = (url: string, file: File, onProgress: (value: number) => void) => {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
         const percent = Math.round((event.loaded / event.total) * 100);
         onProgress(percent);
-        if (onProgressBytes) onProgressBytes(event.loaded, event.total);
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) resolve();
@@ -448,71 +311,6 @@ const Editor = () => {
       xhr.open("PUT", url, true);
       xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
       xhr.send(file);
-    });
-  };
-
-  const uploadResumable = ({
-    file,
-    bucket,
-    inputPath,
-    token,
-    onProgress,
-    onProgressBytes,
-  }: {
-    file: File;
-    bucket: string;
-    inputPath: string;
-    token: string;
-    onProgress: (value: number) => void;
-    onProgressBytes?: (loaded: number, total: number) => void;
-  }) => {
-    return new Promise<void>((resolve, reject) => {
-      if (!RESUMABLE_ENDPOINT || !SUPABASE_PUBLISHABLE_KEY) {
-        reject(new Error("Resumable upload is not configured."));
-        return;
-      }
-
-      const upload = new tus.Upload(file, {
-        endpoint: RESUMABLE_ENDPOINT,
-        retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
-        chunkSize: chunkSizeForFile(file.size),
-        uploadDataDuringCreation: true,
-        removeFingerprintOnSuccess: true,
-        metadata: {
-          bucketName: bucket,
-          objectName: inputPath,
-          contentType: file.type || "application/octet-stream",
-          cacheControl: "3600",
-        },
-        headers: {
-          authorization: `Bearer ${token}`,
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          "x-upsert": "true",
-        },
-        onError: (error) => reject(error),
-        onProgress: (bytesUploaded, bytesTotal) => {
-          if (!bytesTotal) return;
-          const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-          onProgress(Math.min(100, Math.max(0, percent)));
-          if (onProgressBytes) onProgressBytes(bytesUploaded, bytesTotal);
-        },
-        onSuccess: () => {
-          onProgress(100);
-          resolve();
-        },
-      });
-
-      upload
-        .findPreviousUploads()
-        .then((previousUploads) => {
-          if (previousUploads.length > 0) {
-            upload.resumeFromPreviousUpload(previousUploads[0]);
-          }
-          upload.start();
-        })
-        .catch(() => {
-          upload.start();
-        });
     });
   };
 
@@ -544,178 +342,45 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      const useResumable = false;
-      // New R2 multipart upload flow
-      const tryR2Multipart = async () => {
-        try {
-          const r2create = await apiFetch<{
-            jobId: string
-            objectKey: string
-            uploadId: string
-            partSizeBytes: number
-          }>(`/api/uploads/presign`, {
-            method: "POST",
-            body: JSON.stringify({ fileName: file.name, fileSizeBytes: file.size, mimeType: file.type }),
-            token: accessToken,
-          })
-
-          const { jobId, objectKey, uploadId, partSizeBytes } = r2create
-
-          // chunk and upload
-          const total = file.size
-          const partSize = partSizeBytes || 10 * MB
-          const partsCount = Math.ceil(total / partSize)
-          const parts: { ETag: string; PartNumber: number }[] = []
-          let uploaded = 0
-          jobFileSizeRef.current[jobId] = total
-          uploadStartRef.current[jobId] = Date.now()
-
-          for (let partNumber = 1; partNumber <= partsCount; partNumber++) {
-            const start = (partNumber - 1) * partSize
-            const end = Math.min(total, start + partSize)
-            const chunk = file.slice(start, end)
-            const signRes = await apiFetch<{ url: string }>(`/api/uploads/sign-part`, {
-              method: 'POST',
-              body: JSON.stringify({ jobId, objectKey, uploadId, partNumber }),
-              token: accessToken,
-            })
-            const url = signRes.url
-            // PUT chunk
-            const resp = await fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/octet-stream' },
-              body: chunk,
-            })
-            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
-            const etag = resp.headers.get('ETag') || resp.headers.get('etag') || ''
-            parts.push({ ETag: etag, PartNumber: partNumber })
-            uploaded += chunk.size
-            setUploadBytesUploaded(uploaded)
-            setUploadBytesTotal(total)
-            setUploadProgress(Math.round((uploaded / total) * 100))
-          }
-
-          // complete
-          await apiFetch('/api/uploads/complete', {
-            method: 'POST',
-            body: JSON.stringify({ jobId, objectKey, uploadId, parts }),
-            token: accessToken,
-          })
-
-          // reflect completion in UI
-          setUploadProgress(100)
-          setUploadingJobId(null)
-          setUploadBytesUploaded(null)
-          setUploadBytesTotal(null)
-          fetchJobs()
-          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
-          return true
-        } catch (err) {
-          console.warn('R2 multipart upload failed, falling back', err)
-          return false
-        }
-      }
-      if (useResumable && RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY) {
-        try {
-          // record file size and upload start time for ETA
-          jobFileSizeRef.current[create.job.id] = file.size;
-          uploadStartRef.current[create.job.id] = Date.now();
-          await uploadResumable({
-            file,
-            bucket: create.bucket,
-            inputPath: create.inputPath,
-            token: accessToken,
-            onProgress: ((percent: number) => setUploadProgress(percent)) as any,
-            onProgressBytes: (loaded: number, total: number) => {
-              setUploadBytesUploaded(loaded);
-              setUploadBytesTotal(total);
-              setUploadProgress(Math.round((loaded / total) * 100));
-              if (!uploadStartRef.current[create.job.id]) uploadStartRef.current[create.job.id] = Date.now();
-            },
-          });
-        } catch (err) {
-          console.warn("Resumable upload failed, falling back.", err);
-          // Try R2 multipart first before falling back to uploadUrl or supabase
-          const usedR2 = await tryR2Multipart()
-          if (usedR2) {
-            // already handled completion inside tryR2Multipart
-            return
-          }
-          if (create.uploadUrl) {
-            // record file size and upload start time for ETA
-            jobFileSizeRef.current[create.job.id] = file.size;
-            uploadStartRef.current[create.job.id] = Date.now();
-            await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-              setUploadBytesUploaded(loaded);
-              setUploadBytesTotal(total);
-              setUploadProgress(Math.round((loaded / total) * 100));
-            });
-          } else {
-            const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-              body: file,
-            });
-            if (!proxyResp.ok) throw new Error('Proxy upload failed');
-            setUploadProgress(100);
-          }
-        }
-      } else if (create.uploadUrl) {
-        // Try R2 multipart before using create.uploadUrl
-        const usedR2 = await tryR2Multipart()
-        if (usedR2) return
-        try {
-          // record file size and upload start time for ETA
-          jobFileSizeRef.current[create.job.id] = file.size;
-          uploadStartRef.current[create.job.id] = Date.now();
-          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-            setUploadBytesUploaded(loaded);
-            setUploadBytesTotal(total);
-            setUploadProgress(Math.round((loaded / total) * 100));
-          });
-        } catch (err) {
-          const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          if (!proxyResp.ok) throw new Error('Proxy upload failed');
-          setUploadProgress(100);
-        }
-      } else {
-        // No resumable or uploadUrl: try R2 multipart then fallback to supabase
-        const usedR2 = await tryR2Multipart()
-        if (usedR2) return
+      const uploadViaProxy = async () => {
         const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
           body: file,
         });
-        if (!proxyResp.ok) throw new Error('Proxy upload failed');
+        if (!proxyResp.ok) throw new Error("Proxy upload failed");
         setUploadProgress(100);
+      };
+
+      let usedProxyUpload = false;
+      if (create.uploadUrl) {
+        try {
+          await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
+        } catch (err) {
+          console.warn("Direct upload failed, falling back to proxy.", err);
+          await uploadViaProxy();
+          usedProxyUpload = true;
+        }
+      } else {
+        await uploadViaProxy();
+        usedProxyUpload = true;
       }
-      // For non-R2 flows, notify backend that upload is complete so pipeline can start
-      if (!create.uploadUrl) {
+
+      if (!usedProxyUpload) {
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
           method: "POST",
-          body: JSON.stringify({ inputPath: create.inputPath }),
+          body: JSON.stringify({ key: create.inputPath, inputPath: create.inputPath }),
           token: accessToken,
         });
-
-        toast({ title: "Upload complete", description: "Your job is now processing." });
-        // briefly highlight this job so the user knows which one is processing
-        try {
-          if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
-        } catch (e) {}
-        setHighlightedJobId(create.job.id);
-        highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000);
-
-        setUploadingJobId(null);
-        setUploadProgress(0);
-        setUploadBytesUploaded(null);
-        setUploadBytesTotal(null);
-        fetchJobs();
       }
+
+      toast({ title: "Upload complete", description: "Your job is now processing." });
+      setUploadingJobId(null);
+      setUploadProgress(0);
+      fetchJobs();
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -733,8 +398,6 @@ const Editor = () => {
       }
       setUploadingJobId(null);
       setUploadProgress(0);
-      setUploadBytesUploaded(null);
-      setUploadBytesTotal(null);
     }
   };
 
@@ -780,44 +443,21 @@ const Editor = () => {
     if (!activeJob) return null;
     const normalized = normalizeStatus(activeJob.status);
     if (normalized === "ready" || normalized === "failed") return null;
-
-    // If we're uploading, compute ETA from raw upload bytes/speed plus a small post-upload buffer
-    if (normalized === "uploading") {
-      const uploaded = uploadBytesUploaded;
-      const total = uploadBytesTotal;
-      const startAt = uploadStartRef.current[activeJob.id] ?? pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
-      if (uploaded && total && uploaded > 0) {
-        const elapsedUpload = Math.max(0.5, (Date.now() - startAt) / 1000);
-        const speed = uploaded / elapsedUpload; // bytes/sec
-        if (speed > 0) {
-          const remainingBytes = Math.max(0, total - uploaded);
-          const uploadETA = Math.round(remainingBytes / speed);
-          // estimate post-upload processing: conservative heuristic based on file size
-          const fileSize = jobFileSizeRef.current[activeJob.id] ?? total;
-          const fileMB = Math.max(1, fileSize / (1024 * 1024));
-          const processingEstimate = Math.round(fileMB * 0.2); // ~0.2s per MB as a conservative baseline
-          return Math.max(0, uploadETA + processingEstimate);
-        }
-      }
-      // fallback: estimate from upload percent progress if byte counts aren't available
-      // Use the actual upload percent (0-100) rather than an unnecessarily scaled value.
-      const startAtFallback = pipelineStartRef.current[create.job.id] ?? new Date(activeJob.createdAt).getTime();
-      const elapsed = Math.max(1, (Date.now() - startAtFallback) / 1000);
-      const boundedProgress = Math.max(1, Math.min(99, uploadProgress ?? 0));
-      const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
-      return Math.max(0, Math.round(remaining));
-    }
-
-    // Otherwise, estimate remaining processing time from job progress and elapsed pipeline time.
     const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
     const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
     const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
-    if (jobProgress > 0) {
-      const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
-      return Math.max(0, remaining);
-    }
-    return null;
-  }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
+    const uploadContribution = Math.min(10, Math.max(1, Math.round(uploadProgress * 0.1)));
+    const effectiveProgress =
+      normalized === "uploading"
+        ? uploadContribution
+        : jobProgress > 0
+          ? Math.max(uploadContribution, jobProgress)
+          : uploadContribution;
+    const boundedProgress = Math.max(1, Math.min(99, effectiveProgress));
+    if (boundedProgress < 2) return null;
+    const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
+    return Math.max(0, Math.round(remaining));
+  }, [activeJob, etaTick, uploadProgress]);
 
   const formatEta = (seconds: number | null) => {
     if (!seconds || seconds <= 0) return "Finalizing...";
@@ -898,13 +538,11 @@ const Editor = () => {
                     type="button"
                     onClick={() => handleSelectJob(job.id)}
                     className={`w-full text-left rounded-xl border px-3 py-3 transition ${
-                      highlightedJobId === job.id
-                        ? "ring-2 ring-primary/40 bg-primary/10 border-primary/40"
-                        : normalizeStatus(job.status) === "ready"
-                          ? "border-success/40 bg-success/10"
-                          : selectedJobId === job.id
-                            ? "border-primary/40 bg-primary/10"
-                            : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
+                      normalizeStatus(job.status) === "ready"
+                        ? "border-success/40 bg-success/10"
+                        : selectedJobId === job.id
+                          ? "border-primary/40 bg-primary/10"
+                          : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -1033,7 +671,7 @@ const Editor = () => {
                         <Progress value={activeJob.progress ?? 0} className="h-2 bg-muted [&>div]:bg-primary" />
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span className="uppercase tracking-[0.2em] text-muted-foreground/80">Estimated time</span>
-                          <span className="font-premium text-sm text-foreground font-semibold tracking-tight">
+                          <span className="font-premium text-[12px] text-foreground">
                             {etaLabel}
                             {etaSuffix}
                           </span>
@@ -1079,44 +717,6 @@ const Editor = () => {
               </Button>
               <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleDownload}>
                 <Download className="w-4 h-4" /> Final MP4
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
-        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
-            <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
-            <div className="flex items-center justify-end gap-3">
-              <Button variant="ghost" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
-              <Button
-                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-                onClick={() => {
-                  try {
-                    const url = autoDownloadModal.url;
-                    const fileName = autoDownloadModal.fileName;
-                    if (!url) return;
-                    const a = document.createElement('a');
-                    a.href = url;
-                    if (fileName) a.download = fileName;
-                    a.target = '_blank';
-                    a.style.display = 'none';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    if (autoDownloadModal.jobId) window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
-                  } catch (e) {
-                    // ignore
-                  }
-                  setAutoDownloadModal({ open: false });
-                }}
-              >
-                <Download className="w-4 h-4" /> Download
               </Button>
             </div>
           </div>
