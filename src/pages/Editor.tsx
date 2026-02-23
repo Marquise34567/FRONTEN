@@ -19,9 +19,7 @@ import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const RESUMABLE_ENDPOINT = SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1/upload/resumable` : null;
+// Supabase resumable endpoint removed; server-side proxy/presign used instead
 
 const chunkSizeForFile = (size: number) => {
   if (size >= 2 * 1024 * MB) return 32 * MB;
@@ -546,7 +544,7 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      const useResumable = Boolean(RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY);
+      const useResumable = false;
       // New R2 multipart upload flow
       const tryR2Multipart = async () => {
         try {
@@ -555,7 +553,7 @@ const Editor = () => {
             objectKey: string
             uploadId: string
             partSizeBytes: number
-          }>(`/api/uploads/create`, {
+          }>(`/api/uploads/presign`, {
             method: "POST",
             body: JSON.stringify({ fileName: file.name, fileSizeBytes: file.size, mimeType: file.type }),
             token: accessToken,
@@ -653,8 +651,12 @@ const Editor = () => {
               setUploadProgress(Math.round((loaded / total) * 100));
             });
           } else {
-            const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-            if (error) throw error;
+            const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+              body: file,
+            });
+            if (!proxyResp.ok) throw new Error('Proxy upload failed');
             setUploadProgress(100);
           }
         }
@@ -672,16 +674,24 @@ const Editor = () => {
             setUploadProgress(Math.round((loaded / total) * 100));
           });
         } catch (err) {
-          const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-          if (error) throw error;
+          const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+            body: file,
+          });
+          if (!proxyResp.ok) throw new Error('Proxy upload failed');
           setUploadProgress(100);
         }
       } else {
         // No resumable or uploadUrl: try R2 multipart then fallback to supabase
         const usedR2 = await tryR2Multipart()
         if (usedR2) return
-        const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-        if (error) throw error;
+        const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        if (!proxyResp.ok) throw new Error('Proxy upload failed');
         setUploadProgress(100);
       }
       // For non-R2 flows, notify backend that upload is complete so pipeline can start
