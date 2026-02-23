@@ -10,7 +10,6 @@ import { apiFetch } from "@/lib/api";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
-import { getPriceIdForTier } from "@/lib/stripe";
 import { ZoomIn } from "lucide-react";
 
 const Pricing = () => {
@@ -26,13 +25,9 @@ const Pricing = () => {
     if (!accessToken) return;
     try {
       setAction({ tier, kind: "subscribe" });
-      const priceId = getPriceIdForTier(tier, billingInterval);
-      if (!priceId) {
-        throw new Error("Missing Stripe price ID for this plan.");
-      }
-      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
+      const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ tier, interval: billingInterval }),
         token: accessToken,
       });
       window.location.href = result.url;
