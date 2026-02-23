@@ -218,21 +218,43 @@ const Editor = () => {
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
-  const dailyRendersUsed = me?.usageDaily?.rendersUsed ?? 0;
+  const standardRendersUsed = me?.usageByMode?.standardRendersUsed ?? rendersUsed;
+  const verticalRendersUsed = me?.usageByMode?.verticalRendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
-  const maxRendersPerDay = me?.limits?.maxRendersPerDay ?? null;
+  const maxVerticalRendersPerMonth = me?.limits?.maxVerticalRendersPerMonth ?? null;
   const rendersRemaining = useMemo(() => {
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
-  const rendersRemainingToday = useMemo(() => {
-    if (maxRendersPerDay === null || maxRendersPerDay === undefined) return null;
-    return Math.max(0, maxRendersPerDay - dailyRendersUsed);
-  }, [maxRendersPerDay, dailyRendersUsed]);
-  const isFreeDailyLimited = tier === "free" && maxRendersPerDay !== null && maxRendersPerDay !== undefined;
-  const hasReachedRenderLimit = isFreeDailyLimited
-    ? (rendersRemainingToday ?? 0) <= 0
-    : maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0;
+  const standardRendersRemaining = useMemo(() => {
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
+    return Math.max(0, maxRendersPerMonth - standardRendersUsed);
+  }, [maxRendersPerMonth, standardRendersUsed]);
+  const verticalRendersRemaining = useMemo(() => {
+    if (maxVerticalRendersPerMonth === null || maxVerticalRendersPerMonth === undefined) return null;
+    return Math.max(0, maxVerticalRendersPerMonth - verticalRendersUsed);
+  }, [maxVerticalRendersPerMonth, verticalRendersUsed]);
+  const hasReachedRenderLimitForMode = useCallback((mode: "standard" | "vertical") => {
+    if (isDevAccount) return false;
+    if (tier === "free") {
+      if (mode === "vertical") {
+        if (maxVerticalRendersPerMonth === null || maxVerticalRendersPerMonth === undefined) return false;
+        return (verticalRendersRemaining ?? 0) <= 0;
+      }
+      if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
+      return (standardRendersRemaining ?? 0) <= 0;
+    }
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
+    return (rendersRemaining ?? 0) <= 0;
+  }, [
+    isDevAccount,
+    maxRendersPerMonth,
+    maxVerticalRendersPerMonth,
+    rendersRemaining,
+    standardRendersRemaining,
+    tier,
+    verticalRendersRemaining
+  ]);
 
   const [authError, setAuthError] = useState(false);
 
@@ -584,9 +606,12 @@ const Editor = () => {
       return false;
     }
     if (!accessToken) return false;
-    if (hasReachedRenderLimit) {
-      const detail = isFreeDailyLimited
-        ? "Free plan includes 1 render per day. Upgrade for more renders."
+    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
+    if (hasReachedRenderLimitForMode(requestedMode)) {
+      const detail = tier === "free"
+        ? requestedMode === "vertical"
+          ? "Free plan includes 1 vertical render per month."
+          : `Free plan includes ${maxRendersPerMonth ?? 10} standard renders per month.`
         : `You've used all ${maxRendersPerMonth} renders for this month.`;
       toast({
         title: "Render limit reached",
@@ -596,7 +621,6 @@ const Editor = () => {
     }
     setUploadProgress(0);
     try {
-      const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
       const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
         "/api/jobs/create",
         {
@@ -777,12 +801,12 @@ const Editor = () => {
               ? `You've used all ${maxRenders} renders for this month.`
               : "You've reached your monthly render limit.";
         toast({ title: "Render limit reached", description: detail });
-      } else if (err instanceof ApiError && err.code === "DAILY_RENDER_LIMIT_REACHED") {
-        const used = Number(err.data?.rendersUsedToday ?? 1);
-        const day = err.data?.day ? ` for ${err.data.day}` : "";
+      } else if (err instanceof ApiError && err.code === "VERTICAL_RENDER_LIMIT_REACHED") {
+        const used = Number(err.data?.verticalRendersUsed ?? 1);
+        const month = err.data?.month ? ` in ${err.data.month}` : "";
         toast({
-          title: "Daily free limit reached",
-          description: `You already used ${used} free render${used === 1 ? "" : "s"}${day}.`,
+          title: "Vertical render limit reached",
+          description: `You already used ${used} free vertical render${used === 1 ? "" : "s"}${month}.`,
         });
       } else {
         toast({ title: "Upload failed", description: err?.message || "Please try again." });
@@ -1023,10 +1047,12 @@ const Editor = () => {
                     {tierLabel} plan
                   </Badge>
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {isFreeDailyLimited
-                      ? `${rendersRemainingToday ?? 0} free render left today`
-                      : maxRendersPerMonth === null || maxRendersPerMonth === undefined
-                        ? "Unlimited renders"
+                    {isDevAccount
+                      ? "Unlimited renders"
+                      : tier === "free"
+                        ? isVerticalMode
+                          ? `${verticalRendersRemaining ?? 0} vertical render left`
+                          : `${standardRendersRemaining ?? 0} standard renders left`
                         : `${rendersRemaining ?? 0} renders left`}
                   </Badge>
                 </>
