@@ -565,7 +565,12 @@ const Editor = () => {
             presignedParts: { partNumber: number; url: string }[]
           }>(`/api/uploads/create`, {
             method: 'POST',
-            body: JSON.stringify({ jobId: create.job.id, filename: file.name, contentType: file.type, sizeBytes: file.size }),
+            body: JSON.stringify({
+              jobId: create.job.id,
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              sizeBytes: file.size
+            }),
             token: accessToken,
           })
 
@@ -627,9 +632,9 @@ const Editor = () => {
         }
       }
 
-      // Always try R2 multipart first
-      const usedR2 = await tryR2Multipart()
-      if (usedR2) return
+          // Always try R2 multipart first
+          const usedR2 = await tryR2Multipart()
+          if (usedR2) return
 
       const uploadViaProxy = async () => {
         const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
