@@ -55,9 +55,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(nextSession);
       setLoading(false);
     });
+    const onExpired = () => {
+      // on global auth expired event, sign out to clear session and update UI
+      try {
+        supabase.auth.signOut().catch(() => {})
+      } catch (e) {}
+    }
+    window.addEventListener('auth:expired', onExpired)
     return () => {
       mounted = false;
       data.subscription.unsubscribe();
+      window.removeEventListener('auth:expired', onExpired)
     };
   }, []);
 
