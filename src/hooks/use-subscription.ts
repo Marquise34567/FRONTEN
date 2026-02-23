@@ -39,8 +39,8 @@ export type SubscriptionResponse = {
 const defaultFeatures: SubscriptionFeatures = {
   resolution: "720p",
   maxResolution: "720p",
-  rendersPerMonth: 12,
-  maxRendersPerMonth: 12,
+  rendersPerMonth: 10,
+  maxRendersPerMonth: 10,
   watermark: true,
   queuePriority: "standard",
   priorityQueue: false,
