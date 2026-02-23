@@ -28,7 +28,6 @@ type EditorSettings = {
   emotionalBoost: boolean;
   aggressiveMode: boolean;
   onlyCuts: boolean;
-  autoDownload?: boolean;
 };
 
 const tierIndex = (tier: PlanTier) => PLAN_TIERS.indexOf(tier);
@@ -155,63 +154,39 @@ const Settings = () => {
     emotionalBoost: false,
     aggressiveMode: false,
     onlyCuts: false,
-    autoDownload: false,
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
   const onlyCutsEnabled = resolvedSettings.onlyCuts;
-
-  const mergeSettings = (updates: Partial<EditorSettings>) => {
-    setEditorSettings((prev) => ({
-      ...(prev ?? defaultSettings),
-      ...updates,
-    }));
-  };
-
-  const handleSaveSettings = async () => {
-    if (!accessToken || !editorSettings) return;
-    if (!isPresetAllowed(editorSettings.subtitleStyle)) {
-      const required = getRequiredPlanForPreset(editorSettings.subtitleStyle);
-      openUpgrade(required);
-      toast({ title: "Upgrade required", description: `Upgrade to ${required} to unlock this subtitle style.` });
-      return;
-    }
-    try {
-      setSavingSettings(true);
-      const result = await apiFetch<{ settings: EditorSettings }>("/api/settings", {
-        method: "PATCH",
-        body: JSON.stringify(editorSettings),
-        token: accessToken,
-      });
-      setEditorSettings(result.settings);
-      toast({ title: "Settings saved", description: "Your editor preferences have been updated." });
-    } catch (err: any) {
-      if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
-        const required = (err.data?.requiredPlan as PlanTier) || "creator";
-        openUpgrade(required);
-        toast({ title: "Upgrade required", description: err?.message || "Upgrade to unlock this feature." });
-        return;
-      }
-      toast({ title: "Save failed", description: err?.message || "Please try again." });
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const rawTier = data?.subscription?.tier as PlanTier | undefined;
-  const tier = rawTier && PLAN_TIERS.includes(rawTier) ? rawTier : "free";
-  const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
-  const usage = data?.usage;
-  const limits = data?.limits;
-  const maxRendersPerMonth = limits?.maxRendersPerMonth ?? plan.maxRendersPerMonth;
-  const rendersUsed = usage?.rendersUsed ?? 0;
-  const rendersRemaining = Math.max(0, maxRendersPerMonth - rendersUsed);
-  const rendersUsagePercent =
-    maxRendersPerMonth > 0 ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100) : 0;
-  const isFounderPlan = tier === "founder";
-  const currentTierIndex = tierIndex(currentPlan || "free");
-  const advancedLocked = !features.advancedEffects;
-
-  return (
+            {isFounderPlan ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Plan</p>
+                  <p className="text-lg font-semibold text-foreground">Founder (Lifetime)</p>
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between">
+                      <span>Monthly Limit</span>
+                      <span>{maxRendersPerMonth} renders</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Usage</span>
+                      <span>
+                        {rendersUsed} / {maxRendersPerMonth} this month
+                      </span>
+                    </div>
+                    <Progress value={rendersUsagePercent} className="mt-2" />
+                  </div>
+                </div>
+                <div className="glass-card p-4">
+                  <p className="text-muted-foreground mb-1">Minutes Used</p>
+                  <p className="text-2xl font-bold font-display text-foreground">
+                    {usage?.minutesUsed ?? 0} {" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      / {limits?.maxMinutesPerMonth ?? "Unlimited"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            ) : (
     <GlowBackdrop>
       <Navbar />
       <main className="min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
