@@ -11,6 +11,15 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      // Proxy /api to backend during local development. Target is configurable via
+      // VITE_API_PROXY_TARGET (set in .env.local or .env) and falls back to localhost:4000.
+      "/api": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:4000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
     fs: {
       allow: [".."],
     },

@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 .env.*
+
+# Ignore temporary deploy folder
+frontend-deploy-temp/

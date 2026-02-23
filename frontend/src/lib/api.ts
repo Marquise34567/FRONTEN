@@ -1,5 +1,7 @@
-const DEV_FALLBACK = "http://localhost:4000";
-const rawApiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? DEV_FALLBACK : "");
+// In dev we prefer using a Vite proxy instead of hardcoding a backend URL.
+// `VITE_API_URL` may be set for deployed environments, but leave blank in dev
+// so fetches use relative paths (e.g. `/api/...`).
+const rawApiUrl = import.meta.env.VITE_API_URL || "";
 const normalizeApiUrl = (value: string) => {
   if (!value) return "";
   let trimmed = value.trim();
@@ -31,13 +33,8 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
-  if (!API_URL) {
-    throw new ApiError(
-      "API URL not configured. Set VITE_API_URL in your deployment environment.",
-      0,
-      "missing_api_url",
-    );
-  }
+  // Allow empty API_URL so requests can be relative (proxied by Vite in dev).
+  const base = API_URL || "";
   let { token, headers, ...rest } = options;
   // If no token provided, try to fetch from Supabase session
   if (!token) {
@@ -49,13 +46,16 @@ export async function apiFetch<T>(
     }
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const url = `${base}${path}`;
+  const res = await fetch(url, {
     ...rest,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(headers || {}),
     },
+    // Include credentials (cookies) for cookie-based auth flows in local dev
+    credentials: "include",
   });
 
   const text = await res.text().catch(() => "");
