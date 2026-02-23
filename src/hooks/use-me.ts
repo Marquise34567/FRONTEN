@@ -16,6 +16,7 @@ export type MeResponse = {
   usage: { month: string; rendersUsed: number; minutesUsed: number };
   usageByMode?: {
     month: string;
+    horizontalRendersUsed?: number;
     standardRendersUsed: number;
     verticalRendersUsed: number;
   } | null;

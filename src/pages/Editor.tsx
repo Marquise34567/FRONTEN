@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick } from "lucide-react";
@@ -93,7 +92,7 @@ interface JobSummary {
   progress?: number;
   requestedQuality?: string | null;
   watermark?: boolean;
-  renderMode?: "standard" | "vertical" | string;
+  renderMode?: "horizontal" | "vertical" | "standard" | string;
 }
 
 interface JobDetail extends JobSummary {
@@ -260,7 +259,7 @@ const Editor = () => {
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
-  const hasReachedRenderLimitForMode = useCallback((_mode: "standard" | "vertical") => {
+  const hasReachedRenderLimitForMode = useCallback((_mode: "horizontal" | "vertical") => {
     if (isDevAccount) return false;
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
     return (rendersRemaining ?? 0) <= 0;
@@ -610,7 +609,7 @@ const Editor = () => {
   const handleFile = async (
     file: File,
     renderOptions?: {
-      mode?: "standard" | "vertical";
+      mode?: "horizontal" | "vertical";
       verticalClipCount?: number;
       verticalMode?: VerticalModePayload | null;
     },
@@ -620,7 +619,7 @@ const Editor = () => {
       return false;
     }
     if (!accessToken) return false;
-    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
+    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -633,24 +632,27 @@ const Editor = () => {
     }
     setUploadProgress(0);
     try {
+      const createPayload =
+        requestedMode === "vertical"
+          ? {
+              filename: file.name,
+              renderMode: "vertical" as const,
+              verticalClipCount: renderOptions?.verticalClipCount,
+              verticalMode: renderOptions?.verticalMode ?? null,
+            }
+          : {
+              filename: file.name,
+              renderMode: "horizontal" as const,
+              horizontalMode: {
+                output: "quality" as const,
+                fit: "contain" as const,
+              },
+            };
       const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
         "/api/jobs/create",
         {
           method: "POST",
-          body: JSON.stringify({
-            filename: file.name,
-            renderMode: requestedMode,
-            verticalClipCount: renderOptions?.verticalClipCount,
-            verticalMode: renderOptions?.verticalMode ?? null,
-            webcamCrop: renderOptions?.verticalMode?.webcamCrop
-              ? {
-                  x: renderOptions.verticalMode.webcamCrop.x,
-                  y: renderOptions.verticalMode.webcamCrop.y,
-                  width: renderOptions.verticalMode.webcamCrop.w,
-                  height: renderOptions.verticalMode.webcamCrop.h,
-                }
-              : null,
-          }),
+          body: JSON.stringify(createPayload),
           token: accessToken,
         },
       );
@@ -658,7 +660,7 @@ const Editor = () => {
       setUploadingJobId(create.job.id);
       pipelineStartRef.current[create.job.id] = Date.now();
       statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
-      setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
+      setJobs((prev) => [{ ...create.job, renderMode: requestedMode, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("jobId", create.job.id);
@@ -901,9 +903,9 @@ const Editor = () => {
     };
   }, []);
 
-  const setVerticalModeEnabled = useCallback((enabled: boolean) => {
+  const setRenderMode = useCallback((mode: "horizontal" | "vertical") => {
     const next = new URLSearchParams(searchParams);
-    if (enabled) next.set("mode", "vertical");
+    if (mode === "vertical") next.set("mode", "vertical");
     else next.delete("mode");
     setSearchParams(next, { replace: false });
   }, [searchParams, setSearchParams]);
@@ -1340,14 +1342,28 @@ const Editor = () => {
                   </Badge>
                 </>
               )}
-              <label className="flex w-full items-center justify-between rounded-full border border-border/60 bg-muted/20 px-3 py-2 sm:w-auto sm:justify-start sm:gap-3">
-                <span className="text-xs text-muted-foreground">9:16 Vertical (Shorts/TikTok/Reels)</span>
-                <Switch
-                  checked={isVerticalMode}
-                  onCheckedChange={setVerticalModeEnabled}
-                  aria-label="Enable vertical mode"
-                />
-              </label>
+              <div className="flex w-full items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
+                <button
+                  type="button"
+                  className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                    !isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setRenderMode("horizontal")}
+                  aria-label="Horizontal original mode"
+                >
+                  Horizontal (Original)
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                    isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setRenderMode("vertical")}
+                  aria-label="Vertical 9:16 stacked mode"
+                >
+                  Vertical (9:16 Stacked)
+                </button>
+              </div>
               <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                 <Plus className="w-4 h-4" /> New Project
               </Button>
