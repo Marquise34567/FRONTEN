@@ -47,16 +47,20 @@ export default function Page() {
     if (!file) return alert('Choose file')
     const uploadsBucket = process.env.NEXT_PUBLIC_SUPABASE_UPLOADS || 'uploads'
     const path = `${job.id}/${file.name}`
-    const { data, error } = await supabase.storage.from(uploadsBucket).upload(path, file, { upsert: true })
-    if (error) return alert('Upload failed: ' + error.message)
-
-    // inform backend of uploaded path
+    // upload via server-side proxy (replaces Supabase storage upload)
     const token = await getAccessToken()
-    await axios.patch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/jobs/${job.id}/input`, { inputPath: path }, { headers: { Authorization: `Bearer ${token}` } })
-
-    // trigger analysis and processing
-    await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/jobs/${job.id}/analyze`, {}, { headers: { Authorization: `Bearer ${token}` } })
-    await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/jobs/${job.id}/process`, {}, { headers: { Authorization: `Bearer ${token}` } })
+    const proxyResp = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/uploads/proxy?jobId=${job.id}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+    if (!proxyResp.ok) {
+      const text = await proxyResp.text()
+      return alert('Upload failed: ' + text)
+    }
+    const body = await proxyResp.json().catch(() => ({}))
+    // proxy updates job and enqueues processing; show success
+    alert('Upload complete — processing started')
   }
 
   async function fetchJobs() {
