@@ -40,6 +40,11 @@ const uploadParallelismForFile = (size: number) => {
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+const MIN_WEBCAM_CROP_SIZE = 0.03;
+
+type WebcamFocus = { x: number; y: number };
+type WebcamCrop = { x: number; y: number; width: number; height: number };
+type WebcamSelectionMode = "focus" | "manual";
 
 type JobStatus =
   | "queued"
@@ -204,7 +209,13 @@ const Editor = () => {
   const [verticalClipCount, setVerticalClipCount] = useState(2);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
-  const [webcamFocus, setWebcamFocus] = useState<{ x: number; y: number } | null>(null);
+  const [webcamFocus, setWebcamFocus] = useState<WebcamFocus | null>(null);
+  const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
+  const [webcamCropDraft, setWebcamCropDraft] = useState<WebcamCrop | null>(null);
+  const [webcamSelectionMode, setWebcamSelectionMode] = useState<WebcamSelectionMode>("focus");
+  const [drawingWebcamCrop, setDrawingWebcamCrop] = useState(false);
+  const verticalPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const webcamCropDragStartRef = useRef<WebcamFocus | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -218,21 +229,20 @@ const Editor = () => {
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
-  const dailyRendersUsed = me?.usageDaily?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
-  const maxRendersPerDay = me?.limits?.maxRendersPerDay ?? null;
   const rendersRemaining = useMemo(() => {
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
-  const rendersRemainingToday = useMemo(() => {
-    if (maxRendersPerDay === null || maxRendersPerDay === undefined) return null;
-    return Math.max(0, maxRendersPerDay - dailyRendersUsed);
-  }, [maxRendersPerDay, dailyRendersUsed]);
-  const isFreeDailyLimited = tier === "free" && maxRendersPerDay !== null && maxRendersPerDay !== undefined;
-  const hasReachedRenderLimit = isFreeDailyLimited
-    ? (rendersRemainingToday ?? 0) <= 0
-    : maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0;
+  const hasReachedRenderLimitForMode = useCallback((_mode: "standard" | "vertical") => {
+    if (isDevAccount) return false;
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
+    return (rendersRemaining ?? 0) <= 0;
+  }, [
+    isDevAccount,
+    maxRendersPerMonth,
+    rendersRemaining
+  ]);
 
   const [authError, setAuthError] = useState(false);
 
@@ -576,7 +586,8 @@ const Editor = () => {
     renderOptions?: {
       mode?: "standard" | "vertical";
       verticalClipCount?: number;
-      webcamFocus?: { x: number; y: number } | null;
+      webcamFocus?: WebcamFocus | null;
+      webcamCrop?: WebcamCrop | null;
     },
   ) => {
     if (!isAllowedUploadFile(file)) {
@@ -584,9 +595,10 @@ const Editor = () => {
       return false;
     }
     if (!accessToken) return false;
-    if (hasReachedRenderLimit) {
-      const detail = isFreeDailyLimited
-        ? "Free plan includes 1 render per day. Upgrade for more renders."
+    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
+    if (hasReachedRenderLimitForMode(requestedMode)) {
+      const detail = tier === "free"
+        ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
         : `You've used all ${maxRendersPerMonth} renders for this month.`;
       toast({
         title: "Render limit reached",
@@ -596,7 +608,6 @@ const Editor = () => {
     }
     setUploadProgress(0);
     try {
-      const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
       const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
         "/api/jobs/create",
         {
@@ -606,6 +617,7 @@ const Editor = () => {
             renderMode: requestedMode,
             verticalClipCount: renderOptions?.verticalClipCount,
             webcamFocus: renderOptions?.webcamFocus ?? null,
+            webcamCrop: renderOptions?.webcamCrop ?? null,
           }),
           token: accessToken,
         },
@@ -777,12 +789,12 @@ const Editor = () => {
               ? `You've used all ${maxRenders} renders for this month.`
               : "You've reached your monthly render limit.";
         toast({ title: "Render limit reached", description: detail });
-      } else if (err instanceof ApiError && err.code === "DAILY_RENDER_LIMIT_REACHED") {
-        const used = Number(err.data?.rendersUsedToday ?? 1);
-        const day = err.data?.day ? ` for ${err.data.day}` : "";
+      } else if (err instanceof ApiError && err.code === "VERTICAL_RENDER_LIMIT_REACHED") {
+        const used = Number(err.data?.verticalRendersUsed ?? 1);
+        const month = err.data?.month ? ` in ${err.data.month}` : "";
         toast({
-          title: "Daily free limit reached",
-          description: `You already used ${used} free render${used === 1 ? "" : "s"}${day}.`,
+          title: "Vertical render limit reached",
+          description: `You already used ${used} free vertical render${used === 1 ? "" : "s"}${month}.`,
         });
       } else {
         toast({ title: "Upload failed", description: err?.message || "Please try again." });
@@ -805,6 +817,10 @@ const Editor = () => {
     if (isVerticalMode) return;
     setPendingVerticalFile(null);
     setWebcamFocus(null);
+    setWebcamCrop(null);
+    setWebcamCropDraft(null);
+    setWebcamSelectionMode("focus");
+    setDrawingWebcamCrop(false);
     setVerticalClipCount(2);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -819,18 +835,107 @@ const Editor = () => {
     }
     setPendingVerticalFile(file);
     setWebcamFocus(null);
+    setWebcamCrop(null);
+    setWebcamCropDraft(null);
+    setDrawingWebcamCrop(false);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
     });
   };
 
+  const toPreviewPoint = useCallback((clientX: number, clientY: number): WebcamFocus | null => {
+    const preview = verticalPreviewRef.current;
+    if (!preview) return null;
+    const rect = preview.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const x = clamp01((clientX - rect.left) / rect.width);
+    const y = clamp01((clientY - rect.top) / rect.height);
+    return { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) };
+  }, []);
+
+  const buildWebcamCrop = useCallback((start: WebcamFocus, current: WebcamFocus): WebcamCrop => {
+    const left = Math.min(start.x, current.x);
+    const right = Math.max(start.x, current.x);
+    const top = Math.min(start.y, current.y);
+    const bottom = Math.max(start.y, current.y);
+    return {
+      x: Number(left.toFixed(4)),
+      y: Number(top.toFixed(4)),
+      width: Number((right - left).toFixed(4)),
+      height: Number((bottom - top).toFixed(4)),
+    };
+  }, []);
+
   const handleVerticalPreviewClick = (event: React.MouseEvent<HTMLVideoElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const x = clamp01((event.clientX - rect.left) / rect.width);
-    const y = clamp01((event.clientY - rect.top) / rect.height);
-    setWebcamFocus({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+    if (webcamSelectionMode !== "focus") return;
+    const point = toPreviewPoint(event.clientX, event.clientY);
+    if (!point) return;
+    setWebcamFocus(point);
+  };
+
+  const handleWebcamSelectionMode = (mode: WebcamSelectionMode) => {
+    setWebcamSelectionMode(mode);
+    setDrawingWebcamCrop(false);
+    setWebcamCropDraft(null);
+    webcamCropDragStartRef.current = null;
+    if (mode === "manual") {
+      setWebcamFocus(null);
+    } else {
+      setWebcamCrop(null);
+    }
+  };
+
+  const startWebcamCropDrawing = () => {
+    if (!verticalPreviewUrl) return;
+    setDrawingWebcamCrop(true);
+    setWebcamCropDraft(null);
+  };
+
+  const handleWebcamCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawingWebcamCrop) return;
+    const point = toPreviewPoint(event.clientX, event.clientY);
+    if (!point) return;
+    webcamCropDragStartRef.current = point;
+    setWebcamCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handleWebcamCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = webcamCropDragStartRef.current;
+    if (!drawingWebcamCrop || !start) return;
+    const point = toPreviewPoint(event.clientX, event.clientY);
+    if (!point) return;
+    setWebcamCropDraft(buildWebcamCrop(start, point));
+  };
+
+  const finishWebcamCropSelection = (event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+    const start = webcamCropDragStartRef.current;
+    webcamCropDragStartRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!start) {
+      setDrawingWebcamCrop(false);
+      setWebcamCropDraft(null);
+      return;
+    }
+    const point = toPreviewPoint(event.clientX, event.clientY);
+    const nextCrop = point ? buildWebcamCrop(start, point) : webcamCropDraft;
+    if (!cancelled && nextCrop) {
+      if (nextCrop.width < MIN_WEBCAM_CROP_SIZE || nextCrop.height < MIN_WEBCAM_CROP_SIZE) {
+        toast({
+          title: "Crop area too small",
+          description: "Drag a larger box around the webcam region.",
+        });
+      } else {
+        setWebcamCrop(nextCrop);
+        setWebcamFocus(null);
+      }
+    }
+    setDrawingWebcamCrop(false);
+    setWebcamCropDraft(null);
   };
 
   const startVerticalRender = async () => {
@@ -838,18 +943,27 @@ const Editor = () => {
       toast({ title: "Choose a file", description: "Upload an MP4 or MKV before rendering." });
       return;
     }
-    if (!webcamFocus) {
+    if (webcamSelectionMode === "manual") {
+      if (!webcamCrop) {
+        toast({ title: "Draw webcam crop", description: "Select Manual Crop and drag a box around the webcam." });
+        return;
+      }
+    } else if (!webcamFocus) {
       toast({ title: "Pick webcam region", description: "Click the preview where your webcam should be framed." });
       return;
     }
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount,
-      webcamFocus,
+      webcamFocus: webcamSelectionMode === "focus" ? webcamFocus : null,
+      webcamCrop: webcamSelectionMode === "manual" ? webcamCrop : null,
     });
     if (!ok) return;
     setPendingVerticalFile(null);
     setWebcamFocus(null);
+    setWebcamCrop(null);
+    setWebcamCropDraft(null);
+    setDrawingWebcamCrop(false);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -1000,18 +1114,20 @@ const Editor = () => {
 
   const etaLabel = formatEta(etaSeconds);
   const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const activeWebcamCrop = webcamCropDraft ?? webcamCrop;
+  const verticalSelectionReady = webcamSelectionMode === "manual" ? Boolean(webcamCrop) : Boolean(webcamFocus);
 
   return (
     <GlowBackdrop>
       <Navbar />
       <main className="min-h-screen px-4 pt-24 pb-12 max-w-6xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="flex items-center justify-between mb-6">
+          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold font-premium text-foreground">Creator Studio</h1>
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 md:w-auto md:justify-end">
               {me && (
                 <>
                   {isDevAccount && (
@@ -1023,24 +1139,22 @@ const Editor = () => {
                     {tierLabel} plan
                   </Badge>
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {isFreeDailyLimited
-                      ? `${rendersRemainingToday ?? 0} free render left today`
-                      : maxRendersPerMonth === null || maxRendersPerMonth === undefined
-                        ? "Unlimited renders"
-                        : `${rendersRemaining ?? 0} renders left`}
+                    {isDevAccount
+                      ? "Unlimited renders"
+                      : `${rendersRemaining ?? 0} renders left`}
                   </Badge>
                 </>
               )}
-              <Link to={isVerticalMode ? "/editor" : "/editor?mode=vertical"}>
+              <Link to={isVerticalMode ? "/editor" : "/editor?mode=vertical"} className="w-full sm:w-auto">
                 <Button
                   variant={isVerticalMode ? "secondary" : "outline"}
-                  className="rounded-full gap-2 border-border/60"
+                  className="w-full rounded-full gap-2 border-border/60 sm:w-auto"
                 >
                   <ScissorsSquare className="w-4 h-4" />
                   {isVerticalMode ? "Standard Mode" : "Vertical Mode"}
                 </Button>
               </Link>
-              <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
+              <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                 <Plus className="w-4 h-4" /> New Project
               </Button>
             </div>
@@ -1142,7 +1256,7 @@ const Editor = () => {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {isVerticalMode
-                      ? "Then click the preview to place webcam at the top panel."
+                      ? "Then choose Auto Focus or Manual Crop for the top panel webcam."
                       : "MP4 or MKV up to 2GB"}
                   </p>
                   {uploadingJobId && (
@@ -1159,14 +1273,14 @@ const Editor = () => {
 
               {isVerticalMode && (
                 <div className="glass-card p-5 space-y-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
                       <p className="text-xs text-muted-foreground">
-                        Pick up to 3 clips and click the video to mark the webcam focus.
+                        Put webcam at the top and the main video at the bottom.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {[1, 2, 3].map((count) => (
                         <button
                           key={count}
@@ -1183,21 +1297,59 @@ const Editor = () => {
                       ))}
                     </div>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                        webcamSelectionMode === "focus"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border/60 text-muted-foreground hover:border-primary/40"
+                      }`}
+                      onClick={() => handleWebcamSelectionMode("focus")}
+                    >
+                      Auto Focus
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                        webcamSelectionMode === "manual"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border/60 text-muted-foreground hover:border-primary/40"
+                      }`}
+                      onClick={() => handleWebcamSelectionMode("manual")}
+                    >
+                      Manual Crop
+                    </button>
+                    {webcamSelectionMode === "manual" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={drawingWebcamCrop ? "secondary" : "outline"}
+                        className="h-8 text-xs"
+                        onClick={startWebcamCropDrawing}
+                      >
+                        {drawingWebcamCrop ? "Drag On Preview" : webcamCrop ? "Redraw Webcam Crop" : "Draw Webcam Crop"}
+                      </Button>
+                    )}
+                  </div>
                   {!verticalPreviewUrl && (
                     <p className="text-xs text-muted-foreground">
-                      Upload a file to open preview and select webcam placement.
+                      Upload a file to open preview and place your webcam region.
                     </p>
                   )}
                   {verticalPreviewUrl && (
                     <div className="space-y-3">
                       <div className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80">
                         <video
+                          ref={verticalPreviewRef}
                           src={verticalPreviewUrl}
                           controls
-                          className="w-full max-h-[380px] object-contain cursor-crosshair"
+                          className={`w-full max-h-[380px] object-contain ${
+                            webcamSelectionMode === "focus" ? "cursor-crosshair" : "cursor-default"
+                          }`}
                           onClick={handleVerticalPreviewClick}
                         />
-                        {webcamFocus && (
+                        {webcamSelectionMode === "focus" && webcamFocus && (
                           <div
                             className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
                             style={{ left: `${webcamFocus.x * 100}%`, top: `${webcamFocus.y * 100}%` }}
@@ -1205,18 +1357,44 @@ const Editor = () => {
                             <div className="w-5 h-5 rounded-full border-2 border-white bg-primary/90 shadow-[0_0_0_4px_rgba(14,165,233,0.35)]" />
                           </div>
                         )}
+                        {webcamSelectionMode === "manual" && activeWebcamCrop && (
+                          <div
+                            className="absolute border-2 border-primary bg-primary/20 pointer-events-none"
+                            style={{
+                              left: `${activeWebcamCrop.x * 100}%`,
+                              top: `${activeWebcamCrop.y * 100}%`,
+                              width: `${activeWebcamCrop.width * 100}%`,
+                              height: `${activeWebcamCrop.height * 100}%`,
+                            }}
+                          />
+                        )}
+                        {webcamSelectionMode === "manual" && drawingWebcamCrop && (
+                          <div
+                            className="absolute inset-0 z-20 cursor-crosshair touch-none bg-primary/5"
+                            onPointerDown={handleWebcamCropPointerDown}
+                            onPointerMove={handleWebcamCropPointerMove}
+                            onPointerUp={(event) => finishWebcamCropSelection(event)}
+                            onPointerCancel={(event) => finishWebcamCropSelection(event, true)}
+                          />
+                        )}
                       </div>
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                           <MousePointerClick className="w-3.5 h-3.5" />
-                          {webcamFocus
-                            ? `Webcam focus set at ${Math.round(webcamFocus.x * 100)}% / ${Math.round(webcamFocus.y * 100)}%`
-                            : "Click the preview where the webcam should be framed."}
+                          {webcamSelectionMode === "manual"
+                            ? drawingWebcamCrop
+                              ? "Drag across the preview to box the webcam."
+                              : webcamCrop
+                                ? `Webcam crop set to ${Math.round(webcamCrop.width * 100)}% x ${Math.round(webcamCrop.height * 100)}%`
+                                : "Select Manual Crop, then use Draw Webcam Crop."
+                            : webcamFocus
+                              ? `Webcam focus set at ${Math.round(webcamFocus.x * 100)}% / ${Math.round(webcamFocus.y * 100)}%`
+                              : "Click the preview where the webcam should be framed."}
                         </p>
                         <Button
                           type="button"
-                          className="gap-2"
-                          disabled={!pendingVerticalFile || !webcamFocus || !!uploadingJobId}
+                          className="w-full gap-2 sm:w-auto"
+                          disabled={!pendingVerticalFile || !verticalSelectionReady || !!uploadingJobId || drawingWebcamCrop}
                           onClick={startVerticalRender}
                         >
                           <ScissorsSquare className="w-4 h-4" />
@@ -1329,14 +1507,14 @@ const Editor = () => {
                     )}
 
                     {normalizeStatus(activeJob.status) === "ready" && (
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-success flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
                             ? `Vertical clips are ready (${activeOutputUrls.length}).`
                             : "Export is ready. Download your final cut."}
                         </p>
-                        <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
+                        <Button size="sm" className="w-full gap-2 sm:w-auto" onClick={() => setExportOpen(true)}>
                           <Download className="w-4 h-4" />
                           {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
                         </Button>
@@ -1387,11 +1565,11 @@ const Editor = () => {
                 </div>
               </div>
             )}
-            <div className="flex items-center justify-between gap-3">
-              <Button variant="ghost" onClick={() => setExportOpen(false)}>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setExportOpen(false)}>
                 Close
               </Button>
-              <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => handleDownload(0)}>
+              <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
                 <Download className="w-4 h-4" />
                 {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
               </Button>
@@ -1407,10 +1585,10 @@ const Editor = () => {
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
-            <div className="flex items-center justify-end gap-3">
-              <Button variant="ghost" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
               <Button
-                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
                 onClick={() => {
                   try {
                     const url = autoDownloadModal.url;
