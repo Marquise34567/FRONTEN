@@ -104,6 +104,43 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+const STAGE_ETA_BASE_SECONDS: Record<string, number> = {
+  queued: 35,
+  uploading: 60,
+  analyzing: 45,
+  hooking: 30,
+  cutting: 40,
+  pacing: 35,
+  story: 45,
+  subtitling: 60,
+  audio: 35,
+  retention: 30,
+  rendering: 120,
+};
+
+const computeStageEtaBaseline = ({
+  status,
+  fileSizeBytes,
+  quality,
+}: {
+  status: string;
+  fileSizeBytes?: number | null;
+  quality?: ExportQuality | null;
+}) => {
+  const fileMB = fileSizeBytes ? Math.max(1, fileSizeBytes / MB) : 256;
+  const qualityMultiplier = quality === "4k" ? 1.45 : quality === "1080p" ? 1.2 : 1;
+  const base = STAGE_ETA_BASE_SECONDS[status] ?? 75;
+
+  if (status === "uploading") {
+    return Math.max(12, Math.round(fileMB / 8 + 12));
+  }
+  if (status === "rendering") {
+    return Math.max(20, Math.round(base + fileMB * 0.18 * qualityMultiplier));
+  }
+  const variable = Math.round(Math.sqrt(fileMB) * 4 * qualityMultiplier);
+  return Math.max(10, base + variable);
+};
+
 const normalizeStatus = (status?: JobStatus | string | null) => {
   if (!status) return "queued";
   const raw = String(status).toLowerCase();
@@ -151,6 +188,7 @@ const Editor = () => {
   const pipelineStartRef = useRef<Record<string, number>>({});
   const uploadStartRef = useRef<Record<string, number>>({});
   const jobFileSizeRef = useRef<Record<string, number>>({});
+  const statusStartRef = useRef<Record<string, { status: string; startedAt: number }>>({});
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -251,6 +289,16 @@ const Editor = () => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const id = activeJob.id;
+    const normalized = normalizeStatus(activeJob.status);
+    const prev = statusStartRef.current[id];
+    if (!prev || prev.status !== normalized) {
+      statusStartRef.current[id] = { status: normalized, startedAt: Date.now() };
+    }
+  }, [activeJob?.id, activeJob?.status]);
 
   useEffect(() => {
     if (!selectedJobId && jobs.length > 0) {
@@ -500,6 +548,7 @@ const Editor = () => {
 
       setUploadingJobId(create.job.id);
       pipelineStartRef.current[create.job.id] = Date.now();
+      statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
       setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       const nextParams = new URLSearchParams(searchParams);
@@ -538,7 +587,12 @@ const Editor = () => {
             const chunk = file.slice(start, end)
             const resp = await fetch(p.url, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk })
             if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
-            const etag = resp.headers.get('ETag') || resp.headers.get('etag') || ''
+            const etag = resp.headers.get('ETag') || resp.headers.get('etag')
+            if (!etag) {
+              throw new Error(
+                'missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads'
+              )
+            }
             parts.push({ ETag: etag, PartNumber: partNumber })
             uploaded += chunk.size
             setUploadBytesUploaded(uploaded)
@@ -707,6 +761,14 @@ const Editor = () => {
     if (!activeJob) return null;
     const normalized = normalizeStatus(activeJob.status);
     if (normalized === "ready" || normalized === "failed") return null;
+    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
+    const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
+    const stageMarker = statusStartRef.current[activeJob.id];
+    const stageStartedAt =
+      stageMarker && stageMarker.status === normalized
+        ? stageMarker.startedAt
+        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
 
     // If we're uploading, compute ETA from raw upload bytes/speed plus a small post-upload buffer
     if (normalized === "uploading") {
@@ -720,8 +782,8 @@ const Editor = () => {
           const remainingBytes = Math.max(0, total - uploaded);
           const uploadETA = Math.round(remainingBytes / speed);
           // estimate post-upload processing: conservative heuristic based on file size
-          const fileSize = jobFileSizeRef.current[activeJob.id] ?? total;
-          const fileMB = Math.max(1, fileSize / (1024 * 1024));
+          const uploadSize = jobFileSizeRef.current[activeJob.id] ?? total;
+          const fileMB = Math.max(1, uploadSize / (1024 * 1024));
           const processingEstimate = Math.round(fileMB * 0.2); // ~0.2s per MB as a conservative baseline
           return Math.max(0, uploadETA + processingEstimate);
         }
@@ -743,7 +805,8 @@ const Editor = () => {
       const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
       return Math.max(0, remaining);
     }
-    return null;
+    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
+    return Math.max(1, Math.round(baseline - stageElapsed));
   }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
@@ -757,7 +820,7 @@ const Editor = () => {
     return `${remSecs}s`;
   };
 
-  const etaLabel = etaSeconds !== null ? formatEta(etaSeconds) : "Estimating...";
+  const etaLabel = formatEta(etaSeconds);
   const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
 
   return (
