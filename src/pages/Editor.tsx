@@ -9,24 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
-import * as tus from "tus-js-client";
 import { useAuth } from "@/providers/AuthProvider";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
-import { supabase } from "@/integrations/supabase/client";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 
 const MB = 1024 * 1024;
-const LARGE_UPLOAD_THRESHOLD = 200 * MB;
 // Supabase resumable endpoint removed; server-side proxy/presign used instead
-
-const chunkSizeForFile = (size: number) => {
-  if (size >= 2 * 1024 * MB) return 24 * MB;
-  if (size >= 1024 * MB) return 16 * MB;
-  if (size >= 512 * MB) return 12 * MB;
-  return 8 * MB;
-};
 
 type JobStatus =
   | "queued"
@@ -324,68 +314,6 @@ const Editor = () => {
     });
   };
 
-  const uploadResumable = ({
-    file,
-    bucket,
-    inputPath,
-    token,
-    onProgress,
-  }: {
-    file: File;
-    bucket: string;
-    inputPath: string;
-    token: string;
-    onProgress: (value: number) => void;
-  }) => {
-    return new Promise<void>((resolve, reject) => {
-      if (!RESUMABLE_ENDPOINT || !SUPABASE_PUBLISHABLE_KEY) {
-        reject(new Error("Resumable upload is not configured."));
-        return;
-      }
-
-      const upload = new tus.Upload(file, {
-        endpoint: RESUMABLE_ENDPOINT,
-        retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
-        chunkSize: chunkSizeForFile(file.size),
-        uploadDataDuringCreation: true,
-        removeFingerprintOnSuccess: true,
-        metadata: {
-          bucketName: bucket,
-          objectName: inputPath,
-          contentType: file.type || "application/octet-stream",
-          cacheControl: "3600",
-        },
-        headers: {
-          authorization: `Bearer ${token}`,
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          "x-upsert": "true",
-        },
-        onError: (error) => reject(error),
-        onProgress: (bytesUploaded, bytesTotal) => {
-          if (!bytesTotal) return;
-          const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-          onProgress(Math.min(100, Math.max(0, percent)));
-        },
-        onSuccess: () => {
-          onProgress(100);
-          resolve();
-        },
-      });
-
-      upload
-        .findPreviousUploads()
-        .then((previousUploads) => {
-          if (previousUploads.length > 0) {
-            upload.resumeFromPreviousUpload(previousUploads[0]);
-          }
-          upload.start();
-        })
-        .catch(() => {
-          upload.start();
-        });
-    });
-  };
-
   const handleFile = async (file: File) => {
     if (!accessToken) return;
     if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
@@ -414,57 +342,40 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      const useResumable = file.size >= LARGE_UPLOAD_THRESHOLD;
-      if (useResumable) {
-        try {
-          await uploadResumable({
-            file,
-            bucket: create.bucket,
-            inputPath: create.inputPath,
-            token: accessToken,
-            onProgress: setUploadProgress,
-          });
-        } catch (err) {
-          console.warn("Resumable upload failed, falling back.", err);
-          if (create.uploadUrl) {
-            await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
-          } else {
-            const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-              body: file,
-            });
-            if (!proxyResp.ok) throw new Error('Proxy upload failed');
-            setUploadProgress(100);
-          }
-        }
-      } else if (create.uploadUrl) {
+      const uploadViaProxy = async () => {
+        const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!proxyResp.ok) throw new Error("Proxy upload failed");
+        setUploadProgress(100);
+      };
+
+      let usedProxyUpload = false;
+      if (create.uploadUrl) {
         try {
           await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
         } catch (err) {
-          const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          if (!proxyResp.ok) throw new Error('Proxy upload failed');
-          setUploadProgress(100);
+          console.warn("Direct upload failed, falling back to proxy.", err);
+          await uploadViaProxy();
+          usedProxyUpload = true;
         }
       } else {
-        const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
-        });
-        if (!proxyResp.ok) throw new Error('Proxy upload failed');
-        setUploadProgress(100);
+        await uploadViaProxy();
+        usedProxyUpload = true;
       }
 
-      await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
-        method: "POST",
-        body: JSON.stringify({ inputPath: create.inputPath }),
-        token: accessToken,
-      });
+      if (!usedProxyUpload) {
+        await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
+          method: "POST",
+          body: JSON.stringify({ key: create.inputPath, inputPath: create.inputPath }),
+          token: accessToken,
+        });
+      }
 
       toast({ title: "Upload complete", description: "Your job is now processing." });
       setUploadingJobId(null);
