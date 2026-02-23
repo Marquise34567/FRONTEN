@@ -19,9 +19,7 @@ import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 200 * MB;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const RESUMABLE_ENDPOINT = SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1/upload/resumable` : null;
+// Supabase resumable endpoint removed; server-side proxy/presign used instead
 
 const chunkSizeForFile = (size: number) => {
   if (size >= 2 * 1024 * MB) return 24 * MB;
@@ -431,8 +429,12 @@ const Editor = () => {
           if (create.uploadUrl) {
             await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
           } else {
-            const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-            if (error) throw error;
+            const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+              body: file,
+            });
+            if (!proxyResp.ok) throw new Error('Proxy upload failed');
             setUploadProgress(100);
           }
         }
@@ -440,13 +442,21 @@ const Editor = () => {
         try {
           await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
         } catch (err) {
-          const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-          if (error) throw error;
+          const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+            body: file,
+          });
+          if (!proxyResp.ok) throw new Error('Proxy upload failed');
           setUploadProgress(100);
         }
       } else {
-        const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-        if (error) throw error;
+        const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        if (!proxyResp.ok) throw new Error('Proxy upload failed');
         setUploadProgress(100);
       }
 
