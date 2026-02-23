@@ -23,10 +23,12 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || !password) return;
     setSubmitting(true);
     setErrorMessage(null);
     setErrorCode(null);
-    const result = await signIn(email, password);
+    const result = await signIn(normalizedEmail, password);
     setSubmitting(false);
     if (result.error) {
       setErrorMessage(result.error);
@@ -41,12 +43,13 @@ const Login = () => {
     errorCode === "email_not_confirmed" || errorCode === "provider_email_needs_verification";
 
   const handleResend = async () => {
-    if (!email.trim()) {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
       toast({ title: "Email required", description: "Enter your email to resend confirmation." });
       return;
     }
     setResending(true);
-    const result = await resendConfirmation(email);
+    const result = await resendConfirmation(normalizedEmail);
     setResending(false);
     if (result.error) {
       toast({ title: "Resend failed", description: result.error });
@@ -76,7 +79,9 @@ const Login = () => {
                 <Label htmlFor="email" className="text-sm text-muted-foreground">Email address</Label>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -88,7 +93,9 @@ const Login = () => {
                 <Label htmlFor="password" className="text-sm text-muted-foreground">Password</Label>
                 <Input
                   id="password"
+                  name="password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="Your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

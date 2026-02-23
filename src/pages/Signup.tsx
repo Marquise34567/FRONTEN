@@ -22,12 +22,18 @@ const Signup = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || !password || !confirm) return;
+    if (password.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters." });
+      return;
+    }
     if (password !== confirm) {
       toast({ title: "Passwords do not match", description: "Please re-enter your password." });
       return;
     }
     setSubmitting(true);
-    const result = await signUp(email, password);
+    const result = await signUp(normalizedEmail, password);
     setSubmitting(false);
     if (result.error) {
       toast({ title: "Sign up failed", description: result.error });
@@ -72,7 +78,9 @@ const Signup = () => {
                   <Label htmlFor="email" className="text-sm text-muted-foreground">Email address</Label>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     placeholder="you@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -84,7 +92,10 @@ const Signup = () => {
                   <Label htmlFor="password" className="text-sm text-muted-foreground">Password</Label>
                   <Input
                     id="password"
+                    name="password"
                     type="password"
+                    autoComplete="new-password"
+                    minLength={8}
                     placeholder="Create a password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -96,7 +107,10 @@ const Signup = () => {
                   <Label htmlFor="confirm" className="text-sm text-muted-foreground">Confirm password</Label>
                   <Input
                     id="confirm"
+                    name="confirmPassword"
                     type="password"
+                    autoComplete="new-password"
+                    minLength={8}
                     placeholder="Re-enter password"
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
