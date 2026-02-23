@@ -139,6 +139,7 @@ const Editor = () => {
   const [activeJob, setActiveJob] = useState<JobDetail | null>(null);
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
@@ -149,6 +150,7 @@ const Editor = () => {
   const pipelineStartRef = useRef<Record<string, number>>({});
   const uploadStartRef = useRef<Record<string, number>>({});
   const jobFileSizeRef = useRef<Record<string, number>>({});
+  const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken } = useAuth();
@@ -371,6 +373,14 @@ const Editor = () => {
   }, [activeJob?.id, activeJob?.status]);
 
   useEffect(() => {
+    return () => {
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
+      } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
     if (!activeJob) return;
     setQualityByJob((prev) => {
       if (prev[activeJob.id]) return prev;
@@ -537,6 +547,76 @@ const Editor = () => {
       setSearchParams(nextParams, { replace: false });
 
       const useResumable = Boolean(RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY);
+      // New R2 multipart upload flow
+      const tryR2Multipart = async () => {
+        try {
+          const r2create = await apiFetch<{
+            jobId: string
+            objectKey: string
+            uploadId: string
+            partSizeBytes: number
+          }>(`/api/uploads/create`, {
+            method: "POST",
+            body: JSON.stringify({ fileName: file.name, fileSizeBytes: file.size, mimeType: file.type }),
+            token: accessToken,
+          })
+
+          const { jobId, objectKey, uploadId, partSizeBytes } = r2create
+
+          // chunk and upload
+          const total = file.size
+          const partSize = partSizeBytes || 10 * MB
+          const partsCount = Math.ceil(total / partSize)
+          const parts: { ETag: string; PartNumber: number }[] = []
+          let uploaded = 0
+          jobFileSizeRef.current[jobId] = total
+          uploadStartRef.current[jobId] = Date.now()
+
+          for (let partNumber = 1; partNumber <= partsCount; partNumber++) {
+            const start = (partNumber - 1) * partSize
+            const end = Math.min(total, start + partSize)
+            const chunk = file.slice(start, end)
+            const signRes = await apiFetch<{ url: string }>(`/api/uploads/sign-part`, {
+              method: 'POST',
+              body: JSON.stringify({ jobId, objectKey, uploadId, partNumber }),
+              token: accessToken,
+            })
+            const url = signRes.url
+            // PUT chunk
+            const resp = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/octet-stream' },
+              body: chunk,
+            })
+            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
+            const etag = resp.headers.get('ETag') || resp.headers.get('etag') || ''
+            parts.push({ ETag: etag, PartNumber: partNumber })
+            uploaded += chunk.size
+            setUploadBytesUploaded(uploaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((uploaded / total) * 100))
+          }
+
+          // complete
+          await apiFetch('/api/uploads/complete', {
+            method: 'POST',
+            body: JSON.stringify({ jobId, objectKey, uploadId, parts }),
+            token: accessToken,
+          })
+
+          // reflect completion in UI
+          setUploadProgress(100)
+          setUploadingJobId(null)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          return true
+        } catch (err) {
+          console.warn('R2 multipart upload failed, falling back', err)
+          return false
+        }
+      }
       if (useResumable && RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY) {
         try {
           // record file size and upload start time for ETA
@@ -557,6 +637,12 @@ const Editor = () => {
           });
         } catch (err) {
           console.warn("Resumable upload failed, falling back.", err);
+          // Try R2 multipart first before falling back to uploadUrl or supabase
+          const usedR2 = await tryR2Multipart()
+          if (usedR2) {
+            // already handled completion inside tryR2Multipart
+            return
+          }
           if (create.uploadUrl) {
             // record file size and upload start time for ETA
             jobFileSizeRef.current[create.job.id] = file.size;
@@ -573,6 +659,9 @@ const Editor = () => {
           }
         }
       } else if (create.uploadUrl) {
+        // Try R2 multipart before using create.uploadUrl
+        const usedR2 = await tryR2Multipart()
+        if (usedR2) return
         try {
           // record file size and upload start time for ETA
           jobFileSizeRef.current[create.job.id] = file.size;
@@ -588,23 +677,35 @@ const Editor = () => {
           setUploadProgress(100);
         }
       } else {
+        // No resumable or uploadUrl: try R2 multipart then fallback to supabase
+        const usedR2 = await tryR2Multipart()
+        if (usedR2) return
         const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
         if (error) throw error;
         setUploadProgress(100);
       }
+      // For non-R2 flows, notify backend that upload is complete so pipeline can start
+      if (!create.uploadUrl) {
+        await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
+          method: "POST",
+          body: JSON.stringify({ inputPath: create.inputPath }),
+          token: accessToken,
+        });
 
-      await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
-        method: "POST",
-        body: JSON.stringify({ inputPath: create.inputPath }),
-        token: accessToken,
-      });
+        toast({ title: "Upload complete", description: "Your job is now processing." });
+        // briefly highlight this job so the user knows which one is processing
+        try {
+          if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
+        } catch (e) {}
+        setHighlightedJobId(create.job.id);
+        highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000);
 
-      toast({ title: "Upload complete", description: "Your job is now processing." });
-      setUploadingJobId(null);
-      setUploadProgress(0);
-      setUploadBytesUploaded(null);
-      setUploadBytesTotal(null);
-      fetchJobs();
+        setUploadingJobId(null);
+        setUploadProgress(0);
+        setUploadBytesUploaded(null);
+        setUploadBytesTotal(null);
+        fetchJobs();
+      }
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -688,11 +789,11 @@ const Editor = () => {
           return Math.max(0, uploadETA + processingEstimate);
         }
       }
-      // fallback: use a lightweight estimate from percent progress if bytes aren't available
-      const uploadContribution = Math.min(10, Math.max(1, Math.round(uploadProgress * 0.1)));
-      const startAtFallback = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+      // fallback: estimate from upload percent progress if byte counts aren't available
+      // Use the actual upload percent (0-100) rather than an unnecessarily scaled value.
+      const startAtFallback = pipelineStartRef.current[create.job.id] ?? new Date(activeJob.createdAt).getTime();
       const elapsed = Math.max(1, (Date.now() - startAtFallback) / 1000);
-      const boundedProgress = Math.max(1, Math.min(99, uploadContribution));
+      const boundedProgress = Math.max(1, Math.min(99, uploadProgress ?? 0));
       const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
       return Math.max(0, Math.round(remaining));
     }
@@ -787,11 +888,13 @@ const Editor = () => {
                     type="button"
                     onClick={() => handleSelectJob(job.id)}
                     className={`w-full text-left rounded-xl border px-3 py-3 transition ${
-                      normalizeStatus(job.status) === "ready"
-                        ? "border-success/40 bg-success/10"
-                        : selectedJobId === job.id
-                          ? "border-primary/40 bg-primary/10"
-                          : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
+                      highlightedJobId === job.id
+                        ? "ring-2 ring-primary/40 bg-primary/10 border-primary/40"
+                        : normalizeStatus(job.status) === "ready"
+                          ? "border-success/40 bg-success/10"
+                          : selectedJobId === job.id
+                            ? "border-primary/40 bg-primary/10"
+                            : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">

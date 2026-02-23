@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/(?!site\.webmanifest|favicon-.*|robots\.txt|_next/.*|assets/.*|favicon\.ico)(.*)",
       "destination": "/index.html"
     }
   ]
