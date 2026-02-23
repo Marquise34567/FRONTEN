@@ -10,13 +10,34 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { apiFetch, ApiError } from "@/lib/api";
+import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
 import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 
 const MB = 1024 * 1024;
-// Supabase resumable endpoint removed; server-side proxy/presign used instead
+const LARGE_UPLOAD_THRESHOLD = 64 * MB;
+// Supabase storage removed — use R2 via backend pre-signed multipart URLs only
+const FILE_INPUT_ACCEPT = ".mp4,.mkv,video/mp4,video/x-matroska";
+const isAllowedUploadFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  return lowerName.endsWith(".mp4") || lowerName.endsWith(".mkv");
+};
+
+const chunkSizeForFile = (size: number) => {
+  if (size >= 2 * 1024 * MB) return 32 * MB;
+  if (size >= 1024 * MB) return 24 * MB;
+  if (size >= 512 * MB) return 16 * MB;
+  if (size >= 256 * MB) return 12 * MB;
+  return 8 * MB;
+};
+
+const uploadParallelismForFile = (size: number) => {
+  if (size >= 1024 * MB) return 4;
+  if (size >= 512 * MB) return 3;
+  if (size >= 256 * MB) return 2;
+  return 1;
+};
 
 type JobStatus =
   | "queued"
@@ -83,10 +104,49 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+const STAGE_ETA_BASE_SECONDS: Record<string, number> = {
+  queued: 35,
+  uploading: 60,
+  analyzing: 45,
+  hooking: 30,
+  cutting: 40,
+  pacing: 35,
+  story: 45,
+  subtitling: 60,
+  audio: 35,
+  retention: 30,
+  rendering: 120,
+};
+
+const computeStageEtaBaseline = ({
+  status,
+  fileSizeBytes,
+  quality,
+}: {
+  status: string;
+  fileSizeBytes?: number | null;
+  quality?: ExportQuality | null;
+}) => {
+  const fileMB = fileSizeBytes ? Math.max(1, fileSizeBytes / MB) : 256;
+  const qualityMultiplier = quality === "4k" ? 1.45 : quality === "1080p" ? 1.2 : 1;
+  const base = STAGE_ETA_BASE_SECONDS[status] ?? 75;
+
+  if (status === "uploading") {
+    return Math.max(12, Math.round(fileMB / 8 + 12));
+  }
+  if (status === "rendering") {
+    return Math.max(20, Math.round(base + fileMB * 0.18 * qualityMultiplier));
+  }
+  const variable = Math.round(Math.sqrt(fileMB) * 4 * qualityMultiplier);
+  return Math.max(10, base + variable);
+};
+
 const normalizeStatus = (status?: JobStatus | string | null) => {
   if (!status) return "queued";
-  if (status === "completed") return "ready";
-  return status;
+  const raw = String(status).toLowerCase();
+  if (raw === "completed" || raw === "ready") return "ready";
+  if (raw === "processing") return "rendering";
+  return raw as JobStatus;
 };
 
 const isTerminalStatus = (status?: JobStatus | string | null) => {
@@ -117,20 +177,30 @@ const Editor = () => {
   const [activeJob, setActiveJob] = useState<JobDetail | null>(null);
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
+  const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
   const pipelineStartRef = useRef<Record<string, number>>({});
+  const uploadStartRef = useRef<Record<string, number>>({});
+  const jobFileSizeRef = useRef<Record<string, number>>({});
+  const statusStartRef = useRef<Record<string, { status: string; startedAt: number }>>({});
+  const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { accessToken } = useAuth();
+  const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
   const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
+  const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
+  const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
@@ -143,17 +213,29 @@ const Editor = () => {
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
 
+  const [authError, setAuthError] = useState(false);
+
   const fetchJobs = useCallback(async () => {
-    if (!accessToken) return;
     try {
-      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
+      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs");
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err) {
-      toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+      if (err instanceof ApiError && err.status === 401) {
+        // Stop further polling and surface a clear message
+        setAuthError(true);
+        toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
+        try {
+          await signOut();
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+      }
     } finally {
       setLoadingJobs(false);
     }
-  }, [accessToken, toast]);
+  }, [toast, signOut]);
 
   const fetchJob = useCallback(
     async (jobId: string) => {
@@ -170,7 +252,13 @@ const Editor = () => {
           return next;
         });
       } catch (err) {
-        toast({ title: "Failed to load job", description: "Please refresh and try again." });
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true)
+          toast({ title: "Session expired", description: "Please sign in again." })
+          try { await signOut() } catch (e) {}
+        } else {
+          toast({ title: "Failed to load job", description: "Please refresh and try again." });
+        }
         setActiveJob(null);
       } finally {
         setLoadingJob(false);
@@ -184,9 +272,33 @@ const Editor = () => {
   }, [fetchJobs]);
 
   useEffect(() => {
+    if (!accessToken) {
+      const local = typeof window !== "undefined" ? window.localStorage.getItem("autoDownloadEnabled") : null;
+      setAutoDownloadEnabled(local === "true");
+      return;
+    }
+    apiFetch('/api/billing/entitlements', { token: accessToken })
+      .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
+      .catch(() => setEntitlements(null));
+    apiFetch('/api/settings', { token: accessToken })
+      .then((d) => setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload)))
+      .catch(() => setAutoDownloadEnabled(null));
+  }, [accessToken]);
+
+  useEffect(() => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const id = activeJob.id;
+    const normalized = normalizeStatus(activeJob.status);
+    const prev = statusStartRef.current[id];
+    if (!prev || prev.status !== normalized) {
+      statusStartRef.current[id] = { status: normalized, startedAt: Date.now() };
+    }
+  }, [activeJob?.id, activeJob?.status]);
 
   useEffect(() => {
     if (!selectedJobId && jobs.length > 0) {
@@ -206,12 +318,12 @@ const Editor = () => {
   }, [selectedJobId, fetchJob]);
 
   useEffect(() => {
-    if (!hasActiveJobs) return;
+    if (!hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
     }, 2500);
     return () => clearInterval(timer);
-  }, [hasActiveJobs, fetchJobs]);
+  }, [hasActiveJobs, fetchJobs, authError]);
 
   useEffect(() => {
     if (!activeJob || !selectedJobId) return;
@@ -224,18 +336,98 @@ const Editor = () => {
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
-    let completed = false;
     const next = new Map<string, JobStatus>();
+    const transitioned: string[] = [];
     for (const job of jobs) {
       next.set(job.id, job.status);
       const prevStatus = prev.get(job.id);
-      if (prevStatus && !isTerminalStatus(prevStatus) && normalizeStatus(job.status) === "ready") {
-        completed = true;
+      const prevNorm = normalizeStatus(prevStatus);
+      const newNorm = normalizeStatus(job.status);
+      if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
+        transitioned.push(job.id);
       }
     }
     prevJobStatusRef.current = next;
-    if (completed) refetchMe();
-  }, [jobs, refetchMe]);
+    if (transitioned.length > 0) {
+      refetchMe();
+      for (const id of transitioned) {
+        ;(async () => {
+          try {
+            // ensure entitlements/settings are loaded
+            if (entitlements === null && accessToken) {
+              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
+              setEntitlements(d?.entitlements ?? null);
+            }
+            if (autoDownloadEnabled === null) {
+              if (accessToken) {
+                const s = await apiFetch('/api/settings', { token: accessToken });
+                setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+              } else {
+                const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
+                setAutoDownloadEnabled(local === 'true');
+              }
+            }
+            // decide whether to auto-download
+            const allowed = entitlements?.autoDownloadAllowed ?? false;
+            const enabled = autoDownloadEnabled ?? false;
+            const downloadedKey = `auto_downloaded_${id}`;
+            if (!allowed || !enabled) return;
+            if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
+
+            // fetch job detail to get URL or fileName
+            const j = jobs.find((x) => x.id === id);
+            let fileName: string | undefined;
+            let url: string | undefined;
+            if (j && (j as any).outputUrl) {
+              url = (j as any).outputUrl;
+              fileName = (j as any).fileName ?? undefined;
+            } else {
+              try {
+                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
+                url = resp?.job?.outputUrl ?? undefined;
+                fileName = resp?.job?.fileName ?? undefined;
+              } catch (e) {
+                // fallback to download-url endpoint
+              }
+            }
+            if (!url) {
+              try {
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: 'POST', token: accessToken });
+                url = out.url;
+              } catch (e) {
+                return;
+              }
+            }
+
+            // attempt programmatic download
+            const a = document.createElement('a');
+            a.href = url as string;
+            if (fileName) a.download = fileName;
+            a.target = '_blank';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            try {
+              a.click();
+              // assume success; if browser blocked, user can tap in modal
+              // set a short timeout to mark as downloaded optimistically
+              setTimeout(() => {
+                try {
+                  window.localStorage.setItem(downloadedKey, 'true');
+                } catch (e) {}
+              }, 1200);
+            } catch (e) {
+              // show modal fallback
+              setAutoDownloadModal({ open: true, url, fileName, jobId: id });
+            } finally {
+              document.body.removeChild(a);
+            }
+          } catch (e) {
+            // ignore
+          }
+        })();
+      }
+    }
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -246,6 +438,14 @@ const Editor = () => {
     window.localStorage.setItem(key, "true");
     setExportOpen(true);
   }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
+      } catch (e) {}
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -295,13 +495,19 @@ const Editor = () => {
     });
   }, [activeJob, maxQuality, selectedQuality]);
 
-  const uploadWithProgress = (url: string, file: File, onProgress: (value: number) => void) => {
+  const uploadWithProgress = (
+    url: string,
+    file: File,
+    onProgress: (value: number) => void,
+    onProgressBytes?: (loaded: number, total: number) => void,
+  ) => {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
         const percent = Math.round((event.loaded / event.total) * 100);
         onProgress(percent);
+        if (onProgressBytes) onProgressBytes(event.loaded, event.total);
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) resolve();
@@ -314,7 +520,13 @@ const Editor = () => {
     });
   };
 
+  // Resumable upload logic removed — we use backend-presigned multipart upload to R2
+
   const handleFile = async (file: File) => {
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+      return;
+    }
     if (!accessToken) return;
     if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
       toast({
@@ -336,51 +548,155 @@ const Editor = () => {
 
       setUploadingJobId(create.job.id);
       pipelineStartRef.current[create.job.id] = Date.now();
+      statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
       setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
+      // Attempt R2 multipart first (preferred for large files)
+      const tryR2Multipart = async () => {
+        try {
+          const r2create = await apiFetch<{
+            uploadId: string
+            key: string
+            partSize: number
+            presignedParts: { partNumber: number; url: string }[]
+          }>(`/api/uploads/create`, {
+            method: 'POST',
+            body: JSON.stringify({ jobId: create.job.id, filename: file.name, contentType: file.type, sizeBytes: file.size }),
+            token: accessToken,
+          })
+
+          const { uploadId, key, partSize, presignedParts } = r2create
+          if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error('invalid_r2_create')
+
+          const total = file.size
+          const actualPartSize = partSize || 10 * MB
+          const parts: { ETag: string; PartNumber: number }[] = []
+          let uploaded = 0
+          jobFileSizeRef.current[create.job.id] = total
+          uploadStartRef.current[create.job.id] = Date.now()
+
+          // presignedParts should be ordered by partNumber; iterate and upload corresponding slices
+          for (const p of presignedParts) {
+            const partNumber = p.partNumber
+            const start = (partNumber - 1) * actualPartSize
+            const end = Math.min(total, start + actualPartSize)
+            const chunk = file.slice(start, end)
+            const resp = await fetch(p.url, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk })
+            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
+            const etag = resp.headers.get('ETag') || resp.headers.get('etag')
+            if (!etag) {
+              throw new Error(
+                'missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads'
+              )
+            }
+            parts.push({ ETag: etag, PartNumber: partNumber })
+            uploaded += chunk.size
+            setUploadBytesUploaded(uploaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((uploaded / total) * 100))
+          }
+
+          // Complete multipart upload on backend
+          await apiFetch('/api/uploads/complete', {
+            method: 'POST',
+            body: JSON.stringify({ jobId: create.job.id, key, uploadId, parts }),
+            token: accessToken,
+          })
+
+          setUploadProgress(100)
+          setUploadingJobId(null)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          return true
+        } catch (err) {
+          console.warn('R2 multipart upload failed', err)
+          // best-effort abort if we have uploadId
+          try {
+            const maybe = err as any
+            if (maybe?.uploadId && maybe?.key) {
+              await apiFetch('/api/uploads/abort', { method: 'POST', body: JSON.stringify({ key: maybe.key, uploadId: maybe.uploadId }), token: accessToken })
+            }
+          } catch (e) {}
+          return false
+        }
+      }
+
+      // Always try R2 multipart first
+      const usedR2 = await tryR2Multipart()
+      if (usedR2) return
+
       const uploadViaProxy = async () => {
-        const proxyResp = await fetch(`/api/uploads/proxy?jobId=${create.job.id}`, {
+        const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
+        const proxyUrl = API_URL ? `${API_URL}${proxyPath}` : proxyPath
+        const proxyResp = await fetch(proxyUrl, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": file.type || "application/octet-stream",
           },
           body: file,
-        });
-        if (!proxyResp.ok) throw new Error("Proxy upload failed");
-        setUploadProgress(100);
-      };
+        })
+        if (!proxyResp.ok) throw new Error('Proxy upload failed')
+        setUploadProgress(100)
+      }
 
-      let usedProxyUpload = false;
+      // Fallback: if server provided a single PUT uploadUrl, use it. Otherwise use proxy upload.
       if (create.uploadUrl) {
+        jobFileSizeRef.current[create.job.id] = file.size
+        uploadStartRef.current[create.job.id] = Date.now()
         try {
-          await uploadWithProgress(create.uploadUrl, file, setUploadProgress);
+          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+            setUploadBytesUploaded(loaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((loaded / total) * 100))
+          })
         } catch (err) {
-          console.warn("Direct upload failed, falling back to proxy.", err);
-          await uploadViaProxy();
-          usedProxyUpload = true;
+          console.warn('Direct upload failed, falling back to proxy', err)
+          await uploadViaProxy()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          setUploadingJobId(null)
+          setUploadProgress(0)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          return
         }
-      } else {
-        await uploadViaProxy();
-        usedProxyUpload = true;
-      }
 
-      if (!usedProxyUpload) {
+        // Notify backend of completion for single-PUT flow
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
-          method: "POST",
-          body: JSON.stringify({ key: create.inputPath, inputPath: create.inputPath }),
+          method: 'POST',
+          body: JSON.stringify({ key: create.inputPath }),
           token: accessToken,
-        });
+        })
+
+        toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+        setUploadingJobId(null)
+        setUploadProgress(0)
+        setUploadBytesUploaded(null)
+        setUploadBytesTotal(null)
+        fetchJobs()
+        return
       }
 
-      toast({ title: "Upload complete", description: "Your job is now processing." });
-      setUploadingJobId(null);
-      setUploadProgress(0);
-      fetchJobs();
+      // No direct upload URL available; proxy upload will update job and enqueue processing server-side.
+      await uploadViaProxy()
+      toast({ title: "Upload complete", description: "Your job is now processing." })
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any)
+      } catch (e) {}
+      setHighlightedJobId(create.job.id)
+      highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000)
+      setUploadingJobId(null)
+      setUploadProgress(0)
+      setUploadBytesUploaded(null)
+      setUploadBytesTotal(null)
+      fetchJobs()
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -398,6 +714,8 @@ const Editor = () => {
       }
       setUploadingJobId(null);
       setUploadProgress(0);
+      setUploadBytesUploaded(null);
+      setUploadBytesTotal(null);
     }
   };
 
@@ -443,21 +761,53 @@ const Editor = () => {
     if (!activeJob) return null;
     const normalized = normalizeStatus(activeJob.status);
     if (normalized === "ready" || normalized === "failed") return null;
+    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
+    const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
+    const stageMarker = statusStartRef.current[activeJob.id];
+    const stageStartedAt =
+      stageMarker && stageMarker.status === normalized
+        ? stageMarker.startedAt
+        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
+
+    // If we're uploading, compute ETA from raw upload bytes/speed plus a small post-upload buffer
+    if (normalized === "uploading") {
+      const uploaded = uploadBytesUploaded;
+      const total = uploadBytesTotal;
+      const startAt = uploadStartRef.current[activeJob.id] ?? pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+      if (uploaded && total && uploaded > 0) {
+        const elapsedUpload = Math.max(0.5, (Date.now() - startAt) / 1000);
+        const speed = uploaded / elapsedUpload; // bytes/sec
+        if (speed > 0) {
+          const remainingBytes = Math.max(0, total - uploaded);
+          const uploadETA = Math.round(remainingBytes / speed);
+          // estimate post-upload processing: conservative heuristic based on file size
+          const uploadSize = jobFileSizeRef.current[activeJob.id] ?? total;
+          const fileMB = Math.max(1, uploadSize / (1024 * 1024));
+          const processingEstimate = Math.round(fileMB * 0.2); // ~0.2s per MB as a conservative baseline
+          return Math.max(0, uploadETA + processingEstimate);
+        }
+      }
+      // fallback: estimate from upload percent progress if byte counts aren't available
+      // Use the actual upload percent (0-100) rather than an unnecessarily scaled value.
+      const startAtFallback = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+      const elapsed = Math.max(1, (Date.now() - startAtFallback) / 1000);
+      const boundedProgress = Math.max(1, Math.min(99, uploadProgress ?? 0));
+      const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
+      return Math.max(0, Math.round(remaining));
+    }
+
+    // Otherwise, estimate remaining processing time from job progress and elapsed pipeline time.
     const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
     const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
     const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
-    const uploadContribution = Math.min(10, Math.max(1, Math.round(uploadProgress * 0.1)));
-    const effectiveProgress =
-      normalized === "uploading"
-        ? uploadContribution
-        : jobProgress > 0
-          ? Math.max(uploadContribution, jobProgress)
-          : uploadContribution;
-    const boundedProgress = Math.max(1, Math.min(99, effectiveProgress));
-    if (boundedProgress < 2) return null;
-    const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
-    return Math.max(0, Math.round(remaining));
-  }, [activeJob, etaTick, uploadProgress]);
+    if (jobProgress > 0) {
+      const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
+      return Math.max(0, remaining);
+    }
+    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
+    return Math.max(1, Math.round(baseline - stageElapsed));
+  }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
     if (!seconds || seconds <= 0) return "Finalizing...";
@@ -470,7 +820,7 @@ const Editor = () => {
     return `${remSecs}s`;
   };
 
-  const etaLabel = etaSeconds !== null ? formatEta(etaSeconds) : "Estimating...";
+  const etaLabel = formatEta(etaSeconds);
   const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
 
   return (
@@ -510,7 +860,7 @@ const Editor = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept="video/*,.mkv"
+            accept={FILE_INPUT_ACCEPT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -538,11 +888,13 @@ const Editor = () => {
                     type="button"
                     onClick={() => handleSelectJob(job.id)}
                     className={`w-full text-left rounded-xl border px-3 py-3 transition ${
-                      normalizeStatus(job.status) === "ready"
-                        ? "border-success/40 bg-success/10"
-                        : selectedJobId === job.id
-                          ? "border-primary/40 bg-primary/10"
-                          : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
+                      highlightedJobId === job.id
+                        ? "ring-2 ring-primary/40 bg-primary/10 border-primary/40"
+                        : normalizeStatus(job.status) === "ready"
+                          ? "border-success/40 bg-success/10"
+                          : selectedJobId === job.id
+                            ? "border-primary/40 bg-primary/10"
+                            : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -577,7 +929,7 @@ const Editor = () => {
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
                   <p className="font-medium text-foreground">Drop your video here or click to upload</p>
-                  <p className="text-sm text-muted-foreground">MP4, MOV, MKV, AVI up to 2GB</p>
+                  <p className="text-sm text-muted-foreground">MP4 or MKV up to 2GB</p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -671,7 +1023,7 @@ const Editor = () => {
                         <Progress value={activeJob.progress ?? 0} className="h-2 bg-muted [&>div]:bg-primary" />
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span className="uppercase tracking-[0.2em] text-muted-foreground/80">Estimated time</span>
-                          <span className="font-premium text-[12px] text-foreground">
+                          <span className="font-premium text-sm text-foreground font-semibold tracking-tight">
                             {etaLabel}
                             {etaSuffix}
                           </span>
@@ -717,6 +1069,44 @@ const Editor = () => {
               </Button>
               <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleDownload}>
                 <Download className="w-4 h-4" /> Final MP4
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
+        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
+            <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="ghost" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
+              <Button
+                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+                onClick={() => {
+                  try {
+                    const url = autoDownloadModal.url;
+                    const fileName = autoDownloadModal.fileName;
+                    if (!url) return;
+                    const a = document.createElement('a');
+                    a.href = url;
+                    if (fileName) a.download = fileName;
+                    a.target = '_blank';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    if (autoDownloadModal.jobId) window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
+                  } catch (e) {
+                    // ignore
+                  }
+                  setAutoDownloadModal({ open: false });
+                }}
+              >
+                <Download className="w-4 h-4" /> Download
               </Button>
             </div>
           </div>
