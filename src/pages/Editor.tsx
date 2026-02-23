@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -81,6 +81,7 @@ const PIPELINE_STEPS = [
   { key: "hooking", label: "Hook" },
   { key: "cutting", label: "Cuts" },
   { key: "pacing", label: "Pacing" },
+  { key: "zoom", label: "Zoom-In", comingSoon: true },
   { key: "story", label: "Story" },
   { key: "subtitling", label: "Subtitles" },
   { key: "rendering", label: "Rendering" },
@@ -1049,18 +1050,28 @@ const Editor = () => {
                   <>
                     <div className="flex flex-wrap gap-2">
                       {PIPELINE_STEPS.map((step, idx) => {
-                        const active = currentStepIndex !== -1 && idx <= currentStepIndex && activeJob.status !== "failed";
+                        const active =
+                          !step.comingSoon &&
+                          currentStepIndex !== -1 &&
+                          idx <= currentStepIndex &&
+                          activeJob.status !== "failed";
                         return (
                           <Badge
                             key={step.key}
                             variant="secondary"
                             className={`border ${
-                              active
+                              step.comingSoon
+                                ? "border-emerald-400/35 text-emerald-200 bg-emerald-500/10"
+                                : active
                                 ? "border-primary/30 text-primary bg-primary/10"
                                 : "border-border/50 text-muted-foreground bg-muted/30"
                             }`}
                           >
-                            {step.label}
+                            <span className="inline-flex items-center gap-1">
+                              {step.key === "zoom" ? <ZoomIn className="w-3 h-3" /> : null}
+                              {step.label}
+                              {step.comingSoon ? <span className="text-[10px] uppercase tracking-[0.12em]">Soon</span> : null}
+                            </span>
                           </Badge>
                         );
                       })}
