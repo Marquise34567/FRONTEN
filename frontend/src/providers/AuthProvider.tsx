@@ -22,6 +22,19 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const SESSION_EXPIRY_SKEW_MS = 5_000;
+
+const isSessionExpired = (session: Session | null | undefined) => {
+  if (!session) return true;
+  const expiresAtSeconds = session.expires_at;
+  if (typeof expiresAtSeconds !== "number") return false;
+  return expiresAtSeconds * 1000 <= Date.now() + SESSION_EXPIRY_SKEW_MS;
+};
+
+const toActiveSession = (session: Session | null | undefined) => {
+  if (!session) return null;
+  return isSessionExpired(session) ? null : session;
+};
 
 const toAuthResult = (error?: AuthError | null): AuthResult => {
   if (!error) return {};
@@ -48,16 +61,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      setSession(data.session ?? null);
-      setLoading(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const nextSession = toActiveSession(data.session);
       setSession(nextSession);
       setLoading(false);
+      if (data.session && !nextSession) {
+        supabase.auth.signOut().catch(() => {});
+      }
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const activeSession = toActiveSession(nextSession);
+      setSession(activeSession);
+      setLoading(false);
+      if (nextSession && !activeSession) {
+        supabase.auth.signOut().catch(() => {});
+      }
     });
     const onExpired = () => {
       // on global auth expired event, sign out to clear session and update UI
       try {
+        setSession(null);
+        setLoading(false);
         supabase.auth.signOut().catch(() => {})
       } catch (e) {}
     }
