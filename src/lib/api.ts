@@ -1,5 +1,7 @@
-const DEV_FALLBACK = "http://localhost:4000";
-const rawApiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? DEV_FALLBACK : "");
+// In dev we prefer using a Vite proxy instead of hardcoding a backend URL.
+// `VITE_API_URL` may be set for deployed environments, but leave blank in dev
+// so fetches use relative paths (e.g. `/api/...`).
+const rawApiUrl = import.meta.env.VITE_API_URL || "";
 const normalizeApiUrl = (value: string) => {
   if (!value) return "";
   let trimmed = value.trim();
@@ -12,6 +14,14 @@ const normalizeApiUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
+const PUBLIC_API_PREFIXES = ["/api/public/"];
+const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
+let authExpiredNotifiedAt = 0;
+let authBlockedUntilFreshToken = false;
+let lastSeenAccessToken: string | null = null;
+
+const isPublicApiPath = (path: string) =>
+  PUBLIC_API_EXACT.has(path) || PUBLIC_API_PREFIXES.some((prefix) => path.startsWith(prefix));
 
 export class ApiError extends Error {
   status: number;
@@ -25,35 +35,77 @@ export class ApiError extends Error {
   }
 }
 
+import { supabase } from "@/integrations/supabase/client";
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
-  if (!API_URL) {
-    throw new ApiError(
-      "API URL not configured. Set VITE_API_URL in your deployment environment.",
-      0,
-      "missing_api_url",
-    );
+  // Allow empty API_URL so requests can be relative (proxied by Vite in dev).
+  const base = API_URL || "";
+  let { token, headers, ...rest } = options;
+  // If no token provided, try to fetch from Supabase session
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token ?? undefined;
+    } catch (e) {
+      token = undefined;
+    }
   }
-  const { token, headers, ...rest } = options;
-  const res = await fetch(`${API_URL}${path}`, {
+  const isPublicPath = isPublicApiPath(path);
+  if (token && token !== lastSeenAccessToken) {
+    lastSeenAccessToken = token;
+    authBlockedUntilFreshToken = false;
+  }
+  if (!isPublicPath && !token) {
+    const now = Date.now();
+    if (now - authExpiredNotifiedAt > 750) {
+      authExpiredNotifiedAt = now;
+      try {
+        window.dispatchEvent(new CustomEvent("auth:expired"));
+      } catch (e) {}
+    }
+    throw new ApiError("Not authenticated", 401, "unauthorized");
+  }
+  if (!isPublicPath && authBlockedUntilFreshToken) {
+    throw new ApiError("Session expired", 401, "unauthorized");
+  }
+
+  const url = `${base}${path}`;
+  const res = await fetch(url, {
     ...rest,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(headers || {}),
     },
+    // Include credentials (cookies) for cookie-based auth flows in local dev
+    credentials: "include",
   });
 
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text().catch(() => "");
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (err) {
+    data = { raw: text };
+  }
+
   if (!res.ok) {
-    throw new ApiError(
-      data?.message || data?.error || "Request failed",
-      res.status,
-      data?.error,
-      data,
-    );
+    const message = data?.message || data?.error || `HTTP ${res.status}`
+    // If unauthorized, dispatch a global event so UI can stop polling and prompt login
+    if (res.status === 401 && !isPublicPath) {
+      authBlockedUntilFreshToken = true;
+      const now = Date.now();
+      if (now - authExpiredNotifiedAt > 750) {
+        authExpiredNotifiedAt = now;
+        try {
+          window.dispatchEvent(new CustomEvent("auth:expired"));
+        } catch (e) {}
+      }
+    }
+    throw new ApiError(message, res.status, data?.error, data)
   }
   return data as T;
 }
