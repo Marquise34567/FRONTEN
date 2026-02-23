@@ -20,7 +20,6 @@ import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
-import { getPriceIdForTier } from "@/lib/stripe";
 
 type EditorSettings = {
   subtitleStyle: string;
@@ -100,13 +99,9 @@ const Settings = () => {
     if (!accessToken) return;
     try {
       setAction({ tier, kind: "subscribe" });
-      const priceId = getPriceIdForTier(tier, billingInterval);
-      if (!priceId) {
-        throw new Error("Missing Stripe price ID for this plan.");
-      }
-      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
+      const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ tier, interval: billingInterval }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -133,13 +128,9 @@ const Settings = () => {
   const handleUpgrade = async () => {
     if (!accessToken) return;
     try {
-      const priceId = getPriceIdForTier(requiredPlan, billingInterval);
-      if (!priceId) {
-        throw new Error("Missing Stripe price ID for this plan.");
-      }
-      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
+      const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ tier: requiredPlan, interval: billingInterval }),
         token: accessToken,
       });
       window.location.href = result.url;
