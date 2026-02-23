@@ -65,7 +65,7 @@ const PricingCards = ({
           : isAnnual
           ? "Billed annually"
           : "Billed monthly";
-        const renderLimitLabel = `${plan.maxRendersPerMonth} renders / month`;
+        const renderLimitLabel = tier === "free" ? "1 render / day" : `${plan.maxRendersPerMonth} renders / month`;
 
         return (
           <div

@@ -14,8 +14,10 @@ export type MeResponse = {
     dev?: boolean;
   };
   usage: { month: string; rendersUsed: number; minutesUsed: number };
+  usageDaily?: { day: string; rendersUsed: number; rendersLimit: number } | null;
   limits: {
-    maxRendersPerMonth: number;
+    maxRendersPerMonth: number | null;
+    maxRendersPerDay?: number | null;
     maxMinutesPerMonth: number | null;
     exportQuality: string;
     watermark: boolean;

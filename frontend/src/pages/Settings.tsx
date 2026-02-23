@@ -190,12 +190,26 @@ const Settings = () => {
   const tier = rawTier && PLAN_TIERS.includes(rawTier) ? rawTier : "free";
   const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
   const usage = data?.usage;
+  const usageDaily = data?.usageDaily;
   const limits = data?.limits;
-  const maxRendersPerMonth = limits?.maxRendersPerMonth ?? plan.maxRendersPerMonth;
+  const maxRendersPerMonth =
+    limits?.maxRendersPerMonth ?? (tier === "free" ? null : plan.maxRendersPerMonth);
+  const maxRendersPerDay = limits?.maxRendersPerDay ?? null;
+  const dailyLimited = tier === "free" && maxRendersPerDay !== null && maxRendersPerDay !== undefined;
   const rendersUsed = usage?.rendersUsed ?? 0;
-  const rendersRemaining = Math.max(0, maxRendersPerMonth - rendersUsed);
-  const rendersUsagePercent =
-    maxRendersPerMonth > 0 ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100) : 0;
+  const rendersUsedToday = usageDaily?.rendersUsed ?? 0;
+  const rendersRemaining = maxRendersPerMonth ? Math.max(0, maxRendersPerMonth - rendersUsed) : 0;
+  const rendersRemainingToday =
+    maxRendersPerDay !== null && maxRendersPerDay !== undefined
+      ? Math.max(0, maxRendersPerDay - rendersUsedToday)
+      : null;
+  const rendersUsagePercent = dailyLimited
+    ? maxRendersPerDay > 0
+      ? Math.min(100, (rendersUsedToday / maxRendersPerDay) * 100)
+      : 0
+    : maxRendersPerMonth && maxRendersPerMonth > 0
+      ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100)
+      : 0;
   const isFounderPlan = tier === "founder";
   const currentTierIndex = tierIndex(currentPlan || "free");
   const advancedLocked = !features.advancedEffects;
@@ -235,7 +249,7 @@ const Settings = () => {
           <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <Shield className="w-5 h-5 text-muted-foreground" />
-              <h2 className="font-semibold text-foreground">Monthly Usage</h2>
+              <h2 className="font-semibold text-foreground">{dailyLimited ? "Daily Usage" : "Monthly Usage"}</h2>
             </div>
             {isFounderPlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -271,12 +285,17 @@ const Settings = () => {
                 <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Renders Remaining</p>
                   <p className="text-2xl font-bold font-display text-foreground">
-                    {rendersRemaining}{" "}
-                    <span className="text-sm font-normal text-muted-foreground">/ {maxRendersPerMonth}</span>
+                    {dailyLimited ? (rendersRemainingToday ?? 0) : rendersRemaining}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      / {dailyLimited ? maxRendersPerDay : maxRendersPerMonth}
+                    </span>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Used {rendersUsed} / {maxRendersPerMonth}
+                    {dailyLimited
+                      ? `Used ${rendersUsedToday} / ${maxRendersPerDay} today`
+                      : `Used ${rendersUsed} / ${maxRendersPerMonth} this month`}
                   </p>
+                  <Progress value={rendersUsagePercent} className="mt-2" />
                 </div>
                 <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>

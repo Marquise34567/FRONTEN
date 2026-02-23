@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +39,8 @@ const uploadParallelismForFile = (size: number) => {
   return 1;
 };
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
 type JobStatus =
   | "queued"
   | "uploading"
@@ -63,10 +65,12 @@ interface JobSummary {
   progress?: number;
   requestedQuality?: string | null;
   watermark?: boolean;
+  renderMode?: "standard" | "vertical" | string;
 }
 
 interface JobDetail extends JobSummary {
   outputUrl?: string | null;
+  outputUrls?: string[] | null;
   finalQuality?: string | null;
   retentionScore?: number | null;
   analysis?: any;
@@ -195,6 +199,12 @@ const Editor = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
+  const modeParam = searchParams.get("mode");
+  const isVerticalMode = modeParam === "vertical";
+  const [verticalClipCount, setVerticalClipCount] = useState(2);
+  const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
+  const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
+  const [webcamFocus, setWebcamFocus] = useState<{ x: number; y: number } | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -208,11 +218,21 @@ const Editor = () => {
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
+  const dailyRendersUsed = me?.usageDaily?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
+  const maxRendersPerDay = me?.limits?.maxRendersPerDay ?? null;
   const rendersRemaining = useMemo(() => {
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
+  const rendersRemainingToday = useMemo(() => {
+    if (maxRendersPerDay === null || maxRendersPerDay === undefined) return null;
+    return Math.max(0, maxRendersPerDay - dailyRendersUsed);
+  }, [maxRendersPerDay, dailyRendersUsed]);
+  const isFreeDailyLimited = tier === "free" && maxRendersPerDay !== null && maxRendersPerDay !== undefined;
+  const hasReachedRenderLimit = isFreeDailyLimited
+    ? (rendersRemainingToday ?? 0) <= 0
+    : maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0;
 
   const [authError, setAuthError] = useState(false);
 
@@ -551,26 +571,42 @@ const Editor = () => {
 
   // Resumable upload logic removed — we use backend-presigned multipart upload to R2
 
-  const handleFile = async (file: File) => {
+  const handleFile = async (
+    file: File,
+    renderOptions?: {
+      mode?: "standard" | "vertical";
+      verticalClipCount?: number;
+      webcamFocus?: { x: number; y: number } | null;
+    },
+  ) => {
     if (!isAllowedUploadFile(file)) {
       toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
-      return;
+      return false;
     }
-    if (!accessToken) return;
-    if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
+    if (!accessToken) return false;
+    if (hasReachedRenderLimit) {
+      const detail = isFreeDailyLimited
+        ? "Free plan includes 1 render per day. Upgrade for more renders."
+        : `You've used all ${maxRendersPerMonth} renders for this month.`;
       toast({
         title: "Render limit reached",
-        description: `You've used all ${maxRendersPerMonth} renders for this month.`,
+        description: detail,
       });
-      return;
+      return false;
     }
     setUploadProgress(0);
     try {
+      const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "standard";
       const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
         "/api/jobs/create",
         {
           method: "POST",
-          body: JSON.stringify({ filename: file.name }),
+          body: JSON.stringify({
+            filename: file.name,
+            renderMode: requestedMode,
+            verticalClipCount: renderOptions?.verticalClipCount,
+            webcamFocus: renderOptions?.webcamFocus ?? null,
+          }),
           token: accessToken,
         },
       );
@@ -659,7 +695,7 @@ const Editor = () => {
       // Try R2 multipart only when backend indicates direct object upload support.
       if (create.uploadUrl) {
         const usedR2 = await tryR2Multipart()
-        if (usedR2) return
+        if (usedR2) return true
       }
 
       const uploadViaProxy = async () => {
@@ -696,7 +732,7 @@ const Editor = () => {
           setUploadBytesUploaded(null)
           setUploadBytesTotal(null)
           fetchJobs()
-          return
+          return true
         }
 
         // Notify backend of completion for single-PUT flow
@@ -712,7 +748,7 @@ const Editor = () => {
         setUploadBytesUploaded(null)
         setUploadBytesTotal(null)
         fetchJobs()
-        return
+        return true
       }
 
       // No direct upload URL available; proxy upload will update job and enqueue processing server-side.
@@ -728,6 +764,7 @@ const Editor = () => {
       setUploadBytesUploaded(null)
       setUploadBytesTotal(null)
       fetchJobs()
+      return true
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -740,6 +777,13 @@ const Editor = () => {
               ? `You've used all ${maxRenders} renders for this month.`
               : "You've reached your monthly render limit.";
         toast({ title: "Render limit reached", description: detail });
+      } else if (err instanceof ApiError && err.code === "DAILY_RENDER_LIMIT_REACHED") {
+        const used = Number(err.data?.rendersUsedToday ?? 1);
+        const day = err.data?.day ? ` for ${err.data.day}` : "";
+        toast({
+          title: "Daily free limit reached",
+          description: `You already used ${used} free render${used === 1 ? "" : "s"}${day}.`,
+        });
       } else {
         toast({ title: "Upload failed", description: err?.message || "Please try again." });
       }
@@ -747,7 +791,69 @@ const Editor = () => {
       setUploadProgress(0);
       setUploadBytesUploaded(null);
       setUploadBytesTotal(null);
+      return false;
     }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (verticalPreviewUrl) URL.revokeObjectURL(verticalPreviewUrl);
+    };
+  }, [verticalPreviewUrl]);
+
+  useEffect(() => {
+    if (isVerticalMode) return;
+    setPendingVerticalFile(null);
+    setWebcamFocus(null);
+    setVerticalClipCount(2);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, [isVerticalMode]);
+
+  const prepareVerticalFile = (file: File) => {
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+      return;
+    }
+    setPendingVerticalFile(file);
+    setWebcamFocus(null);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
+  const handleVerticalPreviewClick = (event: React.MouseEvent<HTMLVideoElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = clamp01((event.clientX - rect.left) / rect.width);
+    const y = clamp01((event.clientY - rect.top) / rect.height);
+    setWebcamFocus({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+  };
+
+  const startVerticalRender = async () => {
+    if (!pendingVerticalFile) {
+      toast({ title: "Choose a file", description: "Upload an MP4 or MKV before rendering." });
+      return;
+    }
+    if (!webcamFocus) {
+      toast({ title: "Pick webcam region", description: "Click the preview where your webcam should be framed." });
+      return;
+    }
+    const ok = await handleFile(pendingVerticalFile, {
+      mode: "vertical",
+      verticalClipCount,
+      webcamFocus,
+    });
+    if (!ok) return;
+    setPendingVerticalFile(null);
+    setWebcamFocus(null);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
   };
 
   const handlePickFile = () => fileInputRef.current?.click();
@@ -756,7 +862,12 @@ const Editor = () => {
     event.preventDefault();
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    if (!file) return;
+    if (isVerticalMode) {
+      prepareVerticalFile(file);
+      return;
+    }
+    void handleFile(file);
   };
 
   const handleSelectJob = (jobId: string) => {
@@ -765,15 +876,25 @@ const Editor = () => {
     setSearchParams(next, { replace: false });
   };
 
-  const handleDownload = async () => {
+  const handleDownload = async (clipIndex = 0) => {
     if (!accessToken || !activeJob) return;
     try {
-      if (activeJob.outputUrl) {
-        window.open(activeJob.outputUrl, "_blank");
+      const outputUrls = Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [];
+      const selectedExistingUrl =
+        outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
+      if (selectedExistingUrl) {
+        window.open(selectedExistingUrl, "_blank");
         return;
       }
-      const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url`, { token: accessToken });
-      setActiveJob((prev) => (prev ? { ...prev, outputUrl: data.url } : prev));
+      const clipParam = clipIndex + 1;
+      const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipParam}`, { token: accessToken });
+      setActiveJob((prev) => {
+        if (!prev) return prev;
+        const nextUrls = Array.isArray(prev.outputUrls) ? [...prev.outputUrls] : [];
+        while (nextUrls.length < clipParam) nextUrls.push("");
+        nextUrls[clipIndex] = data.url;
+        return { ...prev, outputUrl: data.url, outputUrls: nextUrls };
+      });
       window.open(data.url, "_blank");
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
@@ -782,16 +903,26 @@ const Editor = () => {
 
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
   const activeStatusLabel = activeJob ? STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued" : "Queued";
+  const activeOutputUrls = useMemo(() => {
+    if (!activeJob) return [] as string[];
+    const urls = Array.isArray(activeJob.outputUrls)
+      ? activeJob.outputUrls.map((url) => (typeof url === "string" ? url : ""))
+      : [];
+    if (urls.length > 0) return urls;
+    if (activeJob.outputUrl) return [activeJob.outputUrl];
+    return [];
+  }, [activeJob]);
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && activeJob.outputUrl);
+  const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const handlePreviewVideoError = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     const details = {
       jobId: activeJob?.id ?? null,
-      outputUrl: activeJob?.outputUrl ?? null,
+      outputUrl: previewOutputUrl || null,
       networkState: video?.networkState ?? null,
       readyState: video?.readyState ?? null,
       errorCode: video?.error?.code ?? null,
@@ -802,7 +933,7 @@ const Editor = () => {
       title: "Preview failed",
       description: "Could not load the edited video. Check network/output URL.",
     });
-  }, [activeJob?.id, activeJob?.outputUrl, toast]);
+  }, [activeJob?.id, previewOutputUrl, toast]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -892,12 +1023,23 @@ const Editor = () => {
                     {tierLabel} plan
                   </Badge>
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {maxRendersPerMonth === null || maxRendersPerMonth === undefined
-                      ? "Unlimited renders"
-                      : `${rendersRemaining ?? 0} renders left`}
+                    {isFreeDailyLimited
+                      ? `${rendersRemainingToday ?? 0} free render left today`
+                      : maxRendersPerMonth === null || maxRendersPerMonth === undefined
+                        ? "Unlimited renders"
+                        : `${rendersRemaining ?? 0} renders left`}
                   </Badge>
                 </>
               )}
+              <Link to={isVerticalMode ? "/editor" : "/editor?mode=vertical"}>
+                <Button
+                  variant={isVerticalMode ? "secondary" : "outline"}
+                  className="rounded-full gap-2 border-border/60"
+                >
+                  <ScissorsSquare className="w-4 h-4" />
+                  {isVerticalMode ? "Standard Mode" : "Vertical Mode"}
+                </Button>
+              </Link>
               <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
                 <Plus className="w-4 h-4" /> New Project
               </Button>
@@ -911,7 +1053,13 @@ const Editor = () => {
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) handleFile(file);
+              if (file) {
+                if (isVerticalMode) {
+                  prepareVerticalFile(file);
+                } else {
+                  void handleFile(file);
+                }
+              }
               if (e.target) e.target.value = "";
             }}
           />
@@ -957,6 +1105,12 @@ const Editor = () => {
                           {STATUS_LABELS[normalizeStatus(job.status)] || "Queued"}
                         </Badge>
                       </div>
+                      {job.renderMode === "vertical" && (
+                        <p className="text-[10px] text-primary/90 mt-1 inline-flex items-center gap-1">
+                          <ScissorsSquare className="w-3 h-3" />
+                          Vertical clip job
+                        </p>
+                      )}
                       <p className="text-[11px] text-muted-foreground mt-1">
                         {new Date(job.createdAt).toLocaleString()}
                       </p>
@@ -983,8 +1137,14 @@ const Editor = () => {
                   <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
-                  <p className="font-medium text-foreground">Drop your video here or click to upload</p>
-                  <p className="text-sm text-muted-foreground">MP4 or MKV up to 2GB</p>
+                  <p className="font-medium text-foreground">
+                    {isVerticalMode ? "Upload a horizontal video for vertical clipping" : "Drop your video here or click to upload"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {isVerticalMode
+                      ? "Then click the preview to place webcam at the top panel."
+                      : "MP4 or MKV up to 2GB"}
+                  </p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -997,10 +1157,81 @@ const Editor = () => {
                 </div>
               </div>
 
+              {isVerticalMode && (
+                <div className="glass-card p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
+                      <p className="text-xs text-muted-foreground">
+                        Pick up to 3 clips and click the video to mark the webcam focus.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 3].map((count) => (
+                        <button
+                          key={count}
+                          type="button"
+                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                            verticalClipCount === count
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 text-muted-foreground hover:border-primary/40"
+                          }`}
+                          onClick={() => setVerticalClipCount(count)}
+                        >
+                          {count} clip{count === 1 ? "" : "s"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {!verticalPreviewUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      Upload a file to open preview and select webcam placement.
+                    </p>
+                  )}
+                  {verticalPreviewUrl && (
+                    <div className="space-y-3">
+                      <div className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80">
+                        <video
+                          src={verticalPreviewUrl}
+                          controls
+                          className="w-full max-h-[380px] object-contain cursor-crosshair"
+                          onClick={handleVerticalPreviewClick}
+                        />
+                        {webcamFocus && (
+                          <div
+                            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                            style={{ left: `${webcamFocus.x * 100}%`, top: `${webcamFocus.y * 100}%` }}
+                          >
+                            <div className="w-5 h-5 rounded-full border-2 border-white bg-primary/90 shadow-[0_0_0_4px_rgba(14,165,233,0.35)]" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                          <MousePointerClick className="w-3.5 h-3.5" />
+                          {webcamFocus
+                            ? `Webcam focus set at ${Math.round(webcamFocus.x * 100)}% / ${Math.round(webcamFocus.y * 100)}%`
+                            : "Click the preview where the webcam should be framed."}
+                        </p>
+                        <Button
+                          type="button"
+                          className="gap-2"
+                          disabled={!pendingVerticalFile || !webcamFocus || !!uploadingJobId}
+                          onClick={startVerticalRender}
+                        >
+                          <ScissorsSquare className="w-4 h-4" />
+                          Create Vertical Clips
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="glass-card overflow-hidden">
                 <div className="aspect-video bg-muted/30 flex items-center justify-center relative">
                   {showVideo ? (
-                    <video src={activeJob?.outputUrl || ""} controls onError={handlePreviewVideoError} className="w-full h-full object-cover" />
+                    <video src={previewOutputUrl} controls onError={handlePreviewVideoError} className="w-full h-full object-cover" />
                   ) : (
                     <>
                       <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
@@ -1101,10 +1332,13 @@ const Editor = () => {
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-success flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Export is ready. Download your final cut.
+                          {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
+                            ? `Vertical clips are ready (${activeOutputUrls.length}).`
+                            : "Export is ready. Download your final cut."}
                         </p>
                         <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
-                          <Download className="w-4 h-4" /> Open Export
+                          <Download className="w-4 h-4" />
+                          {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
                         </Button>
                       </div>
                     )}
@@ -1121,7 +1355,9 @@ const Editor = () => {
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Choose your quality and download the final MP4.
+              {activeJob?.renderMode === "vertical"
+                ? "Choose quality and download each vertical clip."
+                : "Choose your quality and download the final MP4."}
             </p>
           </DialogHeader>
           <div className="space-y-4">
@@ -1132,12 +1368,32 @@ const Editor = () => {
               </div>
               <div className="flex flex-wrap gap-2">{qualityButtons}</div>
             </div>
+            {activeJob?.renderMode === "vertical" && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Vertical Clips</p>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from({ length: Math.max(1, activeOutputUrls.length || verticalClipCount) }).map((_, idx) => (
+                    <Button
+                      key={`clip-${idx + 1}`}
+                      size="sm"
+                      variant="secondary"
+                      className="gap-2"
+                      onClick={() => handleDownload(idx)}
+                    >
+                      <Download className="w-4 h-4" />
+                      Clip {idx + 1}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-3">
               <Button variant="ghost" onClick={() => setExportOpen(false)}>
                 Close
               </Button>
-              <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleDownload}>
-                <Download className="w-4 h-4" /> Final MP4
+              <Button className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => handleDownload(0)}>
+                <Download className="w-4 h-4" />
+                {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
               </Button>
             </div>
           </div>
