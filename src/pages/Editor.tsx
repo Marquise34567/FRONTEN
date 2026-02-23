@@ -642,7 +642,14 @@ const Editor = () => {
             renderMode: requestedMode,
             verticalClipCount: renderOptions?.verticalClipCount,
             verticalMode: renderOptions?.verticalMode ?? null,
-            webcamCrop: renderOptions?.verticalMode?.webcamCrop ?? null,
+            webcamCrop: renderOptions?.verticalMode?.webcamCrop
+              ? {
+                  x: renderOptions.verticalMode.webcamCrop.x,
+                  y: renderOptions.verticalMode.webcamCrop.y,
+                  width: renderOptions.verticalMode.webcamCrop.w,
+                  height: renderOptions.verticalMode.webcamCrop.h,
+                }
+              : null,
           }),
           token: accessToken,
         },
@@ -1439,7 +1446,7 @@ const Editor = () => {
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
                   <p className="font-medium text-foreground">
-                    {isVerticalMode ? "Upload a horizontal video for vertical clipping" : "Drop your video here or click to upload"}
+                    {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {isVerticalMode
