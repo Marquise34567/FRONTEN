@@ -14,6 +14,14 @@ const normalizeApiUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
+const PUBLIC_API_PREFIXES = ["/api/public/"];
+const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
+let authExpiredNotifiedAt = 0;
+let authBlockedUntilFreshToken = false;
+let lastSeenAccessToken: string | null = null;
+
+const isPublicApiPath = (path: string) =>
+  PUBLIC_API_EXACT.has(path) || PUBLIC_API_PREFIXES.some((prefix) => path.startsWith(prefix));
 
 export class ApiError extends Error {
   status: number;
@@ -45,6 +53,24 @@ export async function apiFetch<T>(
       token = undefined;
     }
   }
+  const isPublicPath = isPublicApiPath(path);
+  if (token && token !== lastSeenAccessToken) {
+    lastSeenAccessToken = token;
+    authBlockedUntilFreshToken = false;
+  }
+  if (!isPublicPath && !token) {
+    const now = Date.now();
+    if (now - authExpiredNotifiedAt > 750) {
+      authExpiredNotifiedAt = now;
+      try {
+        window.dispatchEvent(new CustomEvent("auth:expired"));
+      } catch (e) {}
+    }
+    throw new ApiError("Not authenticated", 401, "unauthorized");
+  }
+  if (!isPublicPath && authBlockedUntilFreshToken) {
+    throw new ApiError("Session expired", 401, "unauthorized");
+  }
 
   const url = `${base}${path}`;
   const res = await fetch(url, {
@@ -69,10 +95,15 @@ export async function apiFetch<T>(
   if (!res.ok) {
     const message = data?.message || data?.error || `HTTP ${res.status}`
     // If unauthorized, dispatch a global event so UI can stop polling and prompt login
-    if (res.status === 401) {
-      try {
-        window.dispatchEvent(new CustomEvent('auth:expired'))
-      } catch (e) {}
+    if (res.status === 401 && !isPublicPath) {
+      authBlockedUntilFreshToken = true;
+      const now = Date.now();
+      if (now - authExpiredNotifiedAt > 750) {
+        authExpiredNotifiedAt = now;
+        try {
+          window.dispatchEvent(new CustomEvent("auth:expired"));
+        } catch (e) {}
+      }
     }
     throw new ApiError(message, res.status, data?.error, data)
   }
