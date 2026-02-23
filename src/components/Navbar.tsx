@@ -13,9 +13,14 @@ const Navbar = () => {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-background/50 backdrop-blur-md border-b border-border/30">
-      <Link to="/" className="flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-2">
         <span className="text-xl font-bold font-display text-foreground">AutoEditor</span>
-        <span className="pill-badge text-[10px] py-0.5 px-2">BETA</span>
+        <span className="pill-badge text-[10px] py-0.5 px-2">
+          <svg className="sparkle w-3 h-3 mr-1 inline-block" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+            <path d="M12 2l1.902 4.26L18.5 8l-4.598 1.74L12 14l-1.902-4.26L6.5 8l4.598-1.74L12 2z" fill="currentColor" />
+          </svg>
+          BETA
+        </span>
       </Link>
       <div className="flex items-center gap-3">
         <Link to="/pricing">
