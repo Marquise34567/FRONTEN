@@ -437,95 +437,29 @@ const Editor = () => {
       nextParams.set("jobId", create.job.id);
       setSearchParams(nextParams, { replace: false });
 
-      const preferSignedForLarge = file.size >= LARGE_UPLOAD_THRESHOLD;
-      const resumableAvailable = Boolean(RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY);
-
-      console.info("[upload] decision", { preferSignedForLarge, resumableAvailable, hasUploadUrl: Boolean(create.uploadUrl) });
-
-      // Prefer resumable (tus) for very large files if configured.
-      // Prefer signed upload URLs for large files to avoid single-request size limits.
-      if (preferSignedForLarge) {
-        // Large files: prefer signed URL, else resumable, else error/fallback.
-        if (create.uploadUrl) {
-          toast({ title: "Uploading (signed URL)", description: `Using signed URL for ${file.name}` });
-          console.info("[upload] using signed uploadUrl", create.uploadUrl);
+      const useResumable = Boolean(RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY);
+      if (useResumable && RESUMABLE_ENDPOINT && SUPABASE_PUBLISHABLE_KEY) {
+        try {
+          // record file size and upload start time for ETA
           jobFileSizeRef.current[create.job.id] = file.size;
           uploadStartRef.current[create.job.id] = Date.now();
-          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-            setUploadBytesUploaded(loaded);
-            setUploadBytesTotal(total);
-            setUploadProgress(Math.round((loaded / total) * 100));
+          await uploadResumable({
+            file,
+            bucket: create.bucket,
+            inputPath: create.inputPath,
+            token: accessToken,
+            onProgress: ((percent: number) => setUploadProgress(percent)) as any,
+            onProgressBytes: (loaded: number, total: number) => {
+              setUploadBytesUploaded(loaded);
+              setUploadBytesTotal(total);
+              setUploadProgress(Math.round((loaded / total) * 100));
+              if (!uploadStartRef.current[create.job.id]) uploadStartRef.current[create.job.id] = Date.now();
+            },
           });
-        } else if (resumableAvailable) {
-          toast({ title: "Uploading (resumable)", description: `Resumable upload started for ${file.name}` });
-          console.info("[upload] using resumable (tus)");
-          try {
-            jobFileSizeRef.current[create.job.id] = file.size;
-            uploadStartRef.current[create.job.id] = Date.now();
-            await uploadResumable({
-              file,
-              bucket: create.bucket,
-              inputPath: create.inputPath,
-              token: accessToken,
-              onProgress: ((percent: number) => setUploadProgress(percent)) as any,
-              onProgressBytes: (loaded: number, total: number) => {
-                setUploadBytesUploaded(loaded);
-                setUploadBytesTotal(total);
-                setUploadProgress(Math.round((loaded / total) * 100));
-                if (!uploadStartRef.current[create.job.id]) uploadStartRef.current[create.job.id] = Date.now();
-              },
-            });
-          } catch (err) {
-            console.warn("Resumable upload failed for large file and no signed URL available.", err);
-            toast({ title: "Upload failed", description: "Resumable upload failed for large file and no signed URL available." });
-            throw new Error("Upload failed: large file and no signed URL available. Try a smaller file or enable resumable uploads on the server.");
-          }
-        } else {
-          // Avoid direct supabase.storage.from(...) single-request uploads for large files
-          throw new Error("File is too large for direct upload. Use signed URLs or enable resumable uploads.");
-        }
-      } else {
-        // Small files: try resumable if available, then signed URL, then direct upload as fallback.
-        if (resumableAvailable) {
-          console.info("[upload] attempting resumable for small file");
-          try {
-            toast({ title: "Uploading (resumable)", description: `Resumable upload started for ${file.name}` });
-            jobFileSizeRef.current[create.job.id] = file.size;
-            uploadStartRef.current[create.job.id] = Date.now();
-            await uploadResumable({
-              file,
-              bucket: create.bucket,
-              inputPath: create.inputPath,
-              token: accessToken,
-              onProgress: ((percent: number) => setUploadProgress(percent)) as any,
-              onProgressBytes: (loaded: number, total: number) => {
-                setUploadBytesUploaded(loaded);
-                setUploadBytesTotal(total);
-                setUploadProgress(Math.round((loaded / total) * 100));
-                if (!uploadStartRef.current[create.job.id]) uploadStartRef.current[create.job.id] = Date.now();
-              },
-            });
-          } catch (err) {
-            console.warn("Resumable upload failed, falling back to signed URL or direct upload.", err);
-            if (create.uploadUrl) {
-              toast({ title: "Uploading (signed URL)", description: `Using signed URL for ${file.name}` });
-              jobFileSizeRef.current[create.job.id] = file.size;
-              uploadStartRef.current[create.job.id] = Date.now();
-              await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-                setUploadBytesUploaded(loaded);
-                setUploadBytesTotal(total);
-                setUploadProgress(Math.round((loaded / total) * 100));
-              });
-            } else {
-              toast({ title: "Uploading (direct)", description: `Uploading directly to Supabase for ${file.name}` });
-              const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
-              if (error) throw error;
-              setUploadProgress(100);
-            }
-          }
-        } else if (create.uploadUrl) {
-          try {
-            toast({ title: "Uploading (signed URL)", description: `Using signed URL for ${file.name}` });
+        } catch (err) {
+          console.warn("Resumable upload failed, falling back.", err);
+          if (create.uploadUrl) {
+            // record file size and upload start time for ETA
             jobFileSizeRef.current[create.job.id] = file.size;
             uploadStartRef.current[create.job.id] = Date.now();
             await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
@@ -533,17 +467,31 @@ const Editor = () => {
               setUploadBytesTotal(total);
               setUploadProgress(Math.round((loaded / total) * 100));
             });
-          } catch (err) {
-            toast({ title: "Uploading (direct)", description: `Falling back to direct upload for ${file.name}` });
+          } else {
             const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
             if (error) throw error;
             setUploadProgress(100);
           }
-        } else {
+        }
+      } else if (create.uploadUrl) {
+        try {
+          // record file size and upload start time for ETA
+          jobFileSizeRef.current[create.job.id] = file.size;
+          uploadStartRef.current[create.job.id] = Date.now();
+          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+            setUploadBytesUploaded(loaded);
+            setUploadBytesTotal(total);
+            setUploadProgress(Math.round((loaded / total) * 100));
+          });
+        } catch (err) {
           const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
           if (error) throw error;
           setUploadProgress(100);
         }
+      } else {
+        const { error } = await supabase.storage.from(create.bucket).upload(create.inputPath, file, { upsert: true });
+        if (error) throw error;
+        setUploadProgress(100);
       }
 
       await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
