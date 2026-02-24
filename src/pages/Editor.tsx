@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle } from "lucide-react";
@@ -152,6 +153,15 @@ const PIPELINE_STEPS = [
   { key: "rendering", label: "Rendering" },
   { key: "ready", label: "Ready" },
 ] as const;
+const HOOK_STEP_INDEX = PIPELINE_STEPS.findIndex((step) => step.key === "hooking");
+const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
+  "queued",
+  "uploading",
+  "analyzing",
+  "hooking",
+  "cutting",
+  "pacing",
+]);
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -308,7 +318,8 @@ const Editor = () => {
   const [retentionAggressionLevel, setRetentionAggressionLevel] = useState<RetentionAggressionLevel>("medium");
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
-  const [reprocessingHookJobId, setReprocessingHookJobId] = useState<string | null>(null);
+  const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
+  const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -356,6 +367,8 @@ const Editor = () => {
     me?.user?.id && trialInfo?.endsAt
       ? `trial_upgrade_prompt_dismissed_${me.user.id}_${trialInfo.endsAt}`
       : null;
+  const subscriptionCardHideKey = me?.user?.id ? `editor_subscription_card_hidden_${me.user.id}` : null;
+  const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
@@ -391,6 +404,28 @@ const Editor = () => {
     navigate("/pricing");
   }, [dismissTrialUpgradePrompt, navigate]);
 
+  const handleHideSubscriptionCard = useCallback(() => {
+    if (subscriptionCardHideKey) {
+      try {
+        window.localStorage.setItem(subscriptionCardHideKey, "true");
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setHideSubscriptionCard(true);
+  }, [subscriptionCardHideKey]);
+
+  const handleShowSubscriptionCard = useCallback(() => {
+    if (subscriptionCardHideKey) {
+      try {
+        window.localStorage.removeItem(subscriptionCardHideKey);
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setHideSubscriptionCard(false);
+  }, [subscriptionCardHideKey]);
+
   useEffect(() => {
     if (!trialEnded || !trialUpgradePromptKey) {
       setTrialUpgradeOpen(false);
@@ -404,6 +439,18 @@ const Editor = () => {
     }
     setTrialUpgradeOpen(true);
   }, [trialEnded, trialUpgradePromptKey]);
+
+  useEffect(() => {
+    if (!subscriptionCardHideKey) {
+      setHideSubscriptionCard(false);
+      return;
+    }
+    try {
+      setHideSubscriptionCard(window.localStorage.getItem(subscriptionCardHideKey) === "true");
+    } catch (error) {
+      setHideSubscriptionCard(false);
+    }
+  }, [subscriptionCardHideKey]);
 
   const [authError, setAuthError] = useState(false);
 
@@ -723,6 +770,10 @@ const Editor = () => {
     fetchJob(selectedJobId);
     setExportOpen(false);
   }, [selectedJobId, accessToken, authError, fetchJob]);
+
+  useEffect(() => {
+    setHookSelectorOpen(false);
+  }, [activeJob?.id]);
 
   useEffect(() => {
     if (!accessToken || !hasActiveJobs || authError) return;
@@ -1710,8 +1761,19 @@ const Editor = () => {
     activeAnalysis?.hook_variants ||
     activeAnalysis?.hook_candidates ||
     activeAnalysis?.editPlan?.hookVariants ||
-    activeAnalysis?.editPlan?.hookCandidates
+    activeAnalysis?.editPlan?.hookCandidates ||
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.topCandidates ||
+    activeAnalysis?.pipelineSteps?.BEST_MOMENT_SCORING?.meta?.topCandidates ||
+    (activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
+      ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
+      : [])
   ).slice(0, 5);
+  const selectedHookFromPipeline =
+    normalizeHookCandidates(
+      activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
+        ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
+        : [],
+    )[0] ?? null;
   const selectedHookFromAnalysis: HookCandidate | null =
     Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec) && hookEndSec > hookStartSec
       ? {
@@ -1728,7 +1790,7 @@ const Editor = () => {
           reason: hookReason,
           synthetic: Boolean(activeAnalysis?.hook_synthetic),
         }
-      : null;
+      : selectedHookFromPipeline;
   const selectedHookCandidate =
     (activeJob ? selectedHookByJob[activeJob.id] : null) ||
     (() => {
@@ -1755,6 +1817,8 @@ const Editor = () => {
   const hookWindowLabel =
     Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
       ? `${hookStartSec.toFixed(1)}s - ${hookEndSec.toFixed(1)}s`
+      : selectedHookCandidate
+        ? `${selectedHookCandidate.start.toFixed(1)}s - ${(selectedHookCandidate.start + selectedHookCandidate.duration).toFixed(1)}s`
       : "Not available";
   const failedGateReason =
     activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
@@ -1762,47 +1826,46 @@ const Editor = () => {
       : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
         ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
         : "";
-  const handleReprocessWithSelectedHook = useCallback(async () => {
-    if (!activeJob?.id || !accessToken || !selectedHookCandidate) return;
-    setReprocessingHookJobId(activeJob.id);
-    try {
-      await apiFetch(`/api/jobs/${activeJob.id}/reprocess`, {
-        method: "POST",
-        token: accessToken,
-        body: JSON.stringify({
-          requestedQuality: selectedQuality,
-          retentionAggressionLevel,
-          preferredHook: selectedHookCandidate,
-        }),
-      });
-      toast({
-        title: "Re-render queued",
-        description: "We’ll use your selected hook at the front of the video.",
-      });
-      await fetchJobs();
-      await fetchJob(activeJob.id);
-    } catch (err: any) {
-      toast({
-        title: "Re-render failed",
-        description: err?.message || "Please try again.",
-      });
-    } finally {
-      setReprocessingHookJobId((current) => (current === activeJob.id ? null : current));
-    }
-  }, [
-    activeJob?.id,
-    accessToken,
-    fetchJob,
-    fetchJobs,
-    retentionAggressionLevel,
-    selectedHookCandidate,
-    selectedQuality,
-    toast,
-  ]);
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
+  const canApplyHookRealtime = Boolean(
+    activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
+  );
+  const canShowRealtimeHookSelector = Boolean(
+    activeJob &&
+      activeJob.renderMode !== "vertical" &&
+      hookVariants.length > 0 &&
+      canApplyHookRealtime &&
+      currentStepIndex >= HOOK_STEP_INDEX,
+  );
+  const handleApplyPreferredHookRealtime = useCallback(async (candidate: HookCandidate) => {
+    if (!activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    setSelectedHookByJob((prev) => ({ ...prev, [jobId]: candidate }));
+    setApplyingHookJobId(jobId);
+    try {
+      await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ preferredHook: candidate }),
+      });
+      await fetchJob(jobId);
+      setHookSelectorOpen(false);
+      toast({
+        title: "Hook updated",
+        description: "Applied to the active hook stage in real time.",
+      });
+    } catch (err: any) {
+      toast({
+        title: err instanceof ApiError && err.status === 409 ? "Hook stage passed" : "Hook update failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setApplyingHookJobId((current) => (current === jobId ? null : current));
+    }
+  }, [accessToken, activeJob?.id, fetchJob, toast]);
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const handlePreviewLoadedMetadata = useCallback((event: any) => {
@@ -2032,7 +2095,21 @@ const Editor = () => {
             </div>
           </div>
 
-          {trialActive && (
+          {trialActive && hideSubscriptionCard && (
+            <div className="mb-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px] text-muted-foreground"
+                onClick={handleShowSubscriptionCard}
+              >
+                Show subscription card
+              </Button>
+            </div>
+          )}
+
+          {trialActive && !hideSubscriptionCard && (
             <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2043,9 +2120,20 @@ const Editor = () => {
                       : `Full ${PLAN_CONFIG[trialUnlockTier].name} access is active.`}
                   </p>
                 </div>
-                <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
-                  Trial {Math.max(1, trialDaysRemaining)}d left
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
+                    Trial {Math.max(1, trialDaysRemaining)}d left
+                  </Badge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px] text-emerald-100/80 hover:text-emerald-100"
+                    onClick={handleHideSubscriptionCard}
+                  >
+                    Hide
+                  </Button>
+                </div>
               </div>
               <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {trialUnlockedFeatures.map((feature) => (
@@ -2520,6 +2608,68 @@ const Editor = () => {
                       </div>
                     )}
 
+                    {canShowRealtimeHookSelector && (
+                      <div className="rounded-xl border border-primary/35 bg-primary/5 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1">
+                            <p className="text-xs uppercase tracking-[0.2em] text-primary/80">Hook Job</p>
+                            <p className="text-xs text-muted-foreground">Pick the opening hook now. Changes apply in real time.</p>
+                          </div>
+                          <Popover open={hookSelectorOpen} onOpenChange={setHookSelectorOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 text-xs"
+                                disabled={applyingHookJobId === activeJob.id}
+                              >
+                                {applyingHookJobId === activeJob.id ? (
+                                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                ) : null}
+                                Select hook
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-[22rem] space-y-2">
+                              <p className="text-xs text-muted-foreground">Choose which hook goes first:</p>
+                              <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                                {hookVariants.map((candidate, index) => {
+                                  const end = candidate.start + candidate.duration;
+                                  const isSelected =
+                                    !!selectedHookCandidate &&
+                                    Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
+                                    Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
+                                  return (
+                                    <button
+                                      key={`hook-live-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
+                                      type="button"
+                                      className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                                        isSelected
+                                          ? "border-primary/55 bg-primary/10 text-foreground"
+                                          : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
+                                      }`}
+                                      disabled={applyingHookJobId === activeJob.id}
+                                      onClick={() => void handleApplyPreferredHookRealtime(candidate)}
+                                    >
+                                      <p className="font-medium text-foreground">
+                                        Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
+                                      </p>
+                                      {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        {selectedHookCandidate ? (
+                          <p className="text-xs text-foreground/90">
+                            Selected: {selectedHookCandidate.start.toFixed(1)}s - {(selectedHookCandidate.start + selectedHookCandidate.duration).toFixed(1)}s
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+
                     {normalizeStatus(activeJob.status) === "ready" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-success flex items-center gap-1.5">
@@ -2579,53 +2729,6 @@ const Editor = () => {
                           {whyKeepWatching.map((line, index) => (
                             <p key={`why-${index}`} className="text-xs text-foreground/90">- {line}</p>
                           ))}
-                        </div>
-                      ) : null}
-                      {activeJob.renderMode !== "vertical" && hookVariants.length > 0 ? (
-                        <div className="space-y-2 pt-1">
-                          <p className="text-xs text-muted-foreground">Choose which hook goes first:</p>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            {hookVariants.map((candidate, index) => {
-                              const isSelected =
-                                !!selectedHookCandidate &&
-                                Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
-                                Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
-                              const end = candidate.start + candidate.duration;
-                              return (
-                                <button
-                                  key={`hook-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
-                                  type="button"
-                                  className={`rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
-                                    isSelected
-                                      ? "border-primary/50 bg-primary/10 text-foreground"
-                                      : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
-                                  }`}
-                                  onClick={() => {
-                                    if (!activeJob) return;
-                                    setSelectedHookByJob((prev) => ({ ...prev, [activeJob.id]: candidate }));
-                                  }}
-                                >
-                                  <p className="font-medium text-foreground">
-                                    Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
-                                  </p>
-                                  {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={(!["ready", "failed"].includes(normalizeStatus(activeJob.status))) || !selectedHookCandidate || reprocessingHookJobId === activeJob.id}
-                            onClick={() => void handleReprocessWithSelectedHook()}
-                          >
-                            {reprocessingHookJobId === activeJob.id ? (
-                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                            ) : null}
-                            Re-render with selected hook
-                          </Button>
                         </div>
                       ) : null}
                       {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
