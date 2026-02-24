@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -248,6 +248,7 @@ const Editor = () => {
   const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
@@ -1189,6 +1190,59 @@ const Editor = () => {
     setSearchParams(next, { replace: false });
   };
 
+  const handleCancelQueue = useCallback(
+    async (jobId: string) => {
+      if (!accessToken || !jobId) return;
+      setCancelingJobId(jobId);
+      try {
+        await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel-queue`, {
+          method: "POST",
+          token: accessToken,
+        });
+        setJobs((prev) =>
+          prev.map((job) =>
+            job.id === jobId
+              ? { ...job, status: "failed", progress: Math.max(0, Math.min(100, Number(job.progress ?? 0))) }
+              : job,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== jobId) return prev;
+          return {
+            ...prev,
+            status: "failed",
+            progress: Math.max(0, Math.min(100, Number(prev.progress ?? 0))),
+            error: "queue_canceled_by_user",
+          };
+        });
+        toast({
+          title: "Queue canceled",
+          description: "Your job was removed from the queue.",
+        });
+        fetchJobs();
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          toast({ title: "Session expired", description: "Please sign in again." });
+          try {
+            await signOut();
+          } catch (e) {
+            // ignore
+          }
+        } else {
+          toast({
+            title: "Cancel failed",
+            description: err?.message || "Please try again.",
+          });
+          fetchJobs();
+        }
+      } finally {
+        setCancelingJobId((current) => (current === jobId ? null : current));
+      }
+    },
+    [accessToken, fetchJobs, signOut, toast],
+  );
+
   const handleDownload = async (clipIndex = 0) => {
     if (!accessToken || !activeJob) return;
     try {
@@ -1215,7 +1269,12 @@ const Editor = () => {
   };
 
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
-  const activeStatusLabel = activeJob ? STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued" : "Queued";
+  const activeStatusLabel = activeJob
+    ? normalizeStatus(activeJob.status) === "failed" && activeJob.error === "queue_canceled_by_user"
+      ? "Canceled"
+      : STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued"
+    : "Queued";
+  const canCancelQueue = normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading";
   const activeOutputUrls = useMemo(() => {
     if (!activeJob) return [] as string[];
     const urls = Array.isArray(activeJob.outputUrls)
@@ -1729,7 +1788,9 @@ const Editor = () => {
                             ? normalizedActiveStatus === "ready"
                               ? "Ready to export"
                               : normalizedActiveStatus === "failed"
-                                ? "Job failed"
+                                ? activeJob.error === "queue_canceled_by_user"
+                                  ? "Job canceled"
+                                  : "Job failed"
                                 : "Processing your edit..."
                             : "Select a job to preview"}
                         </p>
@@ -1806,6 +1867,23 @@ const Editor = () => {
                             {etaSuffix}
                           </span>
                         </div>
+                        {canCancelQueue && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="w-fit h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
+                            disabled={cancelingJobId === activeJob.id}
+                            onClick={() => void handleCancelQueue(activeJob.id)}
+                          >
+                            {cancelingJobId === activeJob.id ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5 mr-1" />
+                            )}
+                            Cancel Queue
+                          </Button>
+                        )}
                       </div>
                     )}
 
