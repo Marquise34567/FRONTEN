@@ -52,6 +52,7 @@ const Settings = () => {
   const [entitlements, setEntitlements] = useState<any | null>(null);
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
+  const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
   const { plan: currentPlan, features, subtitlePresets } = useSubscription();
   const { data: founderAvailability } = useFounderAvailability();
@@ -101,7 +102,7 @@ const Settings = () => {
       setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval }),
+        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -130,7 +131,11 @@ const Settings = () => {
     try {
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier: requiredPlan, interval: billingInterval }),
+        body: JSON.stringify({
+          tier: requiredPlan,
+          interval: billingInterval,
+          trial: requiredPlan === "starter" && useStarterTrial,
+        }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -548,6 +553,12 @@ const Settings = () => {
                 </button>
               </div>
               <span className="text-xs text-muted-foreground">Switch to annual billing</span>
+            </div>
+            <div className="mb-6">
+              <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+                <Switch checked={useStarterTrial} onCheckedChange={setUseStarterTrial} />
+                <span className="text-xs text-muted-foreground">Use free trial when choosing Starter</span>
+              </label>
             </div>
             <PricingCards
               currentTier={currentPlan}

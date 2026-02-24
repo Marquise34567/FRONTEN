@@ -3,6 +3,7 @@ import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import PricingCards from "@/components/PricingCards";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSubscription } from "@/hooks/use-subscription";
 import { useFounderAvailability } from "@/hooks/use-founder-availability";
@@ -18,6 +19,7 @@ const Pricing = () => {
   const { data: founderAvailability } = useFounderAvailability();
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
+  const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
 
@@ -27,7 +29,7 @@ const Pricing = () => {
       setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval }),
+        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -110,6 +112,12 @@ const Pricing = () => {
             </button>
           </div>
           <span className="text-xs text-muted-foreground">Switch to annual billing</span>
+        </div>
+        <div className="flex items-center justify-center mb-10">
+          <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+            <Switch checked={useStarterTrial} onCheckedChange={setUseStarterTrial} />
+            <span className="text-xs text-muted-foreground">Use free trial when choosing Starter</span>
+          </label>
         </div>
 
         <div className="max-w-6xl mx-auto">
