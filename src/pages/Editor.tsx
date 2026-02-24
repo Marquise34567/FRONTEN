@@ -1195,10 +1195,24 @@ const Editor = () => {
       if (!accessToken || !jobId) return;
       setCancelingJobId(jobId);
       try {
-        await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel`, {
-          method: "POST",
-          token: accessToken,
-        });
+        const requestCancel = async () =>
+          apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel`, {
+            method: "POST",
+            token: accessToken,
+          });
+        try {
+          await requestCancel();
+        } catch (err: any) {
+          // Backward compatibility while backend deploys the new /cancel route.
+          if (err instanceof ApiError && err.status === 404) {
+            await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel-queue`, {
+              method: "POST",
+              token: accessToken,
+            });
+          } else {
+            throw err;
+          }
+        }
         setJobs((prev) =>
           prev.map((job) =>
             job.id === jobId
