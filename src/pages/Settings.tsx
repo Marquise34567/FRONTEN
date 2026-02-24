@@ -57,6 +57,11 @@ const Settings = () => {
   const { plan: currentPlan, features, subtitlePresets } = useSubscription();
   const { data: founderAvailability } = useFounderAvailability();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
+  const trialInfo = data?.subscription?.trial;
+  const trialActive = Boolean(trialInfo?.active);
+  const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
+  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
   const allowedSubtitlePresets = features.subtitles.allowedPresets;
   const subtitlesEnabled = features.subtitles.enabled;
   const isPresetAllowed = (presetId: string) =>
@@ -91,6 +96,11 @@ const Settings = () => {
       .catch(() => setEntitlements(null));
   }, [accessToken]);
 
+  useEffect(() => {
+    if (trialActive) setUseStarterTrial(true);
+    if (trialUsed) setUseStarterTrial(false);
+  }, [trialActive, trialUsed]);
+
   const openUpgrade = (plan: PlanTier) => {
     setRequiredPlan(plan);
     setUpgradeOpen(true);
@@ -107,6 +117,12 @@ const Settings = () => {
       });
       window.location.href = result.url;
     } catch (err: any) {
+      const code = err instanceof ApiError ? err.code : err?.code;
+      if (code === "trial_already_used") {
+        setUseStarterTrial(false);
+        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
+        return;
+      }
       toast({ title: "Checkout failed", description: err?.message || "Please try again." });
     } finally {
       setAction(null);
@@ -140,6 +156,12 @@ const Settings = () => {
       });
       window.location.href = result.url;
     } catch (err: any) {
+      const code = err instanceof ApiError ? err.code : err?.code;
+      if (code === "trial_already_used") {
+        setUseStarterTrial(false);
+        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
+        return;
+      }
       toast({ title: "Upgrade failed", description: err?.message || "Please try again." });
     }
   };
@@ -555,10 +577,29 @@ const Settings = () => {
               <span className="text-xs text-muted-foreground">Switch to annual billing</span>
             </div>
             <div className="mb-6">
-              <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-                <Switch checked={useStarterTrial} onCheckedChange={setUseStarterTrial} />
-                <span className="text-xs text-muted-foreground">Use 3-day free trial (full unlock) when choosing Starter</span>
-              </label>
+              {trialUsed ? (
+                <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+                  <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
+                    Trial used
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Starter free trial has already been used on this account.
+                  </span>
+                </div>
+              ) : (
+                <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+                  <Switch
+                    checked={trialActive ? true : useStarterTrial}
+                    onCheckedChange={setUseStarterTrial}
+                    disabled={trialActive}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {trialActive
+                      ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
+                      : "Use 3-day free trial (full unlock) when choosing Starter"}
+                  </span>
+                </label>
+              )}
             </div>
             <PricingCards
               currentTier={currentPlan}

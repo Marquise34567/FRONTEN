@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
@@ -291,6 +291,7 @@ const Editor = () => {
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
   const modeParam = searchParams.get("mode");
@@ -326,12 +327,35 @@ const Editor = () => {
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const paidTier = isPaidTier(tier);
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const trialUnlockTierRaw = trialInfo?.trialTier as PlanTier | undefined;
+  const trialUnlockTier: PlanTier =
+    trialUnlockTierRaw && PLAN_CONFIG[trialUnlockTierRaw] ? trialUnlockTierRaw : tier;
+  const trialUnlockedFeatures = (PLAN_CONFIG[trialUnlockTier] ?? PLAN_CONFIG[tier]).features;
+  const trialEndsAtMs = trialInfo?.endsAt ? new Date(trialInfo.endsAt).getTime() : null;
+  const trialEndsAtLabel =
+    trialEndsAtMs !== null && Number.isFinite(trialEndsAtMs)
+      ? new Date(trialEndsAtMs).toLocaleString()
+      : null;
+  const hasTrialHistory = Boolean(trialInfo?.trialTier || trialInfo?.startedAt || trialInfo?.endsAt);
+  const trialEnded = Boolean(
+    hasTrialHistory &&
+    !trialActive &&
+    trialEndsAtMs !== null &&
+    Number.isFinite(trialEndsAtMs) &&
+    trialEndsAtMs <= Date.now() &&
+    tier === "free",
+  );
+  const trialUpgradePromptKey =
+    me?.user?.id && trialInfo?.endsAt
+      ? `trial_upgrade_prompt_dismissed_${me.user.id}_${trialInfo.endsAt}`
+      : null;
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
@@ -350,6 +374,36 @@ const Editor = () => {
     maxRendersPerMonth,
     rendersRemaining
   ]);
+
+  const dismissTrialUpgradePrompt = useCallback(() => {
+    if (trialUpgradePromptKey) {
+      try {
+        window.localStorage.setItem(trialUpgradePromptKey, String(Date.now()));
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setTrialUpgradeOpen(false);
+  }, [trialUpgradePromptKey]);
+
+  const handleUpgradeFromTrialPrompt = useCallback(() => {
+    dismissTrialUpgradePrompt();
+    navigate("/pricing");
+  }, [dismissTrialUpgradePrompt, navigate]);
+
+  useEffect(() => {
+    if (!trialEnded || !trialUpgradePromptKey) {
+      setTrialUpgradeOpen(false);
+      return;
+    }
+    try {
+      const dismissed = window.localStorage.getItem(trialUpgradePromptKey);
+      if (dismissed) return;
+    } catch (error) {
+      // ignore storage failures
+    }
+    setTrialUpgradeOpen(true);
+  }, [trialEnded, trialUpgradePromptKey]);
 
   const [authError, setAuthError] = useState(false);
 
@@ -1978,6 +2032,31 @@ const Editor = () => {
             </div>
           </div>
 
+          {trialActive && (
+            <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-100">Free trial unlocked</p>
+                  <p className="text-xs text-emerald-200/80">
+                    {trialEndsAtLabel
+                      ? `Full ${PLAN_CONFIG[trialUnlockTier].name} access until ${trialEndsAtLabel}.`
+                      : `Full ${PLAN_CONFIG[trialUnlockTier].name} access is active.`}
+                  </p>
+                </div>
+                <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
+                  Trial {Math.max(1, trialDaysRemaining)}d left
+                </Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {trialUnlockedFeatures.map((feature) => (
+                  <p key={`trial-feature-${feature}`} className="text-xs text-emerald-100/90">
+                    - {feature}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -2618,6 +2697,53 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
+
+      <Dialog
+        open={trialUpgradeOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            dismissTrialUpgradePrompt();
+            return;
+          }
+          setTrialUpgradeOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Free trial ended</DialogTitle>
+            <DialogDescription>
+              {trialEndsAtLabel
+                ? `Your trial ended on ${trialEndsAtLabel}. Upgrade now to keep premium editing tools unlocked.`
+                : "Your trial ended. Upgrade now to keep premium editing tools unlocked."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">
+                Trial features you used
+              </p>
+              <div className="space-y-1">
+                {trialUnlockedFeatures.slice(0, 6).map((feature) => (
+                  <p key={`ended-trial-${feature}`} className="text-xs text-foreground/90">
+                    - {feature}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={dismissTrialUpgradePrompt}>
+                Maybe later
+              </Button>
+              <Button
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                onClick={handleUpgradeFromTrialPrompt}
+              >
+                Upgrade now
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">

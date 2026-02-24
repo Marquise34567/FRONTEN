@@ -7,8 +7,9 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSubscription } from "@/hooks/use-subscription";
 import { useFounderAvailability } from "@/hooks/use-founder-availability";
-import { apiFetch } from "@/lib/api";
-import { useState } from "react";
+import { useMe } from "@/hooks/use-me";
+import { ApiError, apiFetch } from "@/lib/api";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
 import { ZoomIn } from "lucide-react";
@@ -16,12 +17,23 @@ import { ZoomIn } from "lucide-react";
 const Pricing = () => {
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
+  const { data: me } = useMe();
   const { data: founderAvailability } = useFounderAvailability();
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
+  const trialInfo = me?.subscription?.trial;
+  const trialActive = Boolean(trialInfo?.active);
+  const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
+  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
+
+  useEffect(() => {
+    if (trialActive) setUseStarterTrial(true);
+    if (trialUsed) setUseStarterTrial(false);
+  }, [trialActive, trialUsed]);
 
   const handleCheckout = async (tier: PlanTier) => {
     if (!accessToken) return;
@@ -34,6 +46,12 @@ const Pricing = () => {
       });
       window.location.href = result.url;
     } catch (err: any) {
+      const code = err instanceof ApiError ? err.code : err?.code;
+      if (code === "trial_already_used") {
+        setUseStarterTrial(false);
+        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
+        return;
+      }
       toast({ title: "Checkout failed", description: err?.message || "Please try again." });
     } finally {
       setAction(null);
@@ -114,10 +132,27 @@ const Pricing = () => {
           <span className="text-xs text-muted-foreground">Switch to annual billing</span>
         </div>
         <div className="flex items-center justify-center mb-10">
-          <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-            <Switch checked={useStarterTrial} onCheckedChange={setUseStarterTrial} />
-            <span className="text-xs text-muted-foreground">Use 3-day free trial (full unlock) when choosing Starter</span>
-          </label>
+          {trialUsed ? (
+            <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+              <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
+                Trial used
+              </Badge>
+              <span className="text-xs text-muted-foreground">Starter free trial has already been used on this account.</span>
+            </div>
+          ) : (
+            <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+              <Switch
+                checked={trialActive ? true : useStarterTrial}
+                onCheckedChange={setUseStarterTrial}
+                disabled={trialActive}
+              />
+              <span className="text-xs text-muted-foreground">
+                {trialActive
+                  ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
+                  : "Use 3-day free trial (full unlock) when choosing Starter"}
+              </span>
+            </label>
+          )}
         </div>
 
         <div className="max-w-6xl mx-auto">
