@@ -56,7 +56,7 @@ const Pricing = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="min-h-screen px-4 pt-24 pb-20">
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-20">
         <motion.div
           className="text-center max-w-2xl mx-auto mb-14"
           initial={{ opacity: 0, y: 20 }}

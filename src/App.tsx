@@ -14,60 +14,65 @@ import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
 import { AuthProvider } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
+import { useScreenProfile } from "@/hooks/use-screen-profile";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/pricing" element={<Pricing />} />
-            <Route path="/billing/success" element={<BillingSuccess />} />
-            <Route
-              path="/app"
-              element={
-                <RequireAuth>
-                  <Navigate to="/editor" replace />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/editor"
-              element={
-                <RequireAuth>
-                  <Editor />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/app/job/:id"
-              element={
-                <RequireAuth>
-                  <JobDetail />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <RequireAuth>
-                  <Settings />
-                </RequireAuth>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  useScreenProfile();
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/billing/success" element={<BillingSuccess />} />
+              <Route
+                path="/app"
+                element={
+                  <RequireAuth>
+                    <Navigate to="/editor" replace />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/editor"
+                element={
+                  <RequireAuth>
+                    <Editor />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/job/:id"
+                element={
+                  <RequireAuth>
+                    <JobDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <Settings />
+                  </RequireAuth>
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;

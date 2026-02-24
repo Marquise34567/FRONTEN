@@ -1903,7 +1903,7 @@ const Editor = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="min-h-screen px-4 pt-24 pb-12 max-w-6xl mx-auto">
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-6xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>

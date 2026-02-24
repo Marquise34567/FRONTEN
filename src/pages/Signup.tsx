@@ -49,7 +49,7 @@ const Signup = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="flex items-center justify-center min-h-screen px-4 pt-24">
+      <main className="responsive-main flex items-center justify-center min-h-screen px-4 pt-24">
         <motion.div
           className="w-full max-w-md"
           initial={{ opacity: 0, y: 20 }}

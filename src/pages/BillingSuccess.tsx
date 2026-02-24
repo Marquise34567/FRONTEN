@@ -18,7 +18,7 @@ const BillingSuccess = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="min-h-screen flex items-center justify-center px-4 pt-24 pb-12">
+      <main className="responsive-main min-h-screen flex items-center justify-center px-4 pt-24 pb-12">
         <motion.div
           className="glass-card p-8 max-w-md text-center"
           initial={{ opacity: 0, y: 20 }}

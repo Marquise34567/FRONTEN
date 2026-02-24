@@ -10,7 +10,7 @@ const Index = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="flex flex-col items-center justify-center min-h-screen px-4 pt-24 pb-20">
+      <main className="responsive-main flex flex-col items-center justify-center min-h-screen px-4 pt-24 pb-20">
         {/* Hero */}
         <motion.div
           className="flex flex-col items-center text-center max-w-3xl mx-auto"

@@ -222,7 +222,7 @@ const Settings = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <h1 className="text-3xl font-bold font-display text-foreground mb-8">Settings</h1>
 

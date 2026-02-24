@@ -54,6 +54,67 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+
+    --ae-main-px: 1rem;
+    --ae-base-font-size: 1rem;
+    --ae-btn-h: 2.5rem;
+    --ae-btn-h-sm: 2.25rem;
+    --ae-btn-h-lg: 2.75rem;
+    --ae-btn-px: 1rem;
+    --ae-btn-px-sm: 0.75rem;
+    --ae-btn-px-lg: 2rem;
+    --ae-btn-text: 0.875rem;
+    --ae-btn-text-sm: 0.8125rem;
+    --ae-btn-text-lg: 0.95rem;
+    --ae-control-h: 2.5rem;
+    --ae-control-text: 0.875rem;
+    --ae-textarea-min-h: 5rem;
+  }
+}
+
+@layer base {
+  html[data-device='tablet'] {
+    --ae-main-px: 0.95rem;
+    --ae-base-font-size: 0.97rem;
+    --ae-btn-h: 2.55rem;
+    --ae-btn-h-sm: 2.3rem;
+    --ae-btn-h-lg: 2.9rem;
+    --ae-btn-px: 0.95rem;
+    --ae-btn-px-sm: 0.72rem;
+    --ae-btn-px-lg: 1.7rem;
+    --ae-btn-text: 0.86rem;
+    --ae-btn-text-sm: 0.8rem;
+    --ae-btn-text-lg: 0.94rem;
+    --ae-control-h: 2.55rem;
+    --ae-control-text: 0.88rem;
+  }
+
+  html[data-device='mobile'] {
+    --ae-main-px: 0.8rem;
+    --ae-base-font-size: 0.93rem;
+    --ae-btn-h: 2.7rem;
+    --ae-btn-h-sm: 2.45rem;
+    --ae-btn-h-lg: 3rem;
+    --ae-btn-px: 0.8rem;
+    --ae-btn-px-sm: 0.62rem;
+    --ae-btn-px-lg: 1.2rem;
+    --ae-btn-text: 0.84rem;
+    --ae-btn-text-sm: 0.78rem;
+    --ae-btn-text-lg: 0.9rem;
+    --ae-control-h: 2.7rem;
+    --ae-control-text: 0.87rem;
+    --ae-textarea-min-h: 4.75rem;
+  }
+
+  html[data-device='mobile'][data-orientation='landscape'] {
+    --ae-main-px: 0.65rem;
+    --ae-base-font-size: 0.9rem;
+    --ae-btn-h: 2.45rem;
+    --ae-btn-h-sm: 2.2rem;
+    --ae-btn-h-lg: 2.7rem;
+    --ae-btn-px: 0.72rem;
+    --ae-btn-px-lg: 1.05rem;
+    --ae-control-h: 2.4rem;
   }
 }
 
@@ -65,6 +126,7 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: var(--ae-base-font-size);
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -160,5 +222,10 @@
 
   .btn-glow:hover::after {
     @apply opacity-100;
+  }
+
+  .responsive-main {
+    padding-left: max(env(safe-area-inset-left), var(--ae-main-px)) !important;
+    padding-right: max(env(safe-area-inset-right), var(--ae-main-px)) !important;
   }
 }
