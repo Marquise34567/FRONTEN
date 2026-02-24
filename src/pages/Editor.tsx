@@ -283,6 +283,9 @@ const Editor = () => {
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const paidTier = isPaidTier(tier);
+  const trialInfo = me?.subscription?.trial;
+  const trialActive = Boolean(trialInfo?.active);
+  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
@@ -1759,6 +1762,11 @@ const Editor = () => {
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
                     {tierLabel} plan
                   </Badge>
+                  {trialActive && (
+                    <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
+                      Trial {Math.max(1, trialDaysRemaining)}d left
+                    </Badge>
+                  )}
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
                     {isDevAccount
                       ? "Unlimited renders"

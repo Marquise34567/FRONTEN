@@ -9,6 +9,13 @@ export type MeResponse = {
     status: string;
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    trial?: {
+      active: boolean;
+      startedAt: string | null;
+      endsAt: string | null;
+      daysRemaining: number;
+      trialTier: string | null;
+    } | null;
   };
   flags?: {
     dev?: boolean;
