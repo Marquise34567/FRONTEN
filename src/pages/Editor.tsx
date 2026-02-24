@@ -257,6 +257,16 @@ const normalizeHookCandidates = (raw: unknown): HookCandidate[] => {
     .filter((candidate): candidate is HookCandidate => Boolean(candidate));
 };
 
+const formatNicheLabel = (value?: string | null) => {
+  if (!value) return "Unknown";
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  return normalized
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -1591,6 +1601,9 @@ const Editor = () => {
   const metadataRetention = metadataSummary?.retention && typeof metadataSummary.retention === "object"
     ? metadataSummary.retention
     : null;
+  const metadataNiche = metadataSummary?.niche && typeof metadataSummary.niche === "object"
+    ? metadataSummary.niche
+    : null;
   const hookSelectionSource = typeof activeAnalysis?.hook_selection_source === "string"
     ? activeAnalysis.hook_selection_source
     : typeof metadataRetention?.hookSelectionSource === "string"
@@ -1618,6 +1631,27 @@ const Editor = () => {
   const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
     ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
     : [];
+  const detectedNicheRaw =
+    typeof activeAnalysis?.niche_profile?.niche === "string"
+      ? activeAnalysis.niche_profile.niche
+      : typeof metadataNiche?.name === "string"
+        ? metadataNiche.name
+        : null;
+  const detectedNicheConfidenceRaw =
+    Number.isFinite(Number(activeAnalysis?.niche_profile?.confidence))
+      ? Number(activeAnalysis.niche_profile.confidence)
+      : Number.isFinite(Number(metadataNiche?.confidence))
+        ? Number(metadataNiche.confidence)
+        : null;
+  const detectedNicheConfidencePercent =
+    detectedNicheConfidenceRaw !== null
+      ? Math.round(clamp01(detectedNicheConfidenceRaw) * 100)
+      : null;
+  const detectedNicheRationale: string[] = Array.isArray(activeAnalysis?.niche_profile?.rationale)
+    ? activeAnalysis.niche_profile.rationale.filter((line: unknown) => typeof line === "string").slice(0, 3)
+    : Array.isArray(metadataNiche?.rationale)
+      ? metadataNiche.rationale.filter((line: unknown) => typeof line === "string").slice(0, 3)
+      : [];
   const hookVariants = normalizeHookCandidates(
     activeAnalysis?.hook_variants ||
     activeAnalysis?.hook_candidates ||
@@ -2430,6 +2464,21 @@ const Editor = () => {
                       </p>
                       {hookReason ? (
                         <p className="text-xs text-muted-foreground">Hook reason: {hookReason}</p>
+                      ) : null}
+                      {detectedNicheRaw ? (
+                        <p className="text-xs text-muted-foreground">
+                          Detected niche: {formatNicheLabel(detectedNicheRaw)}
+                          {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
+                        </p>
+                      ) : null}
+                      {detectedNicheRationale.length > 0 ? (
+                        <div className="space-y-1">
+                          {detectedNicheRationale.map((line, index) => (
+                            <p key={`niche-rationale-${index}`} className="text-xs text-muted-foreground">
+                              - {line}
+                            </p>
+                          ))}
+                        </div>
                       ) : null}
                       <p className="text-xs text-muted-foreground">
                         Hook selection: {hookSelectionSource === "user_selected" ? "User-selected" : hookSelectionSource === "fallback" ? "Fallback" : "Auto"}
