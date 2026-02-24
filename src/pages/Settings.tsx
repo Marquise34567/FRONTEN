@@ -557,7 +557,7 @@ const Settings = () => {
             <div className="mb-6">
               <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
                 <Switch checked={useStarterTrial} onCheckedChange={setUseStarterTrial} />
-                <span className="text-xs text-muted-foreground">Use free trial when choosing Starter</span>
+                <span className="text-xs text-muted-foreground">Use 3-day free trial (full unlock) when choosing Starter</span>
               </label>
             </div>
             <PricingCards
