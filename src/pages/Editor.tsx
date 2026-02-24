@@ -163,7 +163,6 @@ const PIPELINE_STEPS = [
   { key: "rendering", label: "Rendering" },
   { key: "ready", label: "Ready" },
 ] as const;
-const HOOK_STEP_INDEX = PIPELINE_STEPS.findIndex((step) => step.key === "hooking");
 const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
   "queued",
   "uploading",
@@ -171,6 +170,7 @@ const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
   "hooking",
   "cutting",
   "pacing",
+  "story",
 ]);
 
 const STATUS_LABELS: Record<string, string> = {
@@ -1870,9 +1870,8 @@ const Editor = () => {
   const canShowRealtimeHookSelector = Boolean(
     activeJob &&
       activeJob.renderMode !== "vertical" &&
-      hookVariants.length > 0 &&
-      canApplyHookRealtime &&
-      currentStepIndex >= HOOK_STEP_INDEX,
+      hookVariants.length > 1 &&
+      canApplyHookRealtime,
   );
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector) return;
