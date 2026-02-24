@@ -14,7 +14,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
-import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
+import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
@@ -119,6 +119,14 @@ type PreviewPlaybackTelemetry = {
   lastTimeSec: number;
   lastDispatchProgress: number;
 };
+type CreatorFeedbackCategory = "bad_hook" | "too_fast" | "too_generic" | "great_edit";
+
+const CREATOR_FEEDBACK_ACTIONS: Array<{ category: CreatorFeedbackCategory; label: string }> = [
+  { category: "bad_hook", label: "Hook weak" },
+  { category: "too_fast", label: "Too fast" },
+  { category: "too_generic", label: "Generic" },
+  { category: "great_edit", label: "Great edit" },
+];
 
 const PIPELINE_STEPS = [
   { key: "queued", label: "Queued" },
@@ -254,6 +262,7 @@ const Editor = () => {
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [retentionAggressionLevel, setRetentionAggressionLevel] = useState<RetentionAggressionLevel>("medium");
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
+  const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -273,6 +282,7 @@ const Editor = () => {
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
+  const paidTier = isPaidTier(tier);
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
@@ -491,6 +501,50 @@ const Editor = () => {
       void postRetentionFeedback(job.id, payload, { force: true });
     },
     [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
+  );
+
+  const submitCreatorFeedback = useCallback(
+    async (category: CreatorFeedbackCategory) => {
+      if (!activeJob?.id || !accessToken) return;
+      if (!paidTier) {
+        toast({
+          title: "Paid feature",
+          description: "Creator correction feedback is available on paid plans.",
+        });
+        return;
+      }
+      setCreatorFeedbackSubmitting(category);
+      try {
+        await apiFetch(`/api/jobs/${activeJob.id}/creator-feedback`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify({
+            category,
+            source: "frontend_creator",
+          }),
+        });
+        await fetchJob(activeJob.id);
+        toast({
+          title: "Feedback saved",
+          description: "We’ll use this to calibrate future edits.",
+        });
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 403) {
+          toast({
+            title: "Upgrade required",
+            description: "This correction control is for paid plans.",
+          });
+        } else {
+          toast({
+            title: "Feedback failed",
+            description: err?.message || "Please try again.",
+          });
+        }
+      } finally {
+        setCreatorFeedbackSubmitting(null);
+      }
+    },
+    [accessToken, activeJob?.id, fetchJob, paidTier, toast],
   );
 
   useEffect(() => {
@@ -2269,6 +2323,35 @@ const Editor = () => {
                           ) : null}
                         </div>
                       ) : null}
+                      <div className="space-y-1 pt-1">
+                        <p className="text-xs text-muted-foreground">
+                          Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
+                        </p>
+                        {paidTier ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {CREATOR_FEEDBACK_ACTIONS.map((action) => (
+                              <Button
+                                key={action.category}
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-[11px]"
+                                disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
+                                onClick={() => void submitCreatorFeedback(action.category)}
+                              >
+                                {creatorFeedbackSubmitting === action.category ? (
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                ) : null}
+                                {action.label}
+                              </Button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">
+                            Upgrade to send hook/pacing/generic corrections directly to the model.
+                          </p>
+                        )}
+                      </div>
                       <div className="pt-1">
                         <button
                           type="button"
