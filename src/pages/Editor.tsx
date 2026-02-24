@@ -51,7 +51,18 @@ const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 
 type VerticalFitMode = "cover" | "contain";
+type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
+const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
+  safe: "low",
+  balanced: "medium",
+  viral: "viral",
+};
+const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string }> = [
+  { value: "safe", label: "Safe" },
+  { value: "balanced", label: "Balanced" },
+  { value: "viral", label: "Viral" },
+];
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -314,7 +325,8 @@ const Editor = () => {
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
-  const [retentionAggressionLevel, setRetentionAggressionLevel] = useState<RetentionAggressionLevel>("medium");
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
+  const retentionAggressionLevel = STRATEGY_TO_AGGRESSION[retentionStrategyProfile];
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
@@ -1028,6 +1040,7 @@ const Editor = () => {
               filename: file.name,
               renderMode: "vertical" as const,
               retentionAggressionLevel,
+              retentionStrategyProfile,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
             }
@@ -1035,6 +1048,7 @@ const Editor = () => {
               filename: file.name,
               renderMode: "horizontal" as const,
               retentionAggressionLevel,
+              retentionStrategyProfile,
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -1736,6 +1750,26 @@ const Editor = () => {
   const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
     ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
     : [];
+  const detectedRetentionStrategyProfile =
+    typeof metadataRetention?.strategyProfile === "string"
+      ? metadataRetention.strategyProfile
+      : typeof retentionJudge?.strategy_profile === "string"
+        ? retentionJudge.strategy_profile
+        : typeof activeAnalysis?.retentionStrategyProfile === "string"
+          ? activeAnalysis.retentionStrategyProfile
+          : typeof activeAnalysis?.retentionStrategy === "string"
+            ? activeAnalysis.retentionStrategy
+            : null;
+  const detectedRetentionContentFormat =
+    typeof metadataRetention?.contentFormat === "string"
+      ? metadataRetention.contentFormat
+      : typeof retentionJudge?.content_format === "string"
+        ? retentionJudge.content_format
+        : typeof activeAnalysis?.retentionContentFormat === "string"
+          ? activeAnalysis.retentionContentFormat
+          : typeof activeAnalysis?.retention_content_format === "string"
+            ? activeAnalysis.retention_content_format
+            : null;
   const detectedNicheRaw =
     typeof activeAnalysis?.niche_profile?.niche === "string"
       ? activeAnalysis.niche_profile.niche
@@ -2079,19 +2113,19 @@ const Editor = () => {
                 </button>
               </div>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
-                {(["low", "medium", "high", "viral"] as RetentionAggressionLevel[]).map((level) => (
+                {RETENTION_PROFILE_OPTIONS.map((profile) => (
                   <button
-                    key={level}
+                    key={profile.value}
                     type="button"
                     className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                      retentionAggressionLevel === level
+                      retentionStrategyProfile === profile.value
                         ? "bg-card text-foreground border border-border/60"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
-                    onClick={() => setRetentionAggressionLevel(level)}
-                    aria-label={`Retention ${level}`}
+                    onClick={() => setRetentionStrategyProfile(profile.value)}
+                    aria-label={`Retention profile ${profile.label}`}
                   >
-                    {level === "viral" ? "Viral Mode" : level[0].toUpperCase() + level.slice(1)}
+                    {profile.label}
                   </button>
                 ))}
               </div>
@@ -2685,6 +2719,16 @@ const Editor = () => {
                       <p className="text-xs text-muted-foreground">
                         Hook selection: {hookSelectionSource === "user_selected" ? "User-selected" : hookSelectionSource === "fallback" ? "Fallback" : "Auto"}
                       </p>
+                      {detectedRetentionStrategyProfile ? (
+                        <p className="text-xs text-muted-foreground">
+                          Retention profile: {formatNicheLabel(detectedRetentionStrategyProfile)}
+                        </p>
+                      ) : null}
+                      {detectedRetentionContentFormat ? (
+                        <p className="text-xs text-muted-foreground">
+                          Content format: {formatNicheLabel(detectedRetentionContentFormat)}
+                        </p>
+                      ) : null}
                       <p className="text-sm text-foreground">
                         Retention score: {retentionScoreDisplay !== null ? retentionScoreDisplay : "Pending"}
                       </p>
