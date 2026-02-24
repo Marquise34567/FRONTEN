@@ -109,6 +109,17 @@ interface JobDetail extends JobSummary {
   error?: string | null;
 }
 
+type HookCandidate = {
+  start: number;
+  duration: number;
+  score: number;
+  auditScore: number;
+  auditPassed: boolean;
+  text: string;
+  reason: string;
+  synthetic: boolean;
+};
+
 type PreviewPlaybackTelemetry = {
   durationSec: number;
   maxTimeSec: number;
@@ -223,6 +234,29 @@ const statusBadgeClass = (status?: JobStatus | string | null) => {
   return "bg-muted/40 text-muted-foreground border-border/60";
 };
 
+const normalizeHookCandidates = (raw: unknown): HookCandidate[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const start = Number((item as any)?.start);
+      const duration = Number((item as any)?.duration);
+      if (!Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) return null;
+      const score = Number((item as any)?.score);
+      const auditScore = Number((item as any)?.auditScore);
+      return {
+        start,
+        duration,
+        score: Number.isFinite(score) ? score : 0,
+        auditScore: Number.isFinite(auditScore) ? auditScore : Number.isFinite(score) ? score : 0,
+        auditPassed: Boolean((item as any)?.auditPassed),
+        text: typeof (item as any)?.text === "string" ? (item as any).text : "",
+        reason: typeof (item as any)?.reason === "string" ? (item as any).reason : "",
+        synthetic: Boolean((item as any)?.synthetic),
+      } as HookCandidate;
+    })
+    .filter((candidate): candidate is HookCandidate => Boolean(candidate));
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -263,6 +297,8 @@ const Editor = () => {
   const [retentionAggressionLevel, setRetentionAggressionLevel] = useState<RetentionAggressionLevel>("medium");
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
+  const [reprocessingHookJobId, setReprocessingHookJobId] = useState<string | null>(null);
+  const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1549,6 +1585,17 @@ const Editor = () => {
   const hookEndSec = Number(activeAnalysis?.hook_end_time ?? (Number.isFinite(hookStartSec) ? hookStartSec + Number(activeAnalysis?.hook?.duration ?? 0) : NaN));
   const hookText = typeof activeAnalysis?.hook_text === "string" ? activeAnalysis.hook_text : "";
   const hookReason = typeof activeAnalysis?.hook_reason === "string" ? activeAnalysis.hook_reason : "";
+  const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
+    ? activeAnalysis.metadata_summary
+    : null;
+  const metadataRetention = metadataSummary?.retention && typeof metadataSummary.retention === "object"
+    ? metadataSummary.retention
+    : null;
+  const hookSelectionSource = typeof activeAnalysis?.hook_selection_source === "string"
+    ? activeAnalysis.hook_selection_source
+    : typeof metadataRetention?.hookSelectionSource === "string"
+      ? metadataRetention.hookSelectionSource
+      : "auto";
   const pipelineJudgeMeta =
     activeAnalysis?.pipelineSteps?.STORY_QUALITY_GATE?.meta ||
     activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta ||
@@ -1571,6 +1618,47 @@ const Editor = () => {
   const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
     ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
     : [];
+  const hookVariants = normalizeHookCandidates(
+    activeAnalysis?.hook_variants ||
+    activeAnalysis?.hook_candidates ||
+    activeAnalysis?.editPlan?.hookVariants ||
+    activeAnalysis?.editPlan?.hookCandidates
+  ).slice(0, 5);
+  const selectedHookFromAnalysis: HookCandidate | null =
+    Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec) && hookEndSec > hookStartSec
+      ? {
+          start: hookStartSec,
+          duration: Math.max(0.1, hookEndSec - hookStartSec),
+          score: Number.isFinite(Number(activeAnalysis?.hook_score)) ? Number(activeAnalysis?.hook_score) : 0,
+          auditScore: Number.isFinite(Number(activeAnalysis?.hook_audit_score))
+            ? Number(activeAnalysis?.hook_audit_score)
+            : Number.isFinite(Number(activeAnalysis?.hook_score))
+              ? Number(activeAnalysis?.hook_score)
+              : 0,
+          auditPassed: Boolean(activeAnalysis?.hook_audit_passed ?? true),
+          text: hookText,
+          reason: hookReason,
+          synthetic: Boolean(activeAnalysis?.hook_synthetic),
+        }
+      : null;
+  const selectedHookCandidate =
+    (activeJob ? selectedHookByJob[activeJob.id] : null) ||
+    (() => {
+      if (selectedHookFromAnalysis && hookVariants.length > 0) {
+        const matched = hookVariants.find((candidate) => (
+          Math.abs(candidate.start - selectedHookFromAnalysis.start) <= 0.4 &&
+          Math.abs(candidate.duration - selectedHookFromAnalysis.duration) <= 0.8
+        ));
+        if (matched) return matched;
+      }
+      if (selectedHookFromAnalysis) return selectedHookFromAnalysis;
+      return hookVariants[0] || null;
+    })();
+  const retentionImprovements: string[] = Array.isArray(metadataRetention?.improvements)
+    ? metadataRetention.improvements.filter((line: unknown) => typeof line === "string").slice(0, 8)
+    : Array.isArray(activeJob?.optimizationNotes)
+      ? activeJob.optimizationNotes.filter((line: unknown) => typeof line === "string").slice(0, 8)
+      : [];
   const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
     ? Number(activeJob?.retentionScore)
     : Number.isFinite(Number(retentionJudge?.retention_score))
@@ -1586,6 +1674,43 @@ const Editor = () => {
       : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
         ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
         : "";
+  const handleReprocessWithSelectedHook = useCallback(async () => {
+    if (!activeJob?.id || !accessToken || !selectedHookCandidate) return;
+    setReprocessingHookJobId(activeJob.id);
+    try {
+      await apiFetch(`/api/jobs/${activeJob.id}/reprocess`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          requestedQuality: selectedQuality,
+          retentionAggressionLevel,
+          preferredHook: selectedHookCandidate,
+        }),
+      });
+      toast({
+        title: "Re-render queued",
+        description: "We’ll use your selected hook at the front of the video.",
+      });
+      await fetchJobs();
+      await fetchJob(activeJob.id);
+    } catch (err: any) {
+      toast({
+        title: "Re-render failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setReprocessingHookJobId((current) => (current === activeJob.id ? null : current));
+    }
+  }, [
+    activeJob?.id,
+    accessToken,
+    fetchJob,
+    fetchJobs,
+    retentionAggressionLevel,
+    selectedHookCandidate,
+    selectedQuality,
+    toast,
+  ]);
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
@@ -2306,15 +2431,73 @@ const Editor = () => {
                       {hookReason ? (
                         <p className="text-xs text-muted-foreground">Hook reason: {hookReason}</p>
                       ) : null}
+                      <p className="text-xs text-muted-foreground">
+                        Hook selection: {hookSelectionSource === "user_selected" ? "User-selected" : hookSelectionSource === "fallback" ? "Fallback" : "Auto"}
+                      </p>
                       <p className="text-sm text-foreground">
                         Retention score: {retentionScoreDisplay !== null ? retentionScoreDisplay : "Pending"}
                       </p>
+                      {retentionImprovements.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">What the editor improved:</p>
+                          {retentionImprovements.map((line, index) => (
+                            <p key={`improve-${index}`} className="text-xs text-foreground/90">- {line}</p>
+                          ))}
+                        </div>
+                      ) : null}
                       {whyKeepWatching.length > 0 ? (
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Why this should keep viewers:</p>
                           {whyKeepWatching.map((line, index) => (
                             <p key={`why-${index}`} className="text-xs text-foreground/90">- {line}</p>
                           ))}
+                        </div>
+                      ) : null}
+                      {activeJob.renderMode !== "vertical" && hookVariants.length > 0 ? (
+                        <div className="space-y-2 pt-1">
+                          <p className="text-xs text-muted-foreground">Choose which hook goes first:</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {hookVariants.map((candidate, index) => {
+                              const isSelected =
+                                !!selectedHookCandidate &&
+                                Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
+                                Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
+                              const end = candidate.start + candidate.duration;
+                              return (
+                                <button
+                                  key={`hook-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
+                                  type="button"
+                                  className={`rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                                    isSelected
+                                      ? "border-primary/50 bg-primary/10 text-foreground"
+                                      : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
+                                  }`}
+                                  onClick={() => {
+                                    if (!activeJob) return;
+                                    setSelectedHookByJob((prev) => ({ ...prev, [activeJob.id]: candidate }));
+                                  }}
+                                >
+                                  <p className="font-medium text-foreground">
+                                    Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
+                                  </p>
+                                  {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={(!["ready", "failed"].includes(normalizeStatus(activeJob.status))) || !selectedHookCandidate || reprocessingHookJobId === activeJob.id}
+                            onClick={() => void handleReprocessWithSelectedHook()}
+                          >
+                            {reprocessingHookJobId === activeJob.id ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : null}
+                            Re-render with selected hook
+                          </Button>
                         </div>
                       ) : null}
                       {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
