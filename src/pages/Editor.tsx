@@ -46,8 +46,12 @@ const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
+const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
+const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
+const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 
 type VerticalFitMode = "cover" | "contain";
+type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -104,6 +108,17 @@ interface JobDetail extends JobSummary {
   optimizationNotes?: string[] | null;
   error?: string | null;
 }
+
+type PreviewPlaybackTelemetry = {
+  durationSec: number;
+  maxTimeSec: number;
+  maxProgress: number;
+  watchedSeconds: number;
+  rewatchSeconds: number;
+  loopCount: number;
+  lastTimeSec: number;
+  lastDispatchProgress: number;
+};
 
 const PIPELINE_STEPS = [
   { key: "queued", label: "Queued" },
@@ -237,10 +252,17 @@ const Editor = () => {
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
+  const [retentionAggressionLevel, setRetentionAggressionLevel] = useState<RetentionAggressionLevel>("medium");
+  const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
+  const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
+  const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
+  const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -326,6 +348,149 @@ const Editor = () => {
       }
     },
     [accessToken, toast, signOut],
+  );
+
+  const getHookWindowSeconds = useCallback((job?: JobDetail | null) => {
+    const analysis = (job?.analysis ?? {}) as any;
+    const hookStart = Number(analysis?.hook_start_time ?? analysis?.hook?.start ?? NaN);
+    const hookEnd = Number(
+      analysis?.hook_end_time ??
+      (Number.isFinite(hookStart) ? hookStart + Number(analysis?.hook?.duration ?? 0) : NaN),
+    );
+    if (Number.isFinite(hookStart) && Number.isFinite(hookEnd) && hookEnd > hookStart) {
+      return clamp(hookEnd - hookStart, 4, 8);
+    }
+    return 8;
+  }, []);
+
+  const ensurePlaybackTelemetry = useCallback((jobId: string, durationSec: number, lastTimeSec = 0) => {
+    const existing = playbackTelemetryRef.current[jobId];
+    if (existing) {
+      existing.durationSec = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : existing.durationSec;
+      if (Number.isFinite(lastTimeSec)) {
+        existing.lastTimeSec = clamp(lastTimeSec, 0, Math.max(lastTimeSec, existing.durationSec || lastTimeSec));
+      }
+      return existing;
+    }
+    const next: PreviewPlaybackTelemetry = {
+      durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0,
+      maxTimeSec: 0,
+      maxProgress: 0,
+      watchedSeconds: 0,
+      rewatchSeconds: 0,
+      loopCount: 0,
+      lastTimeSec: Number.isFinite(lastTimeSec) ? Math.max(0, lastTimeSec) : 0,
+      lastDispatchProgress: 0,
+    };
+    playbackTelemetryRef.current[jobId] = next;
+    return next;
+  }, []);
+
+  const postRetentionFeedback = useCallback(
+    async (
+      jobId: string,
+      payload: Record<string, unknown>,
+      options?: { force?: boolean },
+    ) => {
+      if (!accessToken || !jobId) return;
+      const compactPayload = Object.fromEntries(
+        Object.entries(payload).filter(([, value]) => value !== null && value !== undefined && value !== ""),
+      ) as Record<string, unknown>;
+      const hasSignal = ["watchPercent", "hookHoldPercent", "completionPercent", "rewatchRate", "manualScore"].some(
+        (key) => typeof compactPayload[key] === "number",
+      );
+      if (!hasSignal) return;
+
+      const now = Date.now();
+      const signature = JSON.stringify(
+        Object.entries(compactPayload).sort(([a], [b]) => a.localeCompare(b)),
+      );
+      const previous = retentionFeedbackDispatchRef.current[jobId];
+      const force = Boolean(options?.force);
+      if (!force && previous && now - previous.at < RETENTION_FEEDBACK_INTERVAL_MS) return;
+      if (!force && previous && previous.signature === signature && now - previous.at < RETENTION_FEEDBACK_INTERVAL_MS * 4) return;
+      if (retentionFeedbackInFlightRef.current[jobId]) return;
+
+      retentionFeedbackInFlightRef.current[jobId] = true;
+      try {
+        await apiFetch(`/api/jobs/${jobId}/retention-feedback`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify(compactPayload),
+        });
+        retentionFeedbackDispatchRef.current[jobId] = { at: now, signature };
+      } catch (error) {
+        // Non-blocking telemetry path.
+        console.warn("retention-feedback submit failed", error);
+      } finally {
+        retentionFeedbackInFlightRef.current[jobId] = false;
+      }
+    },
+    [accessToken],
+  );
+
+  const buildFeedbackPayloadFromTelemetry = useCallback(
+    (
+      job: JobDetail,
+      telemetry: PreviewPlaybackTelemetry | null,
+      source: string,
+      note?: string,
+    ) => {
+      const payload: Record<string, unknown> = { source };
+      if (note) payload.notes = note;
+      if (!telemetry || !Number.isFinite(telemetry.durationSec) || telemetry.durationSec <= 0) {
+        return payload;
+      }
+      const durationSec = Math.max(0.1, telemetry.durationSec);
+      const maxTimeSec = clamp(telemetry.maxTimeSec, 0, durationSec);
+      const maxProgress = clamp01(maxTimeSec / durationSec);
+      const hookWindowSeconds = getHookWindowSeconds(job);
+      const hookHoldPercent = clamp01(maxTimeSec / Math.max(1, hookWindowSeconds));
+      const overwatchSeconds = Math.max(0, telemetry.watchedSeconds - durationSec);
+      const rewatchRate = clamp01(
+        overwatchSeconds / durationSec +
+        (telemetry.rewatchSeconds / durationSec) * 0.5 +
+        telemetry.loopCount * 0.08,
+      );
+
+      payload.watchPercent = Number(maxProgress.toFixed(4));
+      payload.hookHoldPercent = Number(hookHoldPercent.toFixed(4));
+      payload.completionPercent = Number(maxProgress.toFixed(4));
+      payload.rewatchRate = Number(rewatchRate.toFixed(4));
+      return payload;
+    },
+    [getHookWindowSeconds],
+  );
+
+  const submitPreviewFeedback = useCallback(
+    (job: JobDetail | null, telemetry: PreviewPlaybackTelemetry, trigger: string, force = false) => {
+      if (!job) return;
+      if (!force && telemetry.maxProgress < MIN_WATCH_FEEDBACK_PROGRESS) return;
+      const payload = buildFeedbackPayloadFromTelemetry(job, telemetry, "frontend_preview", `trigger:${trigger}`);
+      void postRetentionFeedback(job.id, payload, { force });
+    },
+    [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
+  );
+
+  const submitDownloadFeedback = useCallback(
+    (job: JobDetail | null, clipIndex: number, source: string) => {
+      if (!job) return;
+      const key = `${job.id}:${clipIndex + 1}`;
+      if (downloadFeedbackSentRef.current[key]) return;
+      const telemetry = playbackTelemetryRef.current[job.id] ?? null;
+      const payload = buildFeedbackPayloadFromTelemetry(
+        job,
+        telemetry,
+        source,
+        `download_clip:${clipIndex + 1}`,
+      ) as Record<string, unknown>;
+      if (typeof payload.manualScore !== "number") {
+        payload.manualScore = 78;
+      }
+      downloadFeedbackSentRef.current[key] = true;
+      void postRetentionFeedback(job.id, payload, { force: true });
+    },
+    [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
   );
 
   useEffect(() => {
@@ -493,6 +658,13 @@ const Editor = () => {
             document.body.appendChild(a);
             try {
               a.click();
+              const telemetryJob: JobDetail = {
+                ...(j as any),
+                id,
+                status: "ready",
+                analysis: (j as any)?.analysis ?? null,
+              };
+              submitDownloadFeedback(telemetryJob, 0, "frontend_auto_download");
               // assume success; if browser blocked, user can tap in modal
               // set a short timeout to mark as downloaded optimistically
               setTimeout(() => {
@@ -512,7 +684,7 @@ const Editor = () => {
         })();
       }
     }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken]);
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, submitDownloadFeedback]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -523,6 +695,15 @@ const Editor = () => {
     window.localStorage.setItem(key, "true");
     setExportOpen(true);
   }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    return () => {
+      if (!activeJob) return;
+      const telemetry = playbackTelemetryRef.current[activeJob.id];
+      if (!telemetry) return;
+      submitPreviewFeedback(activeJob, telemetry, "job-change", false);
+    };
+  }, [activeJob?.id, submitPreviewFeedback]);
 
   useEffect(() => {
     return () => {
@@ -638,12 +819,14 @@ const Editor = () => {
           ? {
               filename: file.name,
               renderMode: "vertical" as const,
+              retentionAggressionLevel,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
             }
           : {
               filename: file.name,
               renderMode: "horizontal" as const,
+              retentionAggressionLevel,
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -1265,6 +1448,7 @@ const Editor = () => {
         outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
       if (selectedExistingUrl) {
         window.open(selectedExistingUrl, "_blank");
+        submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
         return;
       }
       const clipParam = clipIndex + 1;
@@ -1277,6 +1461,7 @@ const Editor = () => {
         return { ...prev, outputUrl: data.url, outputUrls: nextUrls };
       });
       window.open(data.url, "_blank");
+      submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
     }
@@ -1302,12 +1487,120 @@ const Editor = () => {
     if (activeJob.outputUrl) return [activeJob.outputUrl];
     return [];
   }, [activeJob]);
+  const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const hookStartSec = Number(activeAnalysis?.hook_start_time ?? activeAnalysis?.hook?.start ?? NaN);
+  const hookEndSec = Number(activeAnalysis?.hook_end_time ?? (Number.isFinite(hookStartSec) ? hookStartSec + Number(activeAnalysis?.hook?.duration ?? 0) : NaN));
+  const hookText = typeof activeAnalysis?.hook_text === "string" ? activeAnalysis.hook_text : "";
+  const hookReason = typeof activeAnalysis?.hook_reason === "string" ? activeAnalysis.hook_reason : "";
+  const pipelineJudgeMeta =
+    activeAnalysis?.pipelineSteps?.STORY_QUALITY_GATE?.meta ||
+    activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta ||
+    null;
+  const retentionJudge = activeAnalysis?.retention_judge && typeof activeAnalysis.retention_judge === "object"
+    ? activeAnalysis.retention_judge
+    : pipelineJudgeMeta?.selectedJudge && typeof pipelineJudgeMeta.selectedJudge === "object"
+      ? pipelineJudgeMeta.selectedJudge
+      : pipelineJudgeMeta?.judge && typeof pipelineJudgeMeta.judge === "object"
+        ? pipelineJudgeMeta.judge
+        : null;
+  const retentionAttempts = Array.isArray(activeAnalysis?.retention_attempts)
+    ? activeAnalysis.retention_attempts
+    : Array.isArray(pipelineJudgeMeta?.attempts)
+      ? pipelineJudgeMeta.attempts
+      : [];
+  const whyKeepWatching: string[] = Array.isArray(retentionJudge?.why_keep_watching)
+    ? retentionJudge.why_keep_watching.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    : [];
+  const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
+    ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    : [];
+  const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
+    ? Number(activeJob?.retentionScore)
+    : Number.isFinite(Number(retentionJudge?.retention_score))
+      ? Number(retentionJudge?.retention_score)
+      : null;
+  const hookWindowLabel =
+    Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
+      ? `${hookStartSec.toFixed(1)}s - ${hookEndSec.toFixed(1)}s`
+      : "Not available";
+  const failedGateReason =
+    activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
+      ? activeJob.error.replace(/^FAILED_HOOK:\s*/i, "").trim()
+      : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
+        ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
+        : "";
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
+  const handlePreviewLoadedMetadata = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
+  }, [activeJob, ensurePlaybackTelemetry]);
+
+  const handlePreviewTimeUpdate = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+
+    const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
+    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    const delta = currentTime - telemetry.lastTimeSec;
+    if (Number.isFinite(delta)) {
+      if (delta >= 0 && delta <= 2.5) {
+        telemetry.watchedSeconds += delta;
+      } else if (delta < -0.25) {
+        telemetry.rewatchSeconds += Math.abs(delta);
+      }
+      if (delta < -Math.max(0.5, duration * 0.35)) {
+        telemetry.loopCount += 1;
+      }
+    }
+    telemetry.lastTimeSec = currentTime;
+    telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, currentTime);
+    telemetry.maxProgress = Math.max(telemetry.maxProgress, clamp01(telemetry.maxTimeSec / duration));
+
+    const shouldDispatch =
+      telemetry.maxProgress >= 0.95 ||
+      telemetry.maxProgress - telemetry.lastDispatchProgress >= WATCH_FEEDBACK_PROGRESS_STEP;
+    if (shouldDispatch) {
+      telemetry.lastDispatchProgress = telemetry.maxProgress;
+      submitPreviewFeedback(
+        activeJob,
+        telemetry,
+        `progress:${Math.round(telemetry.maxProgress * 100)}`,
+        telemetry.maxProgress >= 0.95,
+      );
+    }
+  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+
+  const handlePreviewPause = useCallback(() => {
+    if (!activeJob) return;
+    const telemetry = playbackTelemetryRef.current[activeJob.id];
+    if (!telemetry) return;
+    submitPreviewFeedback(activeJob, telemetry, "pause", false);
+  }, [activeJob, submitPreviewFeedback]);
+
+  const handlePreviewEnded = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    const telemetry = ensurePlaybackTelemetry(activeJob.id, duration, duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, duration);
+      telemetry.maxProgress = Math.max(telemetry.maxProgress, 1);
+      telemetry.watchedSeconds = Math.max(telemetry.watchedSeconds, duration);
+      telemetry.lastDispatchProgress = 1;
+    }
+    submitPreviewFeedback(activeJob, telemetry, "ended", true);
+  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+
   const handlePreviewVideoError = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     const details = {
@@ -1440,6 +1733,23 @@ const Editor = () => {
                 >
                   Vertical (9:16 Stacked)
                 </button>
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
+                {(["low", "medium", "high", "viral"] as RetentionAggressionLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                      retentionAggressionLevel === level
+                        ? "bg-card text-foreground border border-border/60"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => setRetentionAggressionLevel(level)}
+                    aria-label={`Retention ${level}`}
+                  >
+                    {level === "viral" ? "Viral Mode" : level[0].toUpperCase() + level.slice(1)}
+                  </button>
+                ))}
               </div>
               <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                 <Plus className="w-4 h-4" /> New Project
@@ -1785,8 +2095,13 @@ const Editor = () => {
                 <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
                   {showVideo ? (
                     <video
+                      ref={previewVideoRef}
                       src={previewOutputUrl}
                       controls
+                      onLoadedMetadata={handlePreviewLoadedMetadata}
+                      onTimeUpdate={handlePreviewTimeUpdate}
+                      onPause={handlePreviewPause}
+                      onEnded={handlePreviewEnded}
                       onError={handlePreviewVideoError}
                       className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
                     />
@@ -1919,6 +2234,60 @@ const Editor = () => {
                         </Button>
                       </div>
                     )}
+
+                    <div className="rounded-xl border border-border/50 bg-muted/20 p-3 space-y-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
+                      <p className="text-sm text-foreground">
+                        Hook chosen: {hookWindowLabel}
+                        {hookText ? ` — ${hookText}` : ""}
+                      </p>
+                      {hookReason ? (
+                        <p className="text-xs text-muted-foreground">Hook reason: {hookReason}</p>
+                      ) : null}
+                      <p className="text-sm text-foreground">
+                        Retention score: {retentionScoreDisplay !== null ? retentionScoreDisplay : "Pending"}
+                      </p>
+                      {whyKeepWatching.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Why this should keep viewers:</p>
+                          {whyKeepWatching.map((line, index) => (
+                            <p key={`why-${index}`} className="text-xs text-foreground/90">- {line}</p>
+                          ))}
+                        </div>
+                      ) : null}
+                      {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-destructive">
+                            We refused to render because: {failedGateReason}
+                          </p>
+                          {genericReasons.length > 0 ? (
+                            <div className="space-y-1">
+                              {genericReasons.map((line, index) => (
+                                <p key={`generic-${index}`} className="text-xs text-muted-foreground">- {line}</p>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
+                          onClick={() => setShowAdvancedDebug((prev) => !prev)}
+                        >
+                          {showAdvancedDebug ? "Hide Advanced" : "Advanced"}
+                        </button>
+                      </div>
+                      {showAdvancedDebug ? (
+                        <div className="space-y-1 text-[11px] text-muted-foreground">
+                          <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
+                          <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
+                          <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
+                          <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
+                          <p>Attempts stored: {retentionAttempts.length}</p>
+                        </div>
+                      ) : null}
+                    </div>
                   </>
                 )}
               </div>
@@ -2001,7 +2370,14 @@ const Editor = () => {
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
-                    if (autoDownloadModal.jobId) window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
+                    if (autoDownloadModal.jobId) {
+                      const modalJob =
+                        activeJob && activeJob.id === autoDownloadModal.jobId
+                          ? activeJob
+                          : ({ id: autoDownloadModal.jobId, status: "ready", analysis: null } as JobDetail);
+                      submitDownloadFeedback(modalJob, 0, "frontend_modal_download");
+                      window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
+                    }
                   } catch (e) {
                     // ignore
                   }
