@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle } from "lucide-react";
@@ -320,6 +319,7 @@ const Editor = () => {
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
+  const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1840,6 +1840,12 @@ const Editor = () => {
       canApplyHookRealtime &&
       currentStepIndex >= HOOK_STEP_INDEX,
   );
+  useEffect(() => {
+    if (!activeJob?.id || !canShowRealtimeHookSelector) return;
+    if (hookPromptedByJob[activeJob.id]) return;
+    setHookPromptedByJob((prev) => ({ ...prev, [activeJob.id]: true }));
+    setHookSelectorOpen(true);
+  }, [activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
   const handleApplyPreferredHookRealtime = useCallback(async (candidate: HookCandidate) => {
     if (!activeJob?.id || !accessToken) return;
     const jobId = activeJob.id;
@@ -2615,52 +2621,19 @@ const Editor = () => {
                             <p className="text-xs uppercase tracking-[0.2em] text-primary/80">Hook Job</p>
                             <p className="text-xs text-muted-foreground">Pick the opening hook now. Changes apply in real time.</p>
                           </div>
-                          <Popover open={hookSelectorOpen} onOpenChange={setHookSelectorOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-2.5 text-xs"
-                                disabled={applyingHookJobId === activeJob.id}
-                              >
-                                {applyingHookJobId === activeJob.id ? (
-                                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                ) : null}
-                                Select hook
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent align="end" className="w-[22rem] space-y-2">
-                              <p className="text-xs text-muted-foreground">Choose which hook goes first:</p>
-                              <div className="max-h-72 space-y-2 overflow-auto pr-1">
-                                {hookVariants.map((candidate, index) => {
-                                  const end = candidate.start + candidate.duration;
-                                  const isSelected =
-                                    !!selectedHookCandidate &&
-                                    Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
-                                    Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
-                                  return (
-                                    <button
-                                      key={`hook-live-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
-                                      type="button"
-                                      className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
-                                        isSelected
-                                          ? "border-primary/55 bg-primary/10 text-foreground"
-                                          : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
-                                      }`}
-                                      disabled={applyingHookJobId === activeJob.id}
-                                      onClick={() => void handleApplyPreferredHookRealtime(candidate)}
-                                    >
-                                      <p className="font-medium text-foreground">
-                                        Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
-                                      </p>
-                                      {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2.5 text-xs"
+                            disabled={applyingHookJobId === activeJob.id}
+                            onClick={() => setHookSelectorOpen(true)}
+                          >
+                            {applyingHookJobId === activeJob.id ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            Select hook
+                          </Button>
                         </div>
                         {selectedHookCandidate ? (
                           <p className="text-xs text-foreground/90">
@@ -2800,6 +2773,54 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
+
+      <Dialog
+        open={hookSelectorOpen && canShowRealtimeHookSelector}
+        onOpenChange={setHookSelectorOpen}
+      >
+        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Choose your opening hook</DialogTitle>
+            <DialogDescription>
+              Select which hook should lead the video. Your choice applies immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="max-h-80 space-y-2 overflow-auto pr-1">
+              {hookVariants.map((candidate, index) => {
+                const end = candidate.start + candidate.duration;
+                const isSelected =
+                  !!selectedHookCandidate &&
+                  Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
+                  Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
+                return (
+                  <button
+                    key={`hook-dialog-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
+                    type="button"
+                    className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                      isSelected
+                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
+                    }`}
+                    disabled={applyingHookJobId === activeJob?.id}
+                    onClick={() => void handleApplyPreferredHookRealtime(candidate)}
+                  >
+                    <p className="font-medium text-foreground">
+                      Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
+                    </p>
+                    {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setHookSelectorOpen(false)}>
+                Keep current hook
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={trialUpgradeOpen}
