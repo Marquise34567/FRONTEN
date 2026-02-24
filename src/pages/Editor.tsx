@@ -1190,12 +1190,12 @@ const Editor = () => {
     setSearchParams(next, { replace: false });
   };
 
-  const handleCancelQueue = useCallback(
+  const handleCancelJob = useCallback(
     async (jobId: string) => {
       if (!accessToken || !jobId) return;
       setCancelingJobId(jobId);
       try {
-        await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel-queue`, {
+        await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel`, {
           method: "POST",
           token: accessToken,
         });
@@ -1216,8 +1216,8 @@ const Editor = () => {
           };
         });
         toast({
-          title: "Queue canceled",
-          description: "Your job was removed from the queue.",
+          title: "Job canceled",
+          description: "The job has been stopped.",
         });
         fetchJobs();
       } catch (err: any) {
@@ -1274,7 +1274,11 @@ const Editor = () => {
       ? "Canceled"
       : STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued"
     : "Queued";
-  const canCancelQueue = normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading";
+  const canCancelJob = Boolean(activeJob && !isTerminalStatus(activeJob.status));
+  const cancelButtonLabel =
+    normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading"
+      ? "Cancel Queue"
+      : "Cancel Job";
   const activeOutputUrls = useMemo(() => {
     if (!activeJob) return [] as string[];
     const urls = Array.isArray(activeJob.outputUrls)
@@ -1867,21 +1871,21 @@ const Editor = () => {
                             {etaSuffix}
                           </span>
                         </div>
-                        {canCancelQueue && (
+                        {canCancelJob && (
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
                             className="w-fit h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
                             disabled={cancelingJobId === activeJob.id}
-                            onClick={() => void handleCancelQueue(activeJob.id)}
+                            onClick={() => void handleCancelJob(activeJob.id)}
                           >
                             {cancelingJobId === activeJob.id ? (
                               <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                             ) : (
                               <XCircle className="w-3.5 h-3.5 mr-1" />
                             )}
-                            Cancel Queue
+                            {cancelButtonLabel}
                           </Button>
                         )}
                       </div>
