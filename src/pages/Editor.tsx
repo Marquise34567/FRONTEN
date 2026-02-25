@@ -63,6 +63,7 @@ const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
+type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
   safe: "low",
   balanced: "medium",
@@ -73,6 +74,16 @@ const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label:
   { value: "balanced", label: "Balanced" },
   { value: "viral", label: "Viral" },
 ];
+const PLATFORM_OPTIONS: Array<{ value: RetentionTargetPlatform; label: string }> = [
+  { value: "tiktok", label: "TikTok" },
+  { value: "instagram_reels", label: "IG Reels" },
+  { value: "youtube", label: "YouTube" },
+];
+const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
+  tiktok: "Fastest pacing, denser pattern interrupts, and short-form hook pressure.",
+  instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
+  youtube: "Context-first pacing for stronger narrative clarity and lower overcut risk.",
+};
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -304,6 +315,17 @@ const formatNicheLabel = (value?: string | null) => {
     .join(" ");
 };
 
+const formatPlatformLabel = (value?: string | null) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  if (normalized === "instagram_reels" || normalized === "instagram" || normalized === "ig" || normalized === "reels") {
+    return "IG Reels";
+  }
+  if (normalized === "tiktok" || normalized === "tt") return "TikTok";
+  if (normalized === "youtube" || normalized === "yt") return "YouTube";
+  return formatNicheLabel(normalized);
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -346,7 +368,9 @@ const Editor = () => {
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
-  const retentionAggressionLevel = STRATEGY_TO_AGGRESSION[retentionStrategyProfile];
+  const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
+    isVerticalMode ? "tiktok" : "youtube",
+  );
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
@@ -1051,6 +1075,13 @@ const Editor = () => {
     }
     if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
+    const effectiveRetentionStrategyProfile: RetentionStrategyProfile =
+      requestedMode === "vertical"
+        ? "viral"
+        : retentionStrategyProfile === "viral"
+          ? "balanced"
+          : retentionStrategyProfile;
+    const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -1069,8 +1100,9 @@ const Editor = () => {
               filename: file.name,
               contentType: file.type,
               renderMode: "vertical" as const,
-              retentionAggressionLevel,
-              retentionStrategyProfile,
+              retentionAggressionLevel: effectiveRetentionAggressionLevel,
+              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionTargetPlatform,
               onlyHookAndCut,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
@@ -1079,8 +1111,9 @@ const Editor = () => {
               filename: file.name,
               contentType: file.type,
               renderMode: "horizontal" as const,
-              retentionAggressionLevel,
-              retentionStrategyProfile,
+              retentionAggressionLevel: effectiveRetentionAggressionLevel,
+              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionTargetPlatform,
               onlyHookAndCut,
               horizontalMode: {
                 output: "quality" as const,
@@ -1223,7 +1256,13 @@ const Editor = () => {
         // Notify backend of completion for single-PUT flow
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
           method: 'POST',
-          body: JSON.stringify({ key: create.inputPath, onlyHookAndCut }),
+          body: JSON.stringify({
+            key: create.inputPath,
+            onlyHookAndCut,
+            retentionAggressionLevel: effectiveRetentionAggressionLevel,
+            retentionStrategyProfile: effectiveRetentionStrategyProfile,
+            retentionTargetPlatform,
+          }),
           token: accessToken,
         })
 
@@ -1302,6 +1341,18 @@ const Editor = () => {
       return null;
     });
   }, [isVerticalMode]);
+
+  useEffect(() => {
+    if (isVerticalMode) {
+      if (retentionStrategyProfile !== "viral") {
+        setRetentionStrategyProfile("viral");
+      }
+      return;
+    }
+    if (retentionStrategyProfile === "viral") {
+      setRetentionStrategyProfile("balanced");
+    }
+  }, [isVerticalMode, retentionStrategyProfile]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const y = Math.round(sourceHeight * 0.05);
@@ -1824,6 +1875,20 @@ const Editor = () => {
           : typeof activeAnalysis?.retention_content_format === "string"
             ? activeAnalysis.retention_content_format
             : null;
+  const detectedRetentionTargetPlatform =
+    typeof metadataRetention?.targetPlatform === "string"
+      ? metadataRetention.targetPlatform
+      : typeof retentionJudge?.target_platform === "string"
+        ? retentionJudge.target_platform
+        : typeof activeAnalysis?.retentionTargetPlatform === "string"
+          ? activeAnalysis.retentionTargetPlatform
+          : typeof activeAnalysis?.retention_target_platform === "string"
+            ? activeAnalysis.retention_target_platform
+            : typeof activeAnalysis?.retentionPlatform === "string"
+              ? activeAnalysis.retentionPlatform
+              : typeof activeAnalysis?.targetPlatform === "string"
+                ? activeAnalysis.targetPlatform
+                : null;
   const detectedNicheRaw =
     typeof activeAnalysis?.niche_profile?.niche === "string"
       ? activeAnalysis.niche_profile.niche
@@ -2319,22 +2384,55 @@ const Editor = () => {
                 </button>
               </div>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
-                {RETENTION_PROFILE_OPTIONS.map((profile) => (
-                  <button
-                    key={profile.value}
-                    type="button"
-                    className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                      retentionStrategyProfile === profile.value
-                        ? "bg-card text-foreground border border-border/60"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    onClick={() => setRetentionStrategyProfile(profile.value)}
-                    aria-label={`Retention profile ${profile.label}`}
-                  >
-                    {profile.label}
-                  </button>
+                {RETENTION_PROFILE_OPTIONS.map((profile) => {
+                  const lockedForMode = !isVerticalMode && profile.value === "viral";
+                  return (
+                    <button
+                      key={profile.value}
+                      type="button"
+                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                        retentionStrategyProfile === profile.value
+                          ? "bg-card text-foreground border border-border/60"
+                          : "text-muted-foreground hover:text-foreground"
+                      } ${lockedForMode ? "opacity-55 cursor-not-allowed" : ""}`}
+                      disabled={lockedForMode}
+                      onClick={() => {
+                        if (lockedForMode) return;
+                        setRetentionStrategyProfile(profile.value);
+                      }}
+                      aria-label={`Retention profile ${profile.label}`}
+                    >
+                      {profile.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
+                {PLATFORM_OPTIONS.map((platform) => (
+                  <Tooltip key={platform.value}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                          retentionTargetPlatform === platform.value
+                            ? "bg-card text-foreground border border-border/60"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        onClick={() => setRetentionTargetPlatform(platform.value)}
+                        aria-label={`Target platform ${platform.label}`}
+                      >
+                        {platform.label}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{PLATFORM_HELP_TEXT[platform.value]}</TooltipContent>
+                  </Tooltip>
                 ))}
               </div>
+              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
+                {isVerticalMode
+                  ? "Vertical mode always uses viral short-form pacing. Platform selection tunes platform-specific rhythm."
+                  : "Horizontal mode preserves long-form context and clamps overcutting, while platform tuning adjusts cadence."}
+              </p>
               <Button
                 type="button"
                 variant={onlyHookAndCut ? "default" : "outline"}
@@ -2985,6 +3083,11 @@ const Editor = () => {
                       {detectedRetentionContentFormat ? (
                         <p className="text-xs text-muted-foreground">
                           Content format: {formatNicheLabel(detectedRetentionContentFormat)}
+                        </p>
+                      ) : null}
+                      {detectedRetentionTargetPlatform ? (
+                        <p className="text-xs text-muted-foreground">
+                          Target platform: {formatPlatformLabel(detectedRetentionTargetPlatform)}
                         </p>
                       ) : null}
                       <p className="text-sm text-foreground">
