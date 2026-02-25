@@ -416,6 +416,7 @@ const Editor = () => {
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
+  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
   const [captionsPanelOpen, setCaptionsPanelOpen] = useState(false);
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
@@ -561,16 +562,23 @@ const Editor = () => {
       setSavingSubtitleStyle(true);
       const result = await apiFetch<{ settings?: { subtitleStyle?: string; autoCaptions?: boolean } }>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: true }),
+        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: autoCaptionsEnabled }),
         token: accessToken,
       });
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
+      const persistedAutoCaptions =
+        typeof result?.settings?.autoCaptions === "boolean"
+          ? result.settings.autoCaptions
+          : autoCaptionsEnabled;
       setSubtitleStyleDraft(persisted);
+      setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
       setCaptionsPanelOpen(false);
       toast({
         title: "Captions updated",
-        description: "This style will be used for new renders.",
+        description: persistedAutoCaptions
+          ? "Caption style saved and captions are enabled for new renders."
+          : "Caption style saved and captions are disabled for new renders.",
       });
     } catch (err: any) {
       if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
@@ -587,7 +595,7 @@ const Editor = () => {
     } finally {
       setSavingSubtitleStyle(false);
     }
-  }, [accessToken, subtitleStyleDraft, toast]);
+  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -932,6 +940,7 @@ const Editor = () => {
     apiFetch('/api/settings', { token: accessToken })
       .then((d) => {
         setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
+        setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
@@ -1030,6 +1039,7 @@ const Editor = () => {
               if (accessToken) {
                 const s = await apiFetch('/api/settings', { token: accessToken });
                 setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+                setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
                 setSubtitleStyleDirty(false);
@@ -2593,6 +2603,9 @@ const Editor = () => {
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Captions</p>
                     <p className="text-xs text-muted-foreground">
+                      Captions in renders: {autoCaptionsEnabled ? "On" : "Off"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
                       Current style: {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
                     </p>
                     {subtitleStyleDirty ? (
@@ -2600,6 +2613,25 @@ const Editor = () => {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={autoCaptionsEnabled ? "default" : "outline"}
+                      className={`rounded-full ${
+                        autoCaptionsEnabled
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                          : "border-border/60 text-muted-foreground"
+                      }`}
+                      onClick={() => {
+                        if (!subtitlesEnabled) return;
+                        setAutoCaptionsEnabled((prev) => !prev);
+                        setSubtitleStyleDirty(true);
+                        setCaptionsPanelOpen(true);
+                      }}
+                      disabled={!subtitlesEnabled}
+                    >
+                      {autoCaptionsEnabled ? "Captions on" : "Captions off"}
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
