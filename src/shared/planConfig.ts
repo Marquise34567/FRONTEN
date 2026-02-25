@@ -99,7 +99,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     autoZoomMax: 1.12,
     advancedEffects: false,
     lifetime: false,
-    includesFutureFeatures: false,
+    includesFutureFeatures: true,
     badge: null,
     features: [
       "1080p exports",
@@ -108,6 +108,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
       "Subtitles: 4 presets",
       "Auto zoom max 1.12",
       "High-energy animated captions",
+      "Future features included",
     ],
   },
   creator: {
@@ -126,7 +127,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     autoZoomMax: 1.15,
     advancedEffects: false,
     lifetime: false,
-    includesFutureFeatures: false,
+    includesFutureFeatures: true,
     badge: "popular",
     features: [
       "4K exports",
@@ -135,6 +136,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
       "Subtitles: All presets",
       "Karaoke highlight",
       "Auto zoom max 1.15",
+      "Future features included",
     ],
   },
   studio: {
@@ -153,7 +155,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     autoZoomMax: 1.15,
     advancedEffects: true,
     lifetime: false,
-    includesFutureFeatures: false,
+    includesFutureFeatures: true,
     badge: null,
     features: [
       "4K exports",
@@ -162,6 +164,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
       "All subtitle styles",
       "Full zoom control up to 1.15",
       "Advanced effects",
+      "Future features included",
     ],
   },
 };
