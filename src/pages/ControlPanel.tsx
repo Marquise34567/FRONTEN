@@ -99,6 +99,7 @@ type SubscriptionsResponse = {
   };
   activeSubscriptions: number;
   churnCount: number;
+  trend: Array<{ t: string; v: number }>;
   upcomingRenewals: Array<{
     userId: string | null;
     planTier: string;
@@ -518,6 +519,21 @@ const ControlPanel = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="h-28 rounded-md border border-border/50 bg-card/40 p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={subscriptionsQuery.data?.trend ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      formatter={(value) => [String(value), "Active Subs"]}
+                      labelFormatter={(label) => formatShortTime(String(label))}
+                    />
+                    <Line type="monotone" dataKey="v" stroke="hsl(266 78% 67%)" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
