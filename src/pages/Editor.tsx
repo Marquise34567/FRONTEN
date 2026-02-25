@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu, RotateCcw } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, Scissors, MousePointerClick, XCircle, Map as MapIcon, ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -71,11 +71,13 @@ const MIN_WEBCAM_CROP_SIZE_PX = 48;
 const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
 const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
+const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 
 type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
+type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education";
 const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
   safe: "low",
   balanced: "medium",
@@ -108,6 +110,15 @@ const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
   instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
   youtube: "Context-first pacing for stronger narrative clarity and lower overcut risk.",
 };
+const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
+  { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions." },
+  { value: "commentary", label: "Commentary", description: "Speech-first pacing with cleaner flow." },
+  { value: "vlog", label: "Vlog", description: "Conversational lifestyle pacing." },
+  { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage." },
+  { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
+  { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
+];
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -426,7 +437,9 @@ const Editor = () => {
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [hideJobsPanel, setHideJobsPanel] = useState(false);
+  const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
   const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
@@ -525,6 +538,12 @@ const Editor = () => {
       RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile) ??
       RETENTION_PROFILE_OPTIONS[1],
     [retentionStrategyProfile],
+  );
+  const activeEditorModeMeta = useMemo(
+    () =>
+      EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode) ??
+      EDITOR_MODE_OPTIONS[0],
+    [editorMode],
   );
   const activeSubtitlePresetMeta = useMemo(
     () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
@@ -768,11 +787,25 @@ const Editor = () => {
   }, [subscriptionCardHideKey]);
 
   useEffect(() => {
+    try {
+      if (window.localStorage.getItem(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
+        editorGuidePromptedRef.current = true;
+        return;
+      }
+    } catch (error) {
+      // ignore storage failures
+    }
+
     const onScroll = () => {
       if (editorGuidePromptedRef.current) return;
       const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
       if (scrollTop < 80) return;
       editorGuidePromptedRef.current = true;
+      try {
+        window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+      } catch (error) {
+        // ignore storage failures
+      }
       window.setTimeout(() => {
         setEditorGuideOpen(true);
       }, 220);
@@ -1445,6 +1478,7 @@ const Editor = () => {
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
+              editorMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1461,6 +1495,7 @@ const Editor = () => {
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
+              editorMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1616,6 +1651,7 @@ const Editor = () => {
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
             maxCuts: maxCutsRequested,
+            editorMode,
           }),
           token: accessToken,
         })
@@ -2154,6 +2190,7 @@ const Editor = () => {
           platformProfile: retentionTargetPlatform,
           onlyHookAndCut,
           maxCuts: maxCutsRequested,
+          editorMode,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -2251,6 +2288,7 @@ const Editor = () => {
       accessToken,
       autoCaptionsEnabled,
       captionCapability.available,
+      editorMode,
       fetchJob,
       fetchJobs,
       maxRendersPerMonth,
@@ -2870,15 +2908,18 @@ const Editor = () => {
                 <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                   <Button
                     type="button"
+                    size="icon"
                     variant={onlyHookAndCut ? "default" : "outline"}
-                    className={`w-full rounded-full gap-2 sm:w-auto ${
+                    className={`rounded-full ${
                       onlyHookAndCut
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "border-border/60 text-muted-foreground hover:text-foreground"
                     }`}
                     onClick={() => setOnlyHookAndCut((prev) => !prev)}
+                    aria-label={onlyHookAndCut ? "Disable Only Hook + Cut" : "Enable Only Hook + Cut"}
+                    title={onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
                   >
-                    {onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
+                    <Scissors className="h-4 w-4" />
                   </Button>
                   <Button
                     type="button"
@@ -2900,13 +2941,30 @@ const Editor = () => {
                     aria-label="Open editor help menu"
                     title="Editor help menu"
                   >
-                    <Menu className="h-4 w-4" />
+                    <MapIcon className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="rounded-full border-border/60 text-muted-foreground hover:text-foreground"
+                    onClick={() => setHideEditorControlsPanel((prev) => !prev)}
+                    aria-label={hideEditorControlsPanel ? "Open full editor menu" : "Close full editor menu"}
+                    title={hideEditorControlsPanel ? "Open full editor menu" : "Close full editor menu"}
+                  >
+                    {hideEditorControlsPanel ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                   </Button>
                   <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                     <Plus className="w-4 h-4" /> New Project
                   </Button>
                 </div>
               </div>
+              {hideEditorControlsPanel ? (
+                <div className="w-full rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground/85">
+                  Full editor menu is hidden.
+                </div>
+              ) : (
+                <>
               <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
               <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
                 <button
@@ -3017,6 +3075,35 @@ const Editor = () => {
                 {isVerticalMode
                   ? "Vertical mode always uses viral short-form pacing. Platform profile also tunes clip windows, captions, and export encoding."
                   : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
+              </p>
+              <div className="flex w-full flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/20 p-1">
+                {EDITOR_MODE_OPTIONS.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                      editorMode === mode.value
+                        ? "bg-card text-foreground border border-border/60"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      trackEditorEvent("editor_mode_selected", {
+                        retentionProfile: retentionStrategyProfile,
+                        targetPlatform: retentionTargetPlatform,
+                        captionStyle: activeSubtitlePreset,
+                        metadata: { editorMode: mode.value },
+                      });
+                      setEditorMode(mode.value);
+                    }}
+                    aria-label={`Editor mode ${mode.label}`}
+                    title={mode.description}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
+                Editor mode: {activeEditorModeMeta.description}
               </p>
               </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
@@ -3260,6 +3347,8 @@ const Editor = () => {
                   </>
                 ) : null}
               </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -4005,6 +4094,7 @@ const Editor = () => {
                           <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
                           <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
                           <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
+                          <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
                           <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
                           <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
                           <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
@@ -4032,7 +4122,14 @@ const Editor = () => {
       <Dialog
         open={editorGuideOpen}
         onOpenChange={(open) => {
-          if (open) editorGuidePromptedRef.current = true;
+          if (open) {
+            editorGuidePromptedRef.current = true;
+            try {
+              window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+            } catch (error) {
+              // ignore storage failures
+            }
+          }
           setEditorGuideOpen(open);
         }}
       >
@@ -4066,6 +4163,7 @@ const Editor = () => {
                 <p className="text-xs text-foreground/90"><span className="font-medium">Save captions:</span> Persist caption settings to your account.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Only Hook + Cut:</span> Minimal edit path focused on hook and dead-space cuts.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Cut Count:</span> Set the maximum cuts (1-15) to remove low-energy and irrelevant moments.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Editor Mode:</span> Force style strategy (reaction, commentary, vlog, gaming, sports, education, or auto).</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Select hook:</span> Choose opening hook when real-time hook stage is active.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
