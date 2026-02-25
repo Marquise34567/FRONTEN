@@ -16,6 +16,7 @@ import ControlPanel from "./pages/ControlPanel";
 import ControlPanelAudience from "./pages/ControlPanelAudience";
 import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
 import ControlPanelBank from "./pages/ControlPanelBank";
+import ControlPanelEmotion from "./pages/ControlPanelEmotion";
 import ControlPanelGrowth from "./pages/ControlPanelGrowth";
 import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
 import ControlPanelOps from "./pages/ControlPanelOps";
@@ -169,6 +170,16 @@ const App = () => {
                   <RequireAuth>
                     <RequireDevAdmin>
                       <ControlPanel />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/emotion"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelEmotion />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }

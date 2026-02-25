@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   Area,
@@ -14,7 +14,7 @@ import {
   YAxis
 } from "recharts"
 import { motion } from "framer-motion"
-import { Banknote, Landmark, ShieldCheck, TrendingUp, Vault } from "lucide-react"
+import { Banknote, Landmark, ShieldCheck, TrendingUp, Vault, Wallet2 } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +53,31 @@ type SubscriptionsResponse = {
   trend: Array<{ t: string; v: number }>
 }
 
+type TakeoutStatusResponse = {
+  maxAmountUsd: number
+  cooldownMinutes: number
+  currency: string
+  stripeConfigured: boolean
+  availableBalanceUsd: number | null
+  nextAllowedAt: string | null
+  lastTakeoutAt: string | null
+  lastAmountUsd: number | null
+  lastPayoutId: string | null
+  canTakeOut: boolean
+  serverTime: string
+}
+
+type TakeoutResponse = {
+  ok: boolean
+  payoutId: string | null
+  status: string
+  amountUsd: number
+  currency: string
+  nextAllowedAt: string
+  availableBalanceUsd: number | null
+  processedAt: string
+}
+
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(
     Number.isFinite(value) ? value : 0
@@ -72,6 +97,10 @@ const EmptyStateTile = ({ text }: { text: string }) => (
 
 const ControlPanelBank = () => {
   const { accessToken } = useAuth()
+  const [takeoutAmount, setTakeoutAmount] = useState("250")
+  const [takeoutLoading, setTakeoutLoading] = useState(false)
+  const [takeoutError, setTakeoutError] = useState<string | null>(null)
+  const [takeoutSuccess, setTakeoutSuccess] = useState<string | null>(null)
   const canLoad = Boolean(accessToken)
 
   const paymentsQuery = useQuery({
@@ -88,6 +117,13 @@ const ControlPanelBank = () => {
     refetchInterval: 30000
   })
 
+  const takeoutStatusQuery = useQuery({
+    queryKey: ["control-panel-bank-takeout-status"],
+    queryFn: () => apiFetch<TakeoutStatusResponse>("/api/admin/bank/takeout/status", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 10000
+  })
+
   const planDistribution = subscriptionsQuery.data?.distribution
   const planPie = useMemo(
     () => [
@@ -101,6 +137,34 @@ const ControlPanelBank = () => {
   const revenueSeries = paymentsQuery.data?.revenueByDay || []
   const subscriptionTrend = subscriptionsQuery.data?.trend || []
   const hasPlanMixData = planPie.some((item) => item.value > 0)
+
+  const nextAllowedAt = takeoutStatusQuery.data?.nextAllowedAt
+  const handleTakeout = async () => {
+    if (!accessToken) return
+    const amount = Number(takeoutAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setTakeoutError("Enter a valid USD amount.")
+      setTakeoutSuccess(null)
+      return
+    }
+    setTakeoutLoading(true)
+    setTakeoutError(null)
+    setTakeoutSuccess(null)
+    try {
+      const result = await apiFetch<TakeoutResponse>("/api/admin/bank/takeout", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ amountUsd: amount })
+      })
+      setTakeoutSuccess(`Take out sent: ${money(result.amountUsd)} • payout ${result.status}`)
+      setTakeoutAmount("")
+      await Promise.all([paymentsQuery.refetch(), takeoutStatusQuery.refetch()])
+    } catch (error: any) {
+      setTakeoutError(error?.message || "Take out failed.")
+    } finally {
+      setTakeoutLoading(false)
+    }
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(130%_120%_at_75%_-20%,hsl(45_96%_56%/0.16),transparent_40%),radial-gradient(140%_120%_at_20%_110%,hsl(162_72%_45%/0.18),transparent_44%),linear-gradient(180deg,hsl(195_28%_8%)_0%,hsl(207_30%_5%)_100%)]">
@@ -135,7 +199,7 @@ const ControlPanelBank = () => {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: "easeOut" }}
-          className="mt-4 grid gap-4 xl:grid-cols-4"
+          className="mt-4 grid gap-4 xl:grid-cols-5"
         >
           <Card className="glass-card border-amber-300/25 bg-slate-950/60 xl:col-span-2">
             <CardHeader>
@@ -208,6 +272,50 @@ const ControlPanelBank = () => {
               <p className="rounded-md border border-slate-700/70 bg-slate-900/70 p-2 text-slate-300">
                 Financial signal quality: {canLoad ? "live" : "offline"}
               </p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-amber-300/25 bg-slate-950/60">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm text-slate-100">
+                <Wallet2 className="h-4 w-4 text-amber-300" />
+                Take Out
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p className="rounded-md border border-slate-700/70 bg-slate-900/70 p-2 text-slate-300">
+                Up to {money(takeoutStatusQuery.data?.maxAmountUsd || 1000)} every {takeoutStatusQuery.data?.cooldownMinutes || 10} minutes
+              </p>
+              <p className="rounded-md border border-slate-700/70 bg-slate-900/70 p-2 text-slate-300">
+                Stripe balance:{" "}
+                {takeoutStatusQuery.data?.availableBalanceUsd === null
+                  ? "unavailable"
+                  : money(takeoutStatusQuery.data?.availableBalanceUsd || 0)}
+              </p>
+              <p className="rounded-md border border-slate-700/70 bg-slate-900/70 p-2 text-slate-300">
+                Next allowed: {nextAllowedAt ? new Date(nextAllowedAt).toLocaleTimeString() : "now"}
+              </p>
+
+              <div className="flex items-center gap-2">
+                <input
+                  value={takeoutAmount}
+                  onChange={(event) => setTakeoutAmount(event.target.value)}
+                  placeholder="Amount USD"
+                  className="h-9 w-full rounded-md border border-slate-700/70 bg-slate-900/70 px-2 text-sm text-slate-100 outline-none"
+                />
+                <motion.button
+                  type="button"
+                  whileHover={{ y: -1.5, scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleTakeout}
+                  disabled={takeoutLoading || !takeoutStatusQuery.data?.stripeConfigured || !takeoutStatusQuery.data?.canTakeOut}
+                  className="inline-flex h-9 items-center rounded-md border border-amber-300/45 bg-amber-400/20 px-3 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {takeoutLoading ? "Sending..." : "Take Out"}
+                </motion.button>
+              </div>
+              {takeoutError ? <p className="text-rose-300">{takeoutError}</p> : null}
+              {takeoutSuccess ? <p className="text-emerald-300">{takeoutSuccess}</p> : null}
             </CardContent>
           </Card>
         </motion.section>
