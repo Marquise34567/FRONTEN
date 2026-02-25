@@ -470,7 +470,7 @@ const Settings = () => {
                     <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-foreground">MrBeast Caption Styling</p>
+                          <p className="text-sm font-medium text-foreground">Animated Caption Styling</p>
                           <p className="text-xs text-muted-foreground">
                             Paid-only animated captions with custom font, colors, and outline.
                           </p>

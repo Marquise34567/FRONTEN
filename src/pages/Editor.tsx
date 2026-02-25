@@ -81,17 +81,17 @@ const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label:
   {
     value: "safe",
     label: "Safe",
-    description: "Regular context-first cuts with a strong best-moment hook and minimal extra effects.",
+    description: "Context-first pacing with regular cuts, clean flow, and a strong best-moment hook in the first 8 seconds.",
   },
   {
     value: "balanced",
     label: "Balanced",
-    description: "Commentary pacing inspired by AsmonTV, kyahsarchive, and DDG style edits.",
+    description: "Adaptive commentary/lifestyle blend with conversational pacing, strategic zooms, and moderate interrupt density.",
   },
   {
     value: "viral",
     label: "Viral",
-    description: "MrBeast-style short-form pacing with faster cuts, stronger interrupts, and high energy.",
+    description: "High-stakes challenge and energetic vlog blend with faster cuts, stronger interrupts, and aggressive escalation.",
   },
 ];
 const PLATFORM_OPTIONS: Array<{ value: RetentionTargetPlatform; label: string }> = [
@@ -107,7 +107,7 @@ const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
-  { id: "mrbeast_animated", label: "MrBeast Animated", description: "High-energy animated captions with punchy styling." },
+  { id: "mrbeast_animated", label: "High-Energy Animated", description: "High-energy animated captions with punchy styling." },
   { id: "outline_heavy", label: "Cinematic Serif", description: "Film-style serif captions with strong outline." },
   { id: "caption_box", label: "Black Box", description: "Boxed captions for maximum readability." },
   { id: "neon_glow", label: "Neon Glow", description: "Bright glow treatment for stylized edits." },
