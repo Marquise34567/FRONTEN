@@ -20,6 +20,13 @@ import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
+import {
+  MRBEAST_ANIMATION_OPTIONS,
+  MRBEAST_FONT_OPTIONS,
+  parseSubtitleStyleConfig,
+  serializeSubtitleStyleConfig,
+  type SubtitleStyleConfig,
+} from "@shared/subtitlePresets";
 
 type EditorSettings = {
   subtitleStyle: string;
@@ -44,9 +51,10 @@ const getRequiredPlanForAutoZoom = (value: number): PlanTier => {
 };
 
 const getRequiredPlanForPreset = (presetId: string): PlanTier => {
+  const resolvedPreset = parseSubtitleStyleConfig(presetId).preset;
   for (const tier of PLAN_TIERS) {
     const allowed = PLAN_CONFIG[tier].allowedSubtitlePresets;
-    if (allowed === "ALL" || allowed.includes(presetId)) return tier;
+    if (allowed === "ALL" || allowed.includes(resolvedPreset)) return tier;
   }
   return "studio";
 };
@@ -69,8 +77,10 @@ const Settings = () => {
   const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
   const allowedSubtitlePresets = features.subtitles.allowedPresets;
   const subtitlesEnabled = features.subtitles.enabled;
-  const isPresetAllowed = (presetId: string) =>
-    subtitlesEnabled && (allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.includes(presetId));
+  const isPresetAllowed = (presetId: string) => {
+    const resolvedPreset = parseSubtitleStyleConfig(presetId).preset;
+    return subtitlesEnabled && (allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.includes(resolvedPreset));
+  };
   const subtitleBadge =
     allowedSubtitlePresets === "ALL"
       ? "All styles"
@@ -226,6 +236,16 @@ const Settings = () => {
   const rawTier = data?.subscription?.tier as PlanTier | undefined;
   const tier = rawTier && PLAN_TIERS.includes(rawTier) ? rawTier : "free";
   const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
+  const subtitleStyleConfig = parseSubtitleStyleConfig(resolvedSettings.subtitleStyle);
+  const activeSubtitlePreset = subtitleStyleConfig.preset;
+  const updateMrBeastSubtitleStyle = (updates: Partial<SubtitleStyleConfig>) => {
+    const nextSerialized = serializeSubtitleStyleConfig({
+      ...subtitleStyleConfig,
+      preset: "mrbeast_animated",
+      ...updates,
+    });
+    mergeSettings({ subtitleStyle: nextSerialized });
+  };
   const usage = data?.usage;
   const usageDaily = data?.usageDaily;
   const limits = data?.limits;
@@ -397,7 +417,7 @@ const Settings = () => {
                     {subtitlePresets.map((preset) => {
                       const required = getRequiredPlanForPreset(preset.id);
                       const locked = !isPresetAllowed(preset.id);
-                      const active = resolvedSettings.subtitleStyle === preset.id;
+                      const active = activeSubtitlePreset === preset.id;
                       const card = (
                         <button
                           key={preset.id}
@@ -405,6 +425,15 @@ const Settings = () => {
                           onClick={() => {
                             if (locked) {
                               openUpgrade(required);
+                              return;
+                            }
+                            if (preset.id === "mrbeast_animated") {
+                              mergeSettings({
+                                subtitleStyle: serializeSubtitleStyleConfig({
+                                  ...subtitleStyleConfig,
+                                  preset: "mrbeast_animated",
+                                }),
+                              });
                               return;
                             }
                             mergeSettings({ subtitleStyle: preset.id });
@@ -437,6 +466,95 @@ const Settings = () => {
                       );
                     })}
                   </div>
+                  {activeSubtitlePreset === "mrbeast_animated" && isPresetAllowed("mrbeast_animated") && (
+                    <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">MrBeast Caption Styling</p>
+                          <p className="text-xs text-muted-foreground">
+                            Paid-only animated captions with custom font, colors, and outline.
+                          </p>
+                        </div>
+                        <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                          Paid
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Font</span>
+                          <select
+                            className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                            value={subtitleStyleConfig.fontId}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })}
+                          >
+                            {MRBEAST_FONT_OPTIONS.map((fontOption) => (
+                              <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                                {fontOption.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Animation</span>
+                          <select
+                            className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                            value={subtitleStyleConfig.animation}
+                            onChange={(event) =>
+                              updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
+                            }
+                          >
+                            {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
+                              <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                                {animationOption.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Text Color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.textColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ textColor: event.target.value })}
+                            className="h-10 w-full rounded-md border border-white/10 bg-white/5 p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Accent Color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.accentColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ accentColor: event.target.value })}
+                            className="h-10 w-full rounded-md border border-white/10 bg-white/5 p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Outline Color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.outlineColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ outlineColor: event.target.value })}
+                            className="h-10 w-full rounded-md border border-white/10 bg-white/5 p-1"
+                          />
+                        </label>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Outline Width</span>
+                            <span>{subtitleStyleConfig.outlineWidth}px</span>
+                          </div>
+                          <Slider
+                            min={1}
+                            max={12}
+                            step={1}
+                            value={[subtitleStyleConfig.outlineWidth]}
+                            onValueChange={(values) =>
+                              updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="glass-card p-4">
