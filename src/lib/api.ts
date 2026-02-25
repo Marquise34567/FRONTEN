@@ -16,6 +16,8 @@ const normalizeApiUrl = (value: string) => {
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
 const PUBLIC_API_PREFIXES = ["/api/public/"];
 const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
+const isControlPanelPath = (path: string) =>
+  path.startsWith("/api/admin") || path.startsWith("/api/dev/algorithm");
 let authExpiredNotifiedAt = 0;
 let authBlockedUntilFreshToken = false;
 let lastSeenAccessToken: string | null = null;
@@ -36,6 +38,7 @@ export class ApiError extends Error {
 }
 
 import { supabase } from "@/integrations/supabase/client";
+import { getControlPanelPassword } from "./controlPanelAuth";
 
 export async function apiFetch<T>(
   path: string,
@@ -43,7 +46,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   // Allow empty API_URL so requests can be relative (proxied by Vite in dev).
   const base = API_URL || "";
-  let { token, headers, ...rest } = options;
+  let { token, headers, cache, ...rest } = options;
   // If no token provided, try to fetch from Supabase session
   if (!token) {
     try {
@@ -73,11 +76,15 @@ export async function apiFetch<T>(
   }
 
   const url = `${base}${path}`;
+  const resolvedCache = cache ?? (isPublicPath ? "default" : "no-store");
+  const controlPanelPassword = isControlPanelPath(path) ? getControlPanelPassword() : "";
   const res = await fetch(url, {
     ...rest,
+    cache: resolvedCache,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(controlPanelPassword ? { "x-dev-password": controlPanelPassword } : {}),
       ...(headers || {}),
     },
     // Include credentials (cookies) for cookie-based auth flows in local dev
@@ -94,8 +101,10 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const message = data?.message || data?.error || `HTTP ${res.status}`
+    const errorCode = String(data?.error || "").toLowerCase()
+    const passwordFailure = errorCode === "invalid_password" || errorCode === "password_required"
     // If unauthorized, dispatch a global event so UI can stop polling and prompt login
-    if (res.status === 401 && !isPublicPath) {
+    if (res.status === 401 && !isPublicPath && !passwordFailure) {
       authBlockedUntilFreshToken = true;
       const now = Date.now();
       if (now - authExpiredNotifiedAt > 750) {

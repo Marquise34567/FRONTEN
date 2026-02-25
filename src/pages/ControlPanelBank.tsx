@@ -20,7 +20,6 @@ import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
-import { useMe } from "@/hooks/use-me"
 import { apiFetch } from "@/lib/api"
 
 type PaymentsResponse = {
@@ -67,8 +66,7 @@ const shortDate = (iso: string) => {
 
 const ControlPanelBank = () => {
   const { accessToken } = useAuth()
-  const { data: me } = useMe()
-  const canLoad = Boolean(accessToken && me?.flags?.dev)
+  const canLoad = Boolean(accessToken)
 
   const paymentsQuery = useQuery({
     queryKey: ["control-panel-bank-payments"],

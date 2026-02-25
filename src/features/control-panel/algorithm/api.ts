@@ -19,13 +19,18 @@ type TokenInput = {
   token: string
 }
 
+const withToken = (token: string, options: RequestInit = {}) => ({
+  ...options,
+  token
+})
+
 export const algorithmApi = {
   getConfig: ({ token }: TokenInput) =>
-    apiFetch<{ config: AlgorithmConfigVersion }>(`${BASE}/config`, { token }),
+    apiFetch<{ config: AlgorithmConfigVersion }>(`${BASE}/config`, withToken(token)),
 
   listConfigVersions: ({ token, limit = 40 }: TokenInput & { limit?: number }) =>
     apiFetch<{ versions: AlgorithmConfigVersion[] }>(`${BASE}/config/versions?limit=${encodeURIComponent(String(limit))}`, {
-      token
+      ...withToken(token)
     }),
 
   createConfig: ({
@@ -41,8 +46,8 @@ export const algorithmApi = {
     preset_name?: string | null
   }) =>
     apiFetch<{ config: AlgorithmConfigVersion }>(`${BASE}/config`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({
         params,
         activate,
@@ -53,41 +58,42 @@ export const algorithmApi = {
 
   rollbackConfig: ({ token }: TokenInput) =>
     apiFetch<{ config: AlgorithmConfigVersion }>(`${BASE}/config/rollback`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({})
     }),
 
   applyPreset: ({ token, preset_key, note }: TokenInput & { preset_key: string; note?: string | null }) =>
     apiFetch<{ preset: { key: string; name: string }; config: AlgorithmConfigVersion }>(`${BASE}/preset/apply`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({ preset_key, note: note ?? null })
     }),
 
   listPresets: ({ token }: TokenInput) =>
-    apiFetch<{ presets: AlgorithmPreset[] }>(`${BASE}/presets`, { token }),
+    apiFetch<{ presets: AlgorithmPreset[] }>(`${BASE}/presets`, withToken(token)),
 
   listRecentMetrics: ({ token, limit = 50 }: TokenInput & { limit?: number }) =>
     apiFetch<{ metrics: RenderQualityMetric[] }>(`${BASE}/metrics/recent?limit=${encodeURIComponent(String(limit))}`, {
-      token
+      ...withToken(token)
     }),
 
   getScorecards: ({ token, range = "7d", limit = 600 }: TokenInput & { range?: string; limit?: number }) =>
     apiFetch<{ series: ScorecardPoint[] }>(
       `${BASE}/scorecards?range=${encodeURIComponent(range)}&limit=${encodeURIComponent(String(limit))}`,
-      { token }
+      withToken(token)
     ),
 
   getSuggestions: ({ token, range = "7d" }: TokenInput & { range?: string }) =>
-    apiFetch<{ suggestions: ImprovementSuggestion[] }>(`${BASE}/suggestions?range=${encodeURIComponent(range)}`, {
-      token
-    }),
+    apiFetch<{ suggestions: ImprovementSuggestion[] }>(
+      `${BASE}/suggestions?range=${encodeURIComponent(range)}`,
+      withToken(token)
+    ),
 
   analyzeRenders: ({ token, limit = 1000, range }: TokenInput & { limit?: number; range?: string }) =>
     apiFetch<AnalyzeResponse>(`${BASE}/analyze-renders`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({
         limit,
         ...(range ? { range } : {})
@@ -107,8 +113,8 @@ export const algorithmApi = {
     reward_metric?: string
   }) =>
     apiFetch<{ experiment: AlgorithmExperiment }>(`${BASE}/experiment/start`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({
         name,
         arms,
@@ -119,17 +125,17 @@ export const algorithmApi = {
 
   stopExperiment: ({ token }: TokenInput) =>
     apiFetch<{ experiment: AlgorithmExperiment | null }>(`${BASE}/experiment/stop`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({})
     }),
 
   getExperimentStatus: ({ token }: TokenInput) =>
-    apiFetch<ExperimentStatusResponse>(`${BASE}/experiment/status`, { token }),
+    apiFetch<ExperimentStatusResponse>(`${BASE}/experiment/status`, withToken(token)),
 
   listSampleFootage: ({ token, limit = 20 }: TokenInput & { limit?: number }) =>
     apiFetch<{ samples: SampleFootageItem[] }>(`${BASE}/sample-footage?limit=${encodeURIComponent(String(limit))}`, {
-      token
+      ...withToken(token)
     }),
 
   testSampleFootage: ({
@@ -138,8 +144,8 @@ export const algorithmApi = {
     params
   }: TokenInput & { job_id: string; params?: AlgorithmConfigParams }) =>
     apiFetch<RetentionScoringResponse>(`${BASE}/sample-footage/test`, {
+      ...withToken(token),
       method: "POST",
-      token,
       body: JSON.stringify({
         job_id,
         ...(params ? { params } : {})

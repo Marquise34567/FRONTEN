@@ -3,15 +3,13 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
-import { useMe } from "@/hooks/use-me";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
-  const { data: me } = useMe();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const showControlPanel = Boolean(user && me?.flags?.dev);
+  const showControlPanel = Boolean(user);
 
   const handleLogout = async () => {
     await signOut();

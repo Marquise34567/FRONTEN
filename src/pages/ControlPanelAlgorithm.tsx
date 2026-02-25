@@ -28,7 +28,6 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog"
 import { useAuth } from "@/providers/AuthProvider"
-import { useMe } from "@/hooks/use-me"
 import { algorithmApi } from "@/features/control-panel/algorithm/api"
 import type {
   AlgorithmConfigParams,
@@ -106,10 +105,9 @@ const toNumber = (value: unknown, fallback = 0) => {
 
 const ControlPanelAlgorithm = () => {
   const { accessToken } = useAuth()
-  const { data: me } = useMe()
   const queryClient = useQueryClient()
 
-  const canLoad = Boolean(accessToken && me?.flags?.dev)
+  const canLoad = Boolean(accessToken)
   const [draftParams, setDraftParams] = useState<AlgorithmConfigParams | null>(null)
   const [paramsDirty, setParamsDirty] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)

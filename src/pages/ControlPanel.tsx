@@ -17,7 +17,7 @@ import Navbar from "@/components/Navbar";
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch } from "@/lib/api";
-import { useMe } from "@/hooks/use-me";
+import { getControlPanelPassword } from "@/lib/controlPanelAuth";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Mail, Send, Crown, Cpu, HardDrive, Sparkles, ShieldAlert, Rocket, Wand2, RefreshCw } from "lucide-react";
@@ -630,8 +630,6 @@ const chartTick = (iso: string) => {
 
 const ControlPanel = () => {
   const { accessToken } = useAuth();
-  const { data: me } = useMe();
-  const devEnabled = Boolean(me?.flags?.dev);
   const [errorRange, setErrorRange] = useState("24h");
   const [paymentRange, setPaymentRange] = useState("7d");
   const [insightRange, setInsightRange] = useState("30d");
@@ -687,7 +685,7 @@ const ControlPanel = () => {
   const [webhookAmountCents, setWebhookAmountCents] = useState("9900");
   const [testUserPlanTier, setTestUserPlanTier] = useState("free");
 
-  const canLoad = Boolean(accessToken && devEnabled);
+  const canLoad = Boolean(accessToken);
 
   const overviewQuery = useQuery({
     queryKey: ["admin-overview"],
@@ -804,7 +802,7 @@ const ControlPanel = () => {
 
   useEffect(() => {
     if (!canLoad || !accessToken) return;
-    const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}`;
+    const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}&password=${encodeURIComponent(getControlPanelPassword())}`;
     const streamUrl = API_URL ? `${API_URL}${streamPath}` : streamPath;
     const eventSource = new EventSource(streamUrl);
     let closed = false;
