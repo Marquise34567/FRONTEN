@@ -411,6 +411,19 @@ const formatPlatformLabel = (value?: string | null) => {
   return formatNicheLabel(normalized);
 };
 
+const formatHookTimestamp = (seconds: number) => {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safe / 60);
+  const secondsRemainder = safe - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${secondsRemainder.toFixed(3).padStart(6, "0")}`;
+};
+
+const formatHookRange = (start: number, end: number) => {
+  const safeStart = Math.max(0, Number(start) || 0);
+  const safeEnd = Math.max(safeStart, Number(end) || safeStart);
+  return `${formatHookTimestamp(safeStart)} - ${formatHookTimestamp(safeEnd)}`;
+};
+
 const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelection => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
@@ -2750,9 +2763,9 @@ const Editor = () => {
     );
   const hookWindowLabel =
     Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
-      ? `${hookStartSec.toFixed(1)}s - ${hookEndSec.toFixed(1)}s`
+      ? formatHookRange(hookStartSec, hookEndSec)
       : selectedHookCandidate
-        ? `${selectedHookCandidate.start.toFixed(1)}s - ${(selectedHookCandidate.start + selectedHookCandidate.duration).toFixed(1)}s`
+        ? formatHookRange(selectedHookCandidate.start, selectedHookCandidate.start + selectedHookCandidate.duration)
       : "Not available";
   const failedGateReason =
     activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
@@ -3336,7 +3349,7 @@ const Editor = () => {
               </div>
               <p className="w-full px-1 text-[11px] text-muted-foreground/90">
                 {isVerticalMode
-                  ? "Vertical mode always uses viral short-form pacing. Platform profile also tunes clip windows, captions, and export encoding."
+                  ? "Vertical mode keeps a viral short-form baseline, while editor mode still tunes pacing/scoring behavior. Platform profile also tunes clip windows, captions, and export encoding."
                   : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
               </p>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/20 p-1">
@@ -4193,7 +4206,10 @@ const Editor = () => {
                         </div>
                         {selectedHookCandidate ? (
                           <p className="text-xs text-foreground/90">
-                            Selected: {selectedHookCandidate.start.toFixed(1)}s - {(selectedHookCandidate.start + selectedHookCandidate.duration).toFixed(1)}s
+                            Selected: {formatHookRange(
+                              selectedHookCandidate.start,
+                              selectedHookCandidate.start + selectedHookCandidate.duration
+                            )}
                           </p>
                         ) : null}
                       </div>
@@ -4522,7 +4538,10 @@ const Editor = () => {
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Hook preview</p>
                   {hookPreviewCandidate ? (
                     <p className="text-xs text-foreground/90">
-                      {hookPreviewCandidate.start.toFixed(1)}s - {(hookPreviewCandidate.start + hookPreviewCandidate.duration).toFixed(1)}s
+                      {formatHookRange(
+                        hookPreviewCandidate.start,
+                        hookPreviewCandidate.start + hookPreviewCandidate.duration
+                      )}
                     </p>
                   ) : null}
                 </div>
@@ -4573,7 +4592,7 @@ const Editor = () => {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-medium text-foreground">
-                        Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
+                        Option {index + 1}: {formatHookRange(candidate.start, end)}
                       </p>
                       {isApplied ? (
                         <span className="rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-primary">
