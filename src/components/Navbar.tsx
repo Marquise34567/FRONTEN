@@ -35,7 +35,45 @@ const Navbar = () => {
           </span>
         </Link>
 
-        <div className="relative">
+        <div className="hidden items-center gap-2 md:flex">
+          <Link to="/pricing">
+            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
+              Pricing
+            </Button>
+          </Link>
+          <Link to="/editor">
+            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
+              Editor
+            </Button>
+          </Link>
+          {showControlPanel ? (
+            <Link to="/dev/control-panel/overview">
+              <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
+                Control Panel
+              </Button>
+            </Link>
+          ) : null}
+          {user ? (
+            <Button onClick={handleLogout} size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
+              Log out
+            </Button>
+          ) : (
+            <>
+              <Link to="/login">
+                <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
+                  Log in
+                </Button>
+              </Link>
+              <Link to="/signup">
+                <Button size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
+                  Sign up
+                </Button>
+              </Link>
+            </>
+          )}
+        </div>
+
+        <div className="relative md:hidden">
           <button
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-card/50 text-foreground"
@@ -47,22 +85,16 @@ const Navbar = () => {
 
           {mobileMenuOpen ? (
             <div className="absolute right-0 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg">
-              <Link to="/pricing">
-                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                  Pricing
-                </Button>
-              </Link>
-              <Link to="/editor">
-                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                  Editor
-                </Button>
-              </Link>
+              <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                <Link to="/pricing">Pricing</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                <Link to="/editor">Editor</Link>
+              </Button>
               {showControlPanel ? (
-                <Link to="/__control-panel">
-                  <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
-                    Control Panel
-                  </Button>
-                </Link>
+                <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
+                  <Link to="/dev/control-panel">Control Panel</Link>
+                </Button>
               ) : null}
               {user ? (
                 <Button onClick={handleLogout} size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
@@ -70,16 +102,12 @@ const Navbar = () => {
                 </Button>
               ) : (
                 <>
-                  <Link to="/login">
-                    <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                      Log in
-                    </Button>
-                  </Link>
-                  <Link to="/signup">
-                    <Button size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                      Sign up
-                    </Button>
-                  </Link>
+                  <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                    <Link to="/login">Log in</Link>
+                  </Button>
+                  <Button asChild size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
+                    <Link to="/signup">Sign up</Link>
+                  </Button>
                 </>
               )}
             </div>

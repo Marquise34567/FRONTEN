@@ -139,6 +139,26 @@ const App = () => {
                 }
               />
               <Route
+                path="/control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/__control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/dev/control-panel/overview"
                 element={
                   <RequireAuth>

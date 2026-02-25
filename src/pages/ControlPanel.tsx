@@ -15,7 +15,6 @@ import {
 } from "recharts";
 import Navbar from "@/components/Navbar";
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
-import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch } from "@/lib/api";
 import { useMe } from "@/hooks/use-me";
