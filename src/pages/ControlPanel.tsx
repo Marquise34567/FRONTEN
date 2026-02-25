@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import Navbar from "@/components/Navbar";
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
+import LiveUsersGlobe, { type LiveGeoHeatmapPoint } from "@/components/control-panel/LiveUsersGlobe";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch } from "@/lib/api";
 import { getControlPanelPassword } from "@/lib/controlPanelAuth";
@@ -165,6 +166,12 @@ type SiteLiveResponse = {
   impressionsLast60m: number;
   impressionsLast24h: number;
   series: Array<{ t: string; v: number }>;
+  updatedAt: string;
+};
+
+type LiveGeoResponse = {
+  activeUsers: number;
+  geoHeatmap: LiveGeoHeatmapPoint[];
   updatedAt: string;
 };
 
@@ -474,7 +481,14 @@ type CommandCenterResponse = {
   };
   userIntelligencePanel?: {
     activeUsers: number;
-    geoHeatmap: Array<{ country: string | null; city: string | null; sessions: number; users: number }>;
+    geoHeatmap: Array<{
+      country: string | null;
+      city: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      sessions: number;
+      users: number;
+    }>;
     planBreakdown: Record<string, number>;
     topUsersByRenders: Array<{
       userId: string;
@@ -628,6 +642,12 @@ const chartTick = (iso: string) => {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 };
 
+const EmptyStateNote = ({ text }: { text: string }) => (
+  <div className="rounded-md border border-dashed border-border/55 bg-card/25 px-3 py-2 text-[11px] text-muted-foreground">
+    {text}
+  </div>
+);
+
 const ControlPanel = () => {
   const { accessToken } = useAuth();
   const [errorRange, setErrorRange] = useState("24h");
@@ -758,6 +778,14 @@ const ControlPanel = () => {
     refetchInterval: 10000,
   });
 
+  const liveGeoQuery = useQuery({
+    queryKey: ["admin-live-geo"],
+    queryFn: () => apiFetch<LiveGeoResponse>("/api/admin/live-geo", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true,
+  });
+
   const healthQuery = useQuery({
     queryKey: ["admin-health-status"],
     queryFn: () => apiFetch<HealthStatusResponse>("/api/admin/health-status", { token: accessToken || "" }),
@@ -883,6 +911,7 @@ const ControlPanel = () => {
         insightsQuery.refetch(),
         feedbackQuery.refetch(),
         siteLiveQuery.refetch(),
+        liveGeoQuery.refetch(),
         healthQuery.refetch(),
         securityQuery.refetch(),
         ipBansQuery.refetch(),
@@ -1201,6 +1230,9 @@ const ControlPanel = () => {
   const renderInfra = empire?.renderInfrastructureMonitor;
   const liveTerminal = empire?.liveErrorTerminal;
   const userIntel = empire?.userIntelligencePanel;
+  const liveGeoRows = liveGeoQuery.data?.geoHeatmap ?? userIntel?.geoHeatmap ?? [];
+  const liveGeoUpdatedAt = liveGeoQuery.data?.updatedAt ?? empire?.generatedAt ?? null;
+  const liveGeoActiveUsers = liveGeoQuery.data?.activeUsers ?? userIntel?.activeUsers ?? effectiveActiveUsers;
   const experimentIntel = empire?.experimentLab;
   const qualityAnalyzer = empire?.editorQualityAnalyzer;
   const feedbackIntel = empire?.feedbackIntelligence;
@@ -1208,14 +1240,31 @@ const ControlPanel = () => {
   const securityPanel = empire?.securityPanel;
   const conversionIntel = empire?.conversionIntelligence;
   const scalingPanel = empire?.futureScalingPanel;
+  const countryRollup = useMemo(() => {
+    const grouped = new Map<string, { country: string; sessions: number; users: number }>();
+    for (const row of liveGeoRows) {
+      const country = String(row.country || "Unknown").trim() || "Unknown";
+      const existing = grouped.get(country) || { country, sessions: 0, users: 0 };
+      existing.sessions += Math.max(0, Number(row.sessions || 0));
+      existing.users += Math.max(0, Number(row.users || 0));
+      grouped.set(country, existing);
+    }
+    return Array.from(grouped.values())
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 8);
+  }, [liveGeoRows]);
 
   const topIssues = feedbackQuery.data?.topIssues ?? [];
   const topIssueData = useMemo(() => topIssues.slice(0, 6), [topIssues]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-16 top-10 h-56 w-56 rounded-full bg-primary/15 blur-3xl animate-panel-float" />
+        <div className="absolute right-0 top-52 h-64 w-64 rounded-full bg-cyan-300/10 blur-3xl animate-panel-float-delayed" />
+      </div>
       <Navbar />
-      <main className="mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
+      <main className="control-panel-main relative mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="System Operations Dashboard"
           subtitle="Hidden internal panel for live ops, failures, subscriptions, payments, and editor optimization insights."
@@ -1378,6 +1427,13 @@ const ControlPanel = () => {
                         </td>
                       </tr>
                     ))}
+                    {!(empire?.errors.items ?? []).length ? (
+                      <tr>
+                        <td colSpan={8} className="border-t border-border/40 py-4 text-center text-muted-foreground">
+                          No command-board errors in this time window.
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1714,62 +1770,86 @@ const ControlPanel = () => {
           <Card className="glass-card border-border/60">
             <CardHeader><CardTitle className="text-sm">Active Users Over Time</CardTitle></CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={graphs?.activeUsers ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} />
-                  <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              {(graphs?.activeUsers ?? []).length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={graphs?.activeUsers ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} />
+                    <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No active-user trend data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card className="glass-card border-border/60">
             <CardHeader><CardTitle className="text-sm">Job Success vs Failure</CardTitle></CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={graphs?.jobSuccessVsFailure ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} />
-                  <Bar dataKey="success" fill="hsl(160 70% 42%)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="failure" fill="hsl(347 75% 55%)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {(graphs?.jobSuccessVsFailure ?? []).length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={graphs?.jobSuccessVsFailure ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} />
+                    <Bar dataKey="success" fill="hsl(160 70% 42%)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="failure" fill="hsl(347 75% 55%)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No success/failure breakdown yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card className="glass-card border-border/60">
             <CardHeader><CardTitle className="text-sm">Avg Render Time</CardTitle></CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={graphs?.renderTimeAvg ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} formatter={(value) => [`${Number(value).toFixed(1)}s`, "Avg Render"]} />
-                  <Line type="monotone" dataKey="v" stroke="hsl(42 96% 62%)" strokeWidth={2.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              {(graphs?.renderTimeAvg ?? []).length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={graphs?.renderTimeAvg ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} formatter={(value) => [`${Number(value).toFixed(1)}s`, "Avg Render"]} />
+                    <Line type="monotone" dataKey="v" stroke="hsl(42 96% 62%)" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No render-time trend yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card className="glass-card border-border/60">
             <CardHeader><CardTitle className="text-sm">Revenue Trend</CardTitle></CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={paymentsQuery.data?.revenueByDay ?? graphs?.revenue ?? []}>
-                  <defs><linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="hsl(152 70% 45%)" stopOpacity={0.7} /><stop offset="100%" stopColor="hsl(152 70% 45%)" stopOpacity={0.05} /></linearGradient></defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} formatter={(value) => [formatMoney(Number(value)), "Revenue"]} />
-                  <Area dataKey="v" stroke="hsl(152 70% 45%)" fill="url(#revenueFill)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {(paymentsQuery.data?.revenueByDay ?? graphs?.revenue ?? []).length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={paymentsQuery.data?.revenueByDay ?? graphs?.revenue ?? []}>
+                    <defs><linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="hsl(152 70% 45%)" stopOpacity={0.7} /><stop offset="100%" stopColor="hsl(152 70% 45%)" stopOpacity={0.05} /></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} labelFormatter={(label) => formatShortTime(String(label))} formatter={(value) => [formatMoney(Number(value)), "Revenue"]} />
+                    <Area dataKey="v" stroke="hsl(152 70% 45%)" fill="url(#revenueFill)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No revenue trend data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
         </section>
@@ -1780,25 +1860,31 @@ const ControlPanel = () => {
               <CardTitle className="text-sm">Website Impressions Trend</CardTitle>
             </CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={siteLiveQuery.data?.series ?? graphs?.websiteImpressions ?? []}>
-                  <defs>
-                    <linearGradient id="impressionFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="hsl(200 95% 55%)" stopOpacity={0.6} />
-                      <stop offset="100%" stopColor="hsl(200 95% 55%)" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                    labelFormatter={(label) => formatShortTime(String(label))}
-                    formatter={(value) => [String(value), "Impressions"]}
-                  />
-                  <Area dataKey="v" stroke="hsl(200 95% 55%)" fill="url(#impressionFill)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {(siteLiveQuery.data?.series ?? graphs?.websiteImpressions ?? []).length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={siteLiveQuery.data?.series ?? graphs?.websiteImpressions ?? []}>
+                    <defs>
+                      <linearGradient id="impressionFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(200 95% 55%)" stopOpacity={0.6} />
+                        <stop offset="100%" stopColor="hsl(200 95% 55%)" stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      labelFormatter={(label) => formatShortTime(String(label))}
+                      formatter={(value) => [String(value), "Impressions"]}
+                    />
+                    <Area dataKey="v" stroke="hsl(200 95% 55%)" fill="url(#impressionFill)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No website-impression trend data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1852,6 +1938,13 @@ const ControlPanel = () => {
                       <td className="py-2">{formatShortTime(item.lastSeen)}</td>
                     </tr>
                   ))}
+                  {!(errorsQuery.data?.items ?? []).length ? (
+                    <tr>
+                      <td colSpan={5} className="border-t border-border/40 py-4 text-center text-muted-foreground">
+                        No errors in this range.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </CardContent>
@@ -1870,6 +1963,7 @@ const ControlPanel = () => {
                     <p className="text-muted-foreground">IP: {session.ip || "-"}</p>
                   </div>
                 ))}
+                {!(realtimeUsersQuery.data?.sessions ?? []).length ? <EmptyStateNote text="No live sessions right now." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -1890,6 +1984,13 @@ const ControlPanel = () => {
                     {(paymentsQuery.data?.recentPayments ?? []).slice(0, 12).map((payment) => (
                       <tr key={payment.eventId} className="border-t border-border/40"><td className="py-2 pr-2">{payment.type}</td><td className="py-2 pr-2">{formatMoney(payment.amount)}</td><td className="py-2">{formatShortTime(payment.createdAt)}</td></tr>
                     ))}
+                    {!(paymentsQuery.data?.recentPayments ?? []).length ? (
+                      <tr>
+                        <td colSpan={3} className="border-t border-border/40 py-4 text-center text-muted-foreground">
+                          No recent payments for this range.
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1914,6 +2015,13 @@ const ControlPanel = () => {
                     {(subscriptionsQuery.data?.upcomingRenewals ?? []).slice(0, 12).map((sub, index) => (
                       <tr key={`${sub.userId || "anon"}-${index}`} className="border-t border-border/40"><td className="px-2 py-2">{sub.planTier}</td><td className="px-2 py-2">{sub.currentPeriodEnd ? formatShortTime(sub.currentPeriodEnd) : "-"}</td></tr>
                     ))}
+                    {!(subscriptionsQuery.data?.upcomingRenewals ?? []).length ? (
+                      <tr>
+                        <td colSpan={2} className="border-t border-border/40 py-4 text-center text-muted-foreground">
+                          No upcoming renewals detected.
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1950,8 +2058,11 @@ const ControlPanel = () => {
                 <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Success Rate</p><p className="text-lg font-semibold">{formatPercent(summary?.successRate ?? 0)}</p></div>
               </div>
               <div><p className="mb-1 font-semibold">Top drop-off points</p><ul className="space-y-1 text-muted-foreground">{(insightsQuery.data?.topDropOffPoints ?? []).slice(0, 5).map((item) => (<li key={item.label} className="flex items-center justify-between"><span>{item.label}</span><span>{item.count}</span></li>))}</ul></div>
+              {!(insightsQuery.data?.topDropOffPoints ?? []).length ? <EmptyStateNote text="No drop-off points collected yet." /> : null}
               <div><p className="mb-1 font-semibold">Common render failure reasons</p><ul className="space-y-1 text-muted-foreground">{(insightsQuery.data?.aggregates.commonFailureReasons ?? []).slice(0, 5).map((item) => (<li key={item.reason} className="flex items-center justify-between"><span className="truncate pr-2">{item.reason}</span><span>{item.count}</span></li>))}</ul></div>
+              {!(insightsQuery.data?.aggregates.commonFailureReasons ?? []).length ? <EmptyStateNote text="No recurring failure reasons found." /> : null}
               <div><p className="mb-1 font-semibold">Most requested features</p><ul className="space-y-1 text-muted-foreground">{(insightsQuery.data?.mostRequestedFeatures ?? []).slice(0, 5).map((item) => (<li key={item.feature} className="flex items-center justify-between"><span>{item.feature}</span><span>{item.count}</span></li>))}</ul></div>
+              {!(insightsQuery.data?.mostRequestedFeatures ?? []).length ? <EmptyStateNote text="No feature requests in this window." /> : null}
             </CardContent>
           </Card>
 
@@ -1965,6 +2076,9 @@ const ControlPanel = () => {
                   <p className="mt-1 text-[11px] uppercase tracking-wide text-primary/80">Difficulty: {item.difficulty}</p>
                 </div>
               ))}
+              {!(insightsQuery.data?.suggestedPipelineUpgrades ?? []).length ? (
+                <EmptyStateNote text="No AI upgrade suggestions right now." />
+              ) : null}
             </CardContent>
           </Card>
         </section>
@@ -1977,6 +2091,7 @@ const ControlPanel = () => {
             </CardHeader>
             <CardContent className="space-y-2 text-xs">
               <div className="flex flex-wrap gap-2">{Object.entries(feedbackQuery.data?.sentimentCounts ?? {}).map(([key, count]) => (<Badge key={key} variant="outline" className={`border ${sentimentColor(key)}`}>{key}: {count}</Badge>))}</div>
+              {!Object.keys(feedbackQuery.data?.sentimentCounts ?? {}).length ? <EmptyStateNote text="No sentiment signals yet." /> : null}
               <div className="max-h-72 space-y-2 overflow-auto pr-1">
                 {(feedbackQuery.data?.items ?? []).slice(0, 20).map((item) => (
                   <div key={item.id} className="rounded-md border border-border/50 bg-card/40 p-2">
@@ -1985,6 +2100,7 @@ const ControlPanel = () => {
                     <p className="mt-1 text-[11px] text-muted-foreground">{formatShortTime(item.createdAt)}</p>
                   </div>
                 ))}
+                {!(feedbackQuery.data?.items ?? []).length ? <EmptyStateNote text="No feedback submitted yet." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -1992,15 +2108,21 @@ const ControlPanel = () => {
           <Card className="glass-card border-border/60">
             <CardHeader><CardTitle className="text-sm">Top Issues Frequency</CardTitle></CardHeader>
             <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topIssueData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                  <XAxis dataKey="issue" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {topIssueData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topIssueData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="issue" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateNote text="No issue-frequency data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
         </section>
@@ -2090,6 +2212,7 @@ const ControlPanel = () => {
                       <button onClick={() => handleUnbanIp(item.ip)} className="h-8 rounded-md border border-border/60 px-2 text-[11px] text-foreground/90">Unban</button>
                     </div>
                   ))}
+                  {!(ipBansQuery.data?.items ?? []).length ? <EmptyStateNote text="No active IP bans." /> : null}
                 </div>
               </div>
             </CardContent>
@@ -2154,6 +2277,7 @@ const ControlPanel = () => {
                     <p className="mt-1 text-[11px] text-muted-foreground">{check.detail}</p>
                   </div>
                 ))}
+                {!(securityQuery.data?.checks ?? []).length ? <EmptyStateNote text="No security checks available yet." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -2205,6 +2329,9 @@ const ControlPanel = () => {
                       {subscription.lastError ? <p className="text-[11px] text-rose-300">Last error: {subscription.lastError}</p> : null}
                     </div>
                   ))}
+                  {!(weeklyReportsQuery.data?.subscriptions ?? []).length ? (
+                    <EmptyStateNote text="No weekly report subscribers yet." />
+                  ) : null}
                 </div>
               </div>
             </CardContent>
@@ -2246,39 +2373,57 @@ const ControlPanel = () => {
             </CardHeader>
             <CardContent className="grid gap-3 lg:grid-cols-2">
               <div className="h-52 rounded-md border border-border/50 bg-card/40 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={retentionEngine?.emotionalIntensityGraph ?? []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Line type="monotone" dataKey="v" stroke="hsl(352 87% 64%)" strokeWidth={2.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {(retentionEngine?.emotionalIntensityGraph ?? []).length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={retentionEngine?.emotionalIntensityGraph ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                      <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Line type="monotone" dataKey="v" stroke="hsl(352 87% 64%)" strokeWidth={2.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyStateNote text="No emotional intensity graph yet." />
+                  </div>
+                )}
               </div>
               <div className="h-52 rounded-md border border-border/50 bg-card/40 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={retentionEngine?.boringSegmentHeatmap ?? []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
-                    <XAxis dataKey="segment" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Bar dataKey="v" fill="hsl(34 94% 62%)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {(retentionEngine?.boringSegmentHeatmap ?? []).length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={retentionEngine?.boringSegmentHeatmap ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                      <XAxis dataKey="segment" stroke="hsl(var(--muted-foreground))" />
+                      <YAxis stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Bar dataKey="v" fill="hsl(34 94% 62%)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyStateNote text="No boring-segment heatmap data yet." />
+                  </div>
+                )}
               </div>
               <div className="h-44 rounded-md border border-border/50 bg-card/40 p-2 lg:col-span-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={retentionBrainMap}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
-                    <XAxis dataKey="t" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Line type="monotone" dataKey="predictedAttention" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
-                    <Line type="monotone" dataKey="hook" stroke="hsl(184 80% 58%)" strokeWidth={1.5} dot={false} />
-                    <Line type="monotone" dataKey="captionImpact" stroke="hsl(120 70% 48%)" strokeWidth={1.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {retentionBrainMap.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={retentionBrainMap}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
+                      <XAxis dataKey="t" stroke="hsl(var(--muted-foreground))" />
+                      <YAxis stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Line type="monotone" dataKey="predictedAttention" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                      <Line type="monotone" dataKey="hook" stroke="hsl(184 80% 58%)" strokeWidth={1.5} dot={false} />
+                      <Line type="monotone" dataKey="captionImpact" stroke="hsl(120 70% 48%)" strokeWidth={1.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyStateNote text="No retention brain-map points yet." />
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -2302,17 +2447,23 @@ const ControlPanel = () => {
                 </div>
               </div>
               <div className="h-44 rounded-md border border-border/50 bg-card/40 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={revenueCenter?.revenueVsRenderUsage ?? []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
-                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="hsl(152 74% 45%)" strokeWidth={2.5} dot={false} />
-                    <Line yAxisId="right" type="monotone" dataKey="renders" stroke="hsl(204 90% 60%)" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {(revenueCenter?.revenueVsRenderUsage ?? []).length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={revenueCenter?.revenueVsRenderUsage ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
+                      <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
+                      <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="hsl(152 74% 45%)" strokeWidth={2.5} dot={false} />
+                      <Line yAxisId="right" type="monotone" dataKey="renders" stroke="hsl(204 90% 60%)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyStateNote text="No revenue-vs-render trend data yet." />
+                  </div>
+                )}
               </div>
               <p className="text-[11px] text-muted-foreground">
                 Failed payment alerts: {revenueCenter?.failedPaymentAlerts ?? 0} • Webhook logs: {(revenueCenter?.stripeWebhookLogs ?? []).length}
@@ -2366,6 +2517,7 @@ const ControlPanel = () => {
                 {(liveTerminal?.groupedErrors ?? []).slice(0, 8).map((item, idx) => (
                   <p key={`${item.type}-${idx}`} className="mb-1 line-clamp-1">{item.severity.toUpperCase()} • {item.type} ({item.count})</p>
                 ))}
+                {!(liveTerminal?.groupedErrors ?? []).length ? <EmptyStateNote text="No grouped live errors." /> : null}
               </div>
               <div className="rounded-md border border-primary/30 bg-primary/10 p-2 text-primary">
                 <p className="text-[11px] uppercase tracking-wide">AI Fix Suggestion</p>
@@ -2374,26 +2526,35 @@ const ControlPanel = () => {
             </CardContent>
           </Card>
 
-          <Card className="glass-card border-border/60">
+          <Card className="glass-card border-border/60 animate-panel-float-delayed">
             <CardHeader>
               <CardTitle className="text-sm">User Intelligence Panel</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-xs">
+            <CardContent className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Active Users</p><p className="text-xl font-semibold">{userIntel?.activeUsers ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Active Users</p><p className="text-xl font-semibold">{liveGeoActiveUsers}</p></div>
                 <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Avg Watch Length</p><p className="text-xl font-semibold">{(userIntel?.averageWatchLengthSec ?? 0).toFixed(1)}s</p></div>
                 <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Suspicious Activity</p><p className={`text-xl font-semibold ${userIntel?.suspiciousActivityFlag ? "text-rose-200" : "text-emerald-200"}`}>{userIntel?.suspiciousActivityFlag ? "Flagged" : "Normal"}</p></div>
                 <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Whales Close to Upgrade</p><p className="text-xl font-semibold">{(userIntel?.whaleDetector ?? []).length}</p></div>
               </div>
-              <div className="max-h-32 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
-                {(userIntel?.topUsersByRenders ?? []).slice(0, 6).map((row) => (
-                  <p key={row.userId} className="mb-1 line-clamp-1">{row.email || row.userId} • {row.renders} renders • {row.planTier}</p>
-                ))}
-              </div>
-              <div className="max-h-32 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
-                {(userIntel?.geoHeatmap ?? []).slice(0, 6).map((row, idx) => (
-                  <p key={`${row.city || row.country || "geo"}-${idx}`} className="mb-1">{row.city || "Unknown"}, {row.country || "Unknown"} • {row.sessions} sessions</p>
-                ))}
+              <LiveUsersGlobe points={liveGeoRows} activeUsers={liveGeoActiveUsers} updatedAt={liveGeoUpdatedAt} />
+              <div className="grid gap-3 xl:grid-cols-2">
+                <div className="max-h-36 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Top Render Users</p>
+                  {(userIntel?.topUsersByRenders ?? []).slice(0, 6).map((row) => (
+                    <p key={row.userId} className="mb-1 line-clamp-1">{row.email || row.userId} • {row.renders} renders • {row.planTier}</p>
+                  ))}
+                  {!(userIntel?.topUsersByRenders ?? []).length ? <EmptyStateNote text="No top render users yet." /> : null}
+                </div>
+                <div className="max-h-36 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Top Countries</p>
+                  {countryRollup.map((row) => (
+                    <p key={row.country} className="mb-1">
+                      {row.country} • {row.sessions} sessions • {row.users} users
+                    </p>
+                  ))}
+                  {!countryRollup.length ? <EmptyStateNote text="No geo heatmap records yet." /> : null}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -2410,6 +2571,7 @@ const ControlPanel = () => {
                   <p className="text-muted-foreground">Paid conversion: {variant.paidConversionPct.toFixed(2)}%</p>
                 </div>
               ))}
+              {!(experimentIntel?.variantPerformance ?? []).length ? <EmptyStateNote text="No experiment variants have reported data." /> : null}
             </CardContent>
           </Card>
 
@@ -2427,6 +2589,7 @@ const ControlPanel = () => {
                     </p>
                   </div>
                 ))}
+                {!(qualityAnalyzer?.renders ?? []).length ? <EmptyStateNote text="No quality-analyzer renders available." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -2440,6 +2603,7 @@ const ControlPanel = () => {
                 {(feedbackIntel?.clusters ?? []).slice(0, 8).map((cluster) => (
                   <p key={cluster.cluster} className="mb-1">{cluster.cluster} • {cluster.count} • {cluster.sentimentTag}</p>
                 ))}
+                {!(feedbackIntel?.clusters ?? []).length ? <EmptyStateNote text="No feedback clusters available." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -2471,6 +2635,7 @@ const ControlPanel = () => {
                 {(securityPanel?.adminAccessLogs ?? []).slice(0, 5).map((log) => (
                   <p key={log.id} className="mb-1 line-clamp-1">{log.action} • {log.actor || "unknown"} • {formatShortTime(log.createdAt)}</p>
                 ))}
+                {!(securityPanel?.adminAccessLogs ?? []).length ? <EmptyStateNote text="No admin access logs available." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -2487,6 +2652,7 @@ const ControlPanel = () => {
                 {(conversionIntel?.onboardingDropOff ?? []).map((step) => (
                   <p key={step.step} className="mb-1">{step.step}: {formatCompactNumber(step.count)} {step.dropOffPct > 0 ? `• drop ${step.dropOffPct.toFixed(1)}%` : ""}</p>
                 ))}
+                {!(conversionIntel?.onboardingDropOff ?? []).length ? <EmptyStateNote text="No onboarding drop-off events yet." /> : null}
               </div>
             </CardContent>
           </Card>
@@ -2507,6 +2673,9 @@ const ControlPanel = () => {
                 {(selfImproveResult?.suggestions ?? empire?.aiSelfImprovementPanel?.quickSuggestions?.map((title, index) => ({ priority: index + 1, title, expectedImpact: "", difficulty: "medium" })) ?? []).slice(0, 5).map((item) => (
                   <p key={`${item.title}-${item.priority}`} className="mb-1 line-clamp-2">{item.priority}. {item.title}</p>
                 ))}
+                {!(selfImproveResult?.suggestions ?? empire?.aiSelfImprovementPanel?.quickSuggestions ?? []).length ? (
+                  <EmptyStateNote text="No self-improvement suggestions yet." />
+                ) : null}
               </div>
               {selfImproveResult ? (
                 <p className="text-muted-foreground">

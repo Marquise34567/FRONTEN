@@ -64,6 +64,12 @@ const shortDate = (iso: string) => {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
+const EmptyStateTile = ({ text }: { text: string }) => (
+  <div className="rounded-md border border-dashed border-slate-700/80 bg-slate-900/45 px-3 py-2 text-center text-[11px] text-slate-400">
+    {text}
+  </div>
+)
+
 const ControlPanelBank = () => {
   const { accessToken } = useAuth()
   const canLoad = Boolean(accessToken)
@@ -92,6 +98,9 @@ const ControlPanelBank = () => {
     ],
     [planDistribution]
   )
+  const revenueSeries = paymentsQuery.data?.revenueByDay || []
+  const subscriptionTrend = subscriptionsQuery.data?.trend || []
+  const hasPlanMixData = planPie.some((item) => item.value > 0)
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(130%_120%_at_75%_-20%,hsl(45_96%_56%/0.16),transparent_40%),radial-gradient(140%_120%_at_20%_110%,hsl(162_72%_45%/0.18),transparent_44%),linear-gradient(180deg,hsl(195_28%_8%)_0%,hsl(207_30%_5%)_100%)]">
@@ -110,13 +119,24 @@ const ControlPanelBank = () => {
         />
       </div>
 
-      <main className="relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="The Bank"
           subtitle="Monetized command layer for revenue, subscriptions, and financial performance signals."
         />
 
-        <section className="mt-4 grid gap-4 xl:grid-cols-4">
+        {!canLoad ? (
+          <div className="mt-4">
+            <EmptyStateTile text="Sign in to load bank telemetry and finance panels." />
+          </div>
+        ) : null}
+
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+          className="mt-4 grid gap-4 xl:grid-cols-4"
+        >
           <Card className="glass-card border-amber-300/25 bg-slate-950/60 xl:col-span-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-slate-100">
@@ -190,9 +210,14 @@ const ControlPanelBank = () => {
               </p>
             </CardContent>
           </Card>
-        </section>
+        </motion.section>
 
-        <section className="mt-4 grid gap-4 xl:grid-cols-3">
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.05, ease: "easeOut" }}
+          className="mt-4 grid gap-4 xl:grid-cols-3"
+        >
           <Card className="glass-card border-slate-600/70 bg-slate-950/60 xl:col-span-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm text-slate-100">
@@ -201,30 +226,36 @@ const ControlPanelBank = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={paymentsQuery.data?.revenueByDay || []}>
-                  <CartesianGrid stroke="hsl(216 18% 24% / 0.55)" vertical={false} />
-                  <XAxis dataKey="t" tickFormatter={shortDate} stroke="hsl(215 17% 67%)" />
-                  <YAxis stroke="hsl(215 17% 67%)" />
-                  <Tooltip
-                    contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
-                    labelFormatter={(label) => shortDate(String(label))}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="v"
-                    stroke="hsl(193 90% 57%)"
-                    fill="url(#revenueFill)"
-                    strokeWidth={2.5}
-                  />
-                  <defs>
-                    <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="hsl(193 90% 57% / 0.42)" />
-                      <stop offset="100%" stopColor="hsl(193 90% 57% / 0.03)" />
-                    </linearGradient>
-                  </defs>
-                </AreaChart>
-              </ResponsiveContainer>
+              {revenueSeries.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={revenueSeries}>
+                    <CartesianGrid stroke="hsl(216 18% 24% / 0.55)" vertical={false} />
+                    <XAxis dataKey="t" tickFormatter={shortDate} stroke="hsl(215 17% 67%)" />
+                    <YAxis stroke="hsl(215 17% 67%)" />
+                    <Tooltip
+                      contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
+                      labelFormatter={(label) => shortDate(String(label))}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="v"
+                      stroke="hsl(193 90% 57%)"
+                      fill="url(#revenueFill)"
+                      strokeWidth={2.5}
+                    />
+                    <defs>
+                      <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(193 90% 57% / 0.42)" />
+                        <stop offset="100%" stopColor="hsl(193 90% 57% / 0.03)" />
+                      </linearGradient>
+                    </defs>
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateTile text="No revenue trend data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -236,36 +267,53 @@ const ControlPanelBank = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={planPie} dataKey="value" nameKey="name" innerRadius={45} outerRadius={78} />
-                  <Tooltip
-                    contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              {hasPlanMixData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={planPie} dataKey="value" nameKey="name" innerRadius={45} outerRadius={78} />
+                    <Tooltip
+                      contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateTile text="No plan-mix data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
-        </section>
+        </motion.section>
 
-        <section className="mt-4 grid gap-4 xl:grid-cols-2">
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.1, ease: "easeOut" }}
+          className="mt-4 grid gap-4 xl:grid-cols-2"
+        >
           <Card className="glass-card border-slate-600/70 bg-slate-950/60">
             <CardHeader>
               <CardTitle className="text-sm text-slate-100">Subscription Trend</CardTitle>
             </CardHeader>
             <CardContent className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={subscriptionsQuery.data?.trend || []}>
-                  <CartesianGrid stroke="hsl(216 18% 24% / 0.55)" vertical={false} />
-                  <XAxis dataKey="t" tickFormatter={shortDate} stroke="hsl(215 17% 67%)" />
-                  <YAxis stroke="hsl(215 17% 67%)" />
-                  <Tooltip
-                    contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
-                    labelFormatter={(label) => shortDate(String(label))}
-                  />
-                  <Bar dataKey="v" fill="hsl(169 74% 43%)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {subscriptionTrend.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={subscriptionTrend}>
+                    <CartesianGrid stroke="hsl(216 18% 24% / 0.55)" vertical={false} />
+                    <XAxis dataKey="t" tickFormatter={shortDate} stroke="hsl(215 17% 67%)" />
+                    <YAxis stroke="hsl(215 17% 67%)" />
+                    <Tooltip
+                      contentStyle={{ background: "rgba(2, 6, 23, 0.92)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
+                      labelFormatter={(label) => shortDate(String(label))}
+                    />
+                    <Bar dataKey="v" fill="hsl(169 74% 43%)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <EmptyStateTile text="No subscription trend data yet." />
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -283,11 +331,11 @@ const ControlPanelBank = () => {
                 </div>
               ))}
               {!paymentsQuery.data?.recentPayments.length ? (
-                <p className="text-slate-400">No recent payment records.</p>
+                <EmptyStateTile text="No recent payment records yet." />
               ) : null}
             </CardContent>
           </Card>
-        </section>
+        </motion.section>
       </main>
     </div>
   )

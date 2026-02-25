@@ -41,6 +41,18 @@ type EditorSettings = {
   onlyCuts: boolean;
 };
 
+type SettingsResponse = {
+  settings: EditorSettings;
+  capabilities?: {
+    captions?: {
+      available: boolean;
+      reason?: string | null;
+      provider?: string | null;
+      mode?: string | null;
+    };
+  };
+};
+
 const tierIndex = (tier: PlanTier) => PLAN_TIERS.indexOf(tier);
 
 const getRequiredPlanForAutoZoom = (value: number): PlanTier => {
@@ -94,7 +106,7 @@ const Settings = () => {
 
   const settingsQuery = useQuery({
     queryKey: ["editor-settings", data?.user?.id],
-    queryFn: () => apiFetch<{ settings: EditorSettings }>("/api/settings", { token: accessToken || "" }),
+    queryFn: () => apiFetch<SettingsResponse>("/api/settings", { token: accessToken || "" }),
     enabled: !!accessToken,
   });
 
@@ -195,6 +207,7 @@ const Settings = () => {
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
   const onlyCutsEnabled = resolvedSettings.onlyCuts;
+  const captionCapability = settingsQuery.data?.capabilities?.captions;
 
   const mergeSettings = (updates: Partial<EditorSettings>) => {
     setEditorSettings((prev) => ({
@@ -213,7 +226,7 @@ const Settings = () => {
     }
     try {
       setSavingSettings(true);
-      const result = await apiFetch<{ settings: EditorSettings }>("/api/settings", {
+      const result = await apiFetch<SettingsResponse>("/api/settings", {
         method: "PATCH",
         body: JSON.stringify(editorSettings),
         token: accessToken,
@@ -225,6 +238,13 @@ const Settings = () => {
         const required = (err.data?.requiredPlan as PlanTier) || "creator";
         openUpgrade(required);
         toast({ title: "Upgrade required", description: err?.message || "Upgrade to unlock this feature." });
+        return;
+      }
+      if (err instanceof ApiError && err.code === "CAPTION_ENGINE_UNAVAILABLE") {
+        toast({
+          title: "Caption engine unavailable",
+          description: err?.data?.capabilities?.captions?.reason || err?.message || "Whisper is unavailable on backend.",
+        });
         return;
       }
       toast({ title: "Save failed", description: err?.message || "Please try again." });
@@ -413,6 +433,11 @@ const Settings = () => {
                   {subtitleBadge}
                 </Badge>
               </div>
+                  {captionCapability && captionCapability.available === false && (
+                    <p className="mb-3 text-[11px] text-amber-300/90">
+                      Caption engine unavailable: {captionCapability.reason || "Whisper is not installed on backend."}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {subtitlePresets.map((preset) => {
                       const required = getRequiredPlanForPreset(preset.id);

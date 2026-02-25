@@ -370,6 +370,24 @@ const normalizeSubtitleStyleFromSettings = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : "basic_clean";
 };
 
+type CaptionCapability = {
+  available: boolean;
+  provider?: string | null;
+  mode?: string | null;
+  reason?: string | null;
+};
+
+type EditorSettingsResponse = {
+  settings?: {
+    autoDownload?: boolean;
+    autoCaptions?: boolean;
+    subtitleStyle?: string;
+  };
+  capabilities?: {
+    captions?: CaptionCapability;
+  };
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -418,6 +436,7 @@ const Editor = () => {
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
   const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
+  const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
   const [captionsPanelOpen, setCaptionsPanelOpen] = useState(false);
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
@@ -580,7 +599,7 @@ const Editor = () => {
           : presetId;
       setSubtitleStyleDraft(nextValue);
       setSubtitleStyleDirty(true);
-      setAutoCaptionsEnabled(true);
+      setAutoCaptionsEnabled(captionCapability.available);
       trackEditorEvent("subtitle_preset_selected", {
         retentionProfile: retentionStrategyProfile,
         targetPlatform: retentionTargetPlatform,
@@ -591,7 +610,7 @@ const Editor = () => {
         },
       });
     },
-    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
+    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, captionCapability.available],
   );
 
   const updateMrBeastSubtitleStyle = useCallback(
@@ -612,16 +631,24 @@ const Editor = () => {
     const nextStyle = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     try {
       setSavingSubtitleStyle(true);
-      const result = await apiFetch<{ settings?: { subtitleStyle?: string; autoCaptions?: boolean } }>("/api/settings", {
+      const result = await apiFetch<EditorSettingsResponse>("/api/settings", {
         method: "PATCH",
         body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: autoCaptionsEnabled }),
         token: accessToken,
       });
+      const runtimeCaptions = result?.capabilities?.captions;
+      if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+        setCaptionCapability(runtimeCaptions);
+      }
+      const captionsAvailableNow =
+        typeof runtimeCaptions?.available === "boolean" ? runtimeCaptions.available : captionCapability.available;
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
       const persistedAutoCaptions =
         typeof result?.settings?.autoCaptions === "boolean"
           ? result.settings.autoCaptions
-          : autoCaptionsEnabled;
+          : captionsAvailableNow
+            ? autoCaptionsEnabled
+            : false;
       setSubtitleStyleDraft(persisted);
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
@@ -648,6 +675,21 @@ const Editor = () => {
         });
         return;
       }
+      if (err instanceof ApiError && err.code === "CAPTION_ENGINE_UNAVAILABLE") {
+        const runtimeCaptions = err?.data?.capabilities?.captions;
+        if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+          setCaptionCapability(runtimeCaptions);
+        }
+        setAutoCaptionsEnabled(false);
+        toast({
+          title: "Caption engine unavailable",
+          description:
+            runtimeCaptions?.reason ||
+            err?.message ||
+            "Whisper is not available on the backend, so captions are disabled.",
+        });
+        return;
+      }
       toast({
         title: "Save failed",
         description: err?.message || "Unable to save caption style right now.",
@@ -655,7 +697,7 @@ const Editor = () => {
     } finally {
       setSavingSubtitleStyle(false);
     }
-  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform]);
+  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, captionCapability.available]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -1050,13 +1092,20 @@ const Editor = () => {
           try { await signOut() } catch (e) {}
         }
       });
-    apiFetch('/api/settings', { token: accessToken })
+    apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
       .then((d) => {
         setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
         setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
+        const runtimeCaptions = d?.capabilities?.captions;
+        if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+          setCaptionCapability(runtimeCaptions);
+          if (!runtimeCaptions.available) {
+            setAutoCaptionsEnabled(false);
+          }
+        }
       })
       .catch(async (err) => {
         setAutoDownloadEnabled(null);
@@ -1150,12 +1199,19 @@ const Editor = () => {
             }
             if (autoDownloadEnabled === null) {
               if (accessToken) {
-                const s = await apiFetch('/api/settings', { token: accessToken });
+                const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
                 setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
                 setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
                 setSubtitleStyleDirty(false);
+                const runtimeCaptions = s?.capabilities?.captions;
+                if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+                  setCaptionCapability(runtimeCaptions);
+                  if (!runtimeCaptions.available) {
+                    setAutoCaptionsEnabled(false);
+                  }
+                }
               } else {
                 const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
                 setAutoDownloadEnabled(local === 'true');
@@ -1355,8 +1411,9 @@ const Editor = () => {
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+    const captionsEnabledForJob = autoCaptionsEnabled && captionCapability.available;
     const subtitlesPayload = {
-      enabled: autoCaptionsEnabled,
+      enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
       style: subtitleStyleForJob,
     };
@@ -1383,7 +1440,7 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
-              autoCaptions: autoCaptionsEnabled,
+              autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
               verticalClipCount: renderOptions?.verticalClipCount,
@@ -1398,7 +1455,7 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
-              autoCaptions: autoCaptionsEnabled,
+              autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
               horizontalMode: {
@@ -1549,7 +1606,7 @@ const Editor = () => {
             retentionStrategyProfile: effectiveRetentionStrategyProfile,
             retentionTargetPlatform,
             platformProfile: retentionTargetPlatform,
-            autoCaptions: autoCaptionsEnabled,
+            autoCaptions: captionsEnabledForJob,
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
           }),
@@ -2079,6 +2136,7 @@ const Editor = () => {
               : retentionStrategyProfile;
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+        const captionsEnabledForJob = autoCaptionsEnabled && captionCapability.available;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const payload: Record<string, unknown> = {
@@ -2088,10 +2146,10 @@ const Editor = () => {
           retentionTargetPlatform,
           platformProfile: retentionTargetPlatform,
           onlyHookAndCut,
-          autoCaptions: autoCaptionsEnabled,
+          autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
-            enabled: autoCaptionsEnabled,
+            enabled: captionsEnabledForJob,
             preset: subtitlePresetForJob,
             style: subtitleStyleForJob,
           },
@@ -2184,6 +2242,7 @@ const Editor = () => {
     [
       accessToken,
       autoCaptionsEnabled,
+      captionCapability.available,
       fetchJob,
       fetchJobs,
       maxRendersPerMonth,
@@ -2964,6 +3023,11 @@ const Editor = () => {
                     {subtitleStyleDirty ? (
                       <p className="text-[11px] text-amber-300/90">Unsaved caption changes</p>
                     ) : null}
+                    {!captionCapability.available ? (
+                      <p className="text-[11px] text-amber-300/90">
+                        Caption engine unavailable: {captionCapability.reason || "Whisper is not installed on backend."}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -2978,6 +3042,17 @@ const Editor = () => {
                       onClick={() => {
                         if (!subtitlesEnabled) return;
                         const nextState = !autoCaptionsEnabled;
+                        if (nextState && !captionCapability.available) {
+                          toast({
+                            title: "Caption engine unavailable",
+                            description:
+                              captionCapability.reason ||
+                              "Whisper is not available on backend, so captions cannot be enabled.",
+                          });
+                          setAutoCaptionsEnabled(false);
+                          setCaptionsPanelOpen(true);
+                          return;
+                        }
                         trackEditorEvent("captions_toggled", {
                           retentionProfile: retentionStrategyProfile,
                           targetPlatform: retentionTargetPlatform,
@@ -2988,7 +3063,7 @@ const Editor = () => {
                         setSubtitleStyleDirty(true);
                         setCaptionsPanelOpen(true);
                       }}
-                      disabled={!subtitlesEnabled}
+                      disabled={!subtitlesEnabled || (!captionCapability.available && !autoCaptionsEnabled)}
                     >
                       {autoCaptionsEnabled ? "Captions on" : "Captions off"}
                     </Button>
