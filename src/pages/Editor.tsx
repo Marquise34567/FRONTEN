@@ -1890,6 +1890,24 @@ const Editor = () => {
     : Number.isFinite(Number(retentionJudge?.retention_score))
       ? Number(retentionJudge?.retention_score)
       : null;
+  const retentionScoreBeforeDisplay = Number.isFinite(Number(metadataRetention?.beforeScore))
+    ? Number(metadataRetention.beforeScore)
+    : Number.isFinite(Number(activeAnalysis?.retention_score_before))
+      ? Number(activeAnalysis.retention_score_before)
+      : null;
+  const retentionScoreAfterDisplay = Number.isFinite(Number(metadataRetention?.afterScore))
+    ? Number(metadataRetention.afterScore)
+    : Number.isFinite(Number(activeAnalysis?.retention_score_after))
+      ? Number(activeAnalysis.retention_score_after)
+      : retentionScoreDisplay;
+  const retentionScoreDeltaDisplay = Number.isFinite(Number(metadataRetention?.delta))
+    ? Number(metadataRetention.delta)
+    : (
+      retentionScoreBeforeDisplay !== null &&
+      retentionScoreAfterDisplay !== null
+        ? Number((retentionScoreAfterDisplay - retentionScoreBeforeDisplay).toFixed(1))
+        : null
+    );
   const hookWindowLabel =
     Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
       ? `${hookStartSec.toFixed(1)}s - ${hookEndSec.toFixed(1)}s`
@@ -2958,8 +2976,18 @@ const Editor = () => {
                         </p>
                       ) : null}
                       <p className="text-sm text-foreground">
-                        Retention score: {retentionScoreDisplay !== null ? retentionScoreDisplay : "Pending"}
+                        Retention score (after): {retentionScoreAfterDisplay !== null ? retentionScoreAfterDisplay : "Pending"}
                       </p>
+                      {retentionScoreBeforeDisplay !== null ? (
+                        <p className="text-xs text-muted-foreground">
+                          Retention score (before edits): {retentionScoreBeforeDisplay}
+                        </p>
+                      ) : null}
+                      {retentionScoreDeltaDisplay !== null ? (
+                        <p className={`text-xs ${retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
+                          Delta: {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
+                        </p>
+                      ) : null}
                       {retentionImprovements.length > 0 ? (
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">What the editor improved:</p>
