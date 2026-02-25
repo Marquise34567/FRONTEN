@@ -1241,6 +1241,13 @@ const Editor = () => {
           ? "balanced"
           : retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
+    const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+    const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+    const subtitlesPayload = {
+      enabled: autoCaptionsEnabled,
+      preset: subtitlePresetForJob,
+      style: subtitleStyleForJob,
+    };
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -1264,6 +1271,9 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
+              autoCaptions: autoCaptionsEnabled,
+              subtitleStyle: subtitleStyleForJob,
+              subtitles: subtitlesPayload,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
             }
@@ -1276,6 +1286,9 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
+              autoCaptions: autoCaptionsEnabled,
+              subtitleStyle: subtitleStyleForJob,
+              subtitles: subtitlesPayload,
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -1424,6 +1437,9 @@ const Editor = () => {
             retentionStrategyProfile: effectiveRetentionStrategyProfile,
             retentionTargetPlatform,
             platformProfile: retentionTargetPlatform,
+            autoCaptions: autoCaptionsEnabled,
+            subtitleStyle: subtitleStyleForJob,
+            subtitles: subtitlesPayload,
           }),
           token: accessToken,
         })
@@ -2179,8 +2195,9 @@ const Editor = () => {
     selectedHookCandidate ||
     hookVariants[0] ||
     null;
+  const activeHookPreviewUrl = activeJob ? hookPreviewUrlByJob[activeJob.id] || "" : "";
   const hookPreviewSourceUrl = activeJob
-    ? hookPreviewUrlByJob[activeJob.id] || previewOutputUrl || ""
+    ? activeHookPreviewUrl || previewOutputUrl || ""
     : "";
   const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
   const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
@@ -2205,9 +2222,9 @@ const Editor = () => {
     selectedHookCandidate,
   ]);
   useEffect(() => {
-    if (!hookSelectorOpen || !activeJob?.id || !accessToken) return;
+    if (!hookSelectorOpen || !activeJob?.id || !accessToken || !canShowRealtimeHookSelector) return;
     const jobId = activeJob.id;
-    if (hookPreviewUrlByJob[jobId] || hookPreviewLoadingJobId === jobId) return;
+    if (activeHookPreviewUrl || hookPreviewLoadingJobId === jobId) return;
 
     let canceled = false;
     setHookPreviewLoadingJobId(jobId);
@@ -2258,7 +2275,6 @@ const Editor = () => {
     };
 
     void resolvePreviewUrl().finally(() => {
-      if (canceled) return;
       setHookPreviewLoadingJobId((current) => (current === jobId ? null : current));
     });
 
@@ -2268,8 +2284,8 @@ const Editor = () => {
   }, [
     accessToken,
     activeJob?.id,
-    hookPreviewLoadingJobId,
-    hookPreviewUrlByJob,
+    activeHookPreviewUrl,
+    canShowRealtimeHookSelector,
     hookSelectorOpen,
   ]);
   useEffect(() => {
