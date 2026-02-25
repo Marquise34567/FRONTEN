@@ -416,6 +416,7 @@ const Editor = () => {
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
+  const [captionsPanelOpen, setCaptionsPanelOpen] = useState(false);
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
@@ -558,14 +559,15 @@ const Editor = () => {
     const nextStyle = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     try {
       setSavingSubtitleStyle(true);
-      const result = await apiFetch<{ settings?: { subtitleStyle?: string } }>("/api/settings", {
+      const result = await apiFetch<{ settings?: { subtitleStyle?: string; autoCaptions?: boolean } }>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({ subtitleStyle: nextStyle }),
+        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: true }),
         token: accessToken,
       });
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
       setSubtitleStyleDraft(persisted);
       setSubtitleStyleDirty(false);
+      setCaptionsPanelOpen(false);
       toast({
         title: "Captions updated",
         description: "This style will be used for new renders.",
@@ -2593,123 +2595,151 @@ const Editor = () => {
                     <p className="text-xs text-muted-foreground">
                       Current style: {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
                     </p>
+                    {subtitleStyleDirty ? (
+                      <p className="text-[11px] text-amber-300/90">Unsaved caption changes</p>
+                    ) : null}
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={subtitleStyleDirty ? "default" : "outline"}
-                    className={`rounded-full ${subtitleStyleDirty ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border-border/60 text-muted-foreground"}`}
-                    onClick={() => void saveSubtitleStyle()}
-                    disabled={!subtitleStyleDirty || savingSubtitleStyle}
-                  >
-                    {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save captions" : "Captions saved"}
-                  </Button>
-                </div>
-                <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {SUBTITLE_PRESET_OPTIONS.map((preset) => {
-                    const locked = !isSubtitlePresetAllowed(preset.id);
-                    const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
-                    const active = activeSubtitlePreset === preset.id;
-                    const card = (
-                      <button
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={captionsPanelOpen ? "default" : "outline"}
+                      className={`rounded-full ${
+                        captionsPanelOpen
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                          : "border-border/60 text-muted-foreground"
+                      }`}
+                      onClick={() => setCaptionsPanelOpen((prev) => !prev)}
+                    >
+                      {captionsPanelOpen ? "Close captions" : "Edit captions"}
+                    </Button>
+                    {captionsPanelOpen ? (
+                      <Button
                         type="button"
-                        className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                          active
-                            ? "border-primary/60 bg-primary/10 text-foreground"
-                            : "border-border/60 text-muted-foreground hover:text-foreground"
-                        } ${locked ? "opacity-65" : ""}`}
-                        onClick={() => selectSubtitlePreset(preset.id)}
+                        size="sm"
+                        variant={subtitleStyleDirty ? "default" : "outline"}
+                        className={`rounded-full ${
+                          subtitleStyleDirty
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "border-border/60 text-muted-foreground"
+                        }`}
+                        onClick={() => void saveSubtitleStyle()}
+                        disabled={!subtitleStyleDirty || savingSubtitleStyle}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium">{preset.label}</span>
-                          {locked ? <Lock className="h-3 w-3" /> : null}
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground/90">{preset.description}</p>
-                      </button>
-                    );
-                    if (!locked) return <div key={preset.id}>{card}</div>;
-                    return (
-                      <Tooltip key={preset.id}>
-                        <TooltipTrigger asChild>{card}</TooltipTrigger>
-                        <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-                {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Font</span>
-                      <select
-                        className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
-                        value={subtitleStyleConfig.fontId}
-                        onChange={(event) =>
-                          updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
-                        }
-                      >
-                        {MRBEAST_FONT_OPTIONS.map((fontOption) => (
-                          <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
-                            {fontOption.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Animation</span>
-                      <select
-                        className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
-                        value={subtitleStyleConfig.animation}
-                        onChange={(event) =>
-                          updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
-                        }
-                      >
-                        {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
-                          <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
-                            {animationOption.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Text color</span>
-                      <input
-                        type="color"
-                        value={`#${subtitleStyleConfig.textColor}`}
-                        onChange={(event) => updateMrBeastSubtitleStyle({ textColor: event.target.value })}
-                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Accent color</span>
-                      <input
-                        type="color"
-                        value={`#${subtitleStyleConfig.accentColor}`}
-                        onChange={(event) => updateMrBeastSubtitleStyle({ accentColor: event.target.value })}
-                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Outline color</span>
-                      <input
-                        type="color"
-                        value={`#${subtitleStyleConfig.outlineColor}`}
-                        onChange={(event) => updateMrBeastSubtitleStyle({ outlineColor: event.target.value })}
-                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Outline width ({subtitleStyleConfig.outlineWidth}px)</span>
-                      <Slider
-                        min={1}
-                        max={12}
-                        step={1}
-                        value={[subtitleStyleConfig.outlineWidth]}
-                        onValueChange={(values) =>
-                          updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
-                        }
-                      />
-                    </label>
+                        {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save captions" : "Captions saved"}
+                      </Button>
+                    ) : null}
                   </div>
+                </div>
+                {captionsPanelOpen ? (
+                  <>
+                    <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {SUBTITLE_PRESET_OPTIONS.map((preset) => {
+                        const locked = !isSubtitlePresetAllowed(preset.id);
+                        const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
+                        const active = activeSubtitlePreset === preset.id;
+                        const card = (
+                          <button
+                            type="button"
+                            className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                              active
+                                ? "border-primary/60 bg-primary/10 text-foreground"
+                                : "border-border/60 text-muted-foreground hover:text-foreground"
+                            } ${locked ? "opacity-65" : ""}`}
+                            onClick={() => selectSubtitlePreset(preset.id)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium">{preset.label}</span>
+                              {locked ? <Lock className="h-3 w-3" /> : null}
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground/90">{preset.description}</p>
+                          </button>
+                        );
+                        if (!locked) return <div key={preset.id}>{card}</div>;
+                        return (
+                          <Tooltip key={preset.id}>
+                            <TooltipTrigger asChild>{card}</TooltipTrigger>
+                            <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                    {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Font</span>
+                          <select
+                            className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
+                            value={subtitleStyleConfig.fontId}
+                            onChange={(event) =>
+                              updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
+                            }
+                          >
+                            {MRBEAST_FONT_OPTIONS.map((fontOption) => (
+                              <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                                {fontOption.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Animation</span>
+                          <select
+                            className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
+                            value={subtitleStyleConfig.animation}
+                            onChange={(event) =>
+                              updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
+                            }
+                          >
+                            {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
+                              <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                                {animationOption.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Text color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.textColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ textColor: event.target.value })}
+                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Accent color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.accentColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ accentColor: event.target.value })}
+                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Outline color</span>
+                          <input
+                            type="color"
+                            value={`#${subtitleStyleConfig.outlineColor}`}
+                            onChange={(event) => updateMrBeastSubtitleStyle({ outlineColor: event.target.value })}
+                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Outline width ({subtitleStyleConfig.outlineWidth}px)</span>
+                          <Slider
+                            min={1}
+                            max={12}
+                            step={1}
+                            value={[subtitleStyleConfig.outlineWidth]}
+                            onValueChange={(values) =>
+                              updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
               <Button
