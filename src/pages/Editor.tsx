@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
+import ControlPanelOverview from "@/components/ControlPanelOverview";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
+import { fetchControlPanelSummary, getAnalyticsSessionId, trackAnalyticsEvent, type ControlPanelSummary } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
 import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
@@ -440,6 +442,9 @@ const Editor = () => {
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
+  const pageViewTrackedRef = useRef(false);
+  const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
+  const [controlPanelSummary, setControlPanelSummary] = useState<ControlPanelSummary | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -519,6 +524,36 @@ const Editor = () => {
     maxRendersPerMonth,
     rendersRemaining
   ]);
+  const trackEditorEvent = useCallback(
+    (
+      eventName: string,
+      options: {
+        category?: "interaction" | "page_view" | "feedback" | "system";
+        jobId?: string;
+        retentionProfile?: string;
+        targetPlatform?: string;
+        captionStyle?: string;
+        metadata?: Record<string, unknown>;
+      } = {},
+    ) => {
+      if (!accessToken) return;
+      void trackAnalyticsEvent(
+        {
+          eventName,
+          category: options.category ?? "interaction",
+          pagePath: "/editor",
+          sessionId: analyticsSessionId,
+          jobId: options.jobId,
+          retentionProfile: options.retentionProfile,
+          targetPlatform: options.targetPlatform,
+          captionStyle: options.captionStyle,
+          metadata: options.metadata,
+        },
+        accessToken,
+      );
+    },
+    [accessToken, analyticsSessionId],
+  );
 
   const selectSubtitlePreset = useCallback(
     (presetId: SubtitlePresetId) => {
@@ -540,8 +575,17 @@ const Editor = () => {
       setSubtitleStyleDraft(nextValue);
       setSubtitleStyleDirty(true);
       setAutoCaptionsEnabled(true);
+      trackEditorEvent("subtitle_preset_selected", {
+        retentionProfile: retentionStrategyProfile,
+        targetPlatform: retentionTargetPlatform,
+        captionStyle: presetId,
+        metadata: {
+          subtitlePreset: presetId,
+          isAnimated: presetId === "mrbeast_animated",
+        },
+      });
     },
-    [isSubtitlePresetAllowed, subtitleStyleConfig, toast],
+    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
   const updateMrBeastSubtitleStyle = useCallback(
@@ -576,6 +620,14 @@ const Editor = () => {
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
       setCaptionsPanelOpen(false);
+      trackEditorEvent("subtitle_preferences_saved", {
+        captionStyle: persisted,
+        retentionProfile: retentionStrategyProfile,
+        targetPlatform: retentionTargetPlatform,
+        metadata: {
+          autoCaptionsEnabled: persistedAutoCaptions,
+        },
+      });
       toast({
         title: "Captions updated",
         description: persistedAutoCaptions
@@ -597,7 +649,7 @@ const Editor = () => {
     } finally {
       setSavingSubtitleStyle(false);
     }
-  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast]);
+  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -789,6 +841,17 @@ const Editor = () => {
           token: accessToken,
           body: JSON.stringify(compactPayload),
         });
+        trackEditorEvent("retention_feedback_submitted", {
+          category: "feedback",
+          jobId,
+          retentionProfile: retentionStrategyProfile,
+          targetPlatform: retentionTargetPlatform,
+          captionStyle: activeSubtitlePreset,
+          metadata: {
+            source: String(compactPayload.source ?? "frontend_retention"),
+            hasManualScore: typeof compactPayload.manualScore === "number",
+          },
+        });
         retentionFeedbackDispatchRef.current[jobId] = { at: now, signature };
       } catch (error) {
         // Non-blocking telemetry path.
@@ -797,7 +860,7 @@ const Editor = () => {
         retentionFeedbackInFlightRef.current[jobId] = false;
       }
     },
-    [accessToken],
+    [accessToken, activeSubtitlePreset, retentionStrategyProfile, retentionTargetPlatform, trackEditorEvent],
   );
 
   const buildFeedbackPayloadFromTelemetry = useCallback(
@@ -884,6 +947,14 @@ const Editor = () => {
             source: "frontend_creator",
           }),
         });
+        trackEditorEvent("creator_feedback_submitted", {
+          category: "feedback",
+          jobId: activeJob.id,
+          retentionProfile: retentionStrategyProfile,
+          targetPlatform: retentionTargetPlatform,
+          captionStyle: activeSubtitlePreset,
+          metadata: { category },
+        });
         await fetchJob(activeJob.id);
         toast({
           title: "Feedback saved",
@@ -905,7 +976,7 @@ const Editor = () => {
         setCreatorFeedbackSubmitting(null);
       }
     },
-    [accessToken, activeJob?.id, fetchJob, paidTier, toast],
+    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
   useEffect(() => {
@@ -922,6 +993,48 @@ const Editor = () => {
 
   useEffect(() => {
     if (accessToken) setAuthError(false);
+    if (!accessToken) pageViewTrackedRef.current = false;
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    if (pageViewTrackedRef.current) return;
+    trackEditorEvent("editor_page_view", {
+      category: "page_view",
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        mode: isVerticalMode ? "vertical" : "horizontal",
+      },
+    });
+    pageViewTrackedRef.current = true;
+  }, [accessToken, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, activeSubtitlePreset, isVerticalMode]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setControlPanelSummary(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const summary = await fetchControlPanelSummary({ days: 90, token: accessToken });
+        if (!cancelled) {
+          setControlPanelSummary(summary);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("control-panel analytics fetch failed", error);
+        }
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 45_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [accessToken]);
 
   useEffect(() => {
@@ -1859,7 +1972,15 @@ const Editor = () => {
     });
   };
 
-  const handlePickFile = () => fileInputRef.current?.click();
+  const handlePickFile = () => {
+    trackEditorEvent("new_project_clicked", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: { mode: isVerticalMode ? "vertical" : "horizontal" },
+    });
+    fileInputRef.current?.click();
+  };
 
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault();
@@ -2506,12 +2627,80 @@ const Editor = () => {
   const showUploadStatusOnly = normalizedActiveStatus === "uploading";
   const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
   const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const fallbackControlPanelTrendPoints = useMemo(() => {
+    const dayCount = 16;
+    const points = Array.from({ length: dayCount }, () => 0);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (dayCount - 1));
+    const startMs = start.getTime();
+    jobs.forEach((job) => {
+      if (normalizeStatus(job.status) !== "ready") return;
+      const created = new Date(job.createdAt).getTime();
+      if (!Number.isFinite(created)) return;
+      const dayIndex = Math.floor((created - startMs) / dayMs);
+      if (dayIndex >= 0 && dayIndex < points.length) {
+        points[dayIndex] += 1;
+      }
+    });
+    return points;
+  }, [jobs]);
+  const fallbackControlPanelClicks = useMemo(
+    () => jobs.filter((job) => normalizeStatus(job.status) === "ready").length,
+    [jobs],
+  );
+  const fallbackControlPanelImpressions = useMemo(() => {
+    const base = jobs.length * 28;
+    const activityLift = fallbackControlPanelClicks * 12;
+    return Math.max(0, base + activityLift);
+  }, [jobs.length, fallbackControlPanelClicks]);
+  const fallbackControlPanelCtr = fallbackControlPanelImpressions > 0
+    ? (fallbackControlPanelClicks / fallbackControlPanelImpressions) * 100
+    : 0;
+  const retentionScore = Number(activeJob?.retentionScore);
+  const fallbackControlPanelPosition = Number.isFinite(retentionScore)
+    ? Math.max(1, Math.min(10, Number((retentionScore / 10).toFixed(1))))
+    : 8.8;
+  const controlPanelDomain = typeof window !== "undefined" ? window.location.host : "autoeditor.app";
+  const controlPanelTrendPoints =
+    controlPanelSummary?.trend?.length
+      ? controlPanelSummary.trend.map((item) => Number(item.value) || 0)
+      : fallbackControlPanelTrendPoints;
+  const controlPanelClicks =
+    Number.isFinite(Number(controlPanelSummary?.metrics?.clicks))
+      ? Number(controlPanelSummary?.metrics?.clicks)
+      : fallbackControlPanelClicks;
+  const controlPanelImpressions =
+    Number.isFinite(Number(controlPanelSummary?.metrics?.impressions))
+      ? Number(controlPanelSummary?.metrics?.impressions)
+      : fallbackControlPanelImpressions;
+  const controlPanelCtr =
+    Number.isFinite(Number(controlPanelSummary?.metrics?.ctr))
+      ? Number(controlPanelSummary?.metrics?.ctr)
+      : fallbackControlPanelCtr;
+  const controlPanelPosition =
+    Number.isFinite(Number(controlPanelSummary?.metrics?.position))
+      ? Number(controlPanelSummary?.metrics?.position)
+      : fallbackControlPanelPosition;
 
   return (
     <GlowBackdrop>
       <Navbar />
       <main className="responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <ControlPanelOverview
+            domain={controlPanelDomain}
+            clicks={controlPanelClicks}
+            impressions={controlPanelImpressions}
+            ctr={controlPanelCtr}
+            position={controlPanelPosition}
+            trendPoints={controlPanelTrendPoints}
+            usersTracked={Number(controlPanelSummary?.totals?.usersTracked ?? 0)}
+            eventVolume={Number(controlPanelSummary?.totals?.events ?? 0)}
+            topSelections={controlPanelSummary?.topSelections}
+            feedback={controlPanelSummary?.feedback ?? []}
+          />
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">Creator Studio</h1>
@@ -2546,7 +2735,15 @@ const Editor = () => {
                   className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
                     !isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
                   }`}
-                  onClick={() => setRenderMode("horizontal")}
+                  onClick={() => {
+                    trackEditorEvent("render_mode_selected", {
+                      retentionProfile: retentionStrategyProfile,
+                      targetPlatform: retentionTargetPlatform,
+                      captionStyle: activeSubtitlePreset,
+                      metadata: { mode: "horizontal" },
+                    });
+                    setRenderMode("horizontal");
+                  }}
                   aria-label="Horizontal original mode"
                 >
                   Horizontal (Original)
@@ -2556,7 +2753,15 @@ const Editor = () => {
                   className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
                     isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
                   }`}
-                  onClick={() => setRenderMode("vertical")}
+                  onClick={() => {
+                    trackEditorEvent("render_mode_selected", {
+                      retentionProfile: retentionStrategyProfile,
+                      targetPlatform: retentionTargetPlatform,
+                      captionStyle: activeSubtitlePreset,
+                      metadata: { mode: "vertical" },
+                    });
+                    setRenderMode("vertical");
+                  }}
                   aria-label="Vertical 9:16 mode"
                 >
                   Vertical (9:16)
@@ -2577,6 +2782,14 @@ const Editor = () => {
                       disabled={lockedForMode}
                       onClick={() => {
                         if (lockedForMode) return;
+                        trackEditorEvent("retention_profile_selected", {
+                          retentionProfile: profile.value,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: {
+                            fromMode: isVerticalMode ? "vertical" : "horizontal",
+                          },
+                        });
                         setRetentionStrategyProfile(profile.value);
                       }}
                       aria-label={`Retention profile ${profile.label}`}
@@ -2601,7 +2814,17 @@ const Editor = () => {
                             ? "bg-card text-foreground border border-border/60"
                             : "text-muted-foreground hover:text-foreground"
                         }`}
-                        onClick={() => setRetentionTargetPlatform(platform.value)}
+                        onClick={() => {
+                          trackEditorEvent("target_platform_selected", {
+                            retentionProfile: retentionStrategyProfile,
+                            targetPlatform: platform.value,
+                            captionStyle: activeSubtitlePreset,
+                            metadata: {
+                              fromMode: isVerticalMode ? "vertical" : "horizontal",
+                            },
+                          });
+                          setRetentionTargetPlatform(platform.value);
+                        }}
                         aria-label={`Target platform ${platform.label}`}
                       >
                         {platform.label}
@@ -2642,7 +2865,14 @@ const Editor = () => {
                       }`}
                       onClick={() => {
                         if (!subtitlesEnabled) return;
-                        setAutoCaptionsEnabled((prev) => !prev);
+                        const nextState = !autoCaptionsEnabled;
+                        trackEditorEvent("captions_toggled", {
+                          retentionProfile: retentionStrategyProfile,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: { enabled: nextState },
+                        });
+                        setAutoCaptionsEnabled(nextState);
                         setSubtitleStyleDirty(true);
                         setCaptionsPanelOpen(true);
                       }}
@@ -2659,7 +2889,16 @@ const Editor = () => {
                           ? "bg-primary text-primary-foreground hover:bg-primary/90"
                           : "border-border/60 text-muted-foreground"
                       }`}
-                      onClick={() => setCaptionsPanelOpen((prev) => !prev)}
+                      onClick={() => {
+                        const nextOpen = !captionsPanelOpen;
+                        trackEditorEvent("captions_panel_toggled", {
+                          retentionProfile: retentionStrategyProfile,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: { open: nextOpen },
+                        });
+                        setCaptionsPanelOpen(nextOpen);
+                      }}
                     >
                       {captionsPanelOpen ? "Close captions" : "Edit captions"}
                     </Button>
