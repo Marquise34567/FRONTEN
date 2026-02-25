@@ -314,7 +314,7 @@ const Editor = () => {
   const pipelineStartRef = useRef<Record<string, number>>({});
   const uploadStartRef = useRef<Record<string, number>>({});
   const jobFileSizeRef = useRef<Record<string, number>>({});
-  const statusStartRef = useRef<Record<string, { status: string; startedAt: number }>>({});
+  const statusStartRef = useRef<Record<string, { status: string; startedAt: number; startProgress: number }>>({});
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -776,8 +776,12 @@ const Editor = () => {
     const id = activeJob.id;
     const normalized = normalizeStatus(activeJob.status);
     const prev = statusStartRef.current[id];
+    const progress =
+      typeof activeJob.progress === "number" && Number.isFinite(activeJob.progress)
+        ? clamp(activeJob.progress, 0, 100)
+        : 0;
     if (!prev || prev.status !== normalized) {
-      statusStartRef.current[id] = { status: normalized, startedAt: Date.now() };
+      statusStartRef.current[id] = { status: normalized, startedAt: Date.now(), startProgress: progress };
     }
   }, [activeJob?.id, activeJob?.status]);
 
@@ -2177,6 +2181,10 @@ const Editor = () => {
       stageMarker && stageMarker.status === normalized
         ? stageMarker.startedAt
         : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const stageStartProgress =
+      stageMarker && stageMarker.status === normalized && Number.isFinite(stageMarker.startProgress)
+        ? clamp(stageMarker.startProgress, 0, 100)
+        : 0;
     const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
 
     // If we're uploading, compute ETA from raw upload bytes/speed plus a small post-upload buffer
@@ -2210,12 +2218,28 @@ const Editor = () => {
     const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
     const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
     const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
+    const clampedProgress = clamp(jobProgress, 0, 100);
+    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
+    const baselineRemaining = Math.max(2, Math.round(baseline - stageElapsed));
+    const finalizeFloor = Math.min(90, Math.max(4, Math.round(6 + stageElapsed * 0.08)));
+    const antiStall = (seconds: number) => {
+      const rounded = Math.max(0, Math.round(seconds));
+      if (rounded > 1) return rounded;
+      // Avoid misleading "1s remaining" while still in non-terminal stages.
+      if (clampedProgress >= 95) return Math.max(baselineRemaining, finalizeFloor);
+      return baselineRemaining;
+    };
+    const stageProgressGain = Math.max(0, clampedProgress - stageStartProgress);
+    if (clampedProgress > 0 && stageProgressGain >= 0.5 && stageElapsed >= 2) {
+      const remainingPct = Math.max(0, 100 - clampedProgress);
+      const remaining = Math.round((stageElapsed * remainingPct) / stageProgressGain);
+      return antiStall(remaining);
+    }
     if (jobProgress > 0) {
       const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
-      return Math.max(0, remaining);
+      return antiStall(remaining);
     }
-    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
-    return Math.max(1, Math.round(baseline - stageElapsed));
+    return baselineRemaining;
   }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
