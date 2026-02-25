@@ -2211,6 +2211,345 @@ const ControlPanel = () => {
             </CardContent>
           </Card>
         </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-3">
+          <Card className="glass-card border-primary/30 animate-panel-float">
+            <CardHeader>
+              <CardTitle className="text-sm">AI Intelligence Dashboard</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Avg Predicted Retention</p>
+                <p className="text-xl font-semibold">{(retentionEngine?.avgPredictedRetentionScorePerRender ?? 0).toFixed(1)}</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Hook Strength (0-100)</p>
+                <p className="text-xl font-semibold">{(retentionEngine?.hookStrengthScore ?? 0).toFixed(1)}</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Strong Hooks Coverage</p>
+                <p className="text-xl font-semibold">{(retentionEngine?.strongHooksPct ?? 0).toFixed(1)}%</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Avg First 8s Engagement</p>
+                <p className="text-xl font-semibold">{(retentionEngine?.avgFirst8SecEngagementScore ?? 0).toFixed(1)}</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Drop-off Risk</p>
+                <p className="text-xl font-semibold text-rose-200">{(retentionEngine?.dropOffRiskPredictionPct ?? 0).toFixed(1)}%</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60 xl:col-span-2 animate-panel-float-delayed">
+            <CardHeader>
+              <CardTitle className="text-sm">Emotional Intensity + Boring Segment Heatmap</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 lg:grid-cols-2">
+              <div className="h-52 rounded-md border border-border/50 bg-card/40 p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={retentionEngine?.emotionalIntensityGraph ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Line type="monotone" dataKey="v" stroke="hsl(352 87% 64%)" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="h-52 rounded-md border border-border/50 bg-card/40 p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={retentionEngine?.boringSegmentHeatmap ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="segment" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Bar dataKey="v" fill="hsl(34 94% 62%)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="h-44 rounded-md border border-border/50 bg-card/40 p-2 lg:col-span-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={retentionBrainMap}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
+                    <XAxis dataKey="t" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Line type="monotone" dataKey="predictedAttention" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                    <Line type="monotone" dataKey="hook" stroke="hsl(184 80% 58%)" strokeWidth={1.5} dot={false} />
+                    <Line type="monotone" dataKey="captionImpact" stroke="hsl(120 70% 48%)" strokeWidth={1.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60 animate-panel-float">
+            <CardHeader>
+              <CardTitle className="text-sm">Revenue Command Center</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">MRR</p><p className="text-xl font-semibold">{formatMoney(revenueCenter?.mrr ?? 0)}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">ARR</p><p className="text-xl font-semibold">{formatMoney(revenueCenter?.arrProjection ?? 0)}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Churn</p><p className="text-xl font-semibold">{(revenueCenter?.churnRatePct ?? 0).toFixed(1)}%</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Upgrade Conversion</p><p className="text-xl font-semibold">{(revenueCenter?.upgradeConversionRatePct ?? 0).toFixed(1)}%</p></div>
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2"><p className="text-amber-200">Founder Sales</p><p className="text-xl font-semibold text-amber-100">{revenueCenter?.founderPlanSalesCount ?? 0} / {revenueCenter?.founderPlanAutoRemoveAt ?? 100}</p></div>
+                <div className={`rounded-md border p-2 ${revenueCenter?.founderPlanSoldOut ? "border-rose-400/40 bg-rose-500/10 text-rose-200" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"}`}>
+                  <p>{revenueCenter?.founderPlanSoldOut ? "Founder Plan Sold Out" : "Founder Plan Available"}</p>
+                  <p className="text-[11px]">Remaining: {revenueCenter?.founderPlanRemainingSlots ?? 0}</p>
+                </div>
+              </div>
+              <div className="h-44 rounded-md border border-border/50 bg-card/40 p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={revenueCenter?.revenueVsRenderUsage ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.35)" />
+                    <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="hsl(152 74% 45%)" strokeWidth={2.5} dot={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="renders" stroke="hsl(204 90% 60%)" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Failed payment alerts: {revenueCenter?.failedPaymentAlerts ?? 0} • Webhook logs: {(revenueCenter?.stripeWebhookLogs ?? []).length}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60 animate-panel-float-delayed">
+            <CardHeader>
+              <CardTitle className="text-sm">Render Infrastructure Monitor</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Queue</p><p className="text-xl font-semibold">{renderInfra?.activeJobsInQueue ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Avg Processing</p><p className="text-xl font-semibold">{(renderInfra?.avgProcessingTimeSec ?? 0).toFixed(1)}s</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">CPU / GPU</p><p className="text-xl font-semibold">{(renderInfra?.cpuUtilizationPct ?? 0).toFixed(1)}% / {(renderInfra?.gpuUtilizationPct ?? 0).toFixed(1)}%</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Cost / Render</p><p className="text-xl font-semibold">{formatMoney(renderInfra?.costPerRenderEstimateUsd ?? 0)}</p></div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Storage Usage</p>
+                <div className="mt-2 h-2 rounded-full bg-background/60">
+                  <div className="h-2 rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(100, Math.max(0, renderInfra?.storageUsage.pct ?? 0))}%` }} />
+                </div>
+                <p className="mt-1 text-[11px]">{(renderInfra?.storageUsage.gb ?? 0).toFixed(2)} GB • {(renderInfra?.storageUsage.pct ?? 0).toFixed(1)}%</p>
+              </div>
+              <div className={`rounded-md border p-2 ${renderInfra?.processingTimeSpikeAlert.active ? "border-rose-500/40 bg-rose-500/10 text-rose-200 animate-alert-glow" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`}>
+                <p className="font-semibold">
+                  {renderInfra?.processingTimeSpikeAlert.active ? "Red Alert: Processing Time Spike" : "Processing Time Stable"}
+                </p>
+                <p className="text-[11px]">
+                  Current {renderInfra?.processingTimeSpikeAlert.currentSec?.toFixed(1) ?? "0.0"}s vs baseline {renderInfra?.processingTimeSpikeAlert.baselineSec?.toFixed(1) ?? "0.0"}s
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Live Error Terminal</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Backend Logs</p><p className="text-xl font-semibold">{liveTerminal?.backendLogCount24h ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Frontend Errors</p><p className="text-xl font-semibold">{liveTerminal?.frontendErrorCount24h ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">API 401</p><p className="text-xl font-semibold">{liveTerminal?.api401Count24h ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">API 500</p><p className="text-xl font-semibold">{liveTerminal?.api500Count24h ?? 0}</p></div>
+              </div>
+              <div className="max-h-40 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(liveTerminal?.groupedErrors ?? []).slice(0, 8).map((item, idx) => (
+                  <p key={`${item.type}-${idx}`} className="mb-1 line-clamp-1">{item.severity.toUpperCase()} • {item.type} ({item.count})</p>
+                ))}
+              </div>
+              <div className="rounded-md border border-primary/30 bg-primary/10 p-2 text-primary">
+                <p className="text-[11px] uppercase tracking-wide">AI Fix Suggestion</p>
+                <p>{liveTerminal?.fixSuggestion || "No suggestions right now."}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">User Intelligence Panel</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Active Users</p><p className="text-xl font-semibold">{userIntel?.activeUsers ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Avg Watch Length</p><p className="text-xl font-semibold">{(userIntel?.averageWatchLengthSec ?? 0).toFixed(1)}s</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Suspicious Activity</p><p className={`text-xl font-semibold ${userIntel?.suspiciousActivityFlag ? "text-rose-200" : "text-emerald-200"}`}>{userIntel?.suspiciousActivityFlag ? "Flagged" : "Normal"}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Whales Close to Upgrade</p><p className="text-xl font-semibold">{(userIntel?.whaleDetector ?? []).length}</p></div>
+              </div>
+              <div className="max-h-32 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(userIntel?.topUsersByRenders ?? []).slice(0, 6).map((row) => (
+                  <p key={row.userId} className="mb-1 line-clamp-1">{row.email || row.userId} • {row.renders} renders • {row.planTier}</p>
+                ))}
+              </div>
+              <div className="max-h-32 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(userIntel?.geoHeatmap ?? []).slice(0, 6).map((row, idx) => (
+                  <p key={`${row.city || row.country || "geo"}-${idx}`} className="mb-1">{row.city || "Unknown"}, {row.country || "Unknown"} • {row.sessions} sessions</p>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-3">
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Experiment Lab A/B</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              {(experimentIntel?.variantPerformance ?? []).map((variant) => (
+                <div key={variant.variant} className="rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="font-semibold">{variant.variant}</p>
+                  <p className="text-muted-foreground">Predicted retention: {variant.predictedRetention.toFixed(1)}</p>
+                  <p className="text-muted-foreground">Paid conversion: {variant.paidConversionPct.toFixed(2)}%</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Editor Quality Analyzer</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p className="text-muted-foreground">Low quality renders (&lt; 70): <span className="font-semibold text-rose-200">{qualityAnalyzer?.lowQualityCount ?? 0}</span></p>
+              <div className="max-h-44 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(qualityAnalyzer?.renders ?? []).slice(0, 8).map((row) => (
+                  <div key={row.jobId} className="mb-2 rounded border border-border/40 p-2">
+                    <p className="line-clamp-1 font-medium">{row.jobId}</p>
+                    <p className="text-muted-foreground">Hook {row.hookScore.toFixed(1)} • Pacing {row.pacingScore.toFixed(1)} • Story {row.storyCoherenceScore.toFixed(1)}</p>
+                    <p className={row.isPremiumQuality ? "text-emerald-200" : "text-rose-200"}>
+                      Quality {row.qualityScore.toFixed(1)} {row.isPremiumQuality ? "Premium" : "Not Premium Quality"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Feedback Intelligence</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p className="rounded-md border border-border/50 bg-card/40 p-2 text-muted-foreground">{feedbackIntel?.supportSummary || "No support summary yet."}</p>
+              <p>Sentiment score: <span className="font-semibold">{(feedbackIntel?.sentimentScore ?? 0).toFixed(2)}</span></p>
+              <div className="max-h-36 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(feedbackIntel?.clusters ?? []).slice(0, 8).map((cluster) => (
+                  <p key={cluster.cluster} className="mb-1">{cluster.cluster} • {cluster.count} • {cluster.sentimentTag}</p>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-3">
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Cost Control Panel</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p>Cost / User: <span className="font-semibold">{formatMoney(costControl?.costPerUserUsd ?? 0)}</span></p>
+              <p>Cost / Render: <span className="font-semibold">{formatMoney(costControl?.costPerRenderUsd ?? 0)}</span></p>
+              <p>Burn Rate: <span className="font-semibold">{formatMoney(costControl?.infrastructureBurnRateUsdMonthly ?? 0)}</span></p>
+              <p>Profit Margin: <span className="font-semibold">{(costControl?.profitMarginPct ?? 0).toFixed(1)}%</span></p>
+              <p className={`${(costControl?.runwayMonths ?? 0) < 12 ? "text-rose-200" : "text-emerald-200"}`}>
+                At current growth runway: {(costControl?.runwayMonths ?? 0).toFixed(1)} months
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Security Panel</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p>Suspicious login attempts: <span className="font-semibold">{securityPanel?.suspiciousLoginAttempts ?? 0}</span></p>
+              <p>Rate limit 429 (24h): <span className="font-semibold">{securityPanel?.rateLimitMonitor.status429Count24h ?? 0}</span></p>
+              <p>Token near expiry sessions: <span className="font-semibold">{securityPanel?.tokenExpirationTracking.nearingTimeoutSessions ?? 0}</span></p>
+              <p>R2 key configured: <span className="font-semibold">{securityPanel?.r2KeyUsageLog.configured ? "yes" : "no"}</span></p>
+              <p>Webhook verification: <span className={`font-semibold ${securityPanel?.webhookVerificationStatus.healthy ? "text-emerald-200" : "text-rose-200"}`}>{securityPanel?.webhookVerificationStatus.healthy ? "healthy" : "degraded"}</span></p>
+              <div className="max-h-28 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(securityPanel?.adminAccessLogs ?? []).slice(0, 5).map((log) => (
+                  <p key={log.id} className="mb-1 line-clamp-1">{log.action} • {log.actor || "unknown"} • {formatShortTime(log.createdAt)}</p>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Conversion + Scaling Intel</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <p>Upload completion: <span className="font-semibold">{(conversionIntel?.uploadCompletionPct ?? 0).toFixed(1)}%</span></p>
+              <p>Trial to paid: <span className="font-semibold">{(conversionIntel?.trialToPaidConversionPct ?? 0).toFixed(1)}%</span></p>
+              <p>CDN health: <span className={`font-semibold ${scalingPanel?.cdnHealth.ok ? "text-emerald-200" : "text-rose-200"}`}>{scalingPanel?.cdnHealth.ok ? "healthy" : "not configured"}</span></p>
+              <p>Cache hit rate: <span className="font-semibold">{(scalingPanel?.cacheHitRatePct ?? 0).toFixed(1)}%</span></p>
+              <p>Queue scaling trigger: <span className="font-semibold">{scalingPanel?.autoScaleWorkerTriggers.active ? `active (${scalingPanel?.autoScaleWorkerTriggers.suggestedWorkers} workers)` : "idle"}</span></p>
+              <div className="max-h-28 overflow-auto rounded-md border border-border/50 bg-card/40 p-2">
+                {(conversionIntel?.onboardingDropOff ?? []).map((step) => (
+                  <p key={step.step} className="mb-1">{step.step}: {formatCompactNumber(step.count)} {step.dropOffPct > 0 ? `• drop ${step.dropOffPct.toFixed(1)}%` : ""}</p>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-primary/30">
+            <CardHeader><CardTitle className="text-sm">AI Self-Improvement Panel</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground">Analyze the last renders and generate pipeline upgrades automatically.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={selfImproveCount} onChange={(e) => setSelfImproveCount(e.target.value)} className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                <button disabled={actionLoading} onClick={handleRunSelfImprovement} className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary disabled:opacity-60">
+                  Analyze last renders
+                </button>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                {(selfImproveResult?.suggestions ?? empire?.aiSelfImprovementPanel?.quickSuggestions?.map((title, index) => ({ priority: index + 1, title, expectedImpact: "", difficulty: "medium" })) ?? []).slice(0, 5).map((item) => (
+                  <p key={`${item.title}-${item.priority}`} className="mb-1 line-clamp-2">{item.priority}. {item.title}</p>
+                ))}
+              </div>
+              {selfImproveResult ? (
+                <p className="text-muted-foreground">
+                  Last run: {formatShortTime(selfImproveResult.generatedAt)} • Failed: {selfImproveResult.failedRenders} • Low quality: {selfImproveResult.lowQualityCount}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader><CardTitle className="text-sm">Hidden Founder Tools</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input value={lifetimeEmail} onChange={(e) => setLifetimeEmail(e.target.value)} placeholder="Grant lifetime email" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                <input value={lifetimeUserId} onChange={(e) => setLifetimeUserId(e.target.value)} placeholder="or user ID" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                <button disabled={actionLoading} onClick={handleGrantLifetime} className="h-9 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-200">Grant Lifetime</button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input value={founderJobId} onChange={(e) => setFounderJobId(e.target.value)} placeholder="Job ID for reprocess/kill" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                <button disabled={actionLoading} onClick={handleFounderReprocess} className="h-9 rounded-md border border-primary/40 bg-primary/10 px-2 text-primary">Force Reprocess Job</button>
+                <button disabled={actionLoading} onClick={handleFounderKillJob} className="h-9 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 text-rose-200">Kill Stuck Job</button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input value={refundEventId} onChange={(e) => setRefundEventId(e.target.value)} placeholder="Stripe event ID for refund" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                <button disabled={actionLoading} onClick={handleFounderRefund} className="h-9 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-amber-200 sm:col-span-2">Refund Stripe Payment</button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input value={webhookType} onChange={(e) => setWebhookType(e.target.value)} placeholder="Webhook type" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                <input value={webhookAmountCents} onChange={(e) => setWebhookAmountCents(e.target.value)} placeholder="Amount cents" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                <button disabled={actionLoading} onClick={handleSimulateWebhook} className="h-9 rounded-md border border-border/60 px-2 text-xs sm:col-span-2">Simulate Webhook</button>
+                <select value={testUserPlanTier} onChange={(e) => setTestUserPlanTier(e.target.value)} className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs">
+                  <option value="free">free</option>
+                  <option value="starter">starter</option>
+                  <option value="creator">creator</option>
+                  <option value="studio">studio</option>
+                  <option value="founder">founder</option>
+                </select>
+                <button disabled={actionLoading} onClick={handleGenerateTestUser} className="h-9 rounded-md border border-border/60 px-2 text-xs sm:col-span-3">Generate Internal Test User</button>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
       </main>
     </div>
   );

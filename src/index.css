@@ -228,4 +228,27 @@
     padding-left: max(env(safe-area-inset-left), var(--ae-main-px)) !important;
     padding-right: max(env(safe-area-inset-right), var(--ae-main-px)) !important;
   }
+
+  @keyframes panelFloat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
+  }
+
+  @keyframes alertGlow {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(0 84% 60% / 0.15); }
+    50% { box-shadow: 0 0 0 6px hsl(0 84% 60% / 0.22); }
+  }
+
+  .animate-panel-float {
+    animation: panelFloat 6s ease-in-out infinite;
+  }
+
+  .animate-panel-float-delayed {
+    animation: panelFloat 7.5s ease-in-out infinite;
+    animation-delay: 0.7s;
+  }
+
+  .animate-alert-glow {
+    animation: alertGlow 1.8s ease-in-out infinite;
+  }
 }
