@@ -11,7 +11,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { CheckCircle2, Sparkles } from "lucide-react";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 
-const REDIRECT_SECONDS = 6;
+const REDIRECT_SECONDS = 20;
 const RECENT_EDITOR_FEATURES = [
   "Retention score now explains what the editor improved",
   "Hook candidate selection before re-rendering",
@@ -166,7 +166,7 @@ const BillingSuccess = () => {
               onClick={() => navigate("/editor", { replace: true })}
               className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto"
             >
-              Continue to Editor
+              Go to Editor
             </Button>
             <p className="text-xs text-muted-foreground">
               Redirecting in {loadingMe ? "..." : secondsLeft}s
