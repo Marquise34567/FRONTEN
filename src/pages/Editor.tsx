@@ -228,6 +228,15 @@ type HookCandidate = {
   synthetic: boolean;
 };
 
+type VerticalClipPrediction = {
+  clip: number;
+  start: number;
+  end: number;
+  duration: number;
+  predictedCompletion: number;
+  reason: string;
+};
+
 type PreviewPlaybackTelemetry = {
   durationSec: number;
   maxTimeSec: number;
@@ -469,7 +478,7 @@ const Editor = () => {
   const { toast } = useToast();
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
-  const [verticalClipCount, setVerticalClipCount] = useState(2);
+  const [verticalClipCount, setVerticalClipCount] = useState(0);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -1877,7 +1886,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
-    setVerticalClipCount(2);
+    setVerticalClipCount(0);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -2512,12 +2521,72 @@ const Editor = () => {
   const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
     ? activeAnalysis.metadata_summary
     : null;
+  const metadataClipSummaries: Array<{
+    clip: number;
+    predictedCompletion: number | null;
+    reason: string | null;
+  }> = Array.isArray(metadataSummary?.clips)
+    ? metadataSummary.clips
+        .map((entry: any, index: number) => {
+          const clipNumber = Number.isFinite(Number(entry?.clip)) ? Number(entry.clip) : index + 1;
+          const predictedCompletion = Number(entry?.predictedCompletion);
+          const reason = typeof entry?.reason === "string" ? entry.reason.trim() : "";
+          return {
+            clip: clipNumber,
+            predictedCompletion: Number.isFinite(predictedCompletion) ? predictedCompletion : null,
+            reason: reason.length > 0 ? reason : null,
+          };
+        })
+        .slice(0, 6)
+    : [];
   const metadataRetention = metadataSummary?.retention && typeof metadataSummary.retention === "object"
     ? metadataSummary.retention
     : null;
   const metadataNiche = metadataSummary?.niche && typeof metadataSummary.niche === "object"
     ? metadataSummary.niche
     : null;
+  const verticalSelectionMode = typeof metadataSummary?.selectionMode === "string"
+    ? metadataSummary.selectionMode
+    : null;
+  const verticalClipPredictions: VerticalClipPrediction[] = Array.isArray(metadataSummary?.clips)
+    ? metadataSummary.clips
+        .map((item: any) => {
+          const clip = Number(item?.clip);
+          const start = Number(item?.start);
+          const end = Number(item?.end);
+          const duration = Number(item?.duration);
+          const predictedCompletion = Number(item?.predictedCompletion);
+          if (
+            !Number.isFinite(clip) ||
+            !Number.isFinite(start) ||
+            !Number.isFinite(end) ||
+            !Number.isFinite(duration) ||
+            !Number.isFinite(predictedCompletion)
+          ) {
+            return null;
+          }
+          return {
+            clip: Math.max(1, Math.round(clip)),
+            start,
+            end,
+            duration: Math.max(0, duration),
+            predictedCompletion: Math.max(0, Math.min(100, predictedCompletion)),
+            reason: typeof item?.reason === "string" ? item.reason : "",
+          } as VerticalClipPrediction;
+        })
+        .filter((item: VerticalClipPrediction | null): item is VerticalClipPrediction => Boolean(item))
+        .sort((a, b) => a.clip - b.clip)
+    : [];
+  const verticalPredictedAverage = Number.isFinite(Number(metadataSummary?.predictedAverage))
+    ? Number(metadataSummary.predictedAverage)
+    : verticalClipPredictions.length > 0
+      ? Number(
+          (
+            verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
+            verticalClipPredictions.length
+          ).toFixed(2),
+        )
+      : null;
   const hookSelectionSource = typeof activeAnalysis?.hook_selection_source === "string"
     ? activeAnalysis.hook_selection_source
     : typeof metadataRetention?.hookSelectionSource === "string"
@@ -3704,7 +3773,7 @@ const Editor = () => {
                       </button>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {[1, 2, 3].map((count) => (
+                      {[0, 8, 10, 12, 15, 20].map((count) => (
                         <button
                           key={count}
                           type="button"
@@ -3715,12 +3784,12 @@ const Editor = () => {
                           }`}
                           onClick={() => setVerticalClipCount(count)}
                         >
-                          {count} clip{count === 1 ? "" : "s"}
+                          {count === 0 ? "Auto" : `${count} clips`}
                         </button>
                       ))}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      AI will rank the strongest moments and export exactly this many clips when possible.
+                      Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
                     </p>
                   </div>
 
@@ -4169,6 +4238,12 @@ const Editor = () => {
                           Target platform: {formatPlatformLabel(detectedRetentionTargetPlatform)}
                         </p>
                       ) : null}
+                      {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
+                        <p className="text-xs text-muted-foreground">
+                          Predicted completion: {verticalPredictedAverage.toFixed(1)}%
+                          {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
+                        </p>
+                      ) : null}
                       <p className="text-sm text-foreground">
                         Retention score (after): {retentionScoreAfterDisplay !== null ? retentionScoreAfterDisplay : "Pending"}
                       </p>
@@ -4181,6 +4256,17 @@ const Editor = () => {
                         <p className={`text-xs ${retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
                           Delta: {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
                         </p>
+                      ) : null}
+                      {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Top clip predictions:</p>
+                          {metadataClipSummaries.map((entry) => (
+                            <p key={`clip-prediction-${entry.clip}`} className="text-xs text-foreground/90">
+                              - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
+                              {entry.reason ? ` — ${entry.reason}` : ""}
+                            </p>
+                          ))}
+                        </div>
                       ) : null}
                       {retentionImprovements.length > 0 ? (
                         <div className="space-y-1">
@@ -4547,20 +4633,40 @@ const Editor = () => {
             </div>
             {activeJob?.renderMode === "vertical" && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Vertical Clips</p>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from({ length: Math.max(1, activeOutputUrls.length || verticalClipCount) }).map((_, idx) => (
-                    <Button
-                      key={`clip-${idx + 1}`}
-                      size="sm"
-                      variant="secondary"
-                      className="gap-2"
-                      onClick={() => handleDownload(idx)}
-                    >
-                      <Download className="w-4 h-4" />
-                      Clip {idx + 1}
-                    </Button>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">Vertical Clips</p>
+                  {verticalPredictedAverage !== null ? (
+                    <p className="text-xs text-muted-foreground">
+                      Predicted completion: {verticalPredictedAverage.toFixed(1)}%
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: Math.max(1, activeOutputUrls.length || verticalClipCount) }).map((_, idx) => {
+                    const clipNumber = idx + 1;
+                    const prediction = verticalClipPredictions.find((item) => item.clip === clipNumber) || null;
+                    return (
+                      <div key={`clip-${clipNumber}`} className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="gap-2"
+                            onClick={() => handleDownload(idx)}
+                          >
+                            <Download className="w-4 h-4" />
+                            Clip {clipNumber}
+                          </Button>
+                          {prediction ? (
+                            <p className="text-[11px] text-emerald-300">{prediction.predictedCompletion.toFixed(0)}% likely</p>
+                          ) : null}
+                        </div>
+                        {prediction?.reason ? (
+                          <p className="mt-1 text-[11px] text-muted-foreground">{prediction.reason}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
