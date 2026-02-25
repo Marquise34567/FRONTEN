@@ -14,7 +14,15 @@ import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
-import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
+import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
+import {
+  MRBEAST_ANIMATION_OPTIONS,
+  MRBEAST_FONT_OPTIONS,
+  parseSubtitleStyleConfig,
+  serializeSubtitleStyleConfig,
+  type SubtitlePresetId,
+  type SubtitleStyleConfig,
+} from "@shared/subtitlePresets";
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
@@ -84,6 +92,15 @@ const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
   instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
   youtube: "Context-first pacing for stronger narrative clarity and lower overcut risk.",
 };
+const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
+  { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
+  { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
+  { id: "mrbeast_animated", label: "MrBeast Animated", description: "High-energy animated captions with punchy styling." },
+  { id: "outline_heavy", label: "Cinematic Serif", description: "Film-style serif captions with strong outline." },
+  { id: "caption_box", label: "Black Box", description: "Boxed captions for maximum readability." },
+  { id: "neon_glow", label: "Neon Glow", description: "Bright glow treatment for stylized edits." },
+  { id: "karaoke_highlight", label: "Karaoke Highlight", description: "Word-by-word highlight styling." },
+];
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -326,6 +343,20 @@ const formatPlatformLabel = (value?: string | null) => {
   return formatNicheLabel(normalized);
 };
 
+const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
+  for (const tier of PLAN_TIERS) {
+    const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
+    if (allowed === "ALL" || allowed.includes(presetId)) return tier;
+  }
+  return "studio";
+};
+
+const normalizeSubtitleStyleFromSettings = (value: unknown) => {
+  if (typeof value !== "string") return "basic_clean";
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "basic_clean";
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -371,6 +402,9 @@ const Editor = () => {
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
   );
+  const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
+  const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
+  const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
@@ -431,6 +465,22 @@ const Editor = () => {
   const subscriptionCardHideKey = me?.user?.id ? `editor_subscription_card_hidden_${me.user.id}` : null;
   const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
   const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
+  const subtitleFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
+  const allowedSubtitlePresets = (PLAN_CONFIG[subtitleFeatureTier] ?? PLAN_CONFIG.free).allowedSubtitlePresets;
+  const subtitlesEnabled = allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.length > 0;
+  const isSubtitlePresetAllowed = useCallback(
+    (presetId: SubtitlePresetId) => {
+      if (!subtitlesEnabled) return false;
+      return allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.includes(presetId);
+    },
+    [allowedSubtitlePresets, subtitlesEnabled],
+  );
+  const subtitleStyleConfig = useMemo(() => parseSubtitleStyleConfig(subtitleStyleDraft), [subtitleStyleDraft]);
+  const activeSubtitlePreset = subtitleStyleConfig.preset;
+  const activeSubtitlePresetMeta = useMemo(
+    () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
+    [activeSubtitlePreset],
+  );
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
@@ -448,6 +498,76 @@ const Editor = () => {
     maxRendersPerMonth,
     rendersRemaining
   ]);
+
+  const selectSubtitlePreset = useCallback(
+    (presetId: SubtitlePresetId) => {
+      if (!isSubtitlePresetAllowed(presetId)) {
+        const requiredPlan = getRequiredPlanForSubtitlePreset(presetId);
+        toast({
+          title: "Upgrade required",
+          description: `${PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} plan required for this caption style.`,
+        });
+        return;
+      }
+      const nextValue =
+        presetId === "mrbeast_animated"
+          ? serializeSubtitleStyleConfig({
+              ...subtitleStyleConfig,
+              preset: "mrbeast_animated",
+            })
+          : presetId;
+      setSubtitleStyleDraft(nextValue);
+      setSubtitleStyleDirty(true);
+    },
+    [isSubtitlePresetAllowed, subtitleStyleConfig, toast],
+  );
+
+  const updateMrBeastSubtitleStyle = useCallback(
+    (updates: Partial<SubtitleStyleConfig>) => {
+      const nextSerialized = serializeSubtitleStyleConfig({
+        ...subtitleStyleConfig,
+        preset: "mrbeast_animated",
+        ...updates,
+      });
+      setSubtitleStyleDraft(nextSerialized);
+      setSubtitleStyleDirty(true);
+    },
+    [subtitleStyleConfig],
+  );
+
+  const saveSubtitleStyle = useCallback(async () => {
+    if (!accessToken) return;
+    const nextStyle = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+    try {
+      setSavingSubtitleStyle(true);
+      const result = await apiFetch<{ settings?: { subtitleStyle?: string } }>("/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ subtitleStyle: nextStyle }),
+        token: accessToken,
+      });
+      const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
+      setSubtitleStyleDraft(persisted);
+      setSubtitleStyleDirty(false);
+      toast({
+        title: "Captions updated",
+        description: "This style will be used for new renders.",
+      });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
+        toast({
+          title: "Upgrade required",
+          description: err?.message || "Your plan cannot use this caption style.",
+        });
+        return;
+      }
+      toast({
+        title: "Save failed",
+        description: err?.message || "Unable to save caption style right now.",
+      });
+    } finally {
+      setSavingSubtitleStyle(false);
+    }
+  }, [accessToken, subtitleStyleDraft, toast]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -790,7 +910,12 @@ const Editor = () => {
         }
       });
     apiFetch('/api/settings', { token: accessToken })
-      .then((d) => setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload)))
+      .then((d) => {
+        setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
+        const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
+        setSubtitleStyleDraft(resolvedSubtitleStyle);
+        setSubtitleStyleDirty(false);
+      })
       .catch(async (err) => {
         setAutoDownloadEnabled(null);
         if (err instanceof ApiError && err.status === 401) {
@@ -885,6 +1010,9 @@ const Editor = () => {
               if (accessToken) {
                 const s = await apiFetch('/api/settings', { token: accessToken });
                 setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+                const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
+                setSubtitleStyleDraft(resolvedSubtitleStyle);
+                setSubtitleStyleDirty(false);
               } else {
                 const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
                 setAutoDownloadEnabled(local === 'true');
@@ -2433,6 +2561,132 @@ const Editor = () => {
                   ? "Vertical mode always uses viral short-form pacing. Platform selection tunes platform-specific rhythm."
                   : "Horizontal mode preserves long-form context and clamps overcutting, while platform tuning adjusts cadence."}
               </p>
+              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Captions</p>
+                    <p className="text-xs text-muted-foreground">
+                      Current style: {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={subtitleStyleDirty ? "default" : "outline"}
+                    className={`rounded-full ${subtitleStyleDirty ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border-border/60 text-muted-foreground"}`}
+                    onClick={() => void saveSubtitleStyle()}
+                    disabled={!subtitleStyleDirty || savingSubtitleStyle}
+                  >
+                    {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save captions" : "Captions saved"}
+                  </Button>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {SUBTITLE_PRESET_OPTIONS.map((preset) => {
+                    const locked = !isSubtitlePresetAllowed(preset.id);
+                    const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
+                    const active = activeSubtitlePreset === preset.id;
+                    const card = (
+                      <button
+                        type="button"
+                        className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                          active
+                            ? "border-primary/60 bg-primary/10 text-foreground"
+                            : "border-border/60 text-muted-foreground hover:text-foreground"
+                        } ${locked ? "opacity-65" : ""}`}
+                        onClick={() => selectSubtitlePreset(preset.id)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium">{preset.label}</span>
+                          {locked ? <Lock className="h-3 w-3" /> : null}
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground/90">{preset.description}</p>
+                      </button>
+                    );
+                    if (!locked) return <div key={preset.id}>{card}</div>;
+                    return (
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>{card}</TooltipTrigger>
+                        <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+                {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Font</span>
+                      <select
+                        className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
+                        value={subtitleStyleConfig.fontId}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
+                        }
+                      >
+                        {MRBEAST_FONT_OPTIONS.map((fontOption) => (
+                          <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                            {fontOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Animation</span>
+                      <select
+                        className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
+                        value={subtitleStyleConfig.animation}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
+                        }
+                      >
+                        {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
+                          <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                            {animationOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Text color</span>
+                      <input
+                        type="color"
+                        value={`#${subtitleStyleConfig.textColor}`}
+                        onChange={(event) => updateMrBeastSubtitleStyle({ textColor: event.target.value })}
+                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Accent color</span>
+                      <input
+                        type="color"
+                        value={`#${subtitleStyleConfig.accentColor}`}
+                        onChange={(event) => updateMrBeastSubtitleStyle({ accentColor: event.target.value })}
+                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Outline color</span>
+                      <input
+                        type="color"
+                        value={`#${subtitleStyleConfig.outlineColor}`}
+                        onChange={(event) => updateMrBeastSubtitleStyle({ outlineColor: event.target.value })}
+                        className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Outline width ({subtitleStyleConfig.outlineWidth}px)</span>
+                      <Slider
+                        min={1}
+                        max={12}
+                        step={1}
+                        value={[subtitleStyleConfig.outlineWidth]}
+                        onValueChange={(values) =>
+                          updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </div>
               <Button
                 type="button"
                 variant={onlyHookAndCut ? "default" : "outline"}
