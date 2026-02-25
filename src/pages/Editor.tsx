@@ -538,6 +538,7 @@ const Editor = () => {
           : presetId;
       setSubtitleStyleDraft(nextValue);
       setSubtitleStyleDirty(true);
+      setAutoCaptionsEnabled(true);
     },
     [isSubtitlePresetAllowed, subtitleStyleConfig, toast],
   );
