@@ -12,8 +12,10 @@ import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
+import ControlPanel from "./pages/ControlPanel";
 import { AuthProvider } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
+import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
 
 const queryClient = new QueryClient();
@@ -63,6 +65,16 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <Settings />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/__control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanel />
+                    </RequireDevAdmin>
                   </RequireAuth>
                 }
               />
