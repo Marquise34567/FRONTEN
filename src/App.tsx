@@ -13,12 +13,71 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
 import ControlPanel from "./pages/ControlPanel";
-import { AuthProvider } from "@/providers/AuthProvider";
+import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
+import ControlPanelBank from "./pages/ControlPanelBank";
+import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
+import { useEffect } from "react";
+import { apiFetch } from "@/lib/api";
 
 const queryClient = new QueryClient();
+
+const ClientErrorReporter = () => {
+  const { accessToken } = useAuth();
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const sendClientError = (payload: {
+      message: string;
+      stack?: string | null;
+      pagePath?: string | null;
+      severity?: "low" | "medium" | "high" | "critical";
+    }) => {
+      void apiFetch("/api/analytics/client-error", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+    };
+
+    const onError = (event: ErrorEvent) => {
+      sendClientError({
+        message: event.message || "window_error",
+        stack: event.error?.stack ? String(event.error.stack).slice(0, 1800) : null,
+        pagePath: window.location?.pathname || "/",
+        severity: "medium",
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason =
+        typeof event.reason === "string"
+          ? event.reason
+          : event.reason?.message
+          ? String(event.reason.message)
+          : "unhandled_rejection";
+      const stack = event.reason?.stack ? String(event.reason.stack).slice(0, 1800) : null;
+      sendClientError({
+        message: reason,
+        stack,
+        pagePath: window.location?.pathname || "/",
+        severity: "high",
+      });
+    };
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, [accessToken]);
+
+  return null;
+};
 
 const App = () => {
   useScreenProfile();
@@ -26,6 +85,7 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <ClientErrorReporter />
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -69,11 +129,51 @@ const App = () => {
                 }
               />
               <Route
-                path="/__control-panel"
+                path="/dev/control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/overview"
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
                       <ControlPanel />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/algorithm"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelAlgorithm />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/bank"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelBank />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/x-quantum-control-9"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }

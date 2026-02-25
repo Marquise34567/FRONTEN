@@ -14,6 +14,8 @@ import {
   YAxis,
 } from "recharts";
 import Navbar from "@/components/Navbar";
+import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
+import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch } from "@/lib/api";
 import { useMe } from "@/hooks/use-me";
@@ -1217,12 +1219,12 @@ const ControlPanel = () => {
     <div className="min-h-screen bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
       <Navbar />
       <main className="mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
+        <ControlPanelPageNav
+          title="System Operations Dashboard"
+          subtitle="Hidden internal panel for live ops, failures, subscriptions, payments, and editor optimization insights."
+        />
+
         <div className="mb-6 flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-[0.24em] text-primary/80">Developer Control Panel</p>
-          <h1 className="font-premium text-3xl text-foreground md:text-4xl">System Operations Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Hidden internal panel for live ops, failures, subscriptions, payments, and editor optimization insights.
-          </p>
           {streamError ? <p className="text-xs text-amber-300">{streamError}</p> : null}
           {liveErrorEntry ? <p className="text-xs text-rose-300">New error: {liveErrorEntry}</p> : null}
           {actionError ? <p className="text-xs text-rose-300">{actionError}</p> : null}
