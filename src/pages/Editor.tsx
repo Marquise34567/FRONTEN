@@ -78,6 +78,36 @@ type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education";
+type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
+type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
+type OutcomeAutomationProfile = {
+  enabled: boolean;
+  source: "real_distribution_analytics";
+  sampleSize: number;
+  baselineOutcome: number | null;
+  confidence: number;
+  expectedOutcome: number | null;
+  expectedLift: number;
+  qualityGateOffset: number;
+  hookThresholdOffset: number;
+  recommendedStrategyProfile: RetentionStrategyProfile;
+  recommendedTargetPlatform: OutcomeAutomationPlatform;
+  recommendedEditorMode: OutcomeAutomationEditorMode;
+  reasons: string[];
+  generatedAt: string;
+};
+type OutcomeAutomationPreview = {
+  strategyApplied: boolean;
+  targetPlatformApplied: boolean;
+  editorModeApplied: boolean;
+  strategy: RetentionStrategyProfile;
+  targetPlatform: OutcomeAutomationPlatform;
+  editorMode: OutcomeAutomationEditorMode;
+};
+type OutcomeAutomationResponse = {
+  profile?: OutcomeAutomationProfile;
+  preview?: OutcomeAutomationPreview;
+};
 const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
   safe: "low",
   balanced: "medium",
@@ -370,6 +400,14 @@ const formatPlatformLabel = (value?: string | null) => {
   return formatNicheLabel(normalized);
 };
 
+const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelection => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
+  return EDITOR_MODE_OPTIONS.some((option) => option.value === normalized)
+    ? (normalized as EditorModeSelection)
+    : "auto";
+};
+
 const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
   for (const tier of PLAN_TIERS) {
     const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
@@ -438,6 +476,7 @@ const Editor = () => {
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
+  const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(false);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
@@ -467,6 +506,11 @@ const Editor = () => {
   const [hookPreviewUrlByJob, setHookPreviewUrlByJob] = useState<Record<string, string>>({});
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
+  const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
+    strategy: false,
+    targetPlatform: false,
+    editorMode: false,
+  });
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -548,6 +592,17 @@ const Editor = () => {
   const activeSubtitlePresetMeta = useMemo(
     () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
     [activeSubtitlePreset],
+  );
+  const outcomeAutomationConfidencePercent = useMemo(
+    () =>
+      outcomeAutomationProfile
+        ? Math.round(clamp01(Number(outcomeAutomationProfile.confidence || 0)) * 100)
+        : 0,
+    [outcomeAutomationProfile],
+  );
+  const outcomeAutomationExpectedLiftPoints = useMemo(
+    () => (outcomeAutomationProfile ? Number(outcomeAutomationProfile.expectedLift || 0) * 100 : 0),
+    [outcomeAutomationProfile],
   );
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
@@ -1113,6 +1168,103 @@ const Editor = () => {
     });
     pageViewTrackedRef.current = true;
   }, [accessToken, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, activeSubtitlePreset, isVerticalMode]);
+
+  useEffect(() => {
+    if (!accessToken || authError) {
+      setOutcomeAutomationProfile(null);
+      return;
+    }
+    const query = new URLSearchParams({
+      strategyProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      editorMode,
+    });
+    let cancelled = false;
+    apiFetch<OutcomeAutomationResponse>(`/api/jobs/automation-profile?${query.toString()}`, { token: accessToken })
+      .then((data) => {
+        if (cancelled) return;
+        const profile = data?.profile ?? null;
+        setOutcomeAutomationProfile(profile);
+        if (!profile?.enabled) return;
+
+        const recommendedStrategy = profile.recommendedStrategyProfile;
+        const recommendedTargetPlatform = profile.recommendedTargetPlatform;
+        const recommendedEditorMode = normalizeOutcomeAutomationEditorMode(profile.recommendedEditorMode);
+        const strategyAllowedForMode = isVerticalMode ? recommendedStrategy === "viral" : recommendedStrategy !== "viral";
+
+        let strategyApplied = false;
+        let targetPlatformApplied = false;
+        let editorModeApplied = false;
+
+        if (
+          strategyAllowedForMode &&
+          !menuTouchedRef.current.strategy &&
+          recommendedStrategy !== retentionStrategyProfile
+        ) {
+          setRetentionStrategyProfile(recommendedStrategy);
+          strategyApplied = true;
+        }
+        if (
+          !menuTouchedRef.current.targetPlatform &&
+          recommendedTargetPlatform !== "auto" &&
+          recommendedTargetPlatform !== retentionTargetPlatform
+        ) {
+          setRetentionTargetPlatform(recommendedTargetPlatform);
+          targetPlatformApplied = true;
+        }
+        if (
+          !menuTouchedRef.current.editorMode &&
+          recommendedEditorMode !== editorMode
+        ) {
+          setEditorMode(recommendedEditorMode);
+          editorModeApplied = true;
+        }
+        if (strategyApplied || targetPlatformApplied || editorModeApplied) {
+          trackEditorEvent("outcome_automation_menu_applied", {
+            retentionProfile: strategyApplied ? recommendedStrategy : retentionStrategyProfile,
+            targetPlatform: targetPlatformApplied && recommendedTargetPlatform !== "auto"
+              ? recommendedTargetPlatform
+              : retentionTargetPlatform,
+            captionStyle: activeSubtitlePreset,
+            metadata: {
+              sampleSize: profile.sampleSize,
+              confidence: profile.confidence,
+              expectedLift: profile.expectedLift,
+              strategyApplied,
+              targetPlatformApplied,
+              editorModeApplied,
+            },
+          });
+        }
+      })
+      .catch(async (err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try {
+            await signOut();
+          } catch (error) {
+            // ignore
+          }
+          return;
+        }
+        setOutcomeAutomationProfile(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    activeSubtitlePreset,
+    authError,
+    editorMode,
+    isVerticalMode,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    signOut,
+    trackEditorEvent,
+  ]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -3019,6 +3171,7 @@ const Editor = () => {
                       disabled={lockedForMode}
                       onClick={() => {
                         if (lockedForMode) return;
+                        menuTouchedRef.current.strategy = true;
                         trackEditorEvent("retention_profile_selected", {
                           retentionProfile: profile.value,
                           targetPlatform: retentionTargetPlatform,
@@ -3052,6 +3205,7 @@ const Editor = () => {
                             : "text-muted-foreground hover:text-foreground"
                         }`}
                         onClick={() => {
+                          menuTouchedRef.current.targetPlatform = true;
                           trackEditorEvent("target_platform_selected", {
                             retentionProfile: retentionStrategyProfile,
                             targetPlatform: platform.value,
@@ -3087,6 +3241,7 @@ const Editor = () => {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                     onClick={() => {
+                      menuTouchedRef.current.editorMode = true;
                       trackEditorEvent("editor_mode_selected", {
                         retentionProfile: retentionStrategyProfile,
                         targetPlatform: retentionTargetPlatform,
@@ -3105,6 +3260,13 @@ const Editor = () => {
               <p className="w-full px-1 text-[11px] text-muted-foreground/90">
                 Editor mode: {activeEditorModeMeta.description}
               </p>
+              {outcomeAutomationProfile ? (
+                <p className="w-full px-1 text-[11px] text-muted-foreground/80">
+                  Outcome automation: {outcomeAutomationProfile.enabled
+                    ? `${outcomeAutomationProfile.sampleSize} watch-time outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
+                    : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
+                </p>
+              ) : null}
               </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
