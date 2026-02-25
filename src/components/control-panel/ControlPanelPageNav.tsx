@@ -1,9 +1,9 @@
 import { motion } from "framer-motion"
-import { Bot, ChevronDown, Landmark, LayoutDashboard, Wrench } from "lucide-react"
+import { Bot, ChevronDown, Cpu, Globe2, Landmark, LayoutDashboard, ShieldAlert, TrendingUp, Wrench } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
 type ControlPanelPage = {
-  key: "overview" | "algorithm" | "bank" | "ops"
+  key: "overview" | "audience" | "growth" | "infrastructure" | "security" | "algorithm" | "bank" | "ops"
   label: string
   path: string
   Icon: typeof LayoutDashboard
@@ -11,6 +11,10 @@ type ControlPanelPage = {
 
 const CONTROL_PANEL_PAGES: ControlPanelPage[] = [
   { key: "overview", label: "Overview", path: "/dev/control-panel/overview", Icon: LayoutDashboard },
+  { key: "audience", label: "Audience Intel", path: "/dev/control-panel/audience", Icon: Globe2 },
+  { key: "growth", label: "Growth Intel", path: "/dev/control-panel/growth", Icon: TrendingUp },
+  { key: "infrastructure", label: "Infrastructure", path: "/dev/control-panel/infrastructure", Icon: Cpu },
+  { key: "security", label: "Security", path: "/dev/control-panel/security", Icon: ShieldAlert },
   { key: "algorithm", label: "Algorithm", path: "/dev/control-panel/algorithm", Icon: Bot },
   { key: "ops", label: "Ops Tools", path: "/dev/control-panel/ops", Icon: Wrench },
   { key: "bank", label: "The Bank", path: "/dev/control-panel/bank", Icon: Landmark }

@@ -13,9 +13,13 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
 import ControlPanel from "./pages/ControlPanel";
+import ControlPanelAudience from "./pages/ControlPanelAudience";
 import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
 import ControlPanelBank from "./pages/ControlPanelBank";
+import ControlPanelGrowth from "./pages/ControlPanelGrowth";
+import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
 import ControlPanelOps from "./pages/ControlPanelOps";
+import ControlPanelSecurity from "./pages/ControlPanelSecurity";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
@@ -165,6 +169,46 @@ const App = () => {
                   <RequireAuth>
                     <RequireDevAdmin>
                       <ControlPanel />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/audience"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelAudience />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/growth"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelGrowth />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/infrastructure"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelInfrastructure />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/security"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelSecurity />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
