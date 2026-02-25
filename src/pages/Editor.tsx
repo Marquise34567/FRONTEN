@@ -2174,6 +2174,9 @@ const Editor = () => {
     if (!activeJob) return null;
     const normalized = normalizeStatus(activeJob.status);
     if (normalized === "ready" || normalized === "failed") return null;
+    // During upload we show explicit status text instead of an ETA to avoid
+    // confusing/sticky countdowns before the edit pipeline actually starts.
+    if (normalized === "uploading") return null;
     const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
     const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
     const stageMarker = statusStartRef.current[activeJob.id];
@@ -2186,33 +2189,6 @@ const Editor = () => {
         ? clamp(stageMarker.startProgress, 0, 100)
         : 0;
     const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
-
-    // If we're uploading, compute ETA from raw upload bytes/speed plus a small post-upload buffer
-    if (normalized === "uploading") {
-      const uploaded = uploadBytesUploaded;
-      const total = uploadBytesTotal;
-      const startAt = uploadStartRef.current[activeJob.id] ?? pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
-      if (uploaded && total && uploaded > 0) {
-        const elapsedUpload = Math.max(0.5, (Date.now() - startAt) / 1000);
-        const speed = uploaded / elapsedUpload; // bytes/sec
-        if (speed > 0) {
-          const remainingBytes = Math.max(0, total - uploaded);
-          const uploadETA = Math.round(remainingBytes / speed);
-          // estimate post-upload processing: conservative heuristic based on file size
-          const uploadSize = jobFileSizeRef.current[activeJob.id] ?? total;
-          const fileMB = Math.max(1, uploadSize / (1024 * 1024));
-          const processingEstimate = Math.round(fileMB * 0.2); // ~0.2s per MB as a conservative baseline
-          return Math.max(0, uploadETA + processingEstimate);
-        }
-      }
-      // fallback: estimate from upload percent progress if byte counts aren't available
-      // Use the actual upload percent (0-100) rather than an unnecessarily scaled value.
-      const startAtFallback = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
-      const elapsed = Math.max(1, (Date.now() - startAtFallback) / 1000);
-      const boundedProgress = Math.max(1, Math.min(99, uploadProgress ?? 0));
-      const remaining = (elapsed * (100 - boundedProgress)) / boundedProgress;
-      return Math.max(0, Math.round(remaining));
-    }
 
     // Otherwise, estimate remaining processing time from job progress and elapsed pipeline time.
     const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
@@ -2253,8 +2229,9 @@ const Editor = () => {
     return `${remSecs}s`;
   };
 
-  const etaLabel = formatEta(etaSeconds);
-  const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const showUploadStatusOnly = normalizedActiveStatus === "uploading";
+  const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
+  const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
 
   return (
     <GlowBackdrop>
