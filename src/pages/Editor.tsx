@@ -19,10 +19,20 @@ import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQ
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
 // Supabase storage removed — use R2 via backend pre-signed multipart URLs only
-const FILE_INPUT_ACCEPT = ".mp4,.mkv,video/mp4,video/x-matroska";
+const ALLOWED_UPLOAD_EXTENSIONS = [".mp4", ".m4v", ".mkv"];
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  "video/mp4",
+  "application/mp4",
+  "video/m4v",
+  "video/x-m4v",
+  "video/x-matroska",
+]);
+const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
 const isAllowedUploadFile = (file: File) => {
   const lowerName = file.name.toLowerCase();
-  return lowerName.endsWith(".mp4") || lowerName.endsWith(".mkv");
+  if (ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) return true;
+  const normalizedType = String(file.type || "").toLowerCase();
+  return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
 };
 
 const chunkSizeForFile = (size: number) => {
@@ -1036,7 +1046,7 @@ const Editor = () => {
     },
   ) => {
     if (!isAllowedUploadFile(file)) {
-      toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+      toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
       return false;
     }
     if (!accessToken) return false;
@@ -1057,6 +1067,7 @@ const Editor = () => {
         requestedMode === "vertical"
           ? {
               filename: file.name,
+              contentType: file.type,
               renderMode: "vertical" as const,
               retentionAggressionLevel,
               retentionStrategyProfile,
@@ -1066,6 +1077,7 @@ const Editor = () => {
             }
           : {
               filename: file.name,
+              contentType: file.type,
               renderMode: "horizontal" as const,
               retentionAggressionLevel,
               retentionStrategyProfile,
@@ -1340,7 +1352,7 @@ const Editor = () => {
 
   const prepareVerticalFile = (file: File) => {
     if (!isAllowedUploadFile(file)) {
-      toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+      toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
       return;
     }
     setPendingVerticalFile(file);
@@ -1571,7 +1583,7 @@ const Editor = () => {
 
   const startVerticalRender = async () => {
     if (!pendingVerticalFile) {
-      toast({ title: "Choose a file", description: "Upload an MP4 or MKV before rendering." });
+      toast({ title: "Choose a file", description: "Upload an MP4, M4V, or MKV before rendering." });
       return;
     }
     if (!sourceVideoMeta) {
@@ -1843,7 +1855,7 @@ const Editor = () => {
     (activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
       ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
       : [])
-  ).slice(0, 5);
+  ).slice(0, 3);
   const selectedHookFromPipeline =
     normalizeHookCandidates(
       activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
@@ -2498,7 +2510,7 @@ const Editor = () => {
                   <p className="text-sm text-muted-foreground">
                     {isVerticalMode
                       ? "Then place the webcam crop box for the top panel and preview the stacked 9:16 layout."
-                      : "MP4 or MKV up to 2GB"}
+                      : "MP4, M4V, or MKV up to 2GB"}
                   </p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
@@ -3093,7 +3105,7 @@ const Editor = () => {
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Choose your opening hook</DialogTitle>
             <DialogDescription>
-              Preview a hook first, then apply it. If it misses, pick another before render lock.
+              Pick one of the top 3 hooks the editor found, preview it, then apply before render lock.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
