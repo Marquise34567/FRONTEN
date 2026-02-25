@@ -24,6 +24,11 @@ import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 type EditorSettings = {
   subtitleStyle: string;
   autoZoomMax: number;
+  smartZoom: boolean;
+  jumpCuts: boolean;
+  transitions: boolean;
+  soundFx: boolean;
+  musicDuck: boolean;
   emotionalBoost: boolean;
   aggressiveMode: boolean;
   onlyCuts: boolean;
@@ -169,6 +174,11 @@ const Settings = () => {
   const defaultSettings: EditorSettings = {
     subtitleStyle: "basic_clean",
     autoZoomMax: features.autoZoomMax,
+    smartZoom: true,
+    jumpCuts: true,
+    transitions: true,
+    soundFx: true,
+    musicDuck: true,
     emotionalBoost: false,
     aggressiveMode: false,
     onlyCuts: false,
@@ -357,7 +367,7 @@ const Settings = () => {
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Only Cuts Mode</h3>
                       <p className="text-xs text-muted-foreground">
-                        Remove boring sections only. No hook move, pacing, zoom, or effects.
+                        Remove boring sections only. No hook move, pacing, zoom, transitions, jump cuts, or effects.
                       </p>
                     </div>
                     <Switch
@@ -463,6 +473,101 @@ const Settings = () => {
                         Unlock 1.15x
                       </button>
                     )}
+                  </div>
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Transitions</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Blend neighboring clips with smooth transition fades.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.transitions}
+                      disabled={onlyCutsEnabled}
+                      onCheckedChange={(checked) => {
+                        if (onlyCutsEnabled) return;
+                        mergeSettings({ transitions: checked });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Jump Cuts</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Use tighter, high-energy cut boundaries on active moments.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.jumpCuts}
+                      disabled={onlyCutsEnabled}
+                      onCheckedChange={(checked) => {
+                        if (onlyCutsEnabled) return;
+                        mergeSettings({ jumpCuts: checked });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Smart Face Zoom</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Track faces and keep subjects centered during zoom moments.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.smartZoom}
+                      disabled={onlyCutsEnabled}
+                      onCheckedChange={(checked) => {
+                        if (onlyCutsEnabled) return;
+                        mergeSettings({ smartZoom: checked });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Dynamic Sound FX</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Add punch/whoosh accents on energetic cuts.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.soundFx}
+                      disabled={onlyCutsEnabled}
+                      onCheckedChange={(checked) => {
+                        if (onlyCutsEnabled) return;
+                        mergeSettings({ soundFx: checked });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Music Ducking</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Lower music bed under low-energy speech to keep voice clear.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={resolvedSettings.musicDuck}
+                      disabled={onlyCutsEnabled}
+                      onCheckedChange={(checked) => {
+                        if (onlyCutsEnabled) return;
+                        mergeSettings({ musicDuck: checked });
+                      }}
+                    />
                   </div>
                 </div>
 
