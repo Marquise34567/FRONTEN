@@ -13,7 +13,7 @@ const Index = () => {
       <main className="responsive-main flex flex-col items-center justify-center min-h-screen px-4 pt-24 pb-20">
         {/* Hero */}
         <motion.div
-          className="flex flex-col items-center text-center max-w-3xl mx-auto"
+          className="mx-auto flex w-full max-w-3xl flex-col items-center text-center"
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: "easeOut" }}
@@ -29,7 +29,7 @@ const Index = () => {
           </motion.div>
 
           <motion.h1
-            className="text-5xl sm:text-6xl lg:text-7xl font-bold font-display leading-[1.1] tracking-tight text-foreground mb-6"
+            className="mb-6 text-4xl font-bold font-display leading-[1.1] tracking-tight text-foreground sm:text-6xl lg:text-7xl"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
@@ -39,7 +39,7 @@ const Index = () => {
           </motion.h1>
 
           <motion.p
-            className="text-lg text-muted-foreground max-w-xl mb-10 leading-relaxed"
+            className="mb-10 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.6 }}
@@ -48,24 +48,24 @@ const Index = () => {
           </motion.p>
 
           <motion.div
-            className="flex items-center gap-4"
+            className="flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.65, duration: 0.6 }}
           >
-            <Link to="/editor">
-              <Button size="lg" className="rounded-full px-8 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground glow-sm">
+            <Link to="/editor" className="w-full sm:w-auto">
+              <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto">
                 Get Started Free
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/pricing">
-              <Button variant="ghost" size="lg" className="rounded-full px-8 text-muted-foreground hover:text-foreground">
+            <Link to="/pricing" className="w-full sm:w-auto">
+              <Button variant="ghost" size="lg" className="w-full rounded-full px-8 text-muted-foreground hover:text-foreground sm:w-auto">
                 View Pricing
               </Button>
             </Link>
-            <Link to="/editor?mode=vertical">
-              <Button variant="outline" size="lg" className="rounded-full px-8 gap-2 border-border/60">
+            <Link to="/editor?mode=vertical" className="w-full sm:w-auto">
+              <Button variant="outline" size="lg" className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
                 <ScissorsSquare className="w-4 h-4" />
                 Vertical Mode
               </Button>

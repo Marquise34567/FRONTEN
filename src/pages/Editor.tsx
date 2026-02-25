@@ -277,6 +277,11 @@ const normalizeHookCandidates = (raw: unknown): HookCandidate[] => {
     .filter((candidate): candidate is HookCandidate => Boolean(candidate));
 };
 
+const isSameHookCandidate = (left?: HookCandidate | null, right?: HookCandidate | null) => {
+  if (!left || !right) return false;
+  return Math.abs(left.start - right.start) <= 0.01 && Math.abs(left.duration - right.duration) <= 0.01;
+};
+
 const formatNicheLabel = (value?: string | null) => {
   if (!value) return "Unknown";
   const normalized = String(value).trim().toLowerCase();
@@ -333,11 +338,16 @@ const Editor = () => {
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
+  const [hookPreviewCandidateByJob, setHookPreviewCandidateByJob] = useState<Record<string, HookCandidate | null>>({});
+  const [hookPreviewUrlByJob, setHookPreviewUrlByJob] = useState<Record<string, string>>({});
+  const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
+  const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
@@ -1864,6 +1874,8 @@ const Editor = () => {
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
+  const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -1873,16 +1885,155 @@ const Editor = () => {
       hookVariants.length > 1 &&
       canApplyHookRealtime,
   );
+  const hookPreviewCandidate =
+    (activeJob ? hookPreviewCandidateByJob[activeJob.id] : null) ||
+    selectedHookCandidate ||
+    hookVariants[0] ||
+    null;
+  const hookPreviewSourceUrl = activeJob
+    ? hookPreviewUrlByJob[activeJob.id] || previewOutputUrl || ""
+    : "";
+  const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
+  const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector) return;
     if (hookPromptedByJob[activeJob.id]) return;
     setHookPromptedByJob((prev) => ({ ...prev, [activeJob.id]: true }));
     setHookSelectorOpen(true);
   }, [activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
+  useEffect(() => {
+    if (!hookSelectorOpen || !activeJob?.id || !canShowRealtimeHookSelector) return;
+    const jobId = activeJob.id;
+    setHookPreviewCandidateByJob((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, jobId)) return prev;
+      return { ...prev, [jobId]: selectedHookCandidate || hookVariants[0] || null };
+    });
+  }, [
+    activeJob?.id,
+    canShowRealtimeHookSelector,
+    hookSelectorOpen,
+    hookVariants,
+    selectedHookCandidate,
+  ]);
+  useEffect(() => {
+    if (!hookSelectorOpen || !activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    if (hookPreviewUrlByJob[jobId] || hookPreviewLoadingJobId === jobId) return;
+
+    let canceled = false;
+    setHookPreviewLoadingJobId(jobId);
+    setHookPreviewErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
+
+    const resolvePreviewUrl = async () => {
+      let resolvedUrl = "";
+      try {
+        const proxyResp = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/proxy-url`, {
+          method: "POST",
+          token: accessToken,
+        });
+        if (typeof proxyResp?.url === "string" && proxyResp.url.length > 0) {
+          resolvedUrl = proxyResp.url;
+        }
+      } catch (err: any) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          console.warn("proxy preview url failed", err);
+        }
+      }
+
+      if (!resolvedUrl) {
+        try {
+          const inputResp = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/input-url`, {
+            method: "POST",
+            token: accessToken,
+          });
+          if (typeof inputResp?.url === "string" && inputResp.url.length > 0) {
+            resolvedUrl = inputResp.url;
+          }
+        } catch (err: any) {
+          if (!(err instanceof ApiError && err.status === 404)) {
+            console.warn("input preview url failed", err);
+          }
+        }
+      }
+
+      if (canceled) return;
+      if (resolvedUrl) {
+        setHookPreviewUrlByJob((prev) => ({ ...prev, [jobId]: resolvedUrl }));
+        setHookPreviewErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
+        return;
+      }
+      setHookPreviewErrorByJob((prev) => ({
+        ...prev,
+        [jobId]: "Preview unavailable right now. You can still apply a hook.",
+      }));
+    };
+
+    void resolvePreviewUrl().finally(() => {
+      if (canceled) return;
+      setHookPreviewLoadingJobId((current) => (current === jobId ? null : current));
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    accessToken,
+    activeJob?.id,
+    hookPreviewLoadingJobId,
+    hookPreviewUrlByJob,
+    hookSelectorOpen,
+  ]);
+  useEffect(() => {
+    if (!hookSelectorOpen) return;
+    const video = hookPreviewVideoRef.current;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    video.currentTime = start;
+    void video.play().catch(() => {});
+  }, [
+    hookPreviewCandidate?.duration,
+    hookPreviewCandidate?.start,
+    hookPreviewSourceUrl,
+    hookSelectorOpen,
+  ]);
+  const handleSelectHookPreviewCandidate = useCallback((candidate: HookCandidate) => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    setHookPreviewCandidateByJob((prev) => ({ ...prev, [jobId]: candidate }));
+  }, [activeJob?.id]);
+  const handleHookPreviewLoadedMetadata = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    video.currentTime = start;
+    void video.play().catch(() => {});
+  }, [hookPreviewCandidate]);
+  const handleHookPreviewTimeUpdate = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    const rawEnd = hookPreviewCandidate.start + Math.max(0.1, hookPreviewCandidate.duration);
+    const end = clamp(rawEnd, start + 0.08, duration);
+    if (video.currentTime < start) {
+      video.currentTime = start;
+      return;
+    }
+    if (video.currentTime >= end - 0.03) {
+      video.currentTime = start;
+      if (!video.paused) void video.play().catch(() => {});
+    }
+  }, [hookPreviewCandidate]);
   const handleApplyPreferredHookRealtime = useCallback(async (candidate: HookCandidate) => {
     if (!activeJob?.id || !accessToken) return;
     const jobId = activeJob.id;
     setSelectedHookByJob((prev) => ({ ...prev, [jobId]: candidate }));
+    setHookPreviewCandidateByJob((prev) => ({ ...prev, [jobId]: candidate }));
     setApplyingHookJobId(jobId);
     try {
       await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
@@ -1891,10 +2042,9 @@ const Editor = () => {
         body: JSON.stringify({ preferredHook: candidate }),
       });
       await fetchJob(jobId);
-      setHookSelectorOpen(false);
       toast({
         title: "Hook updated",
-        description: "Applied to the active hook stage in real time.",
+        description: "Preview another option any time before rendering locks.",
       });
     } catch (err: any) {
       toast({
@@ -1905,8 +2055,6 @@ const Editor = () => {
       setApplyingHookJobId((current) => (current === jobId ? null : current));
     }
   }, [accessToken, activeJob?.id, fetchJob, toast]);
-  const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const handlePreviewLoadedMetadata = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
@@ -2059,11 +2207,11 @@ const Editor = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-6xl mx-auto">
+      <main className="responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-3xl font-bold font-premium text-foreground">Creator Studio</h1>
+              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">Creator Studio</h1>
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
             <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 md:w-auto md:justify-end">
@@ -2089,10 +2237,10 @@ const Editor = () => {
                   </Badge>
                 </>
               )}
-              <div className="flex w-full items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
+              <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
                 <button
                   type="button"
-                  className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                  className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
                     !isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setRenderMode("horizontal")}
@@ -2102,7 +2250,7 @@ const Editor = () => {
                 </button>
                 <button
                   type="button"
-                  className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                  className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
                     isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setRenderMode("vertical")}
@@ -2159,7 +2307,7 @@ const Editor = () => {
                       : `Full ${PLAN_CONFIG[trialUnlockTier].name} access is active.`}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
                     Trial {Math.max(1, trialDaysRemaining)}d left
                   </Badge>
@@ -2693,7 +2841,7 @@ const Editor = () => {
 
                     <div className="rounded-xl border border-border/50 bg-muted/20 p-3 space-y-2">
                       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
-                      <p className="text-sm text-foreground">
+                      <p className="text-sm text-foreground break-words">
                         Hook chosen: {hookWindowLabel}
                         {hookText ? ` — ${hookText}` : ""}
                       </p>
@@ -2805,6 +2953,17 @@ const Editor = () => {
                           <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
                           <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
                           <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
+                          <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
+                          <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
+                          <p className="break-all">
+                            Emotional tuning:
+                            {" "}
+                            {activeAnalysis?.emotional_tuning_profile
+                              ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
+                              : "n/a"}
+                          </p>
+                          <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
+                          <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
                           <p>Attempts stored: {retentionAttempts.length}</p>
                         </div>
                       ) : null}
@@ -2821,46 +2980,102 @@ const Editor = () => {
         open={hookSelectorOpen && canShowRealtimeHookSelector}
         onOpenChange={setHookSelectorOpen}
       >
-        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Choose your opening hook</DialogTitle>
             <DialogDescription>
-              Select which hook should lead the video. Your choice applies immediately.
+              Preview a hook first, then apply it. If it misses, pick another before render lock.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="max-h-80 space-y-2 overflow-auto pr-1">
+          <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-2">
+              <div className="rounded-xl border border-border/60 bg-black/80 p-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Hook preview</p>
+                  {hookPreviewCandidate ? (
+                    <p className="text-xs text-foreground/90">
+                      {hookPreviewCandidate.start.toFixed(1)}s - {(hookPreviewCandidate.start + hookPreviewCandidate.duration).toFixed(1)}s
+                    </p>
+                  ) : null}
+                </div>
+                {hookPreviewSourceUrl ? (
+                  <video
+                    ref={hookPreviewVideoRef}
+                    src={hookPreviewSourceUrl}
+                    controls
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="w-full rounded-lg bg-black"
+                    onLoadedMetadata={handleHookPreviewLoadedMetadata}
+                    onTimeUpdate={handleHookPreviewTimeUpdate}
+                  />
+                ) : hookPreviewLoading ? (
+                  <div className="flex h-40 items-center justify-center gap-2 rounded-lg bg-muted/20 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading preview video...
+                  </div>
+                ) : (
+                  <div className="flex h-40 items-center justify-center rounded-lg bg-muted/20 px-4 text-center text-xs text-muted-foreground">
+                    {hookPreviewError || "Preview not available yet."}
+                  </div>
+                )}
+                {hookPreviewCandidate?.text ? (
+                  <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{hookPreviewCandidate.text}</p>
+                ) : null}
+              </div>
+            </div>
+            <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
               {hookVariants.map((candidate, index) => {
                 const end = candidate.start + candidate.duration;
-                const isSelected =
-                  !!selectedHookCandidate &&
-                  Math.abs(selectedHookCandidate.start - candidate.start) <= 0.01 &&
-                  Math.abs(selectedHookCandidate.duration - candidate.duration) <= 0.01;
+                const isPreviewing = isSameHookCandidate(hookPreviewCandidate, candidate);
+                const isApplied = isSameHookCandidate(selectedHookCandidate, candidate);
                 return (
                   <button
                     key={`hook-dialog-option-${index}-${candidate.start.toFixed(3)}-${candidate.duration.toFixed(3)}`}
                     type="button"
                     className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
-                      isSelected
+                      isPreviewing
                         ? "border-primary/55 bg-primary/10 text-foreground"
                         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40"
                     }`}
                     disabled={applyingHookJobId === activeJob?.id}
-                    onClick={() => void handleApplyPreferredHookRealtime(candidate)}
+                    onClick={() => handleSelectHookPreviewCandidate(candidate)}
                   >
-                    <p className="font-medium text-foreground">
-                      Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-foreground">
+                        Option {index + 1}: {candidate.start.toFixed(1)}s - {end.toFixed(1)}s
+                      </p>
+                      {isApplied ? (
+                        <span className="rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-primary">
+                          Applied
+                        </span>
+                      ) : null}
+                    </div>
                     {candidate.text ? <p className="mt-1 line-clamp-2">{candidate.text}</p> : null}
                   </button>
                 );
               })}
             </div>
-            <div className="flex justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setHookSelectorOpen(false)}>
-                Keep current hook
-              </Button>
-            </div>
+          </div>
+          <div className="mt-1 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="ghost" size="sm" onClick={() => setHookSelectorOpen(false)}>
+              Done
+            </Button>
+            <Button
+              size="sm"
+              className="sm:min-w-[150px]"
+              disabled={!hookPreviewCandidate || applyingHookJobId === activeJob?.id}
+              onClick={() => {
+                if (!hookPreviewCandidate) return;
+                void handleApplyPreferredHookRealtime(hookPreviewCandidate);
+              }}
+            >
+              {applyingHookJobId === activeJob?.id ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Use this hook
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2875,7 +3090,7 @@ const Editor = () => {
           setTrialUpgradeOpen(true);
         }}
       >
-        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Free trial ended</DialogTitle>
             <DialogDescription>
@@ -2913,7 +3128,7 @@ const Editor = () => {
       </Dialog>
 
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
-        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
             <p className="text-sm text-muted-foreground">
@@ -2962,7 +3177,7 @@ const Editor = () => {
         </DialogContent>
       </Dialog>
       <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
-        <DialogContent className="max-w-lg bg-background/95 backdrop-blur-xl border border-white/10">
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
             <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
