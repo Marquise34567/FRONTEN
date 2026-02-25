@@ -168,3 +168,26 @@ export type RetentionScoringResponse = {
   features: Record<string, unknown>
   flags: Record<string, unknown>
 }
+
+export type PromptApplyChange = {
+  key: keyof AlgorithmConfigParams
+  previous: number | string
+  next: number | string
+  delta: number | null
+  source: 'prompt_directive' | 'prompt_intent' | 'suggestion_fallback'
+  reason: string
+}
+
+export type PromptApplyResponse = {
+  prompt: string
+  strategy: 'prompt_directive' | 'prompt_intent' | 'suggestion_fallback'
+  warnings: string[]
+  applied_changes: PromptApplyChange[]
+  config: AlgorithmConfigVersion
+}
+
+export type AutoOptimizeResponse = {
+  analyzed_sample_size: number
+  suggestion: ImprovementSuggestion
+  config: AlgorithmConfigVersion
+}

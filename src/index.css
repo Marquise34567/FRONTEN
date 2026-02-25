@@ -340,6 +340,20 @@
     }
   }
 
+  @keyframes cloudDrift {
+    0% {
+      transform: rotate(0deg);
+      opacity: 0.75;
+    }
+    50% {
+      opacity: 0.9;
+    }
+    100% {
+      transform: rotate(360deg);
+      opacity: 0.75;
+    }
+  }
+
   @keyframes panelReveal {
     0% {
       opacity: 0;
@@ -377,22 +391,22 @@
     width: min(100%, 34rem);
   }
 
-  .live-globe-frame {
+  .earth-globe-frame {
     position: relative;
     aspect-ratio: 1 / 1;
     border-radius: 9999px;
     overflow: hidden;
     background:
-      radial-gradient(85% 85% at 20% 18%, hsl(196 100% 72% / 0.2), transparent 62%),
-      radial-gradient(120% 120% at 80% 82%, hsl(243 75% 20% / 0.56), transparent 76%),
-      hsl(233 55% 8%);
+      radial-gradient(80% 80% at 20% 15%, hsl(199 90% 75% / 0.2), transparent 60%),
+      radial-gradient(120% 120% at 80% 82%, hsl(222 48% 12% / 0.72), transparent 78%),
+      hsl(220 44% 9%);
     box-shadow:
-      inset 0 0 0 1px hsl(196 92% 68% / 0.18),
-      0 0 40px -16px hsl(196 92% 68% / 0.65),
-      0 0 0 1px hsl(230 40% 20% / 0.55);
+      inset 0 0 0 1px hsl(196 70% 78% / 0.22),
+      0 0 40px -16px hsl(203 90% 64% / 0.5),
+      0 0 0 1px hsl(222 38% 22% / 0.6);
   }
 
-  .live-globe-frame::before {
+  .earth-globe-frame::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -400,13 +414,22 @@
     background:
       repeating-linear-gradient(
         165deg,
-        hsl(200 100% 80% / 0.05) 0px,
-        hsl(200 100% 80% / 0.05) 1px,
+        hsl(194 75% 90% / 0.04) 0px,
+        hsl(194 75% 90% / 0.04) 1px,
         transparent 1px,
-        transparent 7px
+        transparent 10px
       );
     mix-blend-mode: screen;
     pointer-events: none;
+  }
+
+  .earth-globe-cloud-layer {
+    transform-origin: 50% 50%;
+    animation: cloudDrift 26s linear infinite;
+  }
+
+  .earth-globe-atmosphere {
+    stroke: hsl(205 95% 86% / 0.5);
   }
 
   .live-globe-orbit-track {
@@ -432,12 +455,12 @@
   }
 
   .live-globe-ring-primary {
-    border: 1px solid hsl(193 98% 72% / 0.28);
+    border: 1px solid hsl(204 88% 74% / 0.25);
     animation: globeRingPulse 3.4s ease-out infinite;
   }
 
   .live-globe-ring-secondary {
-    border: 1px solid hsl(217 96% 74% / 0.2);
+    border: 1px solid hsl(197 70% 84% / 0.15);
     animation: globeRingPulseLate 4.4s ease-out infinite;
   }
 
@@ -450,8 +473,8 @@
       conic-gradient(
         from 0deg,
         transparent 0deg,
-        transparent 286deg,
-        hsl(193 98% 72% / 0.36) 322deg,
+        transparent 294deg,
+        hsl(197 90% 80% / 0.3) 326deg,
         transparent 360deg
       );
     mix-blend-mode: screen;

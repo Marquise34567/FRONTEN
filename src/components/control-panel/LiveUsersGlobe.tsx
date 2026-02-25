@@ -44,6 +44,39 @@ const COUNTRY_COORDINATE_FALLBACK: Record<string, { lat: number; lon: number }> 
   mexico: { lat: 23.6, lon: -102.5 },
 };
 
+const LANDMASS_SEEDS: Array<{ lat: number; lon: number; size?: number }> = [
+  { lat: 72, lon: -150, size: 0.9 },
+  { lat: 62, lon: -140 }, { lat: 55, lon: -130 }, { lat: 48, lon: -124 },
+  { lat: 44, lon: -117 }, { lat: 40, lon: -109 }, { lat: 34, lon: -102 },
+  { lat: 30, lon: -96 }, { lat: 40, lon: -92 }, { lat: 49, lon: -87 },
+  { lat: 54, lon: -78 }, { lat: 48, lon: -70 }, { lat: 40, lon: -75 },
+  { lat: 30, lon: -82 }, { lat: 22, lon: -90 }, { lat: 16, lon: -88 },
+  { lat: 12, lon: -80 }, { lat: 4, lon: -79 }, { lat: -6, lon: -76 },
+  { lat: -14, lon: -72 }, { lat: -22, lon: -69 }, { lat: -30, lon: -65 },
+  { lat: -40, lon: -64 }, { lat: -50, lon: -68 }, { lat: -32, lon: -57 },
+  { lat: -18, lon: -54 }, { lat: -8, lon: -49 }, { lat: 3, lon: -51 },
+  { lat: 74, lon: -42 }, { lat: 68, lon: -35 }, { lat: 64, lon: -46 },
+  { lat: 59, lon: -7 }, { lat: 54, lon: 2 }, { lat: 50, lon: 10 },
+  { lat: 49, lon: 20 }, { lat: 54, lon: 30 }, { lat: 58, lon: 42 },
+  { lat: 52, lon: 58 }, { lat: 45, lon: 40 }, { lat: 40, lon: 25 },
+  { lat: 36, lon: 13 }, { lat: 32, lon: 0 }, { lat: 26, lon: 10 },
+  { lat: 22, lon: 20 }, { lat: 17, lon: 27 }, { lat: 10, lon: 31 },
+  { lat: 2, lon: 24 }, { lat: -8, lon: 23 }, { lat: -18, lon: 25 },
+  { lat: -27, lon: 23 }, { lat: -35, lon: 18 }, { lat: -25, lon: 15 },
+  { lat: -12, lon: 14 }, { lat: 4, lon: 10 }, { lat: 18, lon: 8 },
+  { lat: 68, lon: 60 }, { lat: 62, lon: 75 }, { lat: 56, lon: 90 },
+  { lat: 50, lon: 106 }, { lat: 46, lon: 120 }, { lat: 42, lon: 132 },
+  { lat: 35, lon: 120 }, { lat: 30, lon: 108 }, { lat: 25, lon: 96 },
+  { lat: 22, lon: 82 }, { lat: 24, lon: 70 }, { lat: 30, lon: 56 },
+  { lat: 36, lon: 52 }, { lat: 40, lon: 66 }, { lat: 46, lon: 82 },
+  { lat: 52, lon: 102 }, { lat: 58, lon: 122 }, { lat: 46, lon: 142 },
+  { lat: 36, lon: 140 }, { lat: 31, lon: 135 }, { lat: 22, lon: 121 },
+  { lat: 14, lon: 110 }, { lat: 7, lon: 102 }, { lat: 0, lon: 106 },
+  { lat: -8, lon: 115 }, { lat: -16, lon: 123 }, { lat: -24, lon: 132 },
+  { lat: -30, lon: 141 }, { lat: -34, lon: 151 }, { lat: -24, lon: 154 },
+  { lat: -17, lon: 146 }, { lat: -13, lon: 136 }, { lat: -12, lon: 124 },
+];
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const normalizeCountryKey = (value: string | null | undefined) => String(value || "").trim().toLowerCase();
 
@@ -53,13 +86,29 @@ const parseTimestamp = (value?: string | null) => {
   return Number.isFinite(ms) ? ms : null;
 };
 
+const projectPoint = (latitude: number, longitude: number, rotationDeg: number) => {
+  const latRad = latitude * DEG_TO_RAD;
+  const lonRad = (longitude + rotationDeg) * DEG_TO_RAD;
+  const cosLat = Math.cos(latRad);
+  const sinLat = Math.sin(latRad);
+  const x = cosLat * Math.sin(lonRad);
+  const y = sinLat;
+  const z = cosLat * Math.cos(lonRad);
+  return {
+    x: 50 + x * GLOBE_RADIUS_PCT,
+    y: 50 - y * GLOBE_RADIUS_PCT,
+    z,
+    depth: (z + 1) / 2,
+  };
+};
+
 const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps) => {
   const [rotationDeg, setRotationDeg] = useState(0);
   const [secondsTick, setSecondsTick] = useState(0);
 
   useEffect(() => {
     const rotationHandle = window.setInterval(() => {
-      setRotationDeg((prev) => (prev + 0.9) % 360);
+      setRotationDeg((prev) => (prev + 0.72) % 360);
     }, 32);
 
     const secondsHandle = window.setInterval(() => {
@@ -99,31 +148,35 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
       .slice(0, 40);
   }, [points]);
 
+  const projectedLand = useMemo(() => {
+    return LANDMASS_SEEDS
+      .map((seed, index) => {
+        const projected = projectPoint(seed.lat, seed.lon, rotationDeg);
+        if (projected.z < -0.06) return null;
+        return {
+          ...projected,
+          index,
+          size: seed.size ? seed.size : 0.78,
+          opacity: 0.2 + projected.depth * 0.72,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((a, b) => a.z - b.z);
+  }, [rotationDeg]);
+
   const projectedPoints = useMemo(() => {
     return normalizedPoints
       .map((row, index) => {
-        const latRad = row.latitude * DEG_TO_RAD;
-        const lonRad = (row.longitude + rotationDeg) * DEG_TO_RAD;
-        const cosLat = Math.cos(latRad);
-        const sinLat = Math.sin(latRad);
-        const x = cosLat * Math.sin(lonRad);
-        const y = sinLat;
-        const z = cosLat * Math.cos(lonRad);
-        const depth = (z + 1) / 2;
-        const opacity = depth > 0.06 ? 0.15 + depth * 0.85 : 0;
-        if (opacity <= 0.08) return null;
-
-        const size = 1.8 + Math.min(5, Math.log1p(row.sessions) * 1.35);
+        const projected = projectPoint(row.latitude, row.longitude, rotationDeg);
+        if (projected.z < -0.04) return null;
+        const size = 1.4 + Math.min(4.5, Math.log1p(row.sessions) * 1.2);
         return {
           ...row,
+          ...projected,
           index,
-          x: 50 + x * GLOBE_RADIUS_PCT,
-          y: 50 - y * GLOBE_RADIUS_PCT,
-          z,
           size,
-          glow: size * 2.5,
-          opacity,
-          depth,
+          glow: size * 2.25,
+          opacity: 0.2 + projected.depth * 0.8,
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))
@@ -145,40 +198,47 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
     [normalizedPoints]
   );
 
+  const latitudeRings = [-55, -30, 0, 30, 55].map((lat) => {
+    const latRad = lat * DEG_TO_RAD;
+    const cy = 50 - Math.sin(latRad) * GLOBE_RADIUS_PCT;
+    const rx = Math.cos(latRad) * GLOBE_RADIUS_PCT;
+    return { lat, cy, rx };
+  });
+
   return (
-    <div className="rounded-xl border border-cyan-400/25 bg-card/45 p-4 shadow-[0_0_40px_-14px_hsl(var(--primary)/0.55)]">
+    <div className="rounded-xl border border-sky-300/25 bg-card/45 p-4 shadow-[0_0_40px_-14px_hsl(var(--primary)/0.4)]">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-cyan-300/35 bg-cyan-400/10 text-cyan-200">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-300/35 bg-sky-400/10 text-sky-200">
             <Globe2 className="h-4 w-4" />
           </span>
           <div>
             <p className="text-sm font-semibold text-foreground">Live World Presence</p>
-            <p className="text-[11px] text-muted-foreground">Country map refreshes every second</p>
+            <p className="text-[11px] text-muted-foreground">Earth view refreshes every second</p>
           </div>
         </div>
-        <div className="inline-flex items-center gap-1 rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-[11px] text-cyan-200">
+        <div className="inline-flex items-center gap-1 rounded-full border border-sky-300/30 bg-sky-400/10 px-3 py-1 text-[11px] text-sky-200">
           <RefreshCw className="h-3.5 w-3.5 animate-live-gear-spin" />
           {secondsSinceUpdate === null ? "Syncing..." : `${secondsSinceUpdate}s ago`}
         </div>
       </div>
 
       <div className="live-globe-shell mx-auto">
-        <div className="live-globe-frame">
-          <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label="Live active user globe">
+        <div className="earth-globe-frame">
+          <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label="Live active user Earth globe">
             <defs>
-              <radialGradient id="liveGlobeFill" cx="35%" cy="30%" r="70%">
-                <stop offset="0%" stopColor="hsl(196 92% 63% / 0.95)" />
-                <stop offset="46%" stopColor="hsl(232 78% 30% / 0.84)" />
-                <stop offset="100%" stopColor="hsl(242 70% 12% / 0.96)" />
+              <radialGradient id="earthOceanFill" cx="35%" cy="25%" r="72%">
+                <stop offset="0%" stopColor="hsl(203 86% 67% / 0.96)" />
+                <stop offset="42%" stopColor="hsl(210 76% 45% / 0.92)" />
+                <stop offset="100%" stopColor="hsl(221 66% 18% / 0.96)" />
               </radialGradient>
-              <radialGradient id="liveGlobeShade" cx="80%" cy="45%" r="65%">
-                <stop offset="0%" stopColor="hsl(228 44% 10% / 0.12)" />
-                <stop offset="75%" stopColor="hsl(228 44% 10% / 0.65)" />
-                <stop offset="100%" stopColor="hsl(228 44% 10% / 0.88)" />
+              <radialGradient id="earthShade" cx="78%" cy="46%" r="68%">
+                <stop offset="0%" stopColor="hsl(218 40% 10% / 0.08)" />
+                <stop offset="70%" stopColor="hsl(218 40% 10% / 0.58)" />
+                <stop offset="100%" stopColor="hsl(218 40% 10% / 0.82)" />
               </radialGradient>
-              <filter id="liveGlobeDotGlow" x="-200%" y="-200%" width="400%" height="400%">
-                <feGaussianBlur stdDeviation="1.2" result="blur" />
+              <filter id="earthUserDotGlow" x="-200%" y="-200%" width="400%" height="400%">
+                <feGaussianBlur stdDeviation="1.1" result="blur" />
                 <feMerge>
                   <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
@@ -186,33 +246,37 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
               </filter>
             </defs>
 
-            <circle cx="50" cy="50" r={GLOBE_RADIUS_PCT} fill="url(#liveGlobeFill)" />
-            <circle
-              className="live-globe-orbit-track"
-              cx="50"
-              cy="50"
-              r={GLOBE_RADIUS_PCT - 3}
-              fill="none"
-              stroke="hsl(196 94% 69% / 0.35)"
-              strokeDasharray="1.5 2.6"
-              strokeWidth="0.35"
-            />
-            <path
-              d="M8 50C22 20 78 20 92 50C78 80 22 80 8 50Z"
-              fill="none"
-              stroke="hsl(196 94% 69% / 0.25)"
-              strokeDasharray="2.2 2.8"
-              strokeWidth="0.5"
-              className="live-globe-orbit-track-alt"
-            />
-            <path
-              d="M20 13C40 24 60 76 80 87"
-              fill="none"
-              stroke="hsl(216 94% 72% / 0.28)"
-              strokeDasharray="2 2.8"
-              strokeWidth="0.4"
-              className="live-globe-orbit-track"
-            />
+            <circle cx="50" cy="50" r={GLOBE_RADIUS_PCT} fill="url(#earthOceanFill)" />
+
+            {latitudeRings.map((ring) => (
+              <ellipse
+                key={`lat-${ring.lat}`}
+                cx="50"
+                cy={ring.cy}
+                rx={ring.rx}
+                ry={Math.max(0.32, ring.rx * 0.18)}
+                fill="none"
+                stroke="hsl(201 84% 84% / 0.12)"
+                strokeWidth="0.24"
+              />
+            ))}
+
+            {projectedLand.map((land) => (
+              <circle
+                key={`land-${land.index}`}
+                cx={land.x}
+                cy={land.y}
+                r={land.size}
+                fill="hsl(102 34% 44%)"
+                opacity={land.opacity}
+              />
+            ))}
+
+            <g className="earth-globe-cloud-layer">
+              <ellipse cx="38" cy="31" rx="17.5" ry="4.6" fill="hsl(210 60% 96% / 0.13)" />
+              <ellipse cx="58" cy="45" rx="23" ry="5.2" fill="hsl(210 60% 96% / 0.11)" />
+              <ellipse cx="48" cy="64" rx="19" ry="4.3" fill="hsl(210 60% 96% / 0.1)" />
+            </g>
 
             {projectedPoints.map((row) => (
               <g key={`${row.country || "unknown"}-${row.city || "city"}-${row.index}`} style={{ opacity: row.opacity }}>
@@ -220,18 +284,18 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
                   cx={row.x}
                   cy={row.y}
                   r={row.glow}
-                  fill="hsl(186 100% 64% / 0.22)"
+                  fill="hsl(40 100% 70% / 0.18)"
                   className="live-globe-point-pulse"
-                  style={{ animationDelay: `${(row.index % 10) * 0.15}s` }}
+                  style={{ animationDelay: `${(row.index % 9) * 0.16}s` }}
                 />
                 <circle
                   cx={row.x}
                   cy={row.y}
                   r={row.size}
-                  fill="hsl(178 100% 84% / 0.95)"
-                  stroke="hsl(199 96% 66% / 0.95)"
+                  fill="hsl(42 100% 77%)"
+                  stroke="hsl(26 100% 65%)"
                   strokeWidth="0.35"
-                  filter="url(#liveGlobeDotGlow)"
+                  filter="url(#earthUserDotGlow)"
                 >
                   <title>
                     {(row.country || "Unknown") + ` - ${row.sessions} sessions, ${row.users} users`}
@@ -240,15 +304,8 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
               </g>
             ))}
 
-            <circle cx="50" cy="50" r={GLOBE_RADIUS_PCT} fill="url(#liveGlobeShade)" />
-            <circle
-              cx="50"
-              cy="50"
-              r={GLOBE_RADIUS_PCT}
-              fill="none"
-              stroke="hsl(196 93% 72% / 0.45)"
-              strokeWidth="0.55"
-            />
+            <circle cx="50" cy="50" r={GLOBE_RADIUS_PCT} fill="url(#earthShade)" />
+            <circle cx="50" cy="50" r={GLOBE_RADIUS_PCT} className="earth-globe-atmosphere" fill="none" strokeWidth="0.68" />
           </svg>
           <div className="live-globe-ring live-globe-ring-primary" />
           <div className="live-globe-ring live-globe-ring-secondary" />
@@ -259,15 +316,15 @@ const LiveUsersGlobe = ({ points, activeUsers, updatedAt }: LiveUsersGlobeProps)
       <div className="mt-4 grid grid-cols-3 gap-2 text-[11px]">
         <div className="rounded-md border border-border/50 bg-card/35 px-2 py-1.5">
           <p className="text-muted-foreground">Active Users</p>
-          <p className="text-base font-semibold text-cyan-100">{activeUsers}</p>
+          <p className="text-base font-semibold text-sky-100">{activeUsers}</p>
         </div>
         <div className="rounded-md border border-border/50 bg-card/35 px-2 py-1.5">
           <p className="text-muted-foreground">Countries</p>
-          <p className="text-base font-semibold text-cyan-100">{countryCount}</p>
+          <p className="text-base font-semibold text-sky-100">{countryCount}</p>
         </div>
         <div className="rounded-md border border-border/50 bg-card/35 px-2 py-1.5">
           <p className="text-muted-foreground">Tracked Sessions</p>
-          <p className="text-base font-semibold text-cyan-100">{trackedSessions}</p>
+          <p className="text-base font-semibold text-sky-100">{trackedSessions}</p>
         </div>
       </div>
     </div>

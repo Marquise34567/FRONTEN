@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/api"
 import type {
+  AutoOptimizeResponse,
   AlgorithmConfigParams,
   AlgorithmConfigVersion,
   AlgorithmExperiment,
@@ -7,6 +8,7 @@ import type {
   AnalyzeResponse,
   ExperimentStatusResponse,
   ImprovementSuggestion,
+  PromptApplyResponse,
   RenderQualityMetric,
   RetentionScoringResponse,
   SampleFootageItem,
@@ -92,6 +94,43 @@ export const algorithmApi = {
 
   analyzeRenders: ({ token, limit = 1000, range }: TokenInput & { limit?: number; range?: string }) =>
     apiFetch<AnalyzeResponse>(`${BASE}/analyze-renders`, {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify({
+        limit,
+        ...(range ? { range } : {})
+      })
+    }),
+
+  applyPrompt: ({
+    token,
+    prompt,
+    fallback_limit,
+    fallback_range
+  }: TokenInput & {
+    prompt: string
+    fallback_limit?: number
+    fallback_range?: string
+  }) =>
+    apiFetch<PromptApplyResponse>(`${BASE}/prompt/apply`, {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify({
+        prompt,
+        ...(fallback_limit ? { fallback_limit } : {}),
+        ...(fallback_range ? { fallback_range } : {})
+      })
+    }),
+
+  autoOptimize: ({
+    token,
+    limit = 1000,
+    range
+  }: TokenInput & {
+    limit?: number
+    range?: string
+  }) =>
+    apiFetch<AutoOptimizeResponse>(`${BASE}/auto-optimize`, {
       ...withToken(token),
       method: "POST",
       body: JSON.stringify({
