@@ -77,10 +77,22 @@ const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressi
   balanced: "medium",
   viral: "viral",
 };
-const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string }> = [
-  { value: "safe", label: "Safe" },
-  { value: "balanced", label: "Balanced" },
-  { value: "viral", label: "Viral" },
+const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
+  {
+    value: "safe",
+    label: "Safe",
+    description: "Regular context-first cuts with a strong best-moment hook and minimal extra effects.",
+  },
+  {
+    value: "balanced",
+    label: "Balanced",
+    description: "Commentary pacing inspired by AsmonTV, kyahsarchive, and DDG style edits.",
+  },
+  {
+    value: "viral",
+    label: "Viral",
+    description: "MrBeast-style short-form pacing with faster cuts, stronger interrupts, and high energy.",
+  },
 ];
 const PLATFORM_OPTIONS: Array<{ value: RetentionTargetPlatform; label: string }> = [
   { value: "tiktok", label: "TikTok" },
@@ -477,6 +489,12 @@ const Editor = () => {
   );
   const subtitleStyleConfig = useMemo(() => parseSubtitleStyleConfig(subtitleStyleDraft), [subtitleStyleDraft]);
   const activeSubtitlePreset = subtitleStyleConfig.preset;
+  const activeRetentionProfileMeta = useMemo(
+    () =>
+      RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile) ??
+      RETENTION_PROFILE_OPTIONS[1],
+    [retentionStrategyProfile],
+  );
   const activeSubtitlePresetMeta = useMemo(
     () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
     [activeSubtitlePreset],
@@ -1231,6 +1249,7 @@ const Editor = () => {
               retentionAggressionLevel: effectiveRetentionAggressionLevel,
               retentionStrategyProfile: effectiveRetentionStrategyProfile,
               retentionTargetPlatform,
+              platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
@@ -1242,6 +1261,7 @@ const Editor = () => {
               retentionAggressionLevel: effectiveRetentionAggressionLevel,
               retentionStrategyProfile: effectiveRetentionStrategyProfile,
               retentionTargetPlatform,
+              platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               horizontalMode: {
                 output: "quality" as const,
@@ -1390,6 +1410,7 @@ const Editor = () => {
             retentionAggressionLevel: effectiveRetentionAggressionLevel,
             retentionStrategyProfile: effectiveRetentionStrategyProfile,
             retentionTargetPlatform,
+            platformProfile: retentionTargetPlatform,
           }),
           token: accessToken,
         })
@@ -2529,12 +2550,16 @@ const Editor = () => {
                         setRetentionStrategyProfile(profile.value);
                       }}
                       aria-label={`Retention profile ${profile.label}`}
+                      title={profile.description}
                     >
                       {profile.label}
                     </button>
                   );
                 })}
               </div>
+              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
+                {activeRetentionProfileMeta.description}
+              </p>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
                 {PLATFORM_OPTIONS.map((platform) => (
                   <Tooltip key={platform.value}>
@@ -2558,8 +2583,8 @@ const Editor = () => {
               </div>
               <p className="w-full px-1 text-[11px] text-muted-foreground/90">
                 {isVerticalMode
-                  ? "Vertical mode always uses viral short-form pacing. Platform selection tunes platform-specific rhythm."
-                  : "Horizontal mode preserves long-form context and clamps overcutting, while platform tuning adjusts cadence."}
+                  ? "Vertical mode always uses viral short-form pacing. Platform profile also tunes clip windows, captions, and export encoding."
+                  : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
               </p>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
