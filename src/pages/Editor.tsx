@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, Scissors, MousePointerClick, XCircle, Map as MapIcon, ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -71,6 +72,7 @@ const MIN_WEBCAM_CROP_SIZE_PX = 48;
 const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
 const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
+const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 
 type VerticalFitMode = "cover" | "contain";
@@ -475,6 +477,7 @@ const Editor = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { accessToken, signOut } = useAuth();
+  const { t } = useTranslation("common");
   const { toast } = useToast();
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
@@ -515,6 +518,7 @@ const Editor = () => {
   const [hookPreviewUrlByJob, setHookPreviewUrlByJob] = useState<Record<string, string>>({});
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
+  const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
   const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
     strategy: false,
     targetPlatform: false,
@@ -2782,6 +2786,7 @@ const Editor = () => {
     : "";
   const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
   const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
+  const hookPreviewRefreshNonce = activeJob ? hookPreviewRefreshNonceByJob[activeJob.id] || 0 : 0;
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector) return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -2808,6 +2813,7 @@ const Editor = () => {
     if (activeHookPreviewUrl || hookPreviewLoadingJobId === jobId) return;
 
     let canceled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     setHookPreviewLoadingJobId(jobId);
     setHookPreviewErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
 
@@ -2853,6 +2859,13 @@ const Editor = () => {
         ...prev,
         [jobId]: "Preview unavailable right now. You can still apply a hook.",
       }));
+      retryTimer = setTimeout(() => {
+        if (canceled) return;
+        setHookPreviewRefreshNonceByJob((prev) => ({
+          ...prev,
+          [jobId]: (prev[jobId] || 0) + 1,
+        }));
+      }, HOOK_PREVIEW_RETRY_DELAY_MS);
     };
 
     void resolvePreviewUrl().finally(() => {
@@ -2861,12 +2874,14 @@ const Editor = () => {
 
     return () => {
       canceled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [
     accessToken,
     activeJob?.id,
     activeHookPreviewUrl,
     canShowRealtimeHookSelector,
+    hookPreviewRefreshNonce,
     hookSelectorOpen,
   ]);
   useEffect(() => {
@@ -2898,6 +2913,19 @@ const Editor = () => {
     video.currentTime = start;
     void video.play().catch(() => {});
   }, [hookPreviewCandidate]);
+  const handleHookPreviewVideoError = useCallback(() => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    setHookPreviewUrlByJob((prev) => ({ ...prev, [jobId]: "" }));
+    setHookPreviewErrorByJob((prev) => ({
+      ...prev,
+      [jobId]: "Refreshing preview video...",
+    }));
+    setHookPreviewRefreshNonceByJob((prev) => ({
+      ...prev,
+      [jobId]: (prev[jobId] || 0) + 1,
+    }));
+  }, [activeJob?.id]);
   const handleHookPreviewTimeUpdate = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!video || !hookPreviewCandidate) return;
@@ -3094,8 +3122,8 @@ const Editor = () => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">Creator Studio</h1>
-              <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
+              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
+              <p className="text-muted-foreground mt-1">{t("editor.shipFaster")}</p>
             </div>
             <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
@@ -3137,8 +3165,8 @@ const Editor = () => {
                         : "border-border/60 text-muted-foreground hover:text-foreground"
                     }`}
                     onClick={() => setOnlyHookAndCut((prev) => !prev)}
-                    aria-label={onlyHookAndCut ? "Disable Only Hook + Cut" : "Enable Only Hook + Cut"}
-                    title={onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
+                    aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
+                    title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
                   >
                     <Scissors className="h-4 w-4" />
                   </Button>
@@ -3148,7 +3176,7 @@ const Editor = () => {
                     className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
                     onClick={() => setHideJobsPanel((prev) => !prev)}
                   >
-                    {hideJobsPanel ? "Show Jobs" : "Hide Jobs"}
+                    {hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
                   </Button>
                   <Button
                     type="button"
@@ -3159,33 +3187,45 @@ const Editor = () => {
                       editorGuidePromptedRef.current = true;
                       setEditorGuideOpen(true);
                     }}
-                    aria-label="Open editor help menu"
-                    title="Editor help menu"
+                    aria-label={t("editor.help.open")}
+                    title={t("editor.help.title")}
                   >
                     <MapIcon className="h-4 w-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full border-border/60 text-muted-foreground hover:text-foreground"
-                    onClick={() => setHideEditorControlsPanel((prev) => !prev)}
-                    aria-label={hideEditorControlsPanel ? "Open full editor menu" : "Close full editor menu"}
-                    title={hideEditorControlsPanel ? "Open full editor menu" : "Close full editor menu"}
-                  >
-                    {hideEditorControlsPanel ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                  </Button>
                   <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
-                    <Plus className="w-4 h-4" /> New Project
+                    <Plus className="w-4 h-4" /> {t("editor.newProject")}
                   </Button>
                 </div>
               </div>
-              {hideEditorControlsPanel ? (
-                <div className="w-full rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground/85">
-                  Full editor menu is hidden.
+              <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground/90">{t("editor.settings.title")}</span>
+                    {hideEditorControlsPanel ? (
+                      <span className="text-xs text-muted-foreground/80">{t("editor.settings.collapsed")}</span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHideEditorControlsPanel((prev) => !prev)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-muted-foreground transition hover:text-foreground"
+                    aria-label={hideEditorControlsPanel ? t("editor.settings.open") : t("editor.settings.close")}
+                    title={hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}
+                  >
+                    {hideEditorControlsPanel ? <SlidersHorizontal className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                  </button>
                 </div>
-              ) : (
-                <>
+                <div
+                  className={`overflow-hidden transition-all duration-200 ${
+                    hideEditorControlsPanel ? "max-h-16 opacity-95" : "max-h-[2600px] opacity-100"
+                  }`}
+                >
+                  {hideEditorControlsPanel ? (
+                    <div className="w-full rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground/85">
+                      {t("editor.settings.hidden")}
+                    </div>
+                  ) : (
+                    <>
               <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
               <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
                 <button
@@ -3204,7 +3244,7 @@ const Editor = () => {
                   }}
                   aria-label="Horizontal original mode"
                 >
-                  Horizontal (Original)
+                  {t("editor.mode.horizontal")}
                 </button>
                 <button
                   type="button"
@@ -3222,7 +3262,7 @@ const Editor = () => {
                   }}
                   aria-label="Vertical 9:16 mode"
                 >
-                  Vertical (9:16)
+                  {t("editor.mode.vertical")}
                 </button>
               </div>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
@@ -3578,8 +3618,10 @@ const Editor = () => {
                   </>
                 ) : null}
               </div>
-                </>
-              )}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -4494,6 +4536,7 @@ const Editor = () => {
                     preload="metadata"
                     className="w-full rounded-lg bg-black"
                     onLoadedMetadata={handleHookPreviewLoadedMetadata}
+                    onError={handleHookPreviewVideoError}
                     onTimeUpdate={handleHookPreviewTimeUpdate}
                   />
                 ) : hookPreviewLoading ? (

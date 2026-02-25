@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
+import LanguageDropdown from "@/components/LanguageDropdown";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
+  const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -29,42 +32,43 @@ const Navbar = () => {
             <svg className="sparkle w-3 h-3 mr-1 inline-block" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
               <path d="M12 2l1.902 4.26L18.5 8l-4.598 1.74L12 14l-1.902-4.26L6.5 8l4.598-1.74L12 2z" fill="currentColor" />
             </svg>
-            BETA
+            {t("brand.beta")}
           </span>
         </Link>
 
         <div className="hidden items-center gap-2 md:flex">
+          <LanguageDropdown className="w-40" />
           <Link to="/pricing">
             <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-              Pricing
+              {t("nav.pricing")}
             </Button>
           </Link>
           <Link to="/editor">
             <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-              Editor
+              {t("nav.editor")}
             </Button>
           </Link>
           {showControlPanel ? (
             <Link to="/dev/control-panel/overview">
               <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
-                Control Panel
+                {t("nav.controlPanel")}
               </Button>
             </Link>
           ) : null}
           {user ? (
             <Button onClick={handleLogout} size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
-              Log out
+              {t("nav.logout")}
             </Button>
           ) : (
             <>
               <Link to="/login">
                 <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-                  Log in
+                  {t("nav.login")}
                 </Button>
               </Link>
               <Link to="/signup">
                 <Button size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
-                  Sign up
+                  {t("nav.signup")}
                 </Button>
               </Link>
             </>
@@ -75,7 +79,7 @@ const Navbar = () => {
           <button
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-card/50 text-foreground"
-            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-label={mobileMenuOpen ? t("menu.close") : t("menu.open")}
             onClick={() => setMobileMenuOpen((prev) => !prev)}
           >
             {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -83,28 +87,29 @@ const Navbar = () => {
 
           {mobileMenuOpen ? (
             <div className="absolute right-0 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg">
+              <LanguageDropdown />
               <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                <Link to="/pricing">Pricing</Link>
+                <Link to="/pricing">{t("nav.pricing")}</Link>
               </Button>
               <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                <Link to="/editor">Editor</Link>
+                <Link to="/editor">{t("nav.editor")}</Link>
               </Button>
               {showControlPanel ? (
                 <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
-                  <Link to="/dev/control-panel">Control Panel</Link>
+                  <Link to="/dev/control-panel">{t("nav.controlPanel")}</Link>
                 </Button>
               ) : null}
               {user ? (
                 <Button onClick={handleLogout} size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                  Log out
+                  {t("nav.logout")}
                 </Button>
               ) : (
                 <>
                   <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                    <Link to="/login">Log in</Link>
+                    <Link to="/login">{t("nav.login")}</Link>
                   </Button>
                   <Button asChild size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                    <Link to="/signup">Sign up</Link>
+                    <Link to="/signup">{t("nav.signup")}</Link>
                   </Button>
                 </>
               )}
