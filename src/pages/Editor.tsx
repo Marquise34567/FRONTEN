@@ -71,16 +71,18 @@ type CropInteraction = {
   startClientY: number;
   startCrop: WebcamCrop;
 };
+type VerticalLayoutMode = "stacked" | "single";
 type VerticalModePayload = {
   enabled: true;
   output: { width: number; height: number };
-  source: { width: number; height: number };
-  webcamCrop: WebcamCrop;
-  webcamPlacement: { heightPct: number };
-  topHeightPx: number;
-  bottomFit: VerticalFitMode;
-  webcamFit: VerticalFitMode;
-  paddingPx: number;
+  source?: { width: number; height: number };
+  layout?: VerticalLayoutMode;
+  webcamCrop?: WebcamCrop | null;
+  webcamPlacement?: { heightPct: number };
+  topHeightPx?: number | null;
+  bottomFit?: VerticalFitMode;
+  webcamFit?: VerticalFitMode;
+  paddingPx?: number;
 };
 
 type JobStatus =
@@ -324,6 +326,9 @@ const Editor = () => {
   const [verticalClipCount, setVerticalClipCount] = useState(2);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
+  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
+  const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
+  const [hideJobsPanel, setHideJobsPanel] = useState(false);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
   const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
@@ -1051,6 +1056,7 @@ const Editor = () => {
               renderMode: "vertical" as const,
               retentionAggressionLevel,
               retentionStrategyProfile,
+              onlyHookAndCut,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
             }
@@ -1059,6 +1065,7 @@ const Editor = () => {
               renderMode: "horizontal" as const,
               retentionAggressionLevel,
               retentionStrategyProfile,
+              onlyHookAndCut,
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -1200,7 +1207,7 @@ const Editor = () => {
         // Notify backend of completion for single-PUT flow
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
           method: 'POST',
-          body: JSON.stringify({ key: create.inputPath }),
+          body: JSON.stringify({ key: create.inputPath, onlyHookAndCut }),
           token: accessToken,
         })
 
@@ -1265,6 +1272,7 @@ const Editor = () => {
 
   useEffect(() => {
     if (isVerticalMode) return;
+    setSkipManualWebcamCrop(false);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
     setSourceVideoMeta(null);
@@ -1452,12 +1460,16 @@ const Editor = () => {
     return clamp(raw, 200, DEFAULT_VERTICAL_OUTPUT.height - 200);
   }, [webcamTopHeightPct]);
 
-  const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
+  const verticalSelectionReady = skipManualWebcamCrop
+    ? Boolean(pendingVerticalFile && sourceVideoMeta)
+    : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
 
   useEffect(() => {
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
-    if (!video || !canvas || !verticalPreviewUrl || !sourceVideoMeta || !effectiveWebcamCrop) return;
+    if (!video || !canvas || !verticalPreviewUrl || !sourceVideoMeta) return;
+    const singleLayout = skipManualWebcamCrop || !effectiveWebcamCrop;
+    if (!singleLayout && !effectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const canvasWidth = 540;
@@ -1513,22 +1525,30 @@ const Editor = () => {
       if (video.readyState >= 2) {
         ctx.fillStyle = "#040404";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-        drawVideoRegion(
-          effectiveWebcamCrop,
-          { x: 0, y: 0, w: canvasWidth, h: topHeight },
-          "cover",
-        );
-        drawVideoRegion(
-          { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
-          { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
-          bottomFitMode,
-        );
-        ctx.strokeStyle = "rgba(255,255,255,0.35)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, topHeight + 0.5);
-        ctx.lineTo(canvasWidth, topHeight + 0.5);
-        ctx.stroke();
+        if (singleLayout) {
+          drawVideoRegion(
+            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+            bottomFitMode,
+          );
+        } else {
+          drawVideoRegion(
+            effectiveWebcamCrop,
+            { x: 0, y: 0, w: canvasWidth, h: topHeight },
+            "cover",
+          );
+          drawVideoRegion(
+            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+            bottomFitMode,
+          );
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, topHeight + 0.5);
+          ctx.lineTo(canvasWidth, topHeight + 0.5);
+          ctx.stroke();
+        }
       }
       raf = window.requestAnimationFrame(render);
     };
@@ -1543,32 +1563,40 @@ const Editor = () => {
     return () => {
       window.cancelAnimationFrame(raf);
     };
-  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx]);
+  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop]);
 
   const startVerticalRender = async () => {
     if (!pendingVerticalFile) {
       toast({ title: "Choose a file", description: "Upload an MP4 or MKV before rendering." });
       return;
     }
-    if (!sourceVideoMeta || !effectiveWebcamCrop) {
+    if (!sourceVideoMeta) {
+      toast({ title: "Preparing preview", description: "Wait for video metadata to load, then try again." });
+      return;
+    }
+    if (!skipManualWebcamCrop && !effectiveWebcamCrop) {
       toast({ title: "Set webcam crop", description: "Adjust the crop box before rendering vertical output." });
       return;
     }
+    const verticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount,
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
+        layout: verticalLayout,
         source: sourceVideoMeta,
-        webcamCrop: effectiveWebcamCrop,
-        webcamPlacement: {
-          heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
-        },
-        topHeightPx,
+        webcamCrop: verticalLayout === "stacked" ? effectiveWebcamCrop : null,
+        webcamPlacement: verticalLayout === "stacked"
+          ? {
+              heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
+            }
+          : undefined,
+        topHeightPx: verticalLayout === "stacked" ? topHeightPx : null,
         bottomFit: bottomFitMode,
         webcamFit: "cover",
-        paddingPx: clamp(webcamPaddingPx, 0, webcamPaddingMax),
+        paddingPx: verticalLayout === "stacked" ? clamp(webcamPaddingPx, 0, webcamPaddingMax) : 0,
       },
     });
     if (!ok) return;
@@ -2254,9 +2282,9 @@ const Editor = () => {
                     isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setRenderMode("vertical")}
-                  aria-label="Vertical 9:16 stacked mode"
+                  aria-label="Vertical 9:16 mode"
                 >
-                  Vertical (9:16 Stacked)
+                  Vertical (9:16)
                 </button>
               </div>
               <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
@@ -2276,6 +2304,26 @@ const Editor = () => {
                   </button>
                 ))}
               </div>
+              <Button
+                type="button"
+                variant={onlyHookAndCut ? "default" : "outline"}
+                className={`w-full rounded-full gap-2 sm:w-auto ${
+                  onlyHookAndCut
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "border-border/60 text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setOnlyHookAndCut((prev) => !prev)}
+              >
+                {onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
+                onClick={() => setHideJobsPanel((prev) => !prev)}
+              >
+                {hideJobsPanel ? "Show Jobs" : "Hide Jobs"}
+              </Button>
               <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                 <Plus className="w-4 h-4" /> New Project
               </Button>
@@ -2350,8 +2398,9 @@ const Editor = () => {
             }}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-            <aside className="glass-card p-4 space-y-4">
+          <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
+            {!hideJobsPanel ? (
+              <aside className="glass-card min-w-0 space-y-4 p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">Recent Jobs</h2>
                 <Badge variant="secondary" className="bg-muted/40 text-muted-foreground">
@@ -2404,9 +2453,10 @@ const Editor = () => {
                   );
                 })}
               </div>
-            </aside>
+              </aside>
+            ) : null}
 
-            <section className="space-y-6">
+            <section className="min-w-0 space-y-6">
               <div
                 className={`glass-card p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
                   isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
@@ -2449,8 +2499,25 @@ const Editor = () => {
                     <div>
                       <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
                       <p className="text-xs text-muted-foreground">
-                        Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame.
+                        {skipManualWebcamCrop
+                          ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
+                          : "Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame."}
                       </p>
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setCropInteraction(null);
+                          setSkipManualWebcamCrop((prev) => !prev);
+                        }}
+                      >
+                        <span
+                          className={`inline-block h-2.5 w-2.5 rounded-full ${
+                            skipManualWebcamCrop ? "bg-emerald-400" : "bg-muted-foreground/60"
+                          }`}
+                        />
+                        {skipManualWebcamCrop ? "Using source framing (skip manual crop)" : "Use manual webcam crop"}
+                      </button>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {[1, 2, 3].map((count) => (
@@ -2468,6 +2535,9 @@ const Editor = () => {
                         </button>
                       ))}
                     </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      AI will rank the strongest moments and export exactly this many clips when possible.
+                    </p>
                   </div>
 
                   {!verticalPreviewUrl && (
@@ -2480,43 +2550,45 @@ const Editor = () => {
                     <div className="space-y-4">
                       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
                         <div className="space-y-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs"
-                              onClick={() => {
-                                if (!sourceVideoMeta) return;
-                                setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
-                                setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-                              }}
-                            >
-                              Reset crop
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs"
-                              onClick={() => {
-                                if (!sourceVideoMeta) return;
-                                setWebcamCrop((prev) =>
-                                  normalizeWebcamCrop(
-                                    {
-                                      x: 0,
-                                      y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
-                                      w: sourceVideoMeta.width,
-                                      h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
-                                    },
-                                    sourceVideoMeta,
-                                  ),
-                                );
-                              }}
-                            >
-                              Snap to full width
-                            </Button>
-                          </div>
+                          {!skipManualWebcamCrop ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => {
+                                  if (!sourceVideoMeta) return;
+                                  setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
+                                  setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+                                }}
+                              >
+                                Reset crop
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => {
+                                  if (!sourceVideoMeta) return;
+                                  setWebcamCrop((prev) =>
+                                    normalizeWebcamCrop(
+                                      {
+                                        x: 0,
+                                        y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
+                                        w: sourceVideoMeta.width,
+                                        h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
+                                      },
+                                      sourceVideoMeta,
+                                    ),
+                                  );
+                                }}
+                              >
+                                Snap to full width
+                              </Button>
+                            </div>
+                          ) : null}
 
                           <div
                             ref={sourcePreviewRef}
@@ -2530,7 +2602,7 @@ const Editor = () => {
                               onLoadedMetadata={handleVerticalSourceMetadata}
                               className="h-full w-full object-contain"
                             />
-                            {webcamCropStyle && (
+                            {!skipManualWebcamCrop && webcamCropStyle && (
                               <div
                                 className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
                                 style={webcamCropStyle}
@@ -2568,7 +2640,9 @@ const Editor = () => {
                           </div>
                           <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                             <MousePointerClick className="w-3.5 h-3.5" />
-                            {webcamCrop
+                            {skipManualWebcamCrop
+                              ? "Manual webcam crop is disabled. Source framing will be used."
+                              : webcamCrop
                               ? `Crop: ${Math.round(webcamCrop.w)} x ${Math.round(webcamCrop.h)}px at (${Math.round(webcamCrop.x)}, ${Math.round(webcamCrop.y)})`
                               : "Webcam crop initializes when video metadata loads."}
                           </p>
@@ -2597,33 +2671,37 @@ const Editor = () => {
                           </div>
 
                           <div className="rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>Webcam height</span>
-                                <span>{Math.round(topHeightPx)}px ({Math.round(webcamTopHeightPct)}%)</span>
-                              </div>
-                              <Slider
-                                value={[webcamTopHeightPct]}
-                                min={20}
-                                max={70}
-                                step={1}
-                                onValueChange={(value) => setWebcamTopHeightPct(clamp(value[0] ?? DEFAULT_WEBCAM_TOP_HEIGHT_PCT, 20, 70))}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>Padding</span>
-                                <span>{Math.round(webcamPaddingPx)}px</span>
-                              </div>
-                              <Slider
-                                value={[webcamPaddingPx]}
-                                min={0}
-                                max={Math.max(0, Math.min(120, webcamPaddingMax))}
-                                step={1}
-                                disabled={webcamPaddingMax <= 0}
-                                onValueChange={(value) => setWebcamPaddingPx(clamp(Math.round(value[0] ?? 0), 0, webcamPaddingMax))}
-                              />
-                            </div>
+                            {!skipManualWebcamCrop ? (
+                              <>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Webcam height</span>
+                                    <span>{Math.round(topHeightPx)}px ({Math.round(webcamTopHeightPct)}%)</span>
+                                  </div>
+                                  <Slider
+                                    value={[webcamTopHeightPct]}
+                                    min={20}
+                                    max={70}
+                                    step={1}
+                                    onValueChange={(value) => setWebcamTopHeightPct(clamp(value[0] ?? DEFAULT_WEBCAM_TOP_HEIGHT_PCT, 20, 70))}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Padding</span>
+                                    <span>{Math.round(webcamPaddingPx)}px</span>
+                                  </div>
+                                  <Slider
+                                    value={[webcamPaddingPx]}
+                                    min={0}
+                                    max={Math.max(0, Math.min(120, webcamPaddingMax))}
+                                    step={1}
+                                    disabled={webcamPaddingMax <= 0}
+                                    onValueChange={(value) => setWebcamPaddingPx(clamp(Math.round(value[0] ?? 0), 0, webcamPaddingMax))}
+                                  />
+                                </div>
+                              </>
+                            ) : null}
                             <div className="space-y-2">
                               <p className="text-xs text-muted-foreground">Bottom fit</p>
                               <div className="flex flex-wrap items-center gap-2">
@@ -2649,7 +2727,9 @@ const Editor = () => {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-muted-foreground">
-                          Output: {DEFAULT_VERTICAL_OUTPUT.width} x {DEFAULT_VERTICAL_OUTPUT.height}, top webcam strip + bottom full-frame stack.
+                          {skipManualWebcamCrop
+                            ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, single-frame vertical render (manual crop skipped).`
+                            : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, top webcam strip + bottom full-frame stack.`}
                         </p>
                         <Button
                           type="button"
@@ -2729,7 +2809,7 @@ const Editor = () => {
 
                 {activeJob && (
                   <>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
                       {PIPELINE_STEPS.map((step, idx) => {
                         const active =
                           !step.comingSoon &&
