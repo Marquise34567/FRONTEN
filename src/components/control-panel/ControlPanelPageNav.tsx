@@ -1,9 +1,9 @@
 import { motion } from "framer-motion"
-import { Bot, ChevronDown, Landmark, LayoutDashboard } from "lucide-react"
+import { Bot, ChevronDown, Landmark, LayoutDashboard, Wrench } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
 type ControlPanelPage = {
-  key: "overview" | "algorithm" | "bank"
+  key: "overview" | "algorithm" | "bank" | "ops"
   label: string
   path: string
   Icon: typeof LayoutDashboard
@@ -12,6 +12,7 @@ type ControlPanelPage = {
 const CONTROL_PANEL_PAGES: ControlPanelPage[] = [
   { key: "overview", label: "Overview", path: "/dev/control-panel/overview", Icon: LayoutDashboard },
   { key: "algorithm", label: "Algorithm", path: "/dev/control-panel/algorithm", Icon: Bot },
+  { key: "ops", label: "Ops Tools", path: "/dev/control-panel/ops", Icon: Wrench },
   { key: "bank", label: "The Bank", path: "/dev/control-panel/bank", Icon: Landmark }
 ]
 

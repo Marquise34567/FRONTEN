@@ -21,7 +21,7 @@ import { API_URL, apiFetch } from "@/lib/api";
 import { getControlPanelPassword } from "@/lib/controlPanelAuth";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Mail, Send, Crown, Cpu, HardDrive, Sparkles, ShieldAlert, Rocket, Wand2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Crown, Cpu, HardDrive, Sparkles, ShieldAlert, Rocket, Wand2, RefreshCw } from "lucide-react";
 
 type OverviewResponse = {
   summary: {
@@ -227,23 +227,6 @@ type IpBansResponse = {
     expiresAt: string | null;
     createdAt: string | null;
     updatedAt: string | null;
-  }>;
-  updatedAt: string;
-};
-
-type WeeklyReportsResponse = {
-  provider: {
-    configured: boolean;
-    provider: string;
-  };
-  subscriptions: Array<{
-    id: string;
-    email: string;
-    enabled: boolean;
-    createdBy: string | null;
-    lastSentAt: string | null;
-    nextSendAt: string | null;
-    lastError: string | null;
   }>;
   updatedAt: string;
 };
@@ -681,29 +664,7 @@ const ControlPanel = () => {
   const [banReason, setBanReason] = useState("");
   const [banDurationHours, setBanDurationHours] = useState("24");
 
-  const [weeklyReportEmail, setWeeklyReportEmail] = useState("marquiseedwards00@gmail.com");
-  const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(true);
   const [featureDraft, setFeatureDraft] = useState<FeatureLabControls | null>(null);
-  const [selfImproveCount, setSelfImproveCount] = useState("1000");
-  const [selfImproveResult, setSelfImproveResult] = useState<{
-    analyzedRenders: number;
-    completedRenders: number;
-    failedRenders: number;
-    lowQualityCount: number;
-    averageUploadToRenderSeconds: number;
-    topFailures: Array<{ reason: string; count: number }>;
-    complaintTags: Array<{ tag: string; count: number }>;
-    suggestions: Array<{ priority: number; title: string; expectedImpact: string; difficulty: string }>;
-    generatedAt: string;
-  } | null>(null);
-
-  const [lifetimeEmail, setLifetimeEmail] = useState("");
-  const [lifetimeUserId, setLifetimeUserId] = useState("");
-  const [founderJobId, setFounderJobId] = useState("");
-  const [refundEventId, setRefundEventId] = useState("");
-  const [webhookType, setWebhookType] = useState("invoice.paid");
-  const [webhookAmountCents, setWebhookAmountCents] = useState("9900");
-  const [testUserPlanTier, setTestUserPlanTier] = useState("free");
 
   const canLoad = Boolean(accessToken);
 
@@ -803,13 +764,6 @@ const ControlPanel = () => {
   const ipBansQuery = useQuery({
     queryKey: ["admin-ip-bans"],
     queryFn: () => apiFetch<IpBansResponse>("/api/admin/ip-bans", { token: accessToken || "" }),
-    enabled: canLoad,
-    refetchInterval: 30000,
-  });
-
-  const weeklyReportsQuery = useQuery({
-    queryKey: ["admin-weekly-reports"],
-    queryFn: () => apiFetch<WeeklyReportsResponse>("/api/admin/reports/weekly", { token: accessToken || "" }),
     enabled: canLoad,
     refetchInterval: 30000,
   });
@@ -915,7 +869,6 @@ const ControlPanel = () => {
         healthQuery.refetch(),
         securityQuery.refetch(),
         ipBansQuery.refetch(),
-        weeklyReportsQuery.refetch(),
         commandCenterQuery.refetch(),
         featureLabQuery.refetch(),
       ]);
@@ -1002,38 +955,6 @@ const ControlPanel = () => {
     );
   };
 
-  const handleSaveWeeklyReport = async () => {
-    await runAdminAction(
-      "/api/admin/reports/weekly",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          email: weeklyReportEmail,
-          enabled: weeklyReportEnabled,
-        }),
-      },
-      "Weekly report schedule saved."
-    );
-  };
-
-  const handleSendWeeklyNow = async () => {
-    if (!weeklyReportsQuery.data?.provider.configured) {
-      setActionSuccess(null);
-      setActionError("Configure WEEKLY_REPORT_WEBHOOK_URL or RESEND_API_KEY before sending weekly reports.");
-      return;
-    }
-    await runAdminAction(
-      "/api/admin/reports/weekly/send-now",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          email: weeklyReportEmail,
-        }),
-      },
-      "Weekly report sent."
-    );
-  };
-
   const handleFixErrorNow = async (errorId: string) => {
     if (!errorId) return;
     await runAdminAction(
@@ -1054,131 +975,6 @@ const ControlPanel = () => {
         body: JSON.stringify(payload),
       },
       "Feature Lab controls updated."
-    );
-  };
-
-  const handleRunSelfImprovement = async () => {
-    if (!accessToken) return;
-    setActionLoading(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const result = await apiFetch<{
-        analyzedRenders: number;
-        completedRenders: number;
-        failedRenders: number;
-        lowQualityCount: number;
-        averageUploadToRenderSeconds: number;
-        topFailures: Array<{ reason: string; count: number }>;
-        complaintTags: Array<{ tag: string; count: number }>;
-        suggestions: Array<{ priority: number; title: string; expectedImpact: string; difficulty: string }>;
-        generatedAt: string;
-      }>("/api/admin/ai-self-improvement", {
-        method: "POST",
-        token: accessToken,
-        body: JSON.stringify({
-          count: Number(selfImproveCount || 1000),
-        }),
-      });
-      setSelfImproveResult(result);
-      setActionSuccess(`AI analyzed ${result.analyzedRenders} renders and generated upgrade recommendations.`);
-      await commandCenterQuery.refetch();
-    } catch (error: any) {
-      setActionError(error?.message || "AI self-improvement analysis failed.");
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleGrantLifetime = async () => {
-    await runAdminAction(
-      "/api/admin/founder-tools/grant-lifetime",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          email: lifetimeEmail || undefined,
-          userId: lifetimeUserId || undefined,
-        }),
-      },
-      "Lifetime founder access granted."
-    );
-  };
-
-  const handleFounderReprocess = async () => {
-    if (!founderJobId.trim()) {
-      setActionError("Job ID is required.");
-      return;
-    }
-    await runAdminAction(
-      "/api/admin/founder-tools/reprocess-job",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          jobId: founderJobId.trim(),
-        }),
-      },
-      "Job reprocess queued."
-    );
-  };
-
-  const handleFounderKillJob = async () => {
-    if (!founderJobId.trim()) {
-      setActionError("Job ID is required.");
-      return;
-    }
-    await runAdminAction(
-      "/api/admin/founder-tools/kill-job",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          jobId: founderJobId.trim(),
-        }),
-      },
-      "Stuck job terminated."
-    );
-  };
-
-  const handleFounderRefund = async () => {
-    if (!refundEventId.trim()) {
-      setActionError("Stripe event ID is required.");
-      return;
-    }
-    await runAdminAction(
-      "/api/admin/founder-tools/refund-payment",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          eventId: refundEventId.trim(),
-        }),
-      },
-      "Refund request sent to Stripe."
-    );
-  };
-
-  const handleSimulateWebhook = async () => {
-    await runAdminAction(
-      "/api/admin/founder-tools/simulate-webhook",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          type: webhookType,
-          amountCents: Number(webhookAmountCents || 0),
-        }),
-      },
-      "Webhook event simulated."
-    );
-  };
-
-  const handleGenerateTestUser = async () => {
-    await runAdminAction(
-      "/api/admin/founder-tools/generate-test-user",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          planTier: testUserPlanTier,
-        }),
-      },
-      "Internal test user created."
     );
   };
 
@@ -1220,8 +1016,6 @@ const ControlPanel = () => {
     live?.websiteImpressions5m ?? siteLiveQuery.data?.impressionsLast5m ?? summary?.websiteImpressions5m ?? 0;
   const effectiveImpressions24h =
     live?.websiteImpressions24h ?? siteLiveQuery.data?.impressionsLast24h ?? summary?.websiteImpressions24h ?? 0;
-  const weeklyProviderConfigured = Boolean(weeklyReportsQuery.data?.provider.configured);
-  const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown";
   const empire = commandCenterQuery.data;
   const featureState = featureDraft ?? featureLabQuery.data?.controls ?? empire?.featureLab.controls ?? DEFAULT_FEATURE_CONTROLS;
   const retentionEngine = empire?.aiIntelligenceDashboard?.retentionPredictionEngine;
@@ -2283,61 +2077,6 @@ const ControlPanel = () => {
           </Card>
         </section>
 
-        <section className="mt-8">
-          <Card className="glass-card border-border/60">
-            <CardHeader>
-              <CardTitle className="text-sm">Weekly Statistics Email Report</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <div className="grid gap-2 sm:grid-cols-3">
-                <input value={weeklyReportEmail} onChange={(e) => setWeeklyReportEmail(e.target.value)} placeholder="Report email" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
-                <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border/60 bg-card/40 px-3 text-[11px] text-muted-foreground">
-                  <input type="checkbox" checked={weeklyReportEnabled} onChange={(e) => setWeeklyReportEnabled(e.target.checked)} />
-                  Weekly enabled
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button disabled={actionLoading} onClick={handleSaveWeeklyReport} className="inline-flex h-9 items-center rounded-md border border-border/60 px-3 text-xs">
-                  <Mail className="mr-2 h-3.5 w-3.5" />
-                  Save Schedule
-                </button>
-                <button
-                  disabled={actionLoading || !weeklyProviderConfigured}
-                  onClick={handleSendWeeklyNow}
-                  className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Send className="mr-2 h-3.5 w-3.5" />
-                  Send Test Now
-                </button>
-              </div>
-              <div className="rounded-md border border-border/50 bg-card/40 p-3">
-                <p className="text-[11px] text-muted-foreground">
-                  Provider: {weeklyProviderName} • {weeklyProviderConfigured ? "configured" : "not configured"}
-                </p>
-                {!weeklyProviderConfigured ? (
-                  <p className="mt-1 text-[11px] text-amber-300">
-                    Configure WEEKLY_REPORT_WEBHOOK_URL or RESEND_API_KEY to enable weekly report emails.
-                  </p>
-                ) : null}
-                <div className="mt-2 max-h-40 space-y-2 overflow-auto pr-1">
-                  {(weeklyReportsQuery.data?.subscriptions ?? []).map((subscription) => (
-                    <div key={subscription.id} className="rounded-md border border-border/50 bg-card/50 p-2">
-                      <p className="font-medium">{subscription.email}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {subscription.enabled ? "Enabled" : "Disabled"} • Next: {formatShortTime(subscription.nextSendAt || undefined)} • Last sent: {formatShortTime(subscription.lastSentAt || undefined)}
-                      </p>
-                      {subscription.lastError ? <p className="text-[11px] text-rose-300">Last error: {subscription.lastError}</p> : null}
-                    </div>
-                  ))}
-                  {!(weeklyReportsQuery.data?.subscriptions ?? []).length ? (
-                    <EmptyStateNote text="No weekly report subscribers yet." />
-                  ) : null}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
         <section className="mt-8 grid gap-4 xl:grid-cols-3">
           <Card className="glass-card border-primary/30 animate-panel-float">
             <CardHeader>
@@ -2658,66 +2397,6 @@ const ControlPanel = () => {
           </Card>
         </section>
 
-        <section className="mt-8 grid gap-4 xl:grid-cols-2">
-          <Card className="glass-card border-primary/30">
-            <CardHeader><CardTitle className="text-sm">AI Self-Improvement Panel</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <p className="text-muted-foreground">Analyze the last renders and generate pipeline upgrades automatically.</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <input value={selfImproveCount} onChange={(e) => setSelfImproveCount(e.target.value)} className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
-                <button disabled={actionLoading} onClick={handleRunSelfImprovement} className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary disabled:opacity-60">
-                  Analyze last renders
-                </button>
-              </div>
-              <div className="rounded-md border border-border/50 bg-card/40 p-2">
-                {(selfImproveResult?.suggestions ?? empire?.aiSelfImprovementPanel?.quickSuggestions?.map((title, index) => ({ priority: index + 1, title, expectedImpact: "", difficulty: "medium" })) ?? []).slice(0, 5).map((item) => (
-                  <p key={`${item.title}-${item.priority}`} className="mb-1 line-clamp-2">{item.priority}. {item.title}</p>
-                ))}
-                {!(selfImproveResult?.suggestions ?? empire?.aiSelfImprovementPanel?.quickSuggestions ?? []).length ? (
-                  <EmptyStateNote text="No self-improvement suggestions yet." />
-                ) : null}
-              </div>
-              {selfImproveResult ? (
-                <p className="text-muted-foreground">
-                  Last run: {formatShortTime(selfImproveResult.generatedAt)} • Failed: {selfImproveResult.failedRenders} • Low quality: {selfImproveResult.lowQualityCount}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card border-border/60">
-            <CardHeader><CardTitle className="text-sm">Hidden Founder Tools</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input value={lifetimeEmail} onChange={(e) => setLifetimeEmail(e.target.value)} placeholder="Grant lifetime email" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
-                <input value={lifetimeUserId} onChange={(e) => setLifetimeUserId(e.target.value)} placeholder="or user ID" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
-                <button disabled={actionLoading} onClick={handleGrantLifetime} className="h-9 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-200">Grant Lifetime</button>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input value={founderJobId} onChange={(e) => setFounderJobId(e.target.value)} placeholder="Job ID for reprocess/kill" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
-                <button disabled={actionLoading} onClick={handleFounderReprocess} className="h-9 rounded-md border border-primary/40 bg-primary/10 px-2 text-primary">Force Reprocess Job</button>
-                <button disabled={actionLoading} onClick={handleFounderKillJob} className="h-9 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 text-rose-200">Kill Stuck Job</button>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input value={refundEventId} onChange={(e) => setRefundEventId(e.target.value)} placeholder="Stripe event ID for refund" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
-                <button disabled={actionLoading} onClick={handleFounderRefund} className="h-9 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-amber-200 sm:col-span-2">Refund Stripe Payment</button>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <input value={webhookType} onChange={(e) => setWebhookType(e.target.value)} placeholder="Webhook type" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
-                <input value={webhookAmountCents} onChange={(e) => setWebhookAmountCents(e.target.value)} placeholder="Amount cents" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
-                <button disabled={actionLoading} onClick={handleSimulateWebhook} className="h-9 rounded-md border border-border/60 px-2 text-xs sm:col-span-2">Simulate Webhook</button>
-                <select value={testUserPlanTier} onChange={(e) => setTestUserPlanTier(e.target.value)} className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs">
-                  <option value="free">free</option>
-                  <option value="starter">starter</option>
-                  <option value="creator">creator</option>
-                  <option value="studio">studio</option>
-                  <option value="founder">founder</option>
-                </select>
-                <button disabled={actionLoading} onClick={handleGenerateTestUser} className="h-9 rounded-md border border-border/60 px-2 text-xs sm:col-span-3">Generate Internal Test User</button>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
       </main>
     </div>
   );

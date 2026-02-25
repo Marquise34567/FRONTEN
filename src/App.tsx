@@ -15,6 +15,7 @@ import BillingSuccess from "./pages/BillingSuccess";
 import ControlPanel from "./pages/ControlPanel";
 import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
 import ControlPanelBank from "./pages/ControlPanelBank";
+import ControlPanelOps from "./pages/ControlPanelOps";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
@@ -184,6 +185,16 @@ const App = () => {
                   <RequireAuth>
                     <RequireDevAdmin>
                       <ControlPanelBank />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/ops"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelOps />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
