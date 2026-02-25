@@ -4005,7 +4005,7 @@ const Editor = () => {
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Choose your opening hook</DialogTitle>
             <DialogDescription>
-              Pick one of the top 3 hooks the editor found, preview it, then apply before render lock.
+              Pick one of the top hook moments found across your full video timeline, preview it, then apply before render lock.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
