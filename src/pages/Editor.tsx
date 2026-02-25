@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu, RotateCcw } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -442,6 +442,7 @@ const Editor = () => {
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
   const pageViewTrackedRef = useRef(false);
+  const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
 
   const selectedJobId = searchParams.get("jobId");
@@ -451,6 +452,7 @@ const Editor = () => {
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
@@ -513,6 +515,12 @@ const Editor = () => {
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
     return Math.max(0, maxRendersPerMonth - rendersUsed);
   }, [maxRendersPerMonth, rendersUsed]);
+  const maxRerendersPerDay = me?.limits?.maxRerendersPerDay ?? PLAN_CONFIG[tier].maxRerendersPerDay;
+  const rerendersUsedToday = me?.rerenderUsageDaily?.rerendersUsed ?? 0;
+  const rerendersRemainingToday = useMemo(() => {
+    if (maxRerendersPerDay === null || maxRerendersPerDay === undefined) return null;
+    return Math.max(0, maxRerendersPerDay - rerendersUsedToday);
+  }, [maxRerendersPerDay, rerendersUsedToday]);
   const hasReachedRenderLimitForMode = useCallback((_mode: "horizontal" | "vertical") => {
     if (isDevAccount) return false;
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
@@ -712,6 +720,24 @@ const Editor = () => {
       setHideSubscriptionCard(false);
     }
   }, [subscriptionCardHideKey]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (editorGuidePromptedRef.current) return;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+      if (scrollTop < 80) return;
+      editorGuidePromptedRef.current = true;
+      window.setTimeout(() => {
+        setEditorGuideOpen(true);
+      }, 220);
+      window.removeEventListener("scroll", onScroll);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   const [authError, setAuthError] = useState(false);
 
@@ -2039,6 +2065,140 @@ const Editor = () => {
     [accessToken, fetchJobs, signOut, toast],
   );
 
+  const handleRedoRender = useCallback(
+    async (job: JobDetail) => {
+      if (!accessToken || !job?.id) return;
+      setReprocessingJobId(job.id);
+      try {
+        const requestedMode = String(job.renderMode || "").toLowerCase() === "vertical" ? "vertical" : "horizontal";
+        const effectiveRetentionStrategyProfile: RetentionStrategyProfile =
+          requestedMode === "vertical"
+            ? "viral"
+            : retentionStrategyProfile === "viral"
+              ? "balanced"
+              : retentionStrategyProfile;
+        const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+        const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+        const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
+        const preferredHook = selectedHookByJob[job.id] || null;
+        const payload: Record<string, unknown> = {
+          requestedQuality: selectedQuality,
+          retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
+          retentionStrategyProfile: effectiveRetentionStrategyProfile,
+          retentionTargetPlatform,
+          platformProfile: retentionTargetPlatform,
+          onlyHookAndCut,
+          autoCaptions: autoCaptionsEnabled,
+          subtitleStyle: subtitleStyleForJob,
+          subtitles: {
+            enabled: autoCaptionsEnabled,
+            preset: subtitlePresetForJob,
+            style: subtitleStyleForJob,
+          },
+        };
+        if (preferredHook) {
+          payload.preferredHook = {
+            start: preferredHook.start,
+            duration: preferredHook.duration,
+          };
+        }
+
+        const result = await apiFetch<{
+          ok: boolean;
+          queued: boolean;
+          rerenderUsage?: {
+            day?: string;
+            rerendersUsed?: number;
+            rerendersLimit?: number | null;
+            rerendersRemaining?: number | null;
+          } | null;
+        }>(`/api/jobs/${job.id}/reprocess`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify(payload),
+        });
+
+        setExportOpen(false);
+        setJobs((prev) =>
+          prev.map((entry) =>
+            entry.id === job.id
+              ? { ...entry, status: "queued", progress: 1 }
+              : entry,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== job.id) return prev;
+          return {
+            ...prev,
+            status: "queued",
+            progress: 1,
+            error: null,
+            outputUrl: null,
+            outputUrls: null,
+          };
+        });
+        await Promise.allSettled([fetchJobs(), fetchJob(job.id), refetchMe()]);
+        const remaining = Number(result?.rerenderUsage?.rerendersRemaining);
+        const limit = Number(result?.rerenderUsage?.rerendersLimit);
+        if (Number.isFinite(remaining) && Number.isFinite(limit)) {
+          toast({
+            title: "Re-render queued",
+            description: `${remaining} of ${limit} re-renders left today.`,
+          });
+        } else {
+          toast({
+            title: "Re-render queued",
+            description: "Your job was added back to the queue.",
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof ApiError && err.code === "RERENDER_LIMIT_REACHED") {
+          const used = Number(err.data?.rerendersUsed ?? 0);
+          const limit = Number(err.data?.maxRerendersPerDay ?? maxRerendersPerDay ?? 0);
+          const dayLabel = typeof err.data?.day === "string" ? ` on ${err.data.day}` : "";
+          toast({
+            title: "Daily re-render limit reached",
+            description:
+              Number.isFinite(limit) && limit > 0
+                ? `You used ${used} of ${limit} re-renders${dayLabel}.`
+                : "You reached your re-render limit for today.",
+          });
+        } else if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
+          const maxRenders = err.data?.maxRendersPerMonth ?? maxRendersPerMonth;
+          toast({
+            title: "Render limit reached",
+            description: maxRenders
+              ? `You used all ${maxRenders} renders for this month.`
+              : "You've reached your monthly render limit.",
+          });
+        } else {
+          toast({
+            title: "Re-render failed",
+            description: err?.message || "Please try again.",
+          });
+        }
+      } finally {
+        setReprocessingJobId((current) => (current === job.id ? null : current));
+      }
+    },
+    [
+      accessToken,
+      autoCaptionsEnabled,
+      fetchJob,
+      fetchJobs,
+      maxRendersPerMonth,
+      maxRerendersPerDay,
+      onlyHookAndCut,
+      qualityByJob,
+      refetchMe,
+      retentionStrategyProfile,
+      retentionTargetPlatform,
+      selectedHookByJob,
+      subtitleStyleDraft,
+      toast,
+    ],
+  );
+
   const handleDownload = async (clipIndex = 0) => {
     if (!accessToken || !activeJob) return;
     try {
@@ -2610,7 +2770,8 @@ const Editor = () => {
               <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">Creator Studio</h1>
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
-            <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 md:w-auto md:justify-end">
+            <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               {me && (
                 <>
                   {isDevAccount && (
@@ -2631,15 +2792,54 @@ const Editor = () => {
                       ? "Unlimited renders"
                       : `${rendersRemaining ?? 0} renders left`}
                   </Badge>
-                  {isDevAccount && (
-                    <Link to="/__control-panel" className="inline-flex">
-                      <Button type="button" variant="outline" className="h-8 border-primary/40 bg-primary/10 text-primary hover:bg-primary/20">
-                        Open Dev Panel
-                      </Button>
-                    </Link>
-                  )}
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {isDevAccount
+                      ? "Unlimited re-renders"
+                      : `${rerendersRemainingToday ?? 0} re-renders left today`}
+                  </Badge>
                 </>
               )}
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant={onlyHookAndCut ? "default" : "outline"}
+                    className={`w-full rounded-full gap-2 sm:w-auto ${
+                      onlyHookAndCut
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "border-border/60 text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => setOnlyHookAndCut((prev) => !prev)}
+                  >
+                    {onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
+                    onClick={() => setHideJobsPanel((prev) => !prev)}
+                  >
+                    {hideJobsPanel ? "Show Jobs" : "Hide Jobs"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="rounded-full border-border/60 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      editorGuidePromptedRef.current = true;
+                      setEditorGuideOpen(true);
+                    }}
+                    aria-label="Open editor help menu"
+                    title="Editor help menu"
+                  >
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                  <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
+                    <Plus className="w-4 h-4" /> New Project
+                  </Button>
+                </div>
+              </div>
+              <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
               <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
                 <button
                   type="button"
@@ -2750,6 +2950,7 @@ const Editor = () => {
                   ? "Vertical mode always uses viral short-form pacing. Platform profile also tunes clip windows, captions, and export encoding."
                   : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
               </p>
+              </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -2942,40 +3143,6 @@ const Editor = () => {
                   </>
                 ) : null}
               </div>
-              <Button
-                type="button"
-                variant={onlyHookAndCut ? "default" : "outline"}
-                className={`w-full rounded-full gap-2 sm:w-auto ${
-                  onlyHookAndCut
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "border-border/60 text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setOnlyHookAndCut((prev) => !prev)}
-              >
-                {onlyHookAndCut ? "Only Hook + Cut: On" : "Only Hook + Cut"}
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="rounded-full border-border/60 text-muted-foreground hover:text-foreground"
-                onClick={() => setEditorGuideOpen(true)}
-                aria-label="Open editor help menu"
-                title="Editor help menu"
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
-                onClick={() => setHideJobsPanel((prev) => !prev)}
-              >
-                {hideJobsPanel ? "Show Jobs" : "Hide Jobs"}
-              </Button>
-              <Button onClick={handlePickFile} className="w-full rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
-                <Plus className="w-4 h-4" /> New Project
-              </Button>
             </div>
           </div>
 
@@ -3567,6 +3734,30 @@ const Editor = () => {
                         </Button>
                       </div>
                     )}
+                    {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Need another pass? Queue a redo render using your daily re-render allowance.
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full gap-2 sm:w-auto"
+                          disabled={
+                            reprocessingJobId === activeJob.id ||
+                            (!isDevAccount && (rerendersRemainingToday ?? 0) <= 0)
+                          }
+                          onClick={() => void handleRedoRender(activeJob)}
+                        >
+                          {reprocessingJobId === activeJob.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-4 h-4" />
+                          )}
+                          Redo Render
+                        </Button>
+                      </div>
+                    )}
 
                     <div className="rounded-xl border border-border/50 bg-muted/20 p-3 space-y-2">
                       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
@@ -3722,7 +3913,10 @@ const Editor = () => {
 
       <Dialog
         open={editorGuideOpen}
-        onOpenChange={setEditorGuideOpen}
+        onOpenChange={(open) => {
+          if (open) editorGuidePromptedRef.current = true;
+          setEditorGuideOpen(open);
+        }}
       >
         <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
           <DialogHeader>
@@ -3793,6 +3987,11 @@ const Editor = () => {
                   Terms of Service
                 </a>
               </div>
+            </div>
+            <div className="flex justify-end">
+              <Button type="button" size="sm" onClick={() => setEditorGuideOpen(false)}>
+                Okay
+              </Button>
             </div>
           </div>
         </DialogContent>

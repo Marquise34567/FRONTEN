@@ -19,6 +19,8 @@ export type MeResponse = {
   };
   flags?: {
     dev?: boolean;
+    role?: string;
+    isAdmin?: boolean;
   };
   usage: { month: string; rendersUsed: number; minutesUsed: number };
   usageByMode?: {
@@ -27,10 +29,16 @@ export type MeResponse = {
     standardRendersUsed: number;
     verticalRendersUsed: number;
   } | null;
+  rerenderUsageDaily?: {
+    day: string;
+    rerendersUsed: number;
+    rerendersLimit: number | null;
+  } | null;
   usageDaily?: { day: string; rendersUsed: number; rendersLimit: number } | null;
   limits: {
     maxRendersPerMonth: number | null;
     maxRendersPerDay?: number | null;
+    maxRerendersPerDay?: number | null;
     maxVerticalRendersPerMonth?: number | null;
     maxMinutesPerMonth: number | null;
     exportQuality: string;

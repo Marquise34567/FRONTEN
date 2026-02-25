@@ -11,6 +11,7 @@ export type PlanConfig = {
   priceLabel: string;
   description: string;
   maxRendersPerMonth: number;
+  maxRerendersPerDay: number;
   maxMinutesPerMonth: number | null;
   exportQuality: ExportQuality;
   watermark: boolean;
@@ -32,6 +33,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     priceLabel: "$149",
     description: "Limited lifetime access for the first 100 builders.",
     maxRendersPerMonth: 500,
+    maxRerendersPerDay: 50,
     maxMinutesPerMonth: null,
     exportQuality: "4k",
     watermark: false,
@@ -61,6 +63,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     priceLabel: "$0",
     description: "For trying AutoEditor on small projects.",
     maxRendersPerMonth: 10,
+    maxRerendersPerDay: 3,
     maxMinutesPerMonth: null,
     exportQuality: "720p",
     watermark: true,
@@ -87,6 +90,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     priceLabel: "$9",
     description: "For creators publishing regularly.",
     maxRendersPerMonth: 20,
+    maxRerendersPerDay: 8,
     maxMinutesPerMonth: null,
     exportQuality: "1080p",
     watermark: false,
@@ -113,6 +117,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     priceLabel: "$29",
     description: "For teams shipping content at scale.",
     maxRendersPerMonth: 100,
+    maxRerendersPerDay: 25,
     maxMinutesPerMonth: null,
     exportQuality: "4k",
     watermark: false,
@@ -139,6 +144,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     priceLabel: "$99",
     description: "For studios that need priority and scale.",
     maxRendersPerMonth: 5000,
+    maxRerendersPerDay: 250,
     maxMinutesPerMonth: null,
     exportQuality: "4k",
     watermark: false,
@@ -188,6 +194,7 @@ export const qualityToHeight = (quality: ExportQuality) => {
 export type PlanFeatures = {
   resolution: "720p" | "1080p" | "4K";
   watermark: boolean;
+  maxRerendersPerDay?: number;
   subtitleAccess: "all" | "limited" | "none";
   subtitles: {
     enabled: boolean;
@@ -216,6 +223,7 @@ export const getPlanFeatures = (plan: PlanConfig): PlanFeatures => {
     autoZoomMax: plan.autoZoomMax,
     queuePriority: plan.priority ? "priority" : "standard",
     rendersPerMonth: plan.maxRendersPerMonth,
+    maxRerendersPerDay: plan.maxRerendersPerDay,
     lifetime: plan.lifetime,
     includesFutureFeatures: plan.includesFutureFeatures,
   };

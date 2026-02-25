@@ -19,7 +19,7 @@ import { API_URL, apiFetch } from "@/lib/api";
 import { useMe } from "@/hooks/use-me";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Mail, Send } from "lucide-react";
+import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Mail, Send, Crown, Cpu, HardDrive, Sparkles, ShieldAlert, Rocket, Wand2, RefreshCw } from "lucide-react";
 
 type OverviewResponse = {
   summary: {
@@ -53,7 +53,14 @@ type ErrorsResponse = {
     endpoint: string | null;
     route: string | null;
     stackSnippet: string | null;
+    userId?: string | null;
+    jobId?: string | null;
+    planTier?: string;
+    browser?: string | null;
+    videoSizeMb?: number | null;
+    retryable?: boolean;
     count: number;
+    createdAt?: string;
     lastSeen: string;
   }>;
 };
@@ -233,6 +240,361 @@ type WeeklyReportsResponse = {
   updatedAt: string;
 };
 
+type FeatureLabControls = {
+  hookLogicMode: "stable" | "experimental";
+  subtitleEngineMode: "v1" | "v2";
+  maxUploadSizeMb: number;
+  aiIntensity: number;
+  watermarkOverride: "auto" | "force_on" | "force_off";
+  retentionAlgorithmMode: "adaptive_v3" | "emotional_focus" | "safe_mode";
+  zoomIntensityLevel: "low" | "medium" | "high";
+  emotionalDetectionThreshold: number;
+  retentionModelVariant: "v1" | "v2";
+  updatedAt: string;
+  updatedBy?: string | null;
+};
+
+type CommandCenterResponse = {
+  generatedAt: string;
+  systemHealth: {
+    cpuUsagePct: number;
+    memoryUsage: {
+      rssMb: number;
+      heapUsedMb: number;
+      heapTotalMb: number;
+      systemUsedPct: number;
+    };
+    renderQueueLength: number;
+    failedJobs: Array<{ reason: string; count: number }>;
+    workerStatus: {
+      online: boolean;
+      uptimeSeconds: number;
+      status: string;
+    };
+    r2StorageUsage: {
+      provider: string;
+      bytes: number;
+      gb: number;
+      objects: number;
+      estimated: boolean;
+      note?: string;
+      error?: string;
+    };
+    stripeWebhookStatus: {
+      ok: boolean;
+      lastEventAt: string | null;
+      events24h: number;
+    };
+  };
+  liveUsers: {
+    usersOnSite: number;
+    usersRendering: number;
+    usersExporting: number;
+    averageSessionMinutes: number;
+    map: Array<{
+      country: string | null;
+      city: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      sessions: number;
+      users: number;
+    }>;
+  };
+  revenue: {
+    mrr: number;
+    arrProjection: number;
+    churnRatePct: number;
+    ltv: number;
+    cacEstimate: number;
+    activeSubscriptionsByTier: Record<string, number>;
+    founderPlanRemainingSlots: number;
+    stripeBreakdown: {
+      failedPayments: number;
+      upcomingRenewals: number;
+      refunds: number;
+      revenueByPlan: Record<string, number>;
+    };
+  };
+  editorPerformance: {
+    renderIntelligence: {
+      averageRenderTimeSec: number;
+      averageFileSizeMb: number;
+      averageRetentionScore: number;
+    };
+    featureUsage: {
+      subtitlesPct: number;
+      hookDetectionPct: number;
+      autoZoomPct: number;
+      verticalModePct: number;
+    };
+    aiQuality: {
+      averageUserRating: number;
+      feedbackHeatmap: Array<{ label: string; count: number }>;
+      dropOffPredictionAccuracyPct: number;
+      hookSuccessRatePct: number;
+    };
+  };
+  errors: {
+    backendErrors: number;
+    frontendJsErrors: number;
+    failedUploads24h: number;
+    failedWebhooks24h: number;
+    authFailures24h: number;
+    apiLatencySpikes: Array<{ endpoint: string; samples: number; avgMs: number; p95Ms: number }>;
+    items: Array<{
+      id: string;
+      severity: string;
+      message: string;
+      stackSnippet: string | null;
+      route: string | null;
+      endpoint: string | null;
+      userId: string | null;
+      jobId: string | null;
+      count: number;
+      createdAt: string;
+      lastSeen: string;
+      planTier: string;
+      browser: string | null;
+      videoSizeMb: number | null;
+      retryable: boolean;
+    }>;
+  };
+  growth: {
+    viralMetrics: {
+      shareRatePct: number;
+      downloadRatePct: number;
+      returnIn24hPct: number;
+      averageVideosPerUser: number;
+    };
+    funnel: {
+      visitor: number;
+      signup: number;
+      upload: number;
+      render: number;
+      download: number;
+      subscribe: number;
+    };
+  };
+  securityAbuse: {
+    suspiciousActivityScore: number;
+    massiveUploadUsers: Array<{ userId: string; count: number }>;
+    multipleAccountsFromSameIp: Array<{ ip: string; accounts: number }>;
+    tokenAbuseSignals: Array<{ ip: string; count: number }>;
+    stripeFraudFlags: Array<{ eventId: string; type: string; createdAt: string }>;
+    abnormalUsagePatterns: Array<{ userId: string; jobs: number }>;
+  };
+  featureLab: {
+    controls: FeatureLabControls;
+  };
+  aiBrain: {
+    topPerformingHooksThisWeek: Array<{ text: string; uses: number; avgScore: number }>;
+    emotionallyEffectiveCuts: Array<{ pattern: string; count: number; avgScore: number }>;
+    bestEmotionalPacingPattern: string;
+    videoScoreDistributionCurve: Array<{ label: string; count: number }>;
+    autoSuggestions: string[];
+  };
+  founderEgo: {
+    totalMinutesProcessed: number;
+    totalVideosExported: number;
+    estimatedTimeSavedHours: number;
+    totalGbProcessed: number;
+    mostViralGeneratedClip: {
+      jobId: string;
+      score: number;
+      hook: string | null;
+    } | null;
+  };
+  aiIntelligenceDashboard?: {
+    retentionPredictionEngine: {
+      avgPredictedRetentionScorePerRender: number;
+      hookStrengthScore: number;
+      emotionalIntensityGraph: Array<{ t: string; v: number }>;
+      boringSegmentHeatmap: Array<{ segment: string; v: number }>;
+      strongHooksPct: number;
+      avgFirst8SecEngagementScore: number;
+      dropOffRiskPredictionPct: number;
+    };
+    retentionBrainMap: Array<{
+      t: string;
+      hook: number;
+      emotionalSpike: number;
+      patternInterrupt: number;
+      zoomBurst: number;
+      captionImpact: number;
+      predictedAttention: number;
+    }>;
+  };
+  revenueCommandCenter?: {
+    mrr: number;
+    arrProjection: number;
+    founderPlanSalesCount: number;
+    founderPlanAutoRemoveAt: number;
+    founderPlanRemainingSlots: number;
+    founderPlanSoldOut: boolean;
+    churnRatePct: number;
+    upgradeConversionRatePct: number;
+    failedPaymentAlerts: number;
+    stripeWebhookLogs: Array<{
+      eventId: string;
+      type: string;
+      status: string;
+      amount: number;
+      currency: string;
+      createdAt: string;
+    }>;
+    revenueVsRenderUsage: Array<{ t: string; revenue: number; renders: number }>;
+  };
+  renderInfrastructureMonitor?: {
+    activeJobsInQueue: number;
+    avgProcessingTimeSec: number;
+    failedRenders: Array<{ reason: string; count: number }>;
+    workerHealth: { online: boolean; status: string; uptimeSeconds: number };
+    r2UploadStatus: { ok: boolean; provider: string; failedUploads24h: number; note: string };
+    storageUsage: { gb: number; pct: number; objects: number; estimated: boolean };
+    costPerRenderEstimateUsd: number;
+    cpuUtilizationPct: number;
+    gpuUtilizationPct: number;
+    processingTimeSpikeAlert: {
+      active: boolean;
+      severity: "normal" | "elevated" | "critical";
+      ratio: number;
+      currentSec: number;
+      baselineSec: number;
+    };
+  };
+  liveErrorTerminal?: {
+    backendLogCount24h: number;
+    frontendErrorCount24h: number;
+    api401Count24h: number;
+    api500Count24h: number;
+    mostCommonErrorTypes: Array<{ type: string; count: number }>;
+    groupedErrors: Array<{ type: string; count: number; severity: string; lastSeen: string }>;
+    fixSuggestion: string;
+  };
+  userIntelligencePanel?: {
+    activeUsers: number;
+    geoHeatmap: Array<{ country: string | null; city: string | null; sessions: number; users: number }>;
+    planBreakdown: Record<string, number>;
+    topUsersByRenders: Array<{
+      userId: string;
+      email: string | null;
+      renders: number;
+      planTier: string;
+      usagePct: number;
+    }>;
+    suspiciousActivityFlag: boolean;
+    abuseDetection: Array<{ userId: string; jobs: number }>;
+    averageWatchLengthSec: number;
+    whaleDetector: Array<{
+      userId: string;
+      email: string | null;
+      planTier: string;
+      usagePct: number;
+      upgradeLikelihood: number;
+    }>;
+  };
+  experimentLab?: {
+    controls: FeatureLabControls;
+    variantPerformance: Array<{
+      variant: string;
+      predictedRetention: number;
+      paidConversionPct: number;
+    }>;
+  };
+  editorQualityAnalyzer?: {
+    renders: Array<{
+      jobId: string;
+      userId: string;
+      createdAt: string;
+      hookScore: number;
+      pacingScore: number;
+      storyCoherenceScore: number;
+      emotionalSpikeMoments: number[];
+      viralityProbability: number;
+      qualityScore: number;
+      isPremiumQuality: boolean;
+    }>;
+    lowQualityCount: number;
+  };
+  feedbackIntelligence?: {
+    clusters: Array<{ cluster: string; count: number; sentimentTag: string }>;
+    topRequestedFeatures: Array<{ feature: string; count: number }>;
+    sentimentScore: number;
+    supportSummary: string;
+    featureDemandHeatmap: Array<{ label: string; count: number }>;
+  };
+  costControlPanel?: {
+    costPerUserUsd: number;
+    costPerRenderUsd: number;
+    storageCostTrend: Array<{ t: string; v: number }>;
+    infrastructureBurnRateUsdMonthly: number;
+    profitMarginPct: number;
+    runwayMonths: number;
+  };
+  securityPanel?: {
+    adminAccessLogs: Array<{
+      id: string;
+      actor: string | null;
+      action: string | null;
+      reason: string | null;
+      createdAt: string;
+    }>;
+    suspiciousLoginAttempts: number;
+    apiAbuseMonitor: Array<{ ip: string; count: number }>;
+    rateLimitMonitor: {
+      alerts: Array<{ label: string; count: number }>;
+      status429Count24h: number;
+    };
+    tokenExpirationTracking: {
+      nearingTimeoutSessions: number;
+      staleSessions: number;
+    };
+    r2KeyUsageLog: {
+      provider: string;
+      configured: boolean;
+      lastCheckAt: string;
+    };
+    webhookVerificationStatus: {
+      configured: boolean;
+      healthy: boolean;
+      lastEventAt: string | null;
+    };
+  };
+  conversionIntelligence?: {
+    onboardingDropOff: Array<{ step: string; count: number; dropOffPct: number }>;
+    uploadCompletionPct: number;
+    trialToPaidConversionPct: number;
+    founderPlanUrgencyGraph: Array<{ t: string; remaining: number; sold: number }>;
+    pageHeatmapAnalytics: Array<{ page: string; count: number }>;
+  };
+  futureScalingPanel?: {
+    multiRegionDeployEnabled: boolean;
+    cdnHealth: { configured: boolean; url: string | null; ok: boolean };
+    cacheHitRatePct: number;
+    queueScalingThresholds: { scaleUpAt: number; scaleDownAt: number };
+    autoScaleWorkerTriggers: { active: boolean; suggestedWorkers: number };
+  };
+  aiSelfImprovementPanel?: {
+    supported: boolean;
+    defaultAnalyzeCount: number;
+    quickSuggestions: string[];
+  };
+};
+
+const DEFAULT_FEATURE_CONTROLS: FeatureLabControls = {
+  hookLogicMode: "stable",
+  subtitleEngineMode: "v1",
+  maxUploadSizeMb: 2048,
+  aiIntensity: 1,
+  watermarkOverride: "auto",
+  retentionAlgorithmMode: "adaptive_v3",
+  zoomIntensityLevel: "medium",
+  emotionalDetectionThreshold: 0.55,
+  retentionModelVariant: "v1",
+  updatedAt: new Date(0).toISOString(),
+  updatedBy: null,
+};
+
 const formatShortTime = (iso?: string) => {
   if (!iso) return "-";
   const date = new Date(iso);
@@ -302,6 +664,27 @@ const ControlPanel = () => {
 
   const [weeklyReportEmail, setWeeklyReportEmail] = useState("marquiseedwards00@gmail.com");
   const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(true);
+  const [featureDraft, setFeatureDraft] = useState<FeatureLabControls | null>(null);
+  const [selfImproveCount, setSelfImproveCount] = useState("1000");
+  const [selfImproveResult, setSelfImproveResult] = useState<{
+    analyzedRenders: number;
+    completedRenders: number;
+    failedRenders: number;
+    lowQualityCount: number;
+    averageUploadToRenderSeconds: number;
+    topFailures: Array<{ reason: string; count: number }>;
+    complaintTags: Array<{ tag: string; count: number }>;
+    suggestions: Array<{ priority: number; title: string; expectedImpact: string; difficulty: string }>;
+    generatedAt: string;
+  } | null>(null);
+
+  const [lifetimeEmail, setLifetimeEmail] = useState("");
+  const [lifetimeUserId, setLifetimeUserId] = useState("");
+  const [founderJobId, setFounderJobId] = useState("");
+  const [refundEventId, setRefundEventId] = useState("");
+  const [webhookType, setWebhookType] = useState("invoice.paid");
+  const [webhookAmountCents, setWebhookAmountCents] = useState("9900");
+  const [testUserPlanTier, setTestUserPlanTier] = useState("free");
 
   const canLoad = Boolean(accessToken && devEnabled);
 
@@ -404,16 +787,46 @@ const ControlPanel = () => {
     refetchInterval: 30000,
   });
 
+  const commandCenterQuery = useQuery({
+    queryKey: ["admin-command-center"],
+    queryFn: () => apiFetch<CommandCenterResponse>("/api/admin/command-center", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 15000,
+  });
+
+  const featureLabQuery = useQuery({
+    queryKey: ["admin-feature-lab"],
+    queryFn: () => apiFetch<{ controls: FeatureLabControls; updatedAt: string }>("/api/admin/feature-lab", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 20000,
+  });
+
   useEffect(() => {
     if (!canLoad || !accessToken) return;
     const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}`;
     const streamUrl = API_URL ? `${API_URL}${streamPath}` : streamPath;
     const eventSource = new EventSource(streamUrl);
+    let closed = false;
+    let disconnectNoticeTimer: number | null = null;
+
+    const clearDisconnectNotice = () => {
+      if (disconnectNoticeTimer !== null) {
+        window.clearTimeout(disconnectNoticeTimer);
+        disconnectNoticeTimer = null;
+      }
+    };
+
+    eventSource.onopen = () => {
+      if (closed) return;
+      clearDisconnectNotice();
+      setStreamError(null);
+    };
 
     eventSource.addEventListener("realtime", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as LiveRealtimePayload;
         setLive(payload);
+        clearDisconnectNotice();
         setStreamError(null);
       } catch {
         // no-op
@@ -434,13 +847,26 @@ const ControlPanel = () => {
     });
 
     eventSource.onerror = () => {
-      setStreamError("Live stream disconnected. Retrying...");
+      if (closed || disconnectNoticeTimer !== null) return;
+      disconnectNoticeTimer = window.setTimeout(() => {
+        disconnectNoticeTimer = null;
+        if (closed) return;
+        setStreamError("Live stream disconnected. Retrying...");
+      }, 2000);
     };
 
     return () => {
+      closed = true;
+      clearDisconnectNotice();
       eventSource.close();
     };
   }, [accessToken, canLoad]);
+
+  useEffect(() => {
+    if (featureLabQuery.data?.controls) {
+      setFeatureDraft(featureLabQuery.data.controls);
+    }
+  }, [featureLabQuery.data?.controls]);
 
   const runAdminAction = async (path: string, init: RequestInit, successMessage: string) => {
     if (!accessToken) return;
@@ -452,12 +878,18 @@ const ControlPanel = () => {
       setActionSuccess(successMessage);
       await Promise.all([
         overviewQuery.refetch(),
+        errorsQuery.refetch(),
+        paymentsQuery.refetch(),
         subscriptionsQuery.refetch(),
+        insightsQuery.refetch(),
+        feedbackQuery.refetch(),
         siteLiveQuery.refetch(),
         healthQuery.refetch(),
         securityQuery.refetch(),
         ipBansQuery.refetch(),
         weeklyReportsQuery.refetch(),
+        commandCenterQuery.refetch(),
+        featureLabQuery.refetch(),
       ]);
     } catch (error: any) {
       setActionError(error?.message || "Action failed.");
@@ -557,6 +989,11 @@ const ControlPanel = () => {
   };
 
   const handleSendWeeklyNow = async () => {
+    if (!weeklyReportsQuery.data?.provider.configured) {
+      setActionSuccess(null);
+      setActionError("Configure WEEKLY_REPORT_WEBHOOK_URL or RESEND_API_KEY before sending weekly reports.");
+      return;
+    }
     await runAdminAction(
       "/api/admin/reports/weekly/send-now",
       {
@@ -569,6 +1006,183 @@ const ControlPanel = () => {
     );
   };
 
+  const handleFixErrorNow = async (errorId: string) => {
+    if (!errorId) return;
+    await runAdminAction(
+      `/api/admin/errors/${encodeURIComponent(errorId)}/fix-now`,
+      {
+        method: "POST",
+      },
+      "Fix action queued for the selected error."
+    );
+  };
+
+  const handleSaveFeatureLab = async () => {
+    const payload = featureDraft || featureLabQuery.data?.controls || commandCenterQuery.data?.featureLab.controls || DEFAULT_FEATURE_CONTROLS;
+    await runAdminAction(
+      "/api/admin/feature-lab",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      "Feature Lab controls updated."
+    );
+  };
+
+  const handleRunSelfImprovement = async () => {
+    if (!accessToken) return;
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const result = await apiFetch<{
+        analyzedRenders: number;
+        completedRenders: number;
+        failedRenders: number;
+        lowQualityCount: number;
+        averageUploadToRenderSeconds: number;
+        topFailures: Array<{ reason: string; count: number }>;
+        complaintTags: Array<{ tag: string; count: number }>;
+        suggestions: Array<{ priority: number; title: string; expectedImpact: string; difficulty: string }>;
+        generatedAt: string;
+      }>("/api/admin/ai-self-improvement", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          count: Number(selfImproveCount || 1000),
+        }),
+      });
+      setSelfImproveResult(result);
+      setActionSuccess(`AI analyzed ${result.analyzedRenders} renders and generated upgrade recommendations.`);
+      await commandCenterQuery.refetch();
+    } catch (error: any) {
+      setActionError(error?.message || "AI self-improvement analysis failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGrantLifetime = async () => {
+    await runAdminAction(
+      "/api/admin/founder-tools/grant-lifetime",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: lifetimeEmail || undefined,
+          userId: lifetimeUserId || undefined,
+        }),
+      },
+      "Lifetime founder access granted."
+    );
+  };
+
+  const handleFounderReprocess = async () => {
+    if (!founderJobId.trim()) {
+      setActionError("Job ID is required.");
+      return;
+    }
+    await runAdminAction(
+      "/api/admin/founder-tools/reprocess-job",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jobId: founderJobId.trim(),
+        }),
+      },
+      "Job reprocess queued."
+    );
+  };
+
+  const handleFounderKillJob = async () => {
+    if (!founderJobId.trim()) {
+      setActionError("Job ID is required.");
+      return;
+    }
+    await runAdminAction(
+      "/api/admin/founder-tools/kill-job",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jobId: founderJobId.trim(),
+        }),
+      },
+      "Stuck job terminated."
+    );
+  };
+
+  const handleFounderRefund = async () => {
+    if (!refundEventId.trim()) {
+      setActionError("Stripe event ID is required.");
+      return;
+    }
+    await runAdminAction(
+      "/api/admin/founder-tools/refund-payment",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          eventId: refundEventId.trim(),
+        }),
+      },
+      "Refund request sent to Stripe."
+    );
+  };
+
+  const handleSimulateWebhook = async () => {
+    await runAdminAction(
+      "/api/admin/founder-tools/simulate-webhook",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          type: webhookType,
+          amountCents: Number(webhookAmountCents || 0),
+        }),
+      },
+      "Webhook event simulated."
+    );
+  };
+
+  const handleGenerateTestUser = async () => {
+    await runAdminAction(
+      "/api/admin/founder-tools/generate-test-user",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          planTier: testUserPlanTier,
+        }),
+      },
+      "Internal test user created."
+    );
+  };
+
+  const handleCopyUpgradePrompt = async (target: "codex" | "copilot") => {
+    const empire = commandCenterQuery.data;
+    const prompt = [
+      `You are ${target === "codex" ? "Codex" : "GitHub Copilot"} helping implement growth upgrades for AutoEditor Pro.`,
+      "Priority metrics snapshot:",
+      `- MRR: ${formatMoney(empire?.revenue.mrr ?? 0)}`,
+      `- Churn: ${(empire?.revenue.churnRatePct ?? 0).toFixed(1)}%`,
+      `- Hook success rate: ${(empire?.editorPerformance.aiQuality.hookSuccessRatePct ?? 0).toFixed(1)}%`,
+      `- Drop-off prediction accuracy: ${(empire?.editorPerformance.aiQuality.dropOffPredictionAccuracyPct ?? 0).toFixed(1)}%`,
+      `- Top failure reason: ${empire?.systemHealth.failedJobs?.[0]?.reason || "unknown"}`,
+      "Tasks:",
+      "1) Reduce top failure reason with deterministic fallback",
+      "2) Improve hook success and early retention",
+      "3) Improve funnel from upload->render->download->subscribe",
+      "4) Add tests for every backend and frontend change",
+      "Return concrete file-level patch instructions.",
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setActionSuccess(`${target.toUpperCase()} upgrade prompt copied to clipboard.`);
+      setActionError(null);
+    } catch {
+      setActionSuccess(null);
+      setActionError("Clipboard write failed. See browser console for prompt text.");
+      console.log(prompt);
+    }
+  };
+
   const summary = overviewQuery.data?.summary;
   const graphs = overviewQuery.data?.graphs;
   const effectiveActiveUsers = live?.activeUsers ?? summary?.activeUsers ?? realtimeUsersQuery.data?.activeUsers ?? 0;
@@ -578,6 +1192,23 @@ const ControlPanel = () => {
     live?.websiteImpressions5m ?? siteLiveQuery.data?.impressionsLast5m ?? summary?.websiteImpressions5m ?? 0;
   const effectiveImpressions24h =
     live?.websiteImpressions24h ?? siteLiveQuery.data?.impressionsLast24h ?? summary?.websiteImpressions24h ?? 0;
+  const weeklyProviderConfigured = Boolean(weeklyReportsQuery.data?.provider.configured);
+  const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown";
+  const empire = commandCenterQuery.data;
+  const featureState = featureDraft ?? featureLabQuery.data?.controls ?? empire?.featureLab.controls ?? DEFAULT_FEATURE_CONTROLS;
+  const retentionEngine = empire?.aiIntelligenceDashboard?.retentionPredictionEngine;
+  const retentionBrainMap = empire?.aiIntelligenceDashboard?.retentionBrainMap ?? [];
+  const revenueCenter = empire?.revenueCommandCenter;
+  const renderInfra = empire?.renderInfrastructureMonitor;
+  const liveTerminal = empire?.liveErrorTerminal;
+  const userIntel = empire?.userIntelligencePanel;
+  const experimentIntel = empire?.experimentLab;
+  const qualityAnalyzer = empire?.editorQualityAnalyzer;
+  const feedbackIntel = empire?.feedbackIntelligence;
+  const costControl = empire?.costControlPanel;
+  const securityPanel = empire?.securityPanel;
+  const conversionIntel = empire?.conversionIntelligence;
+  const scalingPanel = empire?.futureScalingPanel;
 
   const topIssues = feedbackQuery.data?.topIssues ?? [];
   const topIssueData = useMemo(() => topIssues.slice(0, 6), [topIssues]);
@@ -597,6 +1228,413 @@ const ControlPanel = () => {
           {actionError ? <p className="text-xs text-rose-300">{actionError}</p> : null}
           {actionSuccess ? <p className="text-xs text-emerald-300">{actionSuccess}</p> : null}
         </div>
+
+        <section className="mb-8 grid gap-4 xl:grid-cols-4">
+          <Card className="glass-card border-primary/40 bg-[radial-gradient(120%_120%_at_0%_0%,hsl(var(--primary)/0.24),transparent_60%)] xl:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Crown className="h-5 w-5 text-amber-300" />
+                Founder Command Center
+                <Badge variant="outline" className="border-amber-400/40 text-amber-200">
+                  Founder Badge
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-4">
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">MRR</p>
+                  <p className="text-xl font-semibold">{formatMoney(empire?.revenue.mrr ?? 0)}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">ARR</p>
+                  <p className="text-xl font-semibold">{formatMoney(empire?.revenue.arrProjection ?? 0)}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Churn</p>
+                  <p className="text-xl font-semibold">{(empire?.revenue.churnRatePct ?? 0).toFixed(1)}%</p>
+                </div>
+                <div className="rounded-md border border-amber-400/40 bg-amber-500/10 p-3">
+                  <p className="text-amber-200">Founder Slots Left</p>
+                  <p className="text-2xl font-bold text-amber-100">{empire?.revenue.founderPlanRemainingSlots ?? 0}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Updated: {formatShortTime(empire?.generatedAt)} • Stripe webhook: {empire?.systemHealth.stripeWebhookStatus.ok ? "healthy" : "degraded"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Live System Health</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span className="inline-flex items-center gap-2"><Cpu className="h-3.5 w-3.5 text-sky-300" />CPU</span>
+                <span className="font-semibold">{(empire?.systemHealth.cpuUsagePct ?? 0).toFixed(1)}%</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span className="inline-flex items-center gap-2"><HardDrive className="h-3.5 w-3.5 text-violet-300" />Memory</span>
+                <span className="font-semibold">{(empire?.systemHealth.memoryUsage.systemUsedPct ?? 0).toFixed(1)}%</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>Render Queue</span>
+                <span className="font-semibold">{empire?.systemHealth.renderQueueLength ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>R2 Usage</span>
+                <span className="font-semibold">{(empire?.systemHealth.r2StorageUsage.gb ?? 0).toFixed(2)} GB</span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <p className="text-muted-foreground">Top failure</p>
+                <p className="line-clamp-1 font-medium">{empire?.systemHealth.failedJobs?.[0]?.reason || "No failures"}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Live Active Users</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>On Site</span>
+                <span className="font-semibold">{empire?.liveUsers.usersOnSite ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>Rendering</span>
+                <span className="font-semibold">{empire?.liveUsers.usersRendering ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>Exporting</span>
+                <span className="font-semibold">{empire?.liveUsers.usersExporting ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <span>Avg Session</span>
+                <span className="font-semibold">{(empire?.liveUsers.averageSessionMinutes ?? 0).toFixed(1)}m</span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <p className="text-muted-foreground">Live map hotspots</p>
+                <p className="line-clamp-2">
+                  {(empire?.liveUsers.map ?? [])
+                    .slice(0, 3)
+                    .map((item) => `${item.city || "Unknown"}, ${item.country || "Unknown"} (${item.sessions})`)
+                    .join(" • ") || "No geo traffic yet"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mb-8 grid gap-4 xl:grid-cols-3">
+          <Card className="glass-card border-border/60 xl:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-sm">Error Command Board</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-5">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Backend</p><p className="text-lg font-semibold">{empire?.errors.backendErrors ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Frontend JS</p><p className="text-lg font-semibold">{empire?.errors.frontendJsErrors ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Failed Uploads</p><p className="text-lg font-semibold">{empire?.errors.failedUploads24h ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">401/403</p><p className="text-lg font-semibold">{empire?.errors.authFailures24h ?? 0}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Webhook Fails</p><p className="text-lg font-semibold">{empire?.errors.failedWebhooks24h ?? 0}</p></div>
+              </div>
+              <div className="max-h-80 overflow-auto rounded-md border border-border/50">
+                <table className="w-full min-w-[900px] text-left text-xs">
+                  <thead className="bg-card/50 text-muted-foreground">
+                    <tr>
+                      <th className="px-2 py-2">Severity</th>
+                      <th className="px-2 py-2">Message</th>
+                      <th className="px-2 py-2">User</th>
+                      <th className="px-2 py-2">Plan</th>
+                      <th className="px-2 py-2">Video</th>
+                      <th className="px-2 py-2">Browser</th>
+                      <th className="px-2 py-2">Time</th>
+                      <th className="px-2 py-2">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(empire?.errors.items ?? []).slice(0, 20).map((item) => (
+                      <tr key={`empire-error-${item.id}`} className="border-t border-border/40 align-top">
+                        <td className="px-2 py-2"><Badge variant="outline" className="text-[10px] uppercase">{item.severity}</Badge></td>
+                        <td className="px-2 py-2 max-w-[260px]">
+                          <p className="line-clamp-2">{item.message}</p>
+                          {item.stackSnippet ? <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">{item.stackSnippet}</p> : null}
+                        </td>
+                        <td className="px-2 py-2">{item.userId || "-"}</td>
+                        <td className="px-2 py-2">{item.planTier || "free"}</td>
+                        <td className="px-2 py-2">{item.videoSizeMb ? `${item.videoSizeMb.toFixed(1)} MB` : "-"}</td>
+                        <td className="px-2 py-2">{item.browser || "-"}</td>
+                        <td className="px-2 py-2">{formatShortTime(item.lastSeen)}</td>
+                        <td className="px-2 py-2">
+                          <button
+                            disabled={actionLoading || !item.retryable}
+                            onClick={() => handleFixErrorNow(item.id)}
+                            className="inline-flex h-8 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] disabled:opacity-50"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            Fix Now
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="mb-1 text-muted-foreground">API latency spikes</p>
+                <p className="line-clamp-2">
+                  {(empire?.errors.apiLatencySpikes ?? [])
+                    .slice(0, 3)
+                    .map((row) => `${row.endpoint} (p95 ${row.p95Ms}ms)`)
+                    .join(" • ") || "No major spikes in the last 24h"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Growth + Security Weapons</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 text-muted-foreground">Viral Metrics</p>
+                <p>Share rate: {(empire?.growth.viralMetrics.shareRatePct ?? 0).toFixed(1)}%</p>
+                <p>Download rate: {(empire?.growth.viralMetrics.downloadRatePct ?? 0).toFixed(1)}%</p>
+                <p>Return in 24h: {(empire?.growth.viralMetrics.returnIn24hPct ?? 0).toFixed(1)}%</p>
+                <p>Avg videos/user: {(empire?.growth.viralMetrics.averageVideosPerUser ?? 0).toFixed(2)}</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 text-muted-foreground">Funnel</p>
+                <p>Visitor: {formatCompactNumber(empire?.growth.funnel.visitor ?? 0)}</p>
+                <p>Signup: {formatCompactNumber(empire?.growth.funnel.signup ?? 0)}</p>
+                <p>Upload: {formatCompactNumber(empire?.growth.funnel.upload ?? 0)}</p>
+                <p>Render: {formatCompactNumber(empire?.growth.funnel.render ?? 0)}</p>
+                <p>Download: {formatCompactNumber(empire?.growth.funnel.download ?? 0)}</p>
+                <p>Subscribe: {formatCompactNumber(empire?.growth.funnel.subscribe ?? 0)}</p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-1 flex items-center gap-2 font-medium"><ShieldAlert className="h-3.5 w-3.5 text-rose-300" /> Suspicious Activity</p>
+                <p className="text-2xl font-bold">{(empire?.securityAbuse.suspiciousActivityScore ?? 0).toFixed(1)}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Massive uploads: {(empire?.securityAbuse.massiveUploadUsers ?? []).length} • Multi-account IPs: {(empire?.securityAbuse.multipleAccountsFromSameIp ?? []).length}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mb-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Feature Experiment Lab</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Hook Logic</span>
+                  <select
+                    value={featureState.hookLogicMode}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), hookLogicMode: e.target.value as FeatureLabControls["hookLogicMode"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="stable">stable</option>
+                    <option value="experimental">experimental</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Subtitle Engine</span>
+                  <select
+                    value={featureState.subtitleEngineMode}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), subtitleEngineMode: e.target.value as FeatureLabControls["subtitleEngineMode"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="v1">v1</option>
+                    <option value="v2">v2</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Retention Algorithm</span>
+                  <select
+                    value={featureState.retentionAlgorithmMode}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), retentionAlgorithmMode: e.target.value as FeatureLabControls["retentionAlgorithmMode"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="adaptive_v3">adaptive_v3</option>
+                    <option value="emotional_focus">emotional_focus</option>
+                    <option value="safe_mode">safe_mode</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Watermark Override</span>
+                  <select
+                    value={featureState.watermarkOverride}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), watermarkOverride: e.target.value as FeatureLabControls["watermarkOverride"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="auto">auto</option>
+                    <option value="force_on">force_on</option>
+                    <option value="force_off">force_off</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Max Upload (MB)</span>
+                  <input
+                    type="number"
+                    value={featureState.maxUploadSizeMb ?? 2048}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), maxUploadSizeMb: Number(e.target.value || 0) }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">AI Intensity</span>
+                  <input
+                    type="number"
+                    min={0.4}
+                    max={2}
+                    step={0.05}
+                    value={featureState.aiIntensity ?? 1}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), aiIntensity: Number(e.target.value || 1) }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Zoom Intensity</span>
+                  <select
+                    value={featureState.zoomIntensityLevel}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), zoomIntensityLevel: e.target.value as FeatureLabControls["zoomIntensityLevel"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Emotional Threshold</span>
+                  <input
+                    type="number"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={featureState.emotionalDetectionThreshold ?? 0.55}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), emotionalDetectionThreshold: Number(e.target.value || 0.55) }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground">Retention Model</span>
+                  <select
+                    value={featureState.retentionModelVariant}
+                    onChange={(e) => setFeatureDraft((prev) => ({ ...(prev || featureState || DEFAULT_FEATURE_CONTROLS), retentionModelVariant: e.target.value as FeatureLabControls["retentionModelVariant"] }))}
+                    className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                  >
+                    <option value="v1">v1</option>
+                    <option value="v2">v2</option>
+                  </select>
+                </label>
+              </div>
+              <button
+                disabled={actionLoading}
+                onClick={handleSaveFeatureLab}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary disabled:opacity-60"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                Save Live Experiments
+              </button>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">AI Brain + Founder Ego Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-1 text-muted-foreground">Top hooks this week</p>
+                <p className="line-clamp-2">
+                  {(empire?.aiBrain.topPerformingHooksThisWeek ?? [])
+                    .slice(0, 2)
+                    .map((item) => `${item.text} (${item.avgScore})`)
+                    .join(" • ") || "No hook data yet"}
+                </p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="text-muted-foreground">Best pacing pattern</p>
+                <p className="font-semibold">{empire?.aiBrain.bestEmotionalPacingPattern || "n/a"}</p>
+                <p className="mt-1 text-muted-foreground line-clamp-2">
+                  {(empire?.aiBrain.autoSuggestions ?? []).slice(0, 2).join(" • ") || "No suggestions yet"}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Minutes processed</p><p className="text-lg font-semibold">{formatCompactNumber(empire?.founderEgo.totalMinutesProcessed ?? 0)}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Videos exported</p><p className="text-lg font-semibold">{formatCompactNumber(empire?.founderEgo.totalVideosExported ?? 0)}</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">Time saved</p><p className="text-lg font-semibold">{(empire?.founderEgo.estimatedTimeSavedHours ?? 0).toFixed(1)}h</p></div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2"><p className="text-muted-foreground">GB processed</p><p className="text-lg font-semibold">{(empire?.founderEgo.totalGbProcessed ?? 0).toFixed(2)}</p></div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                <p className="text-muted-foreground">Most viral clip</p>
+                <p className="line-clamp-2">
+                  {empire?.founderEgo.mostViralGeneratedClip
+                    ? `${empire.founderEgo.mostViralGeneratedClip.jobId} • score ${empire.founderEgo.mostViralGeneratedClip.score}`
+                    : "No viral clip recorded"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mb-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Upgrade Weapons</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground">
+                Fire implementation prompts directly to Codex/Copilot with the latest command-center context.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  disabled={actionLoading}
+                  onClick={() => handleCopyUpgradePrompt("codex")}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary"
+                >
+                  <Rocket className="h-3.5 w-3.5" />
+                  Copy Codex Prompt
+                </button>
+                <button
+                  disabled={actionLoading}
+                  onClick={() => handleCopyUpgradePrompt("copilot")}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-sky-400/40 bg-sky-500/10 px-3 text-xs text-sky-200"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Copy Copilot Prompt
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Revenue Breakdown by Plan</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              {Object.entries(empire?.revenue.stripeBreakdown.revenueByPlan ?? {}).map(([tier, value]) => (
+                <div key={`rev-by-plan-${tier}`} className="flex items-center justify-between rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                  <span className="uppercase tracking-wide text-muted-foreground">{tier}</span>
+                  <span className="font-semibold">{formatMoney(Number(value || 0))}</span>
+                </div>
+              ))}
+              <div className="rounded-md border border-border/50 bg-card/40 px-3 py-2">
+                <p>Failed payments: {empire?.revenue.stripeBreakdown.failedPayments ?? 0}</p>
+                <p>Upcoming renewals: {empire?.revenue.stripeBreakdown.upcomingRenewals ?? 0}</p>
+                <p>Refunds: {empire?.revenue.stripeBreakdown.refunds ?? 0}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
         <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-8">
           <Card className="glass-card border-border/60">
@@ -1140,15 +2178,24 @@ const ControlPanel = () => {
                   <Mail className="mr-2 h-3.5 w-3.5" />
                   Save Schedule
                 </button>
-                <button disabled={actionLoading} onClick={handleSendWeeklyNow} className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary">
+                <button
+                  disabled={actionLoading || !weeklyProviderConfigured}
+                  onClick={handleSendWeeklyNow}
+                  className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   <Send className="mr-2 h-3.5 w-3.5" />
                   Send Test Now
                 </button>
               </div>
               <div className="rounded-md border border-border/50 bg-card/40 p-3">
                 <p className="text-[11px] text-muted-foreground">
-                  Provider: {weeklyReportsQuery.data?.provider.provider || "unknown"} • {weeklyReportsQuery.data?.provider.configured ? "configured" : "not configured"}
+                  Provider: {weeklyProviderName} • {weeklyProviderConfigured ? "configured" : "not configured"}
                 </p>
+                {!weeklyProviderConfigured ? (
+                  <p className="mt-1 text-[11px] text-amber-300">
+                    Configure WEEKLY_REPORT_WEBHOOK_URL or RESEND_API_KEY to enable weekly report emails.
+                  </p>
+                ) : null}
                 <div className="mt-2 max-h-40 space-y-2 overflow-auto pr-1">
                   {(weeklyReportsQuery.data?.subscriptions ?? []).map((subscription) => (
                     <div key={subscription.id} className="rounded-md border border-border/50 bg-card/50 p-2">
