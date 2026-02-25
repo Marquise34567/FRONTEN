@@ -61,6 +61,9 @@ const uploadParallelismForFile = (size: number) => {
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const MAX_CUTS_MIN = 1;
+const MAX_CUTS_MAX = 15;
+const DEFAULT_MAX_CUTS = 8;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
@@ -422,6 +425,7 @@ const Editor = () => {
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
+  const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [hideJobsPanel, setHideJobsPanel] = useState(false);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
@@ -1440,6 +1444,7 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
+              maxCuts: maxCutsRequested,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1455,6 +1460,7 @@ const Editor = () => {
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
+              maxCuts: maxCutsRequested,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1609,6 +1615,7 @@ const Editor = () => {
             autoCaptions: captionsEnabledForJob,
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
+            maxCuts: maxCutsRequested,
           }),
           token: accessToken,
         })
@@ -2146,6 +2153,7 @@ const Editor = () => {
           retentionTargetPlatform,
           platformProfile: retentionTargetPlatform,
           onlyHookAndCut,
+          maxCuts: maxCutsRequested,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -2247,6 +2255,7 @@ const Editor = () => {
       fetchJobs,
       maxRendersPerMonth,
       maxRerendersPerDay,
+      maxCutsRequested,
       onlyHookAndCut,
       qualityByJob,
       refetchMe,
@@ -3009,6 +3018,39 @@ const Editor = () => {
                   ? "Vertical mode always uses viral short-form pacing. Platform profile also tunes clip windows, captions, and export encoding."
                   : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
               </p>
+              </div>
+              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Cut Count</p>
+                    <p className="text-xs text-muted-foreground">
+                      Target max cuts: {maxCutsRequested} {maxCutsRequested === 1 ? "cut" : "cuts"} per render.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/80">
+                      The editor prioritizes removing boring, irrelevant, or low-energy sections while staying under this cap.
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="bg-muted/30 text-muted-foreground border-border/60">
+                    Max {MAX_CUTS_MAX}
+                  </Badge>
+                </div>
+                <div className="mt-3 space-y-2">
+                  <Slider
+                    min={MAX_CUTS_MIN}
+                    max={MAX_CUTS_MAX}
+                    step={1}
+                    value={[maxCutsRequested]}
+                    onValueChange={(values) => {
+                      const candidate = Number(values?.[0] ?? maxCutsRequested);
+                      if (!Number.isFinite(candidate)) return;
+                      setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
+                    }}
+                  />
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground/75">
+                    <span>{MAX_CUTS_MIN}</span>
+                    <span>{MAX_CUTS_MAX}</span>
+                  </div>
+                </div>
               </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -3962,6 +4004,7 @@ const Editor = () => {
                           <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
                           <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
                           <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
+                          <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
                           <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
                           <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
                           <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
@@ -4022,6 +4065,7 @@ const Editor = () => {
                 <p className="text-xs text-foreground/90"><span className="font-medium">Edit captions:</span> Open style/preset controls.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Save captions:</span> Persist caption settings to your account.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Only Hook + Cut:</span> Minimal edit path focused on hook and dead-space cuts.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Cut Count:</span> Set the maximum cuts (1-15) to remove low-energy and irrelevant moments.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Select hook:</span> Choose opening hook when real-time hook stage is active.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
