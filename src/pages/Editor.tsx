@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -423,6 +423,7 @@ const Editor = () => {
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
+  const [editorGuideOpen, setEditorGuideOpen] = useState(false);
   const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
   const [hookPreviewCandidateByJob, setHookPreviewCandidateByJob] = useState<Record<string, HookCandidate | null>>({});
@@ -2805,6 +2806,17 @@ const Editor = () => {
               </Button>
               <Button
                 type="button"
+                size="icon"
+                variant="outline"
+                className="rounded-full border-border/60 text-muted-foreground hover:text-foreground"
+                onClick={() => setEditorGuideOpen(true)}
+                aria-label="Open editor help menu"
+                title="Editor help menu"
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
                 variant="outline"
                 className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
                 onClick={() => setHideJobsPanel((prev) => !prev)}
@@ -3557,6 +3569,84 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
+
+      <Dialog
+        open={editorGuideOpen}
+        onOpenChange={setEditorGuideOpen}
+      >
+        <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Editor Help Menu</DialogTitle>
+            <DialogDescription>
+              Quick guide to what each control does, how modes work, and where to review privacy and terms.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">How It Works</p>
+              <div className="mt-2 space-y-1 text-xs text-foreground/90">
+                <p>1. Click <span className="font-medium">New Project</span> and upload your video.</p>
+                <p>2. Pick render mode, retention profile, platform target, and caption settings.</p>
+                <p>3. If shown, choose a hook in real time before render lock.</p>
+                <p>4. Wait for <span className="font-medium">Ready</span> then open export and download.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Main Buttons</p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <p className="text-xs text-foreground/90"><span className="font-medium">New Project:</span> Upload and start a new edit job.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Horizontal / Vertical:</span> Choose original format or 9:16 short-form output.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Safe / Balanced / Viral:</span> Control pacing and retention aggression.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">TikTok / IG Reels / YouTube:</span> Tune editing defaults for platform behavior.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Captions on/off:</span> Toggle subtitle burn-in for new renders.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Edit captions:</span> Open style/preset controls.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Save captions:</span> Persist caption settings to your account.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Only Hook + Cut:</span> Minimal edit path focused on hook and dead-space cuts.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Select hook:</span> Choose opening hook when real-time hook stage is active.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Open Export / Open Clips:</span> Download final output files.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Modes</p>
+              <div className="mt-2 space-y-2 text-xs text-foreground/90">
+                <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
+                <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
+                <p><span className="font-medium">Retention Profiles:</span> Safe = conservative, Balanced = adaptive default, Viral = fastest pacing (best for short-form).</p>
+                <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Privacy And Terms</p>
+              <p className="mt-2 text-xs text-foreground/90">
+                By using the editor, you agree to the service terms. Review how uploads and processing are handled in the privacy policy.
+              </p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <a
+                  href="https://www.autoeditor.app/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  Privacy Policy
+                </a>
+                <a
+                  href="https://www.autoeditor.app/terms"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  Terms of Service
+                </a>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={hookSelectorOpen && canShowRealtimeHookSelector}
