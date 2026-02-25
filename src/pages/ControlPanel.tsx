@@ -19,7 +19,7 @@ import { API_URL, apiFetch } from "@/lib/api";
 import { useMe } from "@/hooks/use-me";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer } from "lucide-react";
+import { AlertTriangle, Activity, DollarSign, Users, Layers, Timer, Globe2, Ban, Mail, Send } from "lucide-react";
 
 type OverviewResponse = {
   summary: {
@@ -31,9 +31,12 @@ type OverviewResponse = {
     avgRenderTime: number;
     successRate: number;
     usersTotal?: number;
+    websiteImpressions24h?: number;
+    websiteImpressions5m?: number;
   };
   graphs: {
     activeUsers: Array<{ t: string; v: number }>;
+    websiteImpressions?: Array<{ t: string; v: number }>;
     jobSuccessVsFailure: Array<{ t: string; success: number; failure: number }>;
     jobFailureRate: Array<{ t: string; v: number }>;
     renderTimeAvg: Array<{ t: string; v: number }>;
@@ -143,7 +146,91 @@ type LiveRealtimePayload = {
   activeUsers: number;
   jobsInQueue: number;
   jobsFailed24h: number;
+  websiteImpressions5m?: number;
+  websiteImpressions24h?: number;
   t: string;
+};
+
+type SiteLiveResponse = {
+  activeUsers: number;
+  impressionsLast5m: number;
+  impressionsLast60m: number;
+  impressionsLast24h: number;
+  series: Array<{ t: string; v: number }>;
+  updatedAt: string;
+};
+
+type HealthStatusResponse = {
+  status: "healthy" | "degraded";
+  checkedAt: string;
+  backend: {
+    ok: boolean;
+    db: string;
+    uptimeSeconds: number;
+    startedAt: string;
+    queueDepth: number;
+    nodeVersion: string;
+    platform: string;
+    memory: {
+      rss: number;
+      heapUsed: number;
+      heapTotal: number;
+    };
+  };
+  frontend: {
+    ok: boolean;
+    statusCode: number | null;
+    latencyMs: number;
+    url: string | null;
+    error?: string;
+  };
+  storage: {
+    provider: string;
+    ok: boolean;
+    details?: Record<string, unknown> | null;
+  };
+};
+
+type SecurityResponse = {
+  score: number;
+  riskLevel: "low" | "medium" | "high";
+  checks: Array<{
+    key: string;
+    label: string;
+    ok: boolean;
+    detail: string;
+  }>;
+  generatedAt: string;
+};
+
+type IpBansResponse = {
+  items: Array<{
+    ip: string;
+    reason: string | null;
+    createdBy: string | null;
+    active: boolean;
+    expiresAt: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+  }>;
+  updatedAt: string;
+};
+
+type WeeklyReportsResponse = {
+  provider: {
+    configured: boolean;
+    provider: string;
+  };
+  subscriptions: Array<{
+    id: string;
+    email: string;
+    enabled: boolean;
+    createdBy: string | null;
+    lastSentAt: string | null;
+    nextSendAt: string | null;
+    lastError: string | null;
+  }>;
+  updatedAt: string;
 };
 
 const formatShortTime = (iso?: string) => {
@@ -159,6 +246,11 @@ const formatMoney = (value: number) =>
   );
 
 const formatPercent = (value: number) => `${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`;
+
+const formatCompactNumber = (value: number) =>
+  new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(
+    Number.isFinite(value) ? value : 0
+  );
 
 const sentimentColor = (sentiment: string) => {
   if (sentiment === "positive") return "bg-emerald-500/20 text-emerald-200 border-emerald-500/40";
@@ -185,6 +277,31 @@ const ControlPanel = () => {
   const [live, setLive] = useState<LiveRealtimePayload | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [liveErrorEntry, setLiveErrorEntry] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const [grantEmail, setGrantEmail] = useState("");
+  const [grantUserId, setGrantUserId] = useState("");
+  const [grantTier, setGrantTier] = useState("studio");
+  const [grantDurationDays, setGrantDurationDays] = useState("30");
+  const [grantReason, setGrantReason] = useState("");
+
+  const [cancelSubEmail, setCancelSubEmail] = useState("");
+  const [cancelSubUserId, setCancelSubUserId] = useState("");
+  const [cancelSubImmediate, setCancelSubImmediate] = useState(true);
+  const [cancelSubReason, setCancelSubReason] = useState("");
+
+  const [cancelJobId, setCancelJobId] = useState("");
+  const [cancelJobReason, setCancelJobReason] = useState("");
+
+  const [banIp, setBanIp] = useState("");
+  const [banUserId, setBanUserId] = useState("");
+  const [banReason, setBanReason] = useState("");
+  const [banDurationHours, setBanDurationHours] = useState("24");
+
+  const [weeklyReportEmail, setWeeklyReportEmail] = useState("marquiseedwards00@gmail.com");
+  const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(true);
 
   const canLoad = Boolean(accessToken && devEnabled);
 
@@ -252,6 +369,41 @@ const ControlPanel = () => {
     refetchInterval: 30000,
   });
 
+  const siteLiveQuery = useQuery({
+    queryKey: ["admin-site-live"],
+    queryFn: () => apiFetch<SiteLiveResponse>("/api/admin/site-live", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 10000,
+  });
+
+  const healthQuery = useQuery({
+    queryKey: ["admin-health-status"],
+    queryFn: () => apiFetch<HealthStatusResponse>("/api/admin/health-status", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 30000,
+  });
+
+  const securityQuery = useQuery({
+    queryKey: ["admin-security"],
+    queryFn: () => apiFetch<SecurityResponse>("/api/admin/security", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 45000,
+  });
+
+  const ipBansQuery = useQuery({
+    queryKey: ["admin-ip-bans"],
+    queryFn: () => apiFetch<IpBansResponse>("/api/admin/ip-bans", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 30000,
+  });
+
+  const weeklyReportsQuery = useQuery({
+    queryKey: ["admin-weekly-reports"],
+    queryFn: () => apiFetch<WeeklyReportsResponse>("/api/admin/reports/weekly", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 30000,
+  });
+
   useEffect(() => {
     if (!canLoad || !accessToken) return;
     const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}`;
@@ -290,11 +442,142 @@ const ControlPanel = () => {
     };
   }, [accessToken, canLoad]);
 
+  const runAdminAction = async (path: string, init: RequestInit, successMessage: string) => {
+    if (!accessToken) return;
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await apiFetch(path, { ...init, token: accessToken });
+      setActionSuccess(successMessage);
+      await Promise.all([
+        overviewQuery.refetch(),
+        subscriptionsQuery.refetch(),
+        siteLiveQuery.refetch(),
+        healthQuery.refetch(),
+        securityQuery.refetch(),
+        ipBansQuery.refetch(),
+        weeklyReportsQuery.refetch(),
+      ]);
+    } catch (error: any) {
+      setActionError(error?.message || "Action failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGrantSubscription = async () => {
+    await runAdminAction(
+      "/api/admin/subscriptions/grant",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: grantEmail || undefined,
+          userId: grantUserId || undefined,
+          tier: grantTier,
+          durationDays: Number(grantDurationDays || 30),
+          reason: grantReason || undefined,
+        }),
+      },
+      "Subscription granted."
+    );
+  };
+
+  const handleCancelSubscription = async () => {
+    await runAdminAction(
+      "/api/admin/subscriptions/cancel",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: cancelSubEmail || undefined,
+          userId: cancelSubUserId || undefined,
+          immediate: cancelSubImmediate,
+          reason: cancelSubReason || undefined,
+        }),
+      },
+      cancelSubImmediate ? "Subscription canceled immediately." : "Subscription set to cancel at period end."
+    );
+  };
+
+  const handleCancelJob = async () => {
+    if (!cancelJobId.trim()) {
+      setActionError("Job ID is required.");
+      return;
+    }
+    await runAdminAction(
+      `/api/admin/jobs/${encodeURIComponent(cancelJobId.trim())}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: cancelJobReason || undefined,
+        }),
+      },
+      "Job canceled."
+    );
+  };
+
+  const handleBanIp = async () => {
+    await runAdminAction(
+      "/api/admin/ip-bans",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ip: banIp || undefined,
+          userId: banUserId || undefined,
+          durationHours: Number(banDurationHours || 0),
+          reason: banReason || undefined,
+        }),
+      },
+      "IP ban added."
+    );
+  };
+
+  const handleUnbanIp = async (ip: string) => {
+    await runAdminAction(
+      `/api/admin/ip-bans/${encodeURIComponent(ip)}`,
+      {
+        method: "DELETE",
+      },
+      `IP ${ip} unbanned.`
+    );
+  };
+
+  const handleSaveWeeklyReport = async () => {
+    await runAdminAction(
+      "/api/admin/reports/weekly",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: weeklyReportEmail,
+          enabled: weeklyReportEnabled,
+        }),
+      },
+      "Weekly report schedule saved."
+    );
+  };
+
+  const handleSendWeeklyNow = async () => {
+    await runAdminAction(
+      "/api/admin/reports/weekly/send-now",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: weeklyReportEmail,
+        }),
+      },
+      "Weekly report sent."
+    );
+  };
+
   const summary = overviewQuery.data?.summary;
   const graphs = overviewQuery.data?.graphs;
   const effectiveActiveUsers = live?.activeUsers ?? summary?.activeUsers ?? realtimeUsersQuery.data?.activeUsers ?? 0;
   const effectiveJobsInQueue = live?.jobsInQueue ?? summary?.jobsInQueue ?? 0;
   const effectiveJobsFailed = live?.jobsFailed24h ?? summary?.jobsFailed24h ?? 0;
+  const effectiveImpressions5m =
+    live?.websiteImpressions5m ?? siteLiveQuery.data?.impressionsLast5m ?? summary?.websiteImpressions5m ?? 0;
+  const effectiveImpressions24h =
+    live?.websiteImpressions24h ?? siteLiveQuery.data?.impressionsLast24h ?? summary?.websiteImpressions24h ?? 0;
 
   const topIssues = feedbackQuery.data?.topIssues ?? [];
   const topIssueData = useMemo(() => topIssues.slice(0, 6), [topIssues]);
@@ -311,9 +594,11 @@ const ControlPanel = () => {
           </p>
           {streamError ? <p className="text-xs text-amber-300">{streamError}</p> : null}
           {liveErrorEntry ? <p className="text-xs text-rose-300">New error: {liveErrorEntry}</p> : null}
+          {actionError ? <p className="text-xs text-rose-300">{actionError}</p> : null}
+          {actionSuccess ? <p className="text-xs text-emerald-300">{actionSuccess}</p> : null}
         </div>
 
-        <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-8">
           <Card className="glass-card border-border/60">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Active Users</CardTitle>
@@ -321,6 +606,24 @@ const ControlPanel = () => {
             <CardContent className="flex items-center justify-between">
               <p className="text-2xl font-bold">{effectiveActiveUsers}</p>
               <Users className="h-5 w-5 text-primary/80" />
+            </CardContent>
+          </Card>
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Impressions (5m)</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between">
+              <p className="text-2xl font-bold">{formatCompactNumber(effectiveImpressions5m)}</p>
+              <Globe2 className="h-5 w-5 text-sky-300" />
+            </CardContent>
+          </Card>
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Impressions (24h)</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between">
+              <p className="text-2xl font-bold">{formatCompactNumber(effectiveImpressions24h)}</p>
+              <Globe2 className="h-5 w-5 text-violet-300" />
             </CardContent>
           </Card>
           <Card className="glass-card border-border/60">
@@ -434,6 +737,62 @@ const ControlPanel = () => {
           </Card>
         </section>
 
+        <section className="mb-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Website Impressions Trend</CardTitle>
+            </CardHeader>
+            <CardContent className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={siteLiveQuery.data?.series ?? graphs?.websiteImpressions ?? []}>
+                  <defs>
+                    <linearGradient id="impressionFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="hsl(200 95% 55%)" stopOpacity={0.6} />
+                      <stop offset="100%" stopColor="hsl(200 95% 55%)" stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                  <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    labelFormatter={(label) => formatShortTime(String(label))}
+                    formatter={(value) => [String(value), "Impressions"]}
+                  />
+                  <Area dataKey="v" stroke="hsl(200 95% 55%)" fill="url(#impressionFill)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Current Website Activity</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Active Users</p>
+                  <p className="text-xl font-semibold">{siteLiveQuery.data?.activeUsers ?? effectiveActiveUsers}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Impressions (5m)</p>
+                  <p className="text-xl font-semibold">{siteLiveQuery.data?.impressionsLast5m ?? effectiveImpressions5m}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Impressions (60m)</p>
+                  <p className="text-xl font-semibold">{siteLiveQuery.data?.impressionsLast60m ?? 0}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Impressions (24h)</p>
+                  <p className="text-xl font-semibold">{siteLiveQuery.data?.impressionsLast24h ?? effectiveImpressions24h}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Updated: {formatShortTime(siteLiveQuery.data?.updatedAt)}</p>
+            </CardContent>
+          </Card>
+        </section>
+
         <section className="mb-8 grid gap-4 xl:grid-cols-3">
           <Card className="glass-card border-border/60 xl:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -471,6 +830,7 @@ const ControlPanel = () => {
                     <p className="truncate font-medium">{session.email || session.userId}</p>
                     <p className="text-muted-foreground">Last seen: {formatShortTime(session.lastSeen)}</p>
                     <p className="text-muted-foreground">Connected: {formatShortTime(session.connectedAt)}</p>
+                    <p className="text-muted-foreground">IP: {session.ip || "-"}</p>
                   </div>
                 ))}
               </div>
@@ -604,6 +964,203 @@ const ControlPanel = () => {
                   <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Admin Subscription Controls</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 font-semibold">Grant Subscription</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="User email (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <input value={grantUserId} onChange={(e) => setGrantUserId(e.target.value)} placeholder="User ID (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <select value={grantTier} onChange={(e) => setGrantTier(e.target.value)} className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs">
+                    <option value="starter">starter</option>
+                    <option value="creator">creator</option>
+                    <option value="studio">studio</option>
+                    <option value="founder">founder</option>
+                  </select>
+                  <input value={grantDurationDays} onChange={(e) => setGrantDurationDays(e.target.value)} placeholder="Duration days" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <input value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="Reason (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                </div>
+                <button disabled={actionLoading} onClick={handleGrantSubscription} className="mt-3 inline-flex h-9 items-center rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 text-xs text-emerald-200 disabled:opacity-60">
+                  Grant Subscription
+                </button>
+              </div>
+
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 font-semibold">Cancel Subscription</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input value={cancelSubEmail} onChange={(e) => setCancelSubEmail(e.target.value)} placeholder="User email (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <input value={cancelSubUserId} onChange={(e) => setCancelSubUserId(e.target.value)} placeholder="User ID (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <input type="checkbox" checked={cancelSubImmediate} onChange={(e) => setCancelSubImmediate(e.target.checked)} />
+                    Cancel immediately
+                  </label>
+                  <input value={cancelSubReason} onChange={(e) => setCancelSubReason(e.target.value)} placeholder="Reason (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                </div>
+                <button disabled={actionLoading} onClick={handleCancelSubscription} className="mt-3 inline-flex h-9 items-center rounded-md border border-rose-500/40 bg-rose-500/10 px-3 text-xs text-rose-200 disabled:opacity-60">
+                  Cancel Subscription
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Job + IP Enforcement</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 font-semibold">Cancel Any Job</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input value={cancelJobId} onChange={(e) => setCancelJobId(e.target.value)} placeholder="Job ID" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                  <input value={cancelJobReason} onChange={(e) => setCancelJobReason(e.target.value)} placeholder="Reason (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                </div>
+                <button disabled={actionLoading} onClick={handleCancelJob} className="mt-3 inline-flex h-9 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-3 text-xs text-amber-200 disabled:opacity-60">
+                  Cancel Job
+                </button>
+              </div>
+
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 font-semibold">Ban User IP</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input value={banIp} onChange={(e) => setBanIp(e.target.value)} placeholder="IP address (optional if user ID set)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                  <input value={banUserId} onChange={(e) => setBanUserId(e.target.value)} placeholder="User ID (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                  <input value={banDurationHours} onChange={(e) => setBanDurationHours(e.target.value)} placeholder="Duration hours (0 = permanent)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                  <input value={banReason} onChange={(e) => setBanReason(e.target.value)} placeholder="Reason (optional)" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs" />
+                </div>
+                <button disabled={actionLoading} onClick={handleBanIp} className="mt-3 inline-flex h-9 items-center rounded-md border border-rose-500/40 bg-rose-500/10 px-3 text-xs text-rose-200 disabled:opacity-60">
+                  <Ban className="mr-2 h-3.5 w-3.5" />
+                  Ban IP
+                </button>
+              </div>
+
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="mb-2 font-semibold">Active IP Bans</p>
+                <div className="max-h-40 space-y-2 overflow-auto pr-1">
+                  {(ipBansQuery.data?.items ?? []).map((item) => (
+                    <div key={item.ip} className="flex items-center justify-between rounded-md border border-border/50 bg-card/50 px-2 py-2">
+                      <div>
+                        <p className="font-medium">{item.ip}</p>
+                        <p className="text-[11px] text-muted-foreground">{item.reason || "No reason"} {item.expiresAt ? `• Expires ${formatShortTime(item.expiresAt)}` : "• Permanent"}</p>
+                      </div>
+                      <button onClick={() => handleUnbanIp(item.ip)} className="h-8 rounded-md border border-border/60 px-2 text-[11px] text-foreground/90">Unban</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-3">
+          <Card className="glass-card border-border/60 xl:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-sm">Backend, Frontend, and Storage Health</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Backend</p>
+                  <p className={`mt-1 text-lg font-semibold ${healthQuery.data?.backend.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                    {healthQuery.data?.backend.ok ? "Healthy" : "Issue"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Queue: {healthQuery.data?.backend.queueDepth ?? 0}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Frontend</p>
+                  <p className={`mt-1 text-lg font-semibold ${healthQuery.data?.frontend.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                    {healthQuery.data?.frontend.ok ? "Healthy" : "Issue"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Latency: {healthQuery.data?.frontend.latencyMs ?? 0}ms</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                  <p className="text-muted-foreground">Storage</p>
+                  <p className={`mt-1 text-lg font-semibold ${healthQuery.data?.storage.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                    {healthQuery.data?.storage.ok ? "Healthy" : "Issue"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Provider: {healthQuery.data?.storage.provider || "-"}</p>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="text-[11px] text-muted-foreground">Last checked: {formatShortTime(healthQuery.data?.checkedAt)}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Node: {healthQuery.data?.backend.nodeVersion || "-"} • {healthQuery.data?.backend.platform || "-"}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Security Posture</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="text-muted-foreground">Security Score</p>
+                <p className="text-3xl font-bold">{(securityQuery.data?.score ?? 0).toFixed(1)}</p>
+                <p className="uppercase tracking-wide text-primary/80">{securityQuery.data?.riskLevel || "unknown"} risk</p>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                {(securityQuery.data?.checks ?? []).map((check) => (
+                  <div key={check.key} className="rounded-md border border-border/50 bg-card/40 p-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{check.label}</p>
+                      <Badge variant="outline" className={check.ok ? "text-emerald-200 border-emerald-500/40" : "text-rose-200 border-rose-500/40"}>
+                        {check.ok ? "OK" : "Fix"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{check.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Weekly Statistics Email Report</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input value={weeklyReportEmail} onChange={(e) => setWeeklyReportEmail(e.target.value)} placeholder="Report email" className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2" />
+                <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border/60 bg-card/40 px-3 text-[11px] text-muted-foreground">
+                  <input type="checkbox" checked={weeklyReportEnabled} onChange={(e) => setWeeklyReportEnabled(e.target.checked)} />
+                  Weekly enabled
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button disabled={actionLoading} onClick={handleSaveWeeklyReport} className="inline-flex h-9 items-center rounded-md border border-border/60 px-3 text-xs">
+                  <Mail className="mr-2 h-3.5 w-3.5" />
+                  Save Schedule
+                </button>
+                <button disabled={actionLoading} onClick={handleSendWeeklyNow} className="inline-flex h-9 items-center rounded-md border border-primary/40 bg-primary/10 px-3 text-xs text-primary">
+                  <Send className="mr-2 h-3.5 w-3.5" />
+                  Send Test Now
+                </button>
+              </div>
+              <div className="rounded-md border border-border/50 bg-card/40 p-3">
+                <p className="text-[11px] text-muted-foreground">
+                  Provider: {weeklyReportsQuery.data?.provider.provider || "unknown"} • {weeklyReportsQuery.data?.provider.configured ? "configured" : "not configured"}
+                </p>
+                <div className="mt-2 max-h-40 space-y-2 overflow-auto pr-1">
+                  {(weeklyReportsQuery.data?.subscriptions ?? []).map((subscription) => (
+                    <div key={subscription.id} className="rounded-md border border-border/50 bg-card/50 p-2">
+                      <p className="font-medium">{subscription.email}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {subscription.enabled ? "Enabled" : "Disabled"} • Next: {formatShortTime(subscription.nextSendAt || undefined)} • Last sent: {formatShortTime(subscription.lastSentAt || undefined)}
+                      </p>
+                      {subscription.lastError ? <p className="text-[11px] text-rose-300">Last error: {subscription.lastError}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>

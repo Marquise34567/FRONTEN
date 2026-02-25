@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
-import ControlPanelOverview from "@/components/ControlPanelOverview";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, MousePointerClick, XCircle, Menu } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
-import { fetchControlPanelSummary, getAnalyticsSessionId, trackAnalyticsEvent, type ControlPanelSummary } from "@/lib/analytics";
+import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
 import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
@@ -444,7 +443,6 @@ const Editor = () => {
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
   const pageViewTrackedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
-  const [controlPanelSummary, setControlPanelSummary] = useState<ControlPanelSummary | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -1010,32 +1008,6 @@ const Editor = () => {
     });
     pageViewTrackedRef.current = true;
   }, [accessToken, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, activeSubtitlePreset, isVerticalMode]);
-
-  useEffect(() => {
-    if (!accessToken) {
-      setControlPanelSummary(null);
-      return;
-    }
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const summary = await fetchControlPanelSummary({ days: 90, token: accessToken });
-        if (!cancelled) {
-          setControlPanelSummary(summary);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.warn("control-panel analytics fetch failed", error);
-        }
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 45_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -2627,80 +2599,12 @@ const Editor = () => {
   const showUploadStatusOnly = normalizedActiveStatus === "uploading";
   const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
   const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
-  const fallbackControlPanelTrendPoints = useMemo(() => {
-    const dayCount = 16;
-    const points = Array.from({ length: dayCount }, () => 0);
-    const dayMs = 24 * 60 * 60 * 1000;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (dayCount - 1));
-    const startMs = start.getTime();
-    jobs.forEach((job) => {
-      if (normalizeStatus(job.status) !== "ready") return;
-      const created = new Date(job.createdAt).getTime();
-      if (!Number.isFinite(created)) return;
-      const dayIndex = Math.floor((created - startMs) / dayMs);
-      if (dayIndex >= 0 && dayIndex < points.length) {
-        points[dayIndex] += 1;
-      }
-    });
-    return points;
-  }, [jobs]);
-  const fallbackControlPanelClicks = useMemo(
-    () => jobs.filter((job) => normalizeStatus(job.status) === "ready").length,
-    [jobs],
-  );
-  const fallbackControlPanelImpressions = useMemo(() => {
-    const base = jobs.length * 28;
-    const activityLift = fallbackControlPanelClicks * 12;
-    return Math.max(0, base + activityLift);
-  }, [jobs.length, fallbackControlPanelClicks]);
-  const fallbackControlPanelCtr = fallbackControlPanelImpressions > 0
-    ? (fallbackControlPanelClicks / fallbackControlPanelImpressions) * 100
-    : 0;
-  const retentionScore = Number(activeJob?.retentionScore);
-  const fallbackControlPanelPosition = Number.isFinite(retentionScore)
-    ? Math.max(1, Math.min(10, Number((retentionScore / 10).toFixed(1))))
-    : 8.8;
-  const controlPanelDomain = typeof window !== "undefined" ? window.location.host : "autoeditor.app";
-  const controlPanelTrendPoints =
-    controlPanelSummary?.trend?.length
-      ? controlPanelSummary.trend.map((item) => Number(item.value) || 0)
-      : fallbackControlPanelTrendPoints;
-  const controlPanelClicks =
-    Number.isFinite(Number(controlPanelSummary?.metrics?.clicks))
-      ? Number(controlPanelSummary?.metrics?.clicks)
-      : fallbackControlPanelClicks;
-  const controlPanelImpressions =
-    Number.isFinite(Number(controlPanelSummary?.metrics?.impressions))
-      ? Number(controlPanelSummary?.metrics?.impressions)
-      : fallbackControlPanelImpressions;
-  const controlPanelCtr =
-    Number.isFinite(Number(controlPanelSummary?.metrics?.ctr))
-      ? Number(controlPanelSummary?.metrics?.ctr)
-      : fallbackControlPanelCtr;
-  const controlPanelPosition =
-    Number.isFinite(Number(controlPanelSummary?.metrics?.position))
-      ? Number(controlPanelSummary?.metrics?.position)
-      : fallbackControlPanelPosition;
 
   return (
     <GlowBackdrop>
       <Navbar />
       <main className="responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <ControlPanelOverview
-            domain={controlPanelDomain}
-            clicks={controlPanelClicks}
-            impressions={controlPanelImpressions}
-            ctr={controlPanelCtr}
-            position={controlPanelPosition}
-            trendPoints={controlPanelTrendPoints}
-            usersTracked={Number(controlPanelSummary?.totals?.usersTracked ?? 0)}
-            eventVolume={Number(controlPanelSummary?.totals?.events ?? 0)}
-            topSelections={controlPanelSummary?.topSelections}
-            feedback={controlPanelSummary?.feedback ?? []}
-          />
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">Creator Studio</h1>
@@ -2727,6 +2631,13 @@ const Editor = () => {
                       ? "Unlimited renders"
                       : `${rendersRemaining ?? 0} renders left`}
                   </Badge>
+                  {isDevAccount && (
+                    <Link to="/__control-panel" className="inline-flex">
+                      <Button type="button" variant="outline" className="h-8 border-primary/40 bg-primary/10 text-primary hover:bg-primary/20">
+                        Open Dev Panel
+                      </Button>
+                    </Link>
+                  )}
                 </>
               )}
               <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
