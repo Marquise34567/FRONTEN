@@ -5,9 +5,43 @@ import { Progress } from "@/components/ui/progress";
 import PricingCards from "@/components/PricingCards";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Gauge, ScissorsSquare, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload } from "lucide-react";
+
+const demoSteps = [
+  {
+    title: "Upload footage",
+    detail: "Drag your raw recording into the editor.",
+    cue: "Raw clip imported",
+    progress: 18,
+    icon: Upload,
+  },
+  {
+    title: "Choose format",
+    detail: "Switch to vertical or landscape output instantly.",
+    cue: "9:16 vertical preset selected",
+    progress: 42,
+    icon: Gauge,
+  },
+  {
+    title: "Run AI auto-cut",
+    detail: "It removes dead air and weak retention moments.",
+    cue: "12 low-retention segments removed",
+    progress: 74,
+    icon: ScissorsSquare,
+  },
+  {
+    title: "Export final",
+    detail: "Render and publish-ready captions are generated.",
+    cue: "Final cut ready to publish",
+    progress: 100,
+    icon: CheckCircle2,
+  },
+] as const;
 
 const Index = () => {
+  const [activeDemoStep, setActiveDemoStep] = useState(0);
+
   const proofCards = [
     {
       icon: Sparkles,
@@ -28,6 +62,16 @@ const Index = () => {
       detail: "Upgrade as your publishing frequency and rendering volume increase.",
     },
   ];
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setActiveDemoStep((current) => (current + 1) % demoSteps.length);
+    }, 2200);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const activeDemo = demoSteps[activeDemoStep];
 
   return (
     <GlowBackdrop>
@@ -98,33 +142,111 @@ const Index = () => {
 
           {/* Demo Card */}
           <motion.div
-            className="mt-20 w-full max-w-2xl"
+            className="mt-20 w-full max-w-4xl"
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8, duration: 0.8, ease: "easeOut" }}
           >
-            <div className="glass-card p-6">
-              <div className="mb-6 flex items-center justify-between">
+            <div className="glass-card p-6 sm:p-7">
+              <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20">
                     <Sparkles className="w-4 h-4 text-primary" />
                   </div>
-                  <span className="font-display font-semibold text-foreground">Auto-Editor</span>
+                  <span className="font-display font-semibold text-foreground">How It Works</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
-                  <span className="text-xs text-muted-foreground">Processing</span>
+                  <span className="text-xs text-muted-foreground">Live walkthrough</span>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">Video Analysis</span>
-                  <span className="text-xs text-muted-foreground">68%</span>
+              <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-2">
+                  {demoSteps.map((step, index) => {
+                    const Icon = step.icon;
+                    const isActive = index === activeDemoStep;
+                    const isCompleted = index < activeDemoStep;
+
+                    return (
+                      <motion.div
+                        key={step.title}
+                        initial={false}
+                        animate={{
+                          borderColor: isActive ? "hsl(var(--primary) / 0.55)" : "hsl(var(--border) / 0.5)",
+                          backgroundColor: isActive ? "hsl(var(--primary) / 0.12)" : "hsl(var(--card) / 0.35)",
+                        }}
+                        transition={{ duration: 0.35, ease: "easeOut" }}
+                        className="rounded-xl border p-3"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-background/75 text-xs font-semibold text-muted-foreground">
+                            {isCompleted ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : index + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Icon className={`h-3.5 w-3.5 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                              <p className={`text-sm font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                                {step.title}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
-                <Progress value={68} className="h-2 bg-muted [&>div]:bg-primary" />
-                <p className="text-xs text-muted-foreground">Analyzing video for hooks, pacing, and boring segments...</p>
+
+                <div className="rounded-xl border border-border/60 bg-background/50 p-4">
+                  <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Editor timeline</span>
+                    <span>{activeDemo.progress}%</span>
+                  </div>
+
+                  <div className="relative mb-3 h-20 overflow-hidden rounded-lg border border-border/50 bg-background/80 p-3">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-primary/8 transition-all duration-700 ease-out"
+                      style={{ width: `${activeDemo.progress}%` }}
+                    />
+                    <div className="relative grid h-full grid-cols-12 gap-1">
+                      {Array.from({ length: 12 }).map((_, index) => {
+                        const threshold = Math.round((activeDemo.progress / 100) * 12);
+                        const isFilled = index < threshold;
+
+                        return (
+                          <div
+                            key={`segment-${index}`}
+                            className={`rounded-sm transition-colors duration-500 ${
+                              isFilled ? "bg-primary/65" : "bg-muted/70"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <motion.div
+                      className="absolute bottom-2 top-2 w-[2px] bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.85)]"
+                      animate={{ left: `calc(${Math.min(activeDemo.progress, 98)}% - 1px)` }}
+                      transition={{ duration: 0.7, ease: "easeInOut" }}
+                    />
+                  </div>
+
+                  <Progress value={activeDemo.progress} className="h-2 bg-muted [&>div]:bg-primary" />
+                  <motion.p
+                    key={activeDemo.cue}
+                    className="mt-3 text-xs text-muted-foreground"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    {activeDemo.cue}
+                  </motion.p>
+                </div>
               </div>
+
+              <p className="mt-4 text-xs text-muted-foreground">
+                This loop mirrors the same flow inside the editor, from raw upload to export.
+              </p>
             </div>
           </motion.div>
 
