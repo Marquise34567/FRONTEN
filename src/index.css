@@ -72,6 +72,51 @@
   }
 }
 
+@layer components {
+  .pricing-neon-glow {
+    transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+  }
+
+  .pricing-neon-glow:hover {
+    border-color: rgb(168 85 247 / 0.62);
+    box-shadow:
+      0 24px 70px -40px rgb(168 85 247 / 0.85),
+      0 8px 34px -18px rgb(192 132 252 / 0.55);
+  }
+
+  .premium-trial-banner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .premium-trial-banner::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      110deg,
+      transparent 12%,
+      rgb(255 255 255 / 0.14) 43%,
+      transparent 72%
+    );
+    transform: translateX(-140%);
+    animation: pricing-banner-sweep 5.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes pricing-banner-sweep {
+  0% {
+    transform: translateX(-140%);
+  }
+  65% {
+    transform: translateX(120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
 @layer base {
   html[data-device='tablet'] {
     --ae-main-px: 0.95rem;
@@ -642,6 +687,114 @@
       );
     mix-blend-mode: screen;
     animation: globeScanSweep 7.2s linear infinite;
+  }
+
+  @keyframes controlPanelAuroraDrift {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 0.46;
+    }
+    50% {
+      transform: translate3d(1.8%, -2.1%, 0) scale(1.03);
+      opacity: 0.66;
+    }
+  }
+
+  @keyframes controlPanelGridPan {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(46px, 28px, 0);
+    }
+  }
+
+  @keyframes glassEdgeSweep {
+    0% {
+      background-position: -220% 50%;
+    }
+    100% {
+      background-position: 220% 50%;
+    }
+  }
+
+  .control-panel-viewport {
+    isolation: isolate;
+  }
+
+  .control-panel-viewport::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(65% 48% at 12% 10%, hsl(192 92% 66% / 0.18), transparent 70%),
+      radial-gradient(50% 44% at 86% 18%, hsl(156 90% 54% / 0.14), transparent 72%),
+      radial-gradient(58% 45% at 58% 86%, hsl(39 95% 61% / 0.13), transparent 76%);
+    animation: controlPanelAuroraDrift 18s ease-in-out infinite;
+  }
+
+  .control-panel-viewport::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(hsl(210 35% 92% / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(210 35% 92% / 0.05) 1px, transparent 1px);
+    background-size: 26px 26px, 26px 26px;
+    mask-image: radial-gradient(80% 70% at 52% 36%, black 0%, transparent 100%);
+    opacity: 0.26;
+    animation: controlPanelGridPan 22s linear infinite;
+  }
+
+  .control-panel-main {
+    position: relative;
+    z-index: 1;
+  }
+
+  .control-panel-main .glass-card {
+    position: relative;
+    overflow: hidden;
+    transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+    box-shadow:
+      0 18px 44px -34px hsl(206 95% 62% / 0.42),
+      inset 0 1px 0 hsl(0 0% 100% / 0.04);
+  }
+
+  .control-panel-main .glass-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(120deg, transparent 20%, hsl(0 0% 100% / 0.13) 50%, transparent 80%);
+    background-size: 220% 220%;
+    opacity: 0;
+  }
+
+  .control-panel-main .glass-card:hover {
+    transform: translateY(-2px);
+    border-color: hsl(201 98% 66% / 0.5);
+    box-shadow:
+      0 24px 58px -32px hsl(195 95% 64% / 0.55),
+      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .control-panel-main .glass-card:hover::after {
+    opacity: 1;
+    animation: glassEdgeSweep 1.35s ease-out;
+  }
+
+  .control-panel-main .glass-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .control-panel-main .glass-card :where(p, span, label, li, td, th, button) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .control-panel-main > section {

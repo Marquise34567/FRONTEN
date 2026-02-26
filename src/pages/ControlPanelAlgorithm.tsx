@@ -30,6 +30,7 @@ import {
 import { useAuth } from "@/providers/AuthProvider"
 import { algorithmApi } from "@/features/control-panel/algorithm/api"
 import { AUTOEDITOR_MASTER_PROMPT_TEMPLATE } from "@/features/control-panel/algorithm/masterPromptTemplate"
+import { controlPanelLiveQueryOptions } from "./control-panel/shared"
 import type {
   AlgorithmConfigParams,
   AnalyzeResponse,
@@ -208,54 +209,56 @@ const ControlPanelAlgorithm = () => {
     queryKey: ["algorithm-config-active"],
     queryFn: () => algorithmApi.getConfig({ token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 3000
+    ...controlPanelLiveQueryOptions(3000)
   })
 
   const configVersionsQuery = useQuery({
     queryKey: ["algorithm-config-versions"],
     queryFn: () => algorithmApi.listConfigVersions({ token: accessToken || "", limit: 40 }),
     enabled: canLoad,
-    refetchInterval: 8000
+    ...controlPanelLiveQueryOptions(8000)
   })
 
   const presetsQuery = useQuery({
     queryKey: ["algorithm-presets"],
     queryFn: () => algorithmApi.listPresets({ token: accessToken || "" }),
-    enabled: canLoad
+    enabled: canLoad,
+    ...controlPanelLiveQueryOptions(45000)
   })
 
   const recentMetricsQuery = useQuery({
     queryKey: ["algorithm-metrics-recent"],
     queryFn: () => algorithmApi.listRecentMetrics({ token: accessToken || "", limit: 50 }),
     enabled: canLoad,
-    refetchInterval: 3000
+    ...controlPanelLiveQueryOptions(3000)
   })
 
   const scorecardsQuery = useQuery({
     queryKey: ["algorithm-scorecards"],
     queryFn: () => algorithmApi.getScorecards({ token: accessToken || "", range: "7d", limit: 700 }),
     enabled: canLoad,
-    refetchInterval: 3000
+    ...controlPanelLiveQueryOptions(3000)
   })
 
   const suggestionsQuery = useQuery({
     queryKey: ["algorithm-suggestions"],
     queryFn: () => algorithmApi.getSuggestions({ token: accessToken || "", range: "7d" }),
     enabled: canLoad,
-    refetchInterval: 15000
+    ...controlPanelLiveQueryOptions(15000)
   })
 
   const experimentStatusQuery = useQuery({
     queryKey: ["algorithm-experiment-status"],
     queryFn: () => algorithmApi.getExperimentStatus({ token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 4000
+    ...controlPanelLiveQueryOptions(4000)
   })
 
   const sampleFootageQuery = useQuery({
     queryKey: ["algorithm-sample-footage"],
     queryFn: () => algorithmApi.listSampleFootage({ token: accessToken || "", limit: 25 }),
-    enabled: canLoad
+    enabled: canLoad,
+    ...controlPanelLiveQueryOptions(15000)
   })
 
   useEffect(() => {
@@ -602,7 +605,7 @@ const ControlPanelAlgorithm = () => {
   const liveDotClass = canLoad ? "bg-emerald-400" : "bg-slate-500"
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_140%_at_80%_-15%,hsl(206_98%_56%/0.24),transparent_50%),radial-gradient(120%_130%_at_15%_100%,hsl(189_94%_48%/0.16),transparent_45%),linear-gradient(180deg,hsl(218_30%_8%)_0%,hsl(218_34%_5%)_100%)] text-foreground">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_140%_at_80%_-15%,hsl(206_98%_56%/0.24),transparent_50%),radial-gradient(120%_130%_at_15%_100%,hsl(189_94%_48%/0.16),transparent_45%),linear-gradient(180deg,hsl(218_30%_8%)_0%,hsl(218_34%_5%)_100%)] text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">
@@ -664,10 +667,10 @@ const ControlPanelAlgorithm = () => {
                         setDraftParams(preset.params)
                         setParamsDirty(true)
                       }}
-                      className="rounded-lg border border-slate-700/80 bg-slate-900/60 px-3 py-2 text-left text-xs text-slate-200 transition hover:border-sky-300/40 hover:bg-slate-900/80"
+                      className="min-h-[4.4rem] rounded-lg border border-slate-700/80 bg-slate-900/60 px-3 py-2 text-left text-xs text-slate-200 transition hover:border-sky-300/40 hover:bg-slate-900/80"
                     >
-                      <p className="font-semibold">{preset.name}</p>
-                      <p className="text-[11px] text-slate-400">{preset.description}</p>
+                      <p className="font-semibold leading-snug break-words">{preset.name}</p>
+                      <p className="text-[11px] leading-snug text-slate-400 break-words">{preset.description}</p>
                     </button>
                   ))}
                 </div>
@@ -681,10 +684,10 @@ const ControlPanelAlgorithm = () => {
                       key={profile.id}
                       type="button"
                       onClick={() => applyQuickTuneProfile(profile.id)}
-                      className="rounded-lg border border-slate-700/80 bg-slate-900/60 px-3 py-2 text-left text-xs text-slate-200 transition hover:border-cyan-300/40 hover:bg-slate-900/80"
+                      className="min-h-[4.4rem] rounded-lg border border-slate-700/80 bg-slate-900/60 px-3 py-2 text-left text-xs text-slate-200 transition hover:border-cyan-300/40 hover:bg-slate-900/80"
                     >
-                      <p className="font-semibold">{profile.label}</p>
-                      <p className="text-[11px] text-slate-400">{profile.description}</p>
+                      <p className="font-semibold leading-snug break-words">{profile.label}</p>
+                      <p className="text-[11px] leading-snug text-slate-400 break-words">{profile.description}</p>
                     </button>
                   ))}
                 </div>

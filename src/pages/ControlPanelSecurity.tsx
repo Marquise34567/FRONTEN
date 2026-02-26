@@ -10,6 +10,8 @@ import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
 import {
   CommandCenterResponse,
+  CONTROL_PANEL_QUERY_KEYS,
+  controlPanelLiveQueryOptions,
   EmptyStateNote,
   formatCompactNumber,
   formatShortTime,
@@ -28,24 +30,24 @@ const ControlPanelSecurity = () => {
   const canLoad = Boolean(accessToken)
 
   const commandCenterQuery = useQuery({
-    queryKey: ["control-panel-security-command-center"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.commandCenter,
     queryFn: () => apiFetch<CommandCenterResponse>("/api/admin/command-center", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 20000
+    ...controlPanelLiveQueryOptions(15000)
   })
 
   const securityQuery = useQuery({
-    queryKey: ["control-panel-security-score"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.security,
     queryFn: () => apiFetch<SecurityResponse>("/api/admin/security", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 25000
+    ...controlPanelLiveQueryOptions(22000)
   })
 
   const ipBansQuery = useQuery({
-    queryKey: ["control-panel-security-ip-bans"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.ipBans,
     queryFn: () => apiFetch<IpBansResponse>("/api/admin/ip-bans", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 30000
+    ...controlPanelLiveQueryOptions(30000)
   })
 
   const securityPanel = commandCenterQuery.data?.securityPanel
@@ -56,7 +58,7 @@ const ControlPanelSecurity = () => {
   const tokenAbuseBars = (abuse?.tokenAbuseSignals || []).slice(0, 8)
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_14%_8%,hsl(359_95%_60%/0.15),transparent_42%),radial-gradient(130%_120%_at_84%_18%,hsl(33_100%_55%/0.12),transparent_42%),linear-gradient(180deg,hsl(223_34%_9%)_0%,hsl(232_42%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_14%_8%,hsl(359_95%_60%/0.15),transparent_42%),radial-gradient(130%_120%_at_84%_18%,hsl(33_100%_55%/0.12),transparent_42%),linear-gradient(180deg,hsl(223_34%_9%)_0%,hsl(232_42%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

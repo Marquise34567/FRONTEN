@@ -6,6 +6,7 @@ import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
+import { CONTROL_PANEL_QUERY_KEYS, controlPanelLiveQueryOptions } from "./control-panel/shared"
 
 type WeeklyReportsResponse = {
   provider: {
@@ -71,10 +72,10 @@ const ControlPanelOps = () => {
 
   const canLoad = Boolean(accessToken)
   const weeklyReportsQuery = useQuery({
-    queryKey: ["control-panel-ops-weekly-reports"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.weeklyReports,
     queryFn: () => apiFetch<WeeklyReportsResponse>("/api/admin/reports/weekly", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 30000
+    ...controlPanelLiveQueryOptions(30000)
   })
 
   const runOpsAction = async (path: string, init: RequestInit, successMessage: string, refetchWeekly = false) => {
@@ -247,7 +248,7 @@ const ControlPanelOps = () => {
   const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown"
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
       <Navbar />
       <main className="control-panel-main relative mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav

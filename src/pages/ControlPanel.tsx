@@ -10,7 +10,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { API_URL, apiFetch } from "@/lib/api"
 import { getControlPanelPassword } from "@/lib/controlPanelAuth"
-import { CommandCenterResponse, EmptyStateNote, formatCompactNumber, formatMoney, formatShortTime } from "./control-panel/shared"
+import {
+  CommandCenterResponse,
+  CONTROL_PANEL_QUERY_KEYS,
+  controlPanelLiveQueryOptions,
+  EmptyStateNote,
+  formatCompactNumber,
+  formatMoney,
+  formatShortTime
+} from "./control-panel/shared"
 
 type OverviewResponse = {
   summary: {
@@ -96,17 +104,17 @@ const ControlPanel = () => {
   const canLoad = Boolean(accessToken)
 
   const overviewQuery = useQuery({
-    queryKey: ["admin-overview-slim"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.overview,
     queryFn: () => apiFetch<OverviewResponse>("/api/admin/overview", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 20000
+    ...controlPanelLiveQueryOptions(20000)
   })
 
   const commandCenterQuery = useQuery({
-    queryKey: ["admin-command-center-slim"],
+    queryKey: CONTROL_PANEL_QUERY_KEYS.commandCenter,
     queryFn: () => apiFetch<CommandCenterResponse>("/api/admin/command-center", { token: accessToken || "" }),
     enabled: canLoad,
-    refetchInterval: 25000
+    ...controlPanelLiveQueryOptions(15000)
   })
 
   useEffect(() => {
@@ -164,7 +172,7 @@ const ControlPanel = () => {
   }, [commandCenterQuery.data?.securityAbuse?.suspiciousActivityScore, effectiveFailed, effectiveQueue])
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(125%_110%_at_84%_-14%,hsl(204_95%_58%/0.18),transparent_42%),radial-gradient(130%_120%_at_18%_16%,hsl(161_82%_50%/0.14),transparent_44%),linear-gradient(180deg,hsl(221_35%_9%)_0%,hsl(228_38%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(125%_110%_at_84%_-14%,hsl(204_95%_58%/0.18),transparent_42%),radial-gradient(130%_120%_at_18%_16%,hsl(161_82%_50%/0.14),transparent_44%),linear-gradient(180deg,hsl(221_35%_9%)_0%,hsl(228_38%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">
