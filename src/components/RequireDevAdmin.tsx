@@ -4,6 +4,7 @@ import { AlertCircle, LockKeyhole, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/providers/AuthProvider"
 import { ApiError, apiFetch } from "@/lib/api"
+import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess"
 import {
   clearControlPanelPassword,
   getControlPanelPassword,
@@ -14,12 +15,15 @@ type VerifyResult =
   | { ok: true }
   | {
       ok: false
-      reason: "invalid_password" | "unauthorized" | "request_failed"
+      reason: "invalid_password" | "unauthorized" | "unauthorized_email" | "request_failed"
       message: string
     }
 
+const UNAUTHORIZED_EMAIL_MESSAGE = "This account is not allowed to access the control panel."
+
 const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
-  const { accessToken } = useAuth()
+  const { accessToken, user } = useAuth()
+  const isControlPanelOwner = isControlPanelOwnerEmail(user?.email)
   const [password, setPassword] = useState(getControlPanelPassword())
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -32,6 +36,13 @@ const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
         ok: false,
         reason: "unauthorized",
         message: "You must be signed in to access the control panel."
+      }
+    }
+    if (!isControlPanelOwner) {
+      return {
+        ok: false,
+        reason: "unauthorized_email",
+        message: UNAUTHORIZED_EMAIL_MESSAGE
       }
     }
     try {
@@ -59,6 +70,13 @@ const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
             message: "Session expired. Sign in again and retry."
           }
         }
+        if (code === "unauthorized_email") {
+          return {
+            ok: false,
+            reason: "unauthorized_email",
+            message: UNAUTHORIZED_EMAIL_MESSAGE
+          }
+        }
         return {
           ok: false,
           reason: "request_failed",
@@ -81,6 +99,14 @@ const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
         if (!cancelled) {
           setIsLoading(false)
           setIsAuthorized(false)
+        }
+        return
+      }
+      if (!isControlPanelOwner) {
+        if (!cancelled) {
+          setIsLoading(false)
+          setIsAuthorized(false)
+          setError(UNAUTHORIZED_EMAIL_MESSAGE)
         }
         return
       }
@@ -110,12 +136,16 @@ const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
     return () => {
       cancelled = true
     }
-  }, [accessToken])
+  }, [accessToken, isControlPanelOwner])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!accessToken) {
       setError("You must be signed in.")
+      return
+    }
+    if (!isControlPanelOwner) {
+      setError(UNAUTHORIZED_EMAIL_MESSAGE)
       return
     }
     const candidate = password.trim()
@@ -156,6 +186,17 @@ const RequireDevAdmin = ({ children }: { children: ReactNode }) => {
   }
 
   if (!isAuthorized) {
+    if (!isControlPanelOwner) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(120%_120%_at_20%_-20%,hsl(var(--primary)/0.25),transparent_52%),linear-gradient(180deg,hsl(228_28%_10%)_0%,hsl(224_28%_7%)_100%)] px-4">
+          <div className="max-w-md rounded-xl border border-border/60 bg-card/70 p-5 text-center backdrop-blur">
+            <p className="text-sm font-semibold text-foreground">Access denied</p>
+            <p className="mt-1 text-xs text-muted-foreground">{UNAUTHORIZED_EMAIL_MESSAGE}</p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(140%_120%_at_0%_0%,hsl(var(--primary)/0.32),transparent_54%),radial-gradient(130%_130%_at_100%_100%,hsl(196_92%_54%/0.2),transparent_48%),linear-gradient(180deg,hsl(230_27%_8%)_0%,hsl(223_31%_5%)_100%)] px-4">
         <div className="pointer-events-none absolute inset-0">

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
 import LanguageDropdown from "@/components/LanguageDropdown";
+import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
@@ -12,7 +13,7 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const showControlPanel = Boolean(user);
+  const showControlPanel = isControlPanelOwnerEmail(user?.email);
 
   const handleLogout = async () => {
     await signOut();
