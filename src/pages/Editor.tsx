@@ -376,6 +376,19 @@ const statusBadgeClass = (status?: JobStatus | string | null) => {
   return "bg-muted/40 text-muted-foreground border-border/60";
 };
 
+const toFiniteNumber = (value: unknown): number | null => {
+  const resolved = Number(value);
+  return Number.isFinite(resolved) ? resolved : null;
+};
+
+const firstFiniteNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const resolved = toFiniteNumber(value);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+};
+
 const normalizeHookCandidates = (raw: unknown): HookCandidate[] => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -549,6 +562,9 @@ const Editor = () => {
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
+  const [mobilePipeline, setMobilePipeline] = useState(false);
+  const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
+  const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
@@ -1365,6 +1381,47 @@ const Editor = () => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pointerQuery = window.matchMedia("(pointer: coarse)");
+    // Mobile signal follows product spec: width <= 767 OR coarse pointer OR touch points.
+    const syncMobileSignal = () => {
+      const isMobile =
+        window.innerWidth <= 767 ||
+        pointerQuery.matches ||
+        Number(window.navigator?.maxTouchPoints || 0) > 0;
+      setMobilePipeline(isMobile);
+      document.documentElement.classList.toggle("mobile", isMobile);
+    };
+    syncMobileSignal();
+    window.addEventListener("resize", syncMobileSignal, { passive: true });
+    window.addEventListener("orientationchange", syncMobileSignal, { passive: true });
+    if (typeof pointerQuery.addEventListener === "function") {
+      pointerQuery.addEventListener("change", syncMobileSignal);
+    } else if (typeof pointerQuery.addListener === "function") {
+      pointerQuery.addListener(syncMobileSignal);
+    }
+    return () => {
+      window.removeEventListener("resize", syncMobileSignal);
+      window.removeEventListener("orientationchange", syncMobileSignal);
+      if (typeof pointerQuery.removeEventListener === "function") {
+        pointerQuery.removeEventListener("change", syncMobileSignal);
+      } else if (typeof pointerQuery.removeListener === "function") {
+        pointerQuery.removeListener(syncMobileSignal);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mobilePipeline) {
+      setPipelineLogOpen(false);
+      setRetentionDetailsOpen(false);
+      return;
+    }
+    setPipelineLogOpen(true);
+    setRetentionDetailsOpen(true);
+  }, [mobilePipeline, activeJob?.id]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -2851,6 +2908,217 @@ const Editor = () => {
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
+  const failedStepKey =
+    normalizedActiveStatus === "failed"
+      ? activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
+        ? "hooking"
+        : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
+          ? "story"
+          : "rendering"
+      : null;
+  const failedStepIndex = failedStepKey
+    ? PIPELINE_STEPS.findIndex((step) => step.key === failedStepKey)
+    : -1;
+  const visualStepIndex = normalizedActiveStatus === "failed"
+    ? (failedStepIndex >= 0 ? failedStepIndex : Math.max(0, currentStepIndex))
+    : currentStepIndex;
+  const totalPipelineProgress = clamp(Number(activeJob?.progress ?? 0), 0, 100);
+  const activeStageProgress = useMemo(() => {
+    if (!activeJob) return 0;
+    const normalized = normalizeStatus(activeJob.status);
+    const overallProgress =
+      typeof activeJob.progress === "number" && Number.isFinite(activeJob.progress)
+        ? clamp(activeJob.progress, 0, 100)
+        : 0;
+    if (normalized === "ready") return 100;
+    const marker = statusStartRef.current[activeJob.id];
+    if (marker && marker.status === normalized && Number.isFinite(marker.startProgress)) {
+      const start = clamp(marker.startProgress, 0, 99);
+      const span = Math.max(1, 100 - start);
+      return clamp(((overallProgress - start) / span) * 100, 4, 99);
+    }
+    if (normalized === "failed") return clamp(overallProgress, 6, 99);
+    return clamp(overallProgress, 4, 99);
+  }, [activeJob?.id, activeJob?.status, activeJob?.progress]);
+  const analyzedFrames = firstFiniteNumber(
+    activeAnalysis?.frames_analyzed,
+    activeAnalysis?.framesAnalyzed,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.framesProcessed,
+    activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.framesProcessed,
+  );
+  const totalFrames = firstFiniteNumber(
+    activeAnalysis?.frames_total,
+    activeAnalysis?.totalFrames,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.totalFrames,
+    activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.totalFrames,
+  );
+  const highEnergyPeaks = firstFiniteNumber(
+    activeAnalysis?.high_energy_peaks,
+    activeAnalysis?.highEnergyPeaks,
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.peakCount,
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.highEnergyPeaks,
+  );
+  const cutsApplied = firstFiniteNumber(
+    activeAnalysis?.cuts_applied,
+    activeAnalysis?.cut_count,
+    activeAnalysis?.pipelineSteps?.CUTTING?.meta?.cutsApplied,
+    activeAnalysis?.pipelineSteps?.CUTTING?.meta?.cutCount,
+  );
+  const subtitleLines = firstFiniteNumber(
+    activeAnalysis?.subtitle_line_count,
+    activeAnalysis?.subtitlesCount,
+    activeAnalysis?.pipelineSteps?.SUBTITLING?.meta?.lineCount,
+    activeAnalysis?.pipelineSteps?.SUBTITLING?.meta?.subtitleCount,
+  );
+  const retentionBeforeBar = retentionScoreBeforeDisplay !== null
+    ? clamp(retentionScoreBeforeDisplay, 0, 100)
+    : null;
+  const retentionAfterBar = retentionScoreAfterDisplay !== null
+    ? clamp(retentionScoreAfterDisplay, 0, 100)
+    : null;
+  const confidenceLabel = detectedNicheRaw ? formatNicheLabel(detectedNicheRaw) : "High Energy";
+  const confidenceValue = detectedNicheConfidencePercent !== null
+    ? `${detectedNicheConfidencePercent}%`
+    : null;
+  const stepMicroCopy: Record<string, string> = {
+    queued: "Queued in worker lane",
+    uploading:
+      uploadBytesUploaded !== null && uploadBytesTotal !== null && uploadBytesTotal > 0
+        ? `${(uploadBytesUploaded / MB).toFixed(1)} / ${(uploadBytesTotal / MB).toFixed(1)} MB uploaded`
+        : `Upload progress ${Math.round(totalPipelineProgress)}%`,
+    analyzing:
+      analyzedFrames !== null && totalFrames !== null
+        ? `Analyzing ${Math.round(analyzedFrames)}/${Math.round(totalFrames)} frames`
+        : "Scene breakdown and transcript sync",
+    hooking:
+      highEnergyPeaks !== null
+        ? `Detected ${Math.round(highEnergyPeaks)} high-energy peaks`
+        : selectedHookCandidate
+          ? `Hook candidate ${formatHookRange(selectedHookCandidate.start, selectedHookCandidate.start + selectedHookCandidate.duration)}`
+          : "Scoring opening hook candidates",
+    cutting:
+      cutsApplied !== null
+        ? `Applied ${Math.round(cutsApplied)} cuts`
+        : "Removing low-energy and dead-air segments",
+    pacing: "Balancing cut rhythm and retention pacing",
+    zoom: "Generating smart zoom keyframes",
+    story: "Scoring narrative continuity and escalation",
+    subtitling:
+      autoCaptionsEnabled
+        ? subtitleLines !== null
+          ? `Generated ${Math.round(subtitleLines)} subtitle lines`
+          : "Generating timed subtitles"
+        : "Subtitles disabled",
+    rendering:
+      activeJob?.renderMode === "vertical"
+        ? `Rendering ${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} vertical clip(s)`
+        : "Encoding final MP4 output",
+    ready:
+      activeJob?.renderMode === "vertical"
+        ? `${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} clip(s) ready`
+        : "Export package is ready",
+  };
+  const pipelineRows = PIPELINE_STEPS.map((step, idx) => {
+    let state: "done" | "active" | "pending" | "failed" = "pending";
+    if (normalizedActiveStatus === "ready") {
+      state = "done";
+    } else if (normalizedActiveStatus === "failed") {
+      if (step.key === failedStepKey) state = "failed";
+      else if (idx < visualStepIndex) state = "done";
+    } else if (idx < visualStepIndex) {
+      state = "done";
+    } else if (idx === visualStepIndex) {
+      state = "active";
+    }
+
+    const connectorState: "done" | "active" | "pending" =
+      idx >= PIPELINE_STEPS.length - 1
+        ? "pending"
+        : normalizedActiveStatus === "ready"
+          ? "done"
+          : normalizedActiveStatus === "failed"
+            ? idx < visualStepIndex
+              ? "done"
+              : "pending"
+            : idx < visualStepIndex
+              ? "done"
+              : idx === visualStepIndex
+                ? "active"
+                : "pending";
+
+    const percent = state === "done"
+      ? 100
+      : state === "active" || state === "failed"
+        ? Math.round(activeStageProgress)
+        : 0;
+
+    return {
+      ...step,
+      state,
+      percent,
+      connectorState,
+      detail: state === "failed" ? failedGateReason || "Rendering failed in this stage." : (stepMicroCopy[step.key] || step.label),
+    };
+  });
+  const pipelineLogEntries: Array<{ level: "info" | "success" | "warn" | "error"; message: string }> = [
+    ...(activeJob
+      ? [
+          {
+            level: "info" as const,
+            message: `${activeStatusLabel} (${Math.round(totalPipelineProgress)}%)`,
+          },
+        ]
+      : []),
+    ...(analyzedFrames !== null && totalFrames !== null
+      ? [
+          {
+            level: "info" as const,
+            message: `Analyzed ${Math.round(analyzedFrames)} of ${Math.round(totalFrames)} frames`,
+          },
+        ]
+      : []),
+    ...(highEnergyPeaks !== null
+      ? [
+          {
+            level: "info" as const,
+            message: `Detected ${Math.round(highEnergyPeaks)} high-energy peaks`,
+          },
+        ]
+      : []),
+    ...(cutsApplied !== null
+      ? [
+          {
+            level: "success" as const,
+            message: `Applied ${Math.round(cutsApplied)} cuts`,
+          },
+        ]
+      : []),
+    ...(hookSelectionSource === "fallback"
+      ? [
+          {
+            level: "warn" as const,
+            message: "Fallback hook used due to low confidence in primary candidates",
+          },
+        ]
+      : []),
+    ...(retentionScoreDeltaDisplay !== null
+      ? [
+          {
+            level: retentionScoreDeltaDisplay >= 0 ? ("success" as const) : ("warn" as const),
+            message: `Retention delta ${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)}`,
+          },
+        ]
+      : []),
+    ...(normalizeStatus(activeJob?.status) === "failed"
+      ? [
+          {
+            level: "error" as const,
+            message: failedGateReason || activeJob?.error || "Pipeline failed",
+          },
+        ]
+      : []),
+  ].slice(0, 8);
+  const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const canApplyHookRealtime = Boolean(
@@ -4241,15 +4509,27 @@ const Editor = () => {
                 </div>
               </div>
 
-              <div className="glass-card p-5 space-y-4">
-                <div className="flex items-center justify-between">
+              <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
+                {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
+                <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                  {activeJob
+                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(totalPipelineProgress)} percent complete.`
+                    : "No active pipeline selected."}
+                </div>
+                {normalizeStatus(activeJob?.status) === "failed" ? (
+                  <div className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+                    Pipeline failed. {failedGateReason || activeJob?.error || "Retry the render."}
+                  </div>
+                ) : null}
+
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-foreground">Pipeline</p>
                     <p className="text-xs text-muted-foreground">Live status updates while your job runs</p>
                   </div>
                   {activeJob && (
                     <Badge variant="outline" className={`text-xs flex items-center gap-1.5 ${statusBadgeClass(activeJob.status)}`}>
-                      {normalizeStatus(activeJob.status) === "ready" ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
+                      {normalizeStatus(activeJob.status) === "ready" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
                       {activeStatusLabel}
                     </Badge>
                   )}
@@ -4262,69 +4542,196 @@ const Editor = () => {
 
                 {activeJob && (
                   <>
-                    <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
-                      {PIPELINE_STEPS.map((step, idx) => {
-                        const active =
-                          !step.comingSoon &&
-                          currentStepIndex !== -1 &&
-                          idx <= currentStepIndex &&
-                          activeJob.status !== "failed";
-                        return (
-                          <Badge
-                            key={step.key}
-                            variant="secondary"
-                            className={`border ${
-                              step.comingSoon
-                                ? "border-emerald-400/35 text-emerald-200 bg-emerald-500/10"
-                                : active
-                                ? "border-primary/30 text-primary bg-primary/10"
-                                : "border-border/50 text-muted-foreground bg-muted/30"
-                            }`}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              {step.key === "zoom" ? <ZoomIn className="w-3 h-3" /> : null}
-                              {step.label}
-                              {step.comingSoon ? <span className="text-[10px] uppercase tracking-[0.12em]">Soon</span> : null}
-                            </span>
-                          </Badge>
-                        );
-                      })}
-                      {normalizeStatus(activeJob.status) === "failed" && (
-                        <Badge variant="destructive">Failed</Badge>
+                    <div className="space-y-1.5">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-emerald-400 via-primary to-violet-300"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${totalPipelineProgress}%` }}
+                          transition={{ duration: 0.35, ease: "easeOut" }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="uppercase tracking-[0.16em]">Job Progress</span>
+                        <span>{Math.round(totalPipelineProgress)}%</span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-border/50 bg-card/50 p-3 sm:p-4">
+                      {/* Mobile-first adaptation: vertical timeline on touch/mobile, horizontal rail on larger screens. */}
+                      {mobilePipeline ? (
+                        <ol className="space-y-3" aria-label="Pipeline stages">
+                          {pipelineRows.map((row, idx) => (
+                            <li key={row.key} className="relative">
+                              {idx < pipelineRows.length - 1 ? (
+                                <span
+                                  aria-hidden="true"
+                                  className={`absolute left-[17px] top-9 h-[calc(100%-1.25rem)] w-px ${
+                                    row.connectorState === "done"
+                                      ? "bg-emerald-400"
+                                      : row.connectorState === "active"
+                                        ? "bg-gradient-to-b from-primary via-violet-300 to-primary animate-pulse"
+                                        : "border-l border-dashed border-border/80"
+                                  }`}
+                                />
+                              ) : null}
+                              <div className="flex items-start gap-3">
+                                <div
+                                  aria-current={row.state === "active" ? "step" : undefined}
+                                  className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition ${
+                                    row.state === "done"
+                                      ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-200"
+                                      : row.state === "active"
+                                        ? "border-primary/80 bg-primary/25 text-primary shadow-[0_0_20px_rgba(122,96,255,0.45)] animate-pulse"
+                                        : row.state === "failed"
+                                          ? "border-destructive/80 bg-destructive/20 text-destructive"
+                                          : "border-border/70 bg-muted/30 text-muted-foreground"
+                                  }`}
+                                >
+                                  {row.state === "done" ? (
+                                    <CheckCircle2 className="h-4 w-4" />
+                                  ) : row.state === "active" ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : row.state === "failed" ? (
+                                    <XCircle className="h-4 w-4" />
+                                  ) : row.key === "zoom" ? (
+                                    <ZoomIn className="h-4 w-4" />
+                                  ) : (
+                                    idx + 1
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1 pb-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className={`text-sm font-medium ${row.state === "failed" ? "text-destructive" : "text-foreground"}`}>
+                                      {row.label}
+                                    </p>
+                                    <Badge
+                                      variant="secondary"
+                                      className={`h-5 px-1.5 text-[10px] ${
+                                        row.state === "done"
+                                          ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+                                          : row.state === "active"
+                                            ? "border-primary/40 bg-primary/15 text-primary"
+                                            : row.state === "failed"
+                                              ? "border-destructive/40 bg-destructive/10 text-destructive"
+                                              : "border-border/60 bg-muted/30 text-muted-foreground"
+                                      }`}
+                                    >
+                                      {row.percent}%
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-0.5 text-xs text-muted-foreground">{row.detail}</p>
+                                  {row.state === "failed" ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="mt-1 inline-flex items-center text-[11px] text-destructive underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/70"
+                                        >
+                                          Why this failed
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs border-destructive/40 bg-destructive/15 text-destructive">
+                                        {failedGateReason || activeJob.error || "Pipeline failed in this step."}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <ol className="flex min-w-[980px] items-start" aria-label="Pipeline stages">
+                            {pipelineRows.map((row, idx) => (
+                              <li key={row.key} className="relative flex-1 px-1">
+                                <div className="flex items-center">
+                                  <div
+                                    aria-current={row.state === "active" ? "step" : undefined}
+                                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition ${
+                                      row.state === "done"
+                                        ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-200"
+                                        : row.state === "active"
+                                          ? "border-primary/80 bg-primary/25 text-primary shadow-[0_0_20px_rgba(122,96,255,0.45)] animate-pulse"
+                                          : row.state === "failed"
+                                            ? "border-destructive/80 bg-destructive/20 text-destructive"
+                                            : "border-border/70 bg-muted/30 text-muted-foreground"
+                                    }`}
+                                  >
+                                    {row.state === "done" ? (
+                                      <CheckCircle2 className="h-4 w-4" />
+                                    ) : row.state === "active" ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : row.state === "failed" ? (
+                                      <XCircle className="h-4 w-4" />
+                                    ) : row.key === "zoom" ? (
+                                      <ZoomIn className="h-4 w-4" />
+                                    ) : (
+                                      idx + 1
+                                    )}
+                                  </div>
+                                  {idx < pipelineRows.length - 1 ? (
+                                    <div className="ml-2 mr-1 flex-1">
+                                      {row.connectorState === "done" ? (
+                                        <div className="h-1 rounded-full bg-emerald-400" />
+                                      ) : row.connectorState === "active" ? (
+                                        <div className="h-1 rounded-full bg-gradient-to-r from-primary via-violet-300 to-primary animate-pulse" />
+                                      ) : (
+                                        <div className="h-1 border-t border-dashed border-border/80" />
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="pt-2 pr-3">
+                                  <p className={`text-[11px] font-medium ${row.state === "failed" ? "text-destructive" : "text-foreground"}`}>
+                                    {row.label}
+                                  </p>
+                                  <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{row.detail}</p>
+                                  <p className="mt-0.5 text-[10px] text-muted-foreground">{row.percent}%</p>
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
                       )}
                     </div>
 
                     {!isTerminalStatus(activeJob.status) && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-foreground">{activeStatusLabel}</span>
-                          <span className="text-xs text-muted-foreground">{activeJob.progress ?? 0}%</span>
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                        <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="uppercase tracking-[0.16em]">Live Processing</span>
+                          <span className="font-semibold text-foreground">{etaLabel}{etaSuffix}</span>
                         </div>
-                        <Progress value={activeJob.progress ?? 0} className="h-2 bg-muted [&>div]:bg-primary" />
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span className="uppercase tracking-[0.2em] text-muted-foreground/80">Estimated time</span>
-                          <span className="font-premium text-sm text-foreground font-semibold tracking-tight">
-                            {etaLabel}
-                            {etaSuffix}
-                          </span>
+                        <Progress value={activeStageProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
+                          <div className="h-10 rounded-lg bg-muted/35 animate-pulse" />
                         </div>
                         {canCancelJob && (
                           <Button
                             type="button"
-                            size="sm"
                             variant="outline"
-                            className="w-fit h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
+                            className="mt-3 min-h-12 w-full border-destructive/40 text-destructive hover:bg-destructive/10 sm:min-h-10 sm:w-auto"
                             disabled={cancelingJobId === activeJob.id}
                             onClick={() => void handleCancelJob(activeJob.id)}
                           >
                             {cancelingJobId === activeJob.id ? (
-                              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                             ) : (
-                              <XCircle className="w-3.5 h-3.5 mr-1" />
+                              <XCircle className="mr-1.5 h-4 w-4" />
                             )}
                             {cancelButtonLabel}
                           </Button>
                         )}
+                      </div>
+                    )}
+
+                    {normalizeStatus(activeJob.status) === "failed" && (
+                      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
+                        <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
+                        <p className="mt-1 text-xs text-destructive/90">{failedGateReason || activeJob.error || "Retry suggested."}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Retry suggestion: adjust settings and run Redo Renderer.</p>
                       </div>
                     )}
 
@@ -4351,18 +4758,29 @@ const Editor = () => {
                     )}
 
                     {normalizeStatus(activeJob.status) === "ready" && (
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-success flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
-                            ? `Vertical clips are ready (${activeOutputUrls.length}).`
-                            : "Export is ready. Download your final cut."}
-                        </p>
-                        <Button size="sm" className="w-full gap-2 sm:w-auto" onClick={() => setExportOpen(true)}>
-                          <Download className="w-4 h-4" />
-                          {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
-                        </Button>
-                      </div>
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
+                      >
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
+                        <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
+                        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm text-emerald-100 flex items-center gap-2">
+                            <CheckCircle2 className="h-4 w-4" />
+                            {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
+                              ? `Vertical clips are ready (${activeOutputUrls.length}).`
+                              : "Export is ready. Download your final cut."}
+                          </p>
+                          <Button
+                            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                            onClick={() => setExportOpen(true)}
+                          >
+                            <Download className="h-4 w-4" />
+                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
+                          </Button>
+                        </div>
+                      </motion.div>
                     )}
                     {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -4370,9 +4788,8 @@ const Editor = () => {
                           Need another pass? Queue a redo render using your daily re-render allowance.
                         </p>
                         <Button
-                          size="sm"
                           variant="outline"
-                          className="w-full gap-2 sm:w-auto"
+                          className="min-h-12 w-full gap-2 sm:min-h-10 sm:w-auto"
                           disabled={
                             reprocessingJobId === activeJob.id ||
                             (!isDevAccount && (rerendersRemainingToday ?? 0) <= 0)
@@ -4384,176 +4801,272 @@ const Editor = () => {
                           ) : (
                             <RotateCcw className="w-4 h-4" />
                           )}
-                          Redo Render
+                          Redo Renderer
                         </Button>
                       </div>
                     )}
 
-                    <div className="rounded-xl border border-border/50 bg-muted/20 p-3 space-y-2">
-                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
-                      <p className="text-sm text-foreground break-words">
-                        Hook chosen: {hookWindowLabel}
-                        {hookText ? ` — ${hookText}` : ""}
-                      </p>
-                      {hookReason ? (
-                        <p className="text-xs text-muted-foreground">Hook reason: {hookReason}</p>
-                      ) : null}
-                      {detectedNicheRaw ? (
-                        <p className="text-xs text-muted-foreground">
-                          Detected niche: {formatNicheLabel(detectedNicheRaw)}
-                          {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
-                        </p>
-                      ) : null}
-                      {detectedNicheRationale.length > 0 ? (
-                        <div className="space-y-1">
-                          {detectedNicheRationale.map((line, index) => (
-                            <p key={`niche-rationale-${index}`} className="text-xs text-muted-foreground">
-                              - {line}
-                            </p>
-                          ))}
+                    <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
+                            {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
+                          </Badge>
+                          <Badge className="border-primary/35 bg-primary/10 text-primary">
+                            {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
+                          </Badge>
                         </div>
-                      ) : null}
-                      <p className="text-xs text-muted-foreground">
-                        Hook mode: Auto
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Hook selection: {hookSelectionSource === "user_selected" ? "User-selected" : hookSelectionSource === "fallback" ? "Fallback" : "Auto"}
-                      </p>
-                      {detectedRetentionStrategyProfile ? (
-                        <p className="text-xs text-muted-foreground">
-                          Retention profile: {formatNicheLabel(detectedRetentionStrategyProfile)}
-                        </p>
-                      ) : null}
-                      {detectedRetentionContentFormat ? (
-                        <p className="text-xs text-muted-foreground">
-                          Content format: {formatNicheLabel(detectedRetentionContentFormat)}
-                        </p>
-                      ) : null}
-                      {detectedRetentionTargetPlatform ? (
-                        <p className="text-xs text-muted-foreground">
-                          Target platform: {formatPlatformLabel(detectedRetentionTargetPlatform)}
-                        </p>
-                      ) : null}
-                      {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
-                        <p className="text-xs text-muted-foreground">
-                          Predicted completion: {verticalPredictedAverage.toFixed(1)}%
-                          {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
-                        </p>
-                      ) : null}
-                      <p className="text-sm text-foreground">
-                        Retention score (after): {retentionScoreAfterDisplay !== null ? retentionScoreAfterDisplay : "Pending"}
-                      </p>
-                      {retentionScoreBeforeDisplay !== null ? (
-                        <p className="text-xs text-muted-foreground">
-                          Retention score (before edits): {retentionScoreBeforeDisplay}
-                        </p>
-                      ) : null}
-                      {retentionScoreDeltaDisplay !== null ? (
-                        <p className={`text-xs ${retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
-                          Delta: {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
-                        </p>
-                      ) : null}
-                      {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Top clip predictions:</p>
-                          {metadataClipSummaries.map((entry) => (
-                            <p key={`clip-prediction-${entry.clip}`} className="text-xs text-foreground/90">
-                              - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
-                              {entry.reason ? ` — ${entry.reason}` : ""}
-                            </p>
-                          ))}
-                        </div>
-                      ) : null}
-                      {retentionImprovements.length > 0 ? (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">What the editor improved:</p>
-                          {retentionImprovements.map((line, index) => (
-                            <p key={`improve-${index}`} className="text-xs text-foreground/90">- {line}</p>
-                          ))}
-                        </div>
-                      ) : null}
-                      {whyKeepWatching.length > 0 ? (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Why this should keep viewers:</p>
-                          {whyKeepWatching.map((line, index) => (
-                            <p key={`why-${index}`} className="text-xs text-foreground/90">- {line}</p>
-                          ))}
-                        </div>
-                      ) : null}
-                      {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
-                        <div className="space-y-1">
-                          <p className="text-xs text-destructive">
-                            We refused to render because: {failedGateReason}
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
+                          {retentionScoreDeltaDisplay !== null ? (
+                            <motion.p
+                              key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={`mt-1 font-premium text-3xl font-semibold tracking-tight ${
+                                retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
+                              }`}
+                            >
+                              {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
+                              <span className="ml-1 text-lg align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
+                            </motion.p>
+                          ) : !isTerminalStatus(activeJob.status) ? (
+                            <div className="mt-2 h-9 w-28 animate-pulse rounded-md bg-muted/50" />
+                          ) : (
+                            <p className="mt-1 text-sm text-muted-foreground">Pending</p>
+                          )}
+                          <p className="mt-2 break-words text-xs text-foreground/90">
+                            Hook chosen: {hookWindowLabel}
+                            {hookText ? ` — ${hookText}` : ""}
                           </p>
-                          {genericReasons.length > 0 ? (
-                            <div className="space-y-1">
-                              {genericReasons.map((line, index) => (
-                                <p key={`generic-${index}`} className="text-xs text-muted-foreground">- {line}</p>
-                              ))}
-                            </div>
+                          {hookReason ? (
+                            <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
                           ) : null}
                         </div>
-                      ) : null}
-                      <div className="space-y-1 pt-1">
-                        <p className="text-xs text-muted-foreground">
-                          Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
-                        </p>
-                        {paidTier ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {CREATOR_FEEDBACK_ACTIONS.map((action) => (
-                              <Button
-                                key={action.category}
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-[11px]"
-                                disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
-                                onClick={() => void submitCreatorFeedback(action.category)}
-                              >
-                                {creatorFeedbackSubmitting === action.category ? (
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                ) : null}
-                                {action.label}
-                              </Button>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-muted-foreground">
-                            Upgrade to send hook/pacing/generic corrections directly to the model.
-                          </p>
-                        )}
+                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
+                          {retentionBeforeBar !== null && retentionAfterBar !== null ? (
+                            <div className="mt-2 space-y-2">
+                              <div>
+                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                  <span>Before</span>
+                                  <span>{retentionScoreBeforeDisplay?.toFixed(1)}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-muted/60">
+                                  <motion.div
+                                    className="h-full rounded-full bg-slate-400/80"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${retentionBeforeBar}%` }}
+                                    transition={{ duration: 0.35, ease: "easeOut" }}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                  <span>After</span>
+                                  <span>{retentionScoreAfterDisplay?.toFixed(1)}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-muted/60">
+                                  <motion.div
+                                    className="h-full rounded-full bg-gradient-to-r from-primary to-violet-300"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${retentionAfterBar}%` }}
+                                    transition={{ duration: 0.45, ease: "easeOut" }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/45" />
+                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="pt-1">
+
+                      <div className="overflow-hidden rounded-lg border border-border/50 bg-background/30">
                         <button
                           type="button"
-                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
-                          onClick={() => setShowAdvancedDebug((prev) => !prev)}
+                          aria-expanded={retentionDetailsOpen}
+                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
+                          onClick={() => setRetentionDetailsOpen((prev) => !prev)}
                         >
-                          {showAdvancedDebug ? "Hide Advanced" : "Advanced"}
+                          <span className="font-medium">{retentionDetailsOpen ? "Hide retention details" : "Show retention details"}</span>
+                          <span className="text-muted-foreground">{retentionDetailsOpen ? "Collapse" : "Expand"}</span>
                         </button>
+                        {retentionDetailsOpen ? (
+                          <div className="space-y-2 border-t border-border/40 p-3 text-xs text-muted-foreground">
+                            {detectedRetentionStrategyProfile ? (
+                              <p>Profile: {formatNicheLabel(detectedRetentionStrategyProfile)}</p>
+                            ) : null}
+                            {detectedRetentionContentFormat ? (
+                              <p>Format: {formatNicheLabel(detectedRetentionContentFormat)}</p>
+                            ) : null}
+                            {detectedRetentionTargetPlatform ? (
+                              <p>Target: {formatPlatformLabel(detectedRetentionTargetPlatform)}</p>
+                            ) : null}
+                            {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
+                              <p>
+                                Predicted completion: {verticalPredictedAverage.toFixed(1)}%
+                                {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
+                              </p>
+                            ) : null}
+                            {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Top clip predictions:</p>
+                                {metadataClipSummaries.map((entry) => (
+                                  <p key={`clip-prediction-${entry.clip}`} className="text-foreground/90">
+                                    - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
+                                    {entry.reason ? ` — ${entry.reason}` : ""}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {detectedNicheRaw ? (
+                              <p>
+                                Detected niche: {formatNicheLabel(detectedNicheRaw)}
+                                {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
+                              </p>
+                            ) : null}
+                            {detectedNicheRationale.length > 0 ? (
+                              <div className="space-y-1">
+                                {detectedNicheRationale.map((line, index) => (
+                                  <p key={`niche-rationale-${index}`}>- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {retentionImprovements.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Improvements:</p>
+                                {retentionImprovements.map((line, index) => (
+                                  <p key={`improve-${index}`} className="text-foreground/90">- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {whyKeepWatching.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Why viewers stay:</p>
+                                {whyKeepWatching.map((line, index) => (
+                                  <p key={`why-${index}`} className="text-foreground/90">- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
+                              <div className="space-y-1">
+                                <p className="text-destructive">Gate reason: {failedGateReason}</p>
+                                {genericReasons.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {genericReasons.map((line, index) => (
+                                      <p key={`generic-${index}`}>- {line}</p>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div className="space-y-1 pt-1">
+                              <p>
+                                Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
+                              </p>
+                              {paidTier ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {CREATOR_FEEDBACK_ACTIONS.map((action) => (
+                                    <Button
+                                      key={action.category}
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 px-2 text-[11px]"
+                                      disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
+                                      onClick={() => void submitCreatorFeedback(action.category)}
+                                    >
+                                      {creatorFeedbackSubmitting === action.category ? (
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      ) : null}
+                                      {action.label}
+                                    </Button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[11px]">
+                                  Upgrade to send hook/pacing/generic corrections directly to the model.
+                                </p>
+                              )}
+                            </div>
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                                onClick={() => setShowAdvancedDebug((prev) => !prev)}
+                              >
+                                {showAdvancedDebug ? "Hide Advanced" : "Advanced"}
+                              </button>
+                            </div>
+                            {showAdvancedDebug ? (
+                              <div className="space-y-1 text-[11px]">
+                                <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
+                                <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
+                                <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
+                                <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
+                                <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
+                                <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
+                                <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
+                                <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
+                                <p className="break-all">
+                                  Emotional tuning:
+                                  {" "}
+                                  {activeAnalysis?.emotional_tuning_profile
+                                    ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
+                                    : "n/a"}
+                                </p>
+                                <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
+                                <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
+                                <p>Attempts stored: {retentionAttempts.length}</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                      {showAdvancedDebug ? (
-                        <div className="space-y-1 text-[11px] text-muted-foreground">
-                          <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
-                          <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
-                          <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
-                          <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
-                          <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
-                          <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
-                          <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
-                          <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
-                          <p className="break-all">
-                            Emotional tuning:
-                            {" "}
-                            {activeAnalysis?.emotional_tuning_profile
-                              ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
-                              : "n/a"}
-                          </p>
-                          <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
-                          <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
-                          <p>Attempts stored: {retentionAttempts.length}</p>
-                        </div>
-                      ) : null}
+
+                      <div className="overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
+                        <button
+                          type="button"
+                          aria-expanded={pipelineLogOpen}
+                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
+                          onClick={() => setPipelineLogOpen((prev) => !prev)}
+                        >
+                          <span className="font-medium">Processing Log</span>
+                          <span className="font-mono text-[11px] text-muted-foreground">{pipelineLogOpen ? "Hide" : "Show"} stream</span>
+                        </button>
+                        {pipelineLogOpen ? (
+                          <div className="max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
+                            {pipelineLogEntries.length > 0 ? (
+                              pipelineLogEntries.map((entry, index) => (
+                                <p
+                                  key={`${entry.message}-${index}`}
+                                  className={`mb-1 ${
+                                    entry.level === "error"
+                                      ? "text-destructive"
+                                      : entry.level === "warn"
+                                        ? "text-amber-300"
+                                        : entry.level === "success"
+                                          ? "text-emerald-300"
+                                          : "text-slate-300"
+                                  }`}
+                                >
+                                  [{logTimestamp}] {entry.message}
+                                </p>
+                              ))
+                            ) : (
+                              <p className="text-slate-400">[{logTimestamp}] Awaiting backend stage messages...</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </>
                 )}
