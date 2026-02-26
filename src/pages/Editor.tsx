@@ -2449,10 +2449,18 @@ const Editor = () => {
   const handleRedoRender = useCallback(
     async (job: JobDetail) => {
       if (!accessToken || !job?.id) return;
+      if (!isDevAccount && rerendersRemainingToday !== null && (rerendersRemainingToday ?? 0) <= 0) {
+        toast({
+          title: "Daily re-render limit reached",
+          description: "You reached your re-render limit for today.",
+        });
+        return;
+      }
       setReprocessingJobId(job.id);
       try {
         const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
         const editorModeForJob = mapEditorModeForBackend(editorMode);
+        const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
@@ -2584,6 +2592,7 @@ const Editor = () => {
       fetchJobs,
       maxRendersPerMonth,
       maxRerendersPerDay,
+      rerendersRemainingToday,
       maxCutsRequested,
       longFormPreset,
       longFormAggression,
@@ -2598,6 +2607,7 @@ const Editor = () => {
       selectedHookByJob,
       subtitleStyleDraft,
       verticalCaptionText,
+      isDevAccount,
       toast,
     ],
   );
@@ -3503,10 +3513,13 @@ const Editor = () => {
   const showUploadStatusOnly = normalizedActiveStatus === "uploading";
   const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
   const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
-  const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
+  const activePlatformRecommendation =
+    PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform] ?? PLATFORM_RECOMMENDATION_MAP.youtube;
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
   const captionEngineOffline = captionCapability.available === false;
   const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
+  const rerenderLimitReached =
+    !isDevAccount && rerendersRemainingToday !== null && rerendersRemainingToday !== undefined && rerendersRemainingToday <= 0;
   const mobileApplyAndRenderDisabled =
     Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
   const mobileApplyAndRenderLabel = isVerticalMode
@@ -3516,14 +3529,20 @@ const Editor = () => {
     : "Apply & Render";
 
   const applyPlatformRecommendation = () => {
+    const suggestedCuts = clamp(activePlatformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX);
+    menuTouchedRef.current.strategy = true;
     setRetentionStrategyProfile(activePlatformRecommendation.profile);
-    setMaxCutsRequested(clamp(activePlatformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX));
+    setMaxCutsRequested(suggestedCuts);
+    toast({
+      title: "Suggestion applied",
+      description: `${activePlatformRecommendation.label}`,
+    });
     trackEditorEvent("platform_recommendation_applied", {
       retentionProfile: activePlatformRecommendation.profile,
       targetPlatform: retentionTargetPlatform,
       captionStyle: activeSubtitlePreset,
       metadata: {
-        suggestedCuts: activePlatformRecommendation.suggestedCuts,
+        suggestedCuts,
       },
     });
   };
@@ -3898,7 +3917,6 @@ const Editor = () => {
                             : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-violet-300/40 hover:text-white"
                         } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
                         onClick={() => selectSubtitlePreset(preset.id)}
-                        disabled={locked}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">{preset.label}</span>
@@ -4020,7 +4038,9 @@ const Editor = () => {
                   <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
                     {isDevAccount
                       ? "Unlimited re-renders"
-                      : `${rerendersRemainingToday ?? 0} re-renders left today`}
+                      : rerendersRemainingToday === null
+                        ? "Unlimited re-renders"
+                        : `${rerendersRemainingToday} re-renders left today`}
                   </Badge>
                 </>
               )}
@@ -4135,6 +4155,7 @@ const Editor = () => {
                               onValueChange={(values) => {
                                 const candidate = Number(values?.[0] ?? retentionSliderValue);
                                 const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
+                                menuTouchedRef.current.strategy = true;
                                 setRetentionStrategyProfile(next);
                               }}
                             />
@@ -4772,13 +4793,15 @@ const Editor = () => {
                 {activeJob && (
                   <>
                     <div className="space-y-1.5">
-                      <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
+                      <div className="relative h-2 overflow-hidden rounded-full bg-[#1E1E2E]">
                         <motion.div
-                          className="h-full bg-gradient-to-r from-emerald-400 via-primary to-violet-300"
+                          className="relative h-full rounded-full bg-gradient-to-r from-purple-600 via-purple-400 to-purple-600 shadow-[0_0_14px_rgba(168,85,247,0.45)]"
                           initial={{ width: 0 }}
                           animate={{ width: `${totalPipelineProgress}%` }}
-                          transition={{ duration: 0.35, ease: "easeOut" }}
-                        />
+                          transition={{ duration: 0.45, ease: "easeOut" }}
+                        >
+                          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-purple-300/30 to-transparent animate-pulse-slow" />
+                        </motion.div>
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                         <span className="uppercase tracking-[0.16em]">Job Progress</span>
@@ -5021,7 +5044,7 @@ const Editor = () => {
                           className="min-h-12 w-full gap-2 sm:min-h-10 sm:w-auto"
                           disabled={
                             reprocessingJobId === activeJob.id ||
-                            (!isDevAccount && (rerendersRemainingToday ?? 0) <= 0)
+                            rerenderLimitReached
                           }
                           onClick={() => void handleRedoRender(activeJob)}
                         >

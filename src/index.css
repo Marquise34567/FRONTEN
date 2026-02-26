@@ -123,6 +123,55 @@
 @layer base {
   * {
     @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: #A855F7 #1E1E2E;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #12121F;
+    border-radius: 4px;
+    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.5);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #A855F7 0%, #C084FC 100%);
+    border-radius: 4px;
+    border: 2px solid #12121F;
+    transition: all 0.2s ease;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #C084FC 0%, #D8B4FE 100%);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+  }
+
+  progress {
+    appearance: none;
+    height: 10px;
+    border-radius: 9999px;
+    background: #1E1E2E;
+    overflow: hidden;
+  }
+
+  progress::-webkit-progress-bar {
+    background: #1E1E2E;
+    border-radius: 9999px;
+  }
+
+  progress::-webkit-progress-value {
+    background: linear-gradient(90deg, #7C3AED, #A855F7, #C084FC);
+    border-radius: 9999px;
+    transition: width 0.4s ease;
+  }
+
+  progress::-moz-progress-bar {
+    background: linear-gradient(90deg, #7C3AED, #A855F7, #C084FC);
+    border-radius: 9999px;
   }
 
   html,
@@ -248,9 +297,88 @@
     @apply opacity-100;
   }
 
+  .editor-settings-shell {
+    position: relative;
+    isolation: isolate;
+    backdrop-filter: blur(20px) saturate(130%);
+  }
+
+  .editor-settings-shell::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(75% 65% at 85% -10%, rgba(192, 132, 252, 0.16), transparent 60%),
+      radial-gradient(65% 55% at -10% 110%, rgba(168, 85, 247, 0.14), transparent 62%);
+    z-index: -1;
+  }
+
+  .editor-settings-tab[data-state='active'] {
+    animation: settingsTabPulse 1.8s ease-in-out infinite;
+  }
+
+  .editor-settings-slider [data-slot='slider-track'] {
+    height: 0.64rem;
+    border: 1px solid rgba(192, 132, 252, 0.22);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .editor-settings-slider [data-slot='slider-range'] {
+    background-image: linear-gradient(90deg, #a855f7 0%, #c084fc 52%, #d8b4fe 100%);
+    box-shadow: 0 0 18px rgba(192, 132, 252, 0.45);
+    transition: width 180ms ease;
+  }
+
+  .editor-settings-slider [data-slot='slider-thumb'] {
+    height: 1.2rem;
+    width: 1.2rem;
+    border-color: rgba(192, 132, 252, 0.9);
+    background: #15152a;
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.26), 0 0 16px rgba(192, 132, 252, 0.6);
+  }
+
+  .pipeline-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #A855F7 #1E1E2E;
+  }
+
+  .pipeline-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .pipeline-scrollbar::-webkit-scrollbar-track {
+    background: #12121F;
+    border-radius: 4px;
+    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.5);
+  }
+
+  .pipeline-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #A855F7 0%, #C084FC 100%);
+    border-radius: 4px;
+    border: 2px solid #12121F;
+    transition: all 0.2s ease;
+  }
+
+  .pipeline-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #C084FC 0%, #D8B4FE 100%);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+  }
+
   .responsive-main {
     padding-left: max(env(safe-area-inset-left), var(--ae-main-px)) !important;
     padding-right: max(env(safe-area-inset-right), var(--ae-main-px)) !important;
+  }
+
+  @keyframes pulse-slow {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s infinite ease-in-out;
   }
 
   @keyframes panelFloatNeo {
@@ -299,6 +427,17 @@
       box-shadow:
         0 0 0 8px hsl(0 84% 60% / 0.24),
         0 0 32px -8px hsl(0 100% 67% / 0.7);
+    }
+  }
+
+  @keyframes settingsTabPulse {
+    0%, 100% {
+      box-shadow: 0 0 0 rgba(168, 85, 247, 0.24);
+      transform: translateY(0);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.42);
+      transform: translateY(-1px);
     }
   }
 
