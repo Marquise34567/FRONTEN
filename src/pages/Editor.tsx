@@ -139,7 +139,7 @@ type RenderModeSelection = "horizontal" | "vertical";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
-type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
+type EditorModeSelection = "auto" | "reaction" | "commentary" | "savage-roast" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type ViralModeSelection = "none" | "youtube" | "tiktok";
@@ -250,6 +250,7 @@ const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; de
   { value: "auto", label: "Auto", description: "Let the model infer style from your content.", icon: Bot },
   { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions.", icon: Sparkles },
   { value: "commentary", label: "Commentary", description: "Speech-first pacing with cleaner flow.", icon: MessageSquareText },
+  { value: "savage-roast", label: "Savage Roast", description: "Chaotic roast commentary with aggressive reaction timing.", icon: Flame },
   { value: "vlog", label: "Vlog", description: "Conversational lifestyle pacing.", icon: Camera },
   { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage.", icon: Gamepad2 },
   { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays.", icon: Trophy },
@@ -337,6 +338,20 @@ const HELP_DEMO_STEPS: HelpDemoStep[] = [
     viralMode: "youtube",
     enhanceMode: "transitions",
     maxCuts: 9,
+    captionsOn: true,
+  },
+  {
+    key: "savage-roast-bursts",
+    title: "Savage roast bursts",
+    description: "Aggressive reaction cadence for roast, prank, and high-drama moments.",
+    icon: Flame,
+    renderMode: "vertical",
+    retentionProfile: "viral",
+    platform: "tiktok",
+    editorMode: "savage-roast",
+    viralMode: "tiktok",
+    enhanceMode: "all",
+    maxCuts: 12,
     captionsOn: true,
   },
   {
@@ -775,6 +790,12 @@ const Editor = () => {
   const { accessToken, signOut } = useAuth();
   const { t } = useTranslation("common");
   const { toast } = useToast();
+  const getRenderModeLabel = (mode: RenderModeSelection) =>
+    mode === "vertical" ? t("editor.mode.vertical") : t("editor.mode.horizontal");
+  const getEditorModeLabel = (mode: EditorModeSelection, fallback: string) =>
+    t(`editor.contentType.${mode}.label`, { defaultValue: fallback });
+  const getEditorModeDescription = (mode: EditorModeSelection, fallback: string) =>
+    t(`editor.contentType.${mode}.description`, { defaultValue: fallback });
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
@@ -4191,7 +4212,7 @@ const Editor = () => {
                   }}
                 >
                   <mode.icon className="h-4 w-4 shrink-0" />
-                  <span>{mode.label}</span>
+                  <span>{getRenderModeLabel(mode.value)}</span>
                 </button>
               );
             })}
@@ -4313,10 +4334,10 @@ const Editor = () => {
                       }}
                     >
                       <mode.icon className="h-4 w-4 shrink-0" />
-                      <span>{mode.label}</span>
+                      <span>{getEditorModeLabel(mode.value, mode.label)}</span>
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{mode.description}</TooltipContent>
+                  <TooltipContent>{getEditorModeDescription(mode.value, mode.description)}</TooltipContent>
                 </Tooltip>
               ))}
             </div>
@@ -4939,7 +4960,7 @@ const Editor = () => {
                                     onClick={() => setRenderMode(mode.value)}
                                   >
                                     <mode.icon className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
-                                    <span className="min-w-0 whitespace-normal break-words">{mode.label}</span>
+                                    <span className="min-w-0 whitespace-normal break-words">{getRenderModeLabel(mode.value)}</span>
                                   </button>
                                 );
                               })}
@@ -6241,15 +6262,13 @@ const Editor = () => {
       >
         <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
           <DialogHeader>
-            <DialogTitle className="text-xl font-display">Editor Help Menu</DialogTitle>
-            <DialogDescription>
-              Animated walkthrough of each mode and setting using a sample video.
-            </DialogDescription>
+            <DialogTitle className="text-xl font-display">{t("editor.help.title")}</DialogTitle>
+            <DialogDescription>{t("editor.help.description")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Interactive Demo</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{t("editor.help.interactiveDemo")}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
@@ -6260,7 +6279,7 @@ const Editor = () => {
                       setHelpDemoStepIndex((prev) => (prev - 1 + HELP_DEMO_STEPS.length) % HELP_DEMO_STEPS.length);
                     }}
                   >
-                    Previous
+                    {t("editor.help.previous")}
                   </Button>
                   <Button
                     type="button"
@@ -6268,7 +6287,7 @@ const Editor = () => {
                     variant="outline"
                     onClick={() => setHelpDemoPlaying((prev) => !prev)}
                   >
-                    {helpDemoPlaying ? "Pause tour" : "Resume tour"}
+                    {helpDemoPlaying ? t("editor.help.pauseTour") : t("editor.help.resumeTour")}
                   </Button>
                   <Button
                     type="button"
@@ -6279,7 +6298,7 @@ const Editor = () => {
                       setHelpDemoStepIndex((prev) => (prev + 1) % HELP_DEMO_STEPS.length);
                     }}
                   >
-                    Next
+                    {t("editor.help.next")}
                   </Button>
                 </div>
               </div>
@@ -6306,35 +6325,39 @@ const Editor = () => {
                     >
                       <div className="flex items-center gap-2">
                         <activeHelpDemoStep.icon className="h-4 w-4 text-violet-200" />
-                        <p className="text-sm font-semibold text-white">{activeHelpDemoStep.title}</p>
+                        <p className="text-sm font-semibold text-white">
+                          {t(`editor.help.step.${activeHelpDemoStep.key}.title`, { defaultValue: activeHelpDemoStep.title })}
+                        </p>
                       </div>
-                      <p className="mt-1 text-xs text-slate-200/90">{activeHelpDemoStep.description}</p>
+                      <p className="mt-1 text-xs text-slate-200/90">
+                        {t(`editor.help.step.${activeHelpDemoStep.key}.description`, { defaultValue: activeHelpDemoStep.description })}
+                      </p>
                     </motion.div>
                   </div>
                   <div className="border-t border-white/10 px-3 py-2">
                     <div className="mb-2 flex items-center justify-between text-[11px] text-slate-300">
-                      <span>Step {helpDemoStepIndex + 1} / {HELP_DEMO_STEPS.length}</span>
-                      <span>{activeHelpDemoStep.renderMode === "vertical" ? "Vertical sample" : "Horizontal sample"}</span>
+                      <span>{t("editor.help.step")} {helpDemoStepIndex + 1} / {HELP_DEMO_STEPS.length}</span>
+                      <span>{activeHelpDemoStep.renderMode === "vertical" ? t("editor.help.verticalSample") : t("editor.help.horizontalSample")}</span>
                     </div>
                     <Progress value={helpDemoProgress} className="h-1.5 bg-white/10" />
                   </div>
                 </div>
 
                 <div className="rounded-lg border border-white/10 bg-[#090c17]/90 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Settings Snapshot</p>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{t("editor.help.settingsSnapshot")}</p>
                   <div className="mt-3 space-y-3">
                     <div>
-                      <p className="mb-1 text-[11px] text-slate-400">Render mode</p>
+                      <p className="mb-1 text-[11px] text-slate-400">{t("editor.help.renderMode")}</p>
                       <div className="grid grid-cols-2 gap-2">
                         {RENDER_MODE_OPTIONS.map((mode) => (
                           <span key={`help-render-${mode.value}`} className={helpDemoPillClass(activeHelpDemoStep.renderMode === mode.value)}>
-                            {mode.label}
+                            {getRenderModeLabel(mode.value)}
                           </span>
                         ))}
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] text-slate-400">Retention profile</p>
+                      <p className="mb-1 text-[11px] text-slate-400">{t("editor.help.retentionProfile")}</p>
                       <div className="grid grid-cols-3 gap-2">
                         {RETENTION_PROFILE_OPTIONS.map((profile) => (
                           <span
@@ -6347,7 +6370,7 @@ const Editor = () => {
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] text-slate-400">Platform</p>
+                      <p className="mb-1 text-[11px] text-slate-400">{t("editor.help.platform")}</p>
                       <div className="grid grid-cols-3 gap-2">
                         {PLATFORM_OPTIONS.map((platform) => (
                           <span
@@ -6361,27 +6384,30 @@ const Editor = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
-                        <p className="text-[11px] text-slate-400">Editor mode</p>
+                        <p className="text-[11px] text-slate-400">{t("editor.help.editorMode")}</p>
                         <p className="mt-1 text-xs font-medium text-white">
-                          {EDITOR_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.editorMode)?.label || "Auto"}
+                          {getEditorModeLabel(
+                            activeHelpDemoStep.editorMode,
+                            EDITOR_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.editorMode)?.label || "Auto",
+                          )}
                         </p>
                       </div>
                       <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
-                        <p className="text-[11px] text-slate-400">Effects</p>
+                        <p className="text-[11px] text-slate-400">{t("editor.help.effects")}</p>
                         <p className="mt-1 text-xs font-medium text-white">
                           {ENHANCE_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.enhanceMode)?.label || "Auto"}
                         </p>
                       </div>
                       <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
-                        <p className="text-[11px] text-slate-400">Viral mode</p>
+                        <p className="text-[11px] text-slate-400">{t("editor.help.viralMode")}</p>
                         <p className="mt-1 text-xs font-medium text-white">
                           {VIRAL_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.viralMode)?.label || "None"}
                         </p>
                       </div>
                       <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
-                        <p className="text-[11px] text-slate-400">Captions and cuts</p>
+                        <p className="text-[11px] text-slate-400">{t("editor.help.captionsAndCuts")}</p>
                         <p className="mt-1 text-xs font-medium text-white">
-                          {activeHelpDemoStep.captionsOn ? "Captions on" : "Captions off"} - {activeHelpDemoStep.maxCuts} max cuts
+                          {activeHelpDemoStep.captionsOn ? t("editor.help.captionsOn") : t("editor.help.captionsOff")} - {activeHelpDemoStep.maxCuts} {t("editor.help.maxCuts")}
                         </p>
                       </div>
                     </div>
@@ -6391,7 +6417,7 @@ const Editor = () => {
             </div>
 
             <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Modes Tour</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{t("editor.help.modesTour")}</p>
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {HELP_DEMO_STEPS.map((step, index) => (
                   <button
@@ -6409,9 +6435,13 @@ const Editor = () => {
                   >
                     <div className="flex items-center gap-2">
                       <step.icon className="h-3.5 w-3.5" />
-                      <span className="text-xs font-medium">{step.title}</span>
+                      <span className="text-xs font-medium">
+                        {t(`editor.help.step.${step.key}.title`, { defaultValue: step.title })}
+                      </span>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-300/90">{step.description}</p>
+                    <p className="mt-1 text-[11px] text-slate-300/90">
+                      {t(`editor.help.step.${step.key}.description`, { defaultValue: step.description })}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -6425,7 +6455,7 @@ const Editor = () => {
                   rel="noreferrer"
                   className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                 >
-                  Privacy Policy
+                  {t("editor.help.privacyPolicy")}
                 </a>
                 <a
                   href="https://www.autoeditor.app/terms"
@@ -6433,11 +6463,11 @@ const Editor = () => {
                   rel="noreferrer"
                   className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                 >
-                  Terms of Service
+                  {t("editor.help.termsOfService")}
                 </a>
               </div>
               <Button type="button" size="sm" onClick={() => setEditorGuideOpen(false)}>
-                Close Demo
+                {t("editor.help.closeDemo")}
               </Button>
             </div>
           </div>

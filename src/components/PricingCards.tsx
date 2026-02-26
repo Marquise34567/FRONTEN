@@ -165,6 +165,7 @@ const PricingCards = ({
   const isAnnual = billingInterval === "annual";
 
   return (
+    // Mobile-first: one full-width card per row under md, then progressive columns.
     <div className={cn("grid grid-cols-1 gap-4 md:gap-5", showFounderCard ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
       {planOrder.map((tier) => {
         const plan = PRICING_PLANS[tier];
@@ -253,6 +254,7 @@ const PricingCards = ({
             </ul>
 
             <div className="relative z-10 mt-5">
+              {/* Mobile-first: CTA stays full-width for easier tap targets. */}
               {showCurrent ? (
                 <Button disabled className="h-11 w-full rounded-xl border border-purple-300/20 bg-white/10 text-white">
                   {t("pricing.card.currentPlan")}

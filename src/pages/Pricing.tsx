@@ -1,20 +1,32 @@
 import { motion } from "framer-motion";
+import { Clock3, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import PricingCards from "@/components/PricingCards";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSubscription } from "@/hooks/use-subscription";
 import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { useMe } from "@/hooks/use-me";
 import { ApiError, apiFetch } from "@/lib/api";
-import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { PlanTier } from "@shared/planConfig";
-import { ZoomIn } from "lucide-react";
+
+const TRIAL_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+const formatCountdown = (msRemaining: number) => {
+  const safe = Math.max(0, Math.floor(msRemaining / 1000));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
 
 const Pricing = () => {
+  const { t } = useTranslation("common");
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
   const { data: me } = useMe();
@@ -27,13 +39,27 @@ const Pricing = () => {
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
-  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
-  const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
+  const trialCountdownTargetMs = useMemo(() => {
+    const parsedEnd = trialInfo?.endsAt ? new Date(trialInfo.endsAt).getTime() : Number.NaN;
+    if (Number.isFinite(parsedEnd)) return parsedEnd;
+    return Date.now() + TRIAL_WINDOW_MS;
+  }, [trialInfo?.endsAt]);
+  const [trialCountdown, setTrialCountdown] = useState(formatCountdown(TRIAL_WINDOW_MS));
 
   useEffect(() => {
-    if (trialActive) setUseStarterTrial(true);
-    if (trialUsed) setUseStarterTrial(false);
+    if (trialActive) {
+      setUseStarterTrial(true);
+      return;
+    }
+    setUseStarterTrial(!trialUsed);
   }, [trialActive, trialUsed]);
+
+  useEffect(() => {
+    const tick = () => setTrialCountdown(formatCountdown(trialCountdownTargetMs - Date.now()));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [trialCountdownTargetMs]);
 
   const handleCheckout = async (tier: PlanTier) => {
     if (!accessToken) return;
@@ -41,7 +67,7 @@ const Pricing = () => {
       setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
+        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial && !trialUsed }),
         token: accessToken,
       });
       window.location.href = result.url;
@@ -74,88 +100,62 @@ const Pricing = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main min-h-screen px-4 pt-24 pb-20">
-        <motion.div
-          className="text-center max-w-2xl mx-auto mb-14"
-          initial={{ opacity: 0, y: 20 }}
+      <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
+        <motion.section
+          className="mx-auto mb-6 max-w-6xl rounded-3xl border border-purple-900/40 bg-[linear-gradient(145deg,#0F0F1A_0%,#12121F_100%)] px-4 py-8 shadow-[0_28px_100px_-50px_rgba(168,85,247,0.7)] md:px-8"
+          initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.45 }}
         >
-          <h1 className="text-4xl font-bold font-display text-foreground mb-4">Simple, Transparent Pricing</h1>
-          <p className="text-muted-foreground">Pick a plan that matches your output volume and upgrade anytime.</p>
-        </motion.div>
+          <div className="mx-auto max-w-3xl text-center">
+            <h1 className="text-3xl font-bold text-white sm:text-4xl">{t("pricing.title")}</h1>
+            <p className="mt-2 text-sm text-slate-300 sm:text-base">{t("pricing.subtitle")}</p>
+          </div>
 
-        <motion.div
-          className="max-w-2xl mx-auto mb-8"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.08, duration: 0.45 }}
-        >
-          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="h-8 w-8 rounded-xl bg-emerald-400/15 flex items-center justify-center shrink-0">
-                <ZoomIn className="w-4 h-4 text-emerald-300" />
-              </span>
-              <p className="text-sm text-emerald-100 truncate">Zoom-In Smart Reframing</p>
+          <div className="premium-trial-banner mx-auto mt-6 flex max-w-4xl flex-col items-start gap-3 rounded-2xl border border-purple-300/35 bg-gradient-to-r from-[#7E22CE]/40 via-[#A855F7]/30 to-[#C084FC]/25 px-4 py-3 text-purple-100 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-100" />
+              <span className="text-sm font-semibold">{t("pricing.trialBanner")}</span>
             </div>
-            <Badge variant="secondary" className="bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">
-              Coming soon
-            </Badge>
-          </div>
-        </motion.div>
-
-        <div className="flex items-center justify-center gap-3 mb-10">
-          <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
-            <button
-              type="button"
-              onClick={() => setBillingInterval("monthly")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
-                billingInterval === "monthly"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingInterval("annual")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
-                billingInterval === "annual"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Annual
-            </button>
-          </div>
-          <span className="text-xs text-muted-foreground">Switch to annual billing</span>
-        </div>
-        <div className="flex items-center justify-center mb-10">
-          {trialUsed ? (
-            <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-              <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
-                Trial used
+            <div className="flex items-center gap-2">
+              <Clock3 className="h-4 w-4" />
+              <span className="rounded-full border border-purple-200/40 bg-black/20 px-3 py-1 font-mono text-sm tracking-wide">
+                {trialCountdown}
+              </span>
+              <Badge className="border border-purple-100/35 bg-white/15 text-purple-50">
+                {trialUsed ? t("pricing.trialUsedBadge") : trialActive ? t("pricing.trialLiveBadge") : t("pricing.trialNewBadge")}
               </Badge>
-              <span className="text-xs text-muted-foreground">Starter free trial has already been used on this account.</span>
             </div>
-          ) : (
-            <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-              <Switch
-                checked={trialActive ? true : useStarterTrial}
-                onCheckedChange={setUseStarterTrial}
-                disabled={trialActive}
-              />
-              <span className="text-xs text-muted-foreground">
-                {trialActive
-                  ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
-                  : "Use 3-day free trial (full unlock) when choosing Starter"}
-              </span>
-            </label>
-          )}
-        </div>
+          </div>
 
-        <div className="max-w-6xl mx-auto">
+          <div className="mx-auto mt-5 flex max-w-xl flex-col items-center gap-2">
+            <div className="inline-flex w-full max-w-md rounded-full border border-purple-400/35 bg-black/30 p-1.5">
+              <button
+                type="button"
+                onClick={() => setBillingInterval("monthly")}
+                className={cn(
+                  "h-11 flex-1 rounded-full text-sm font-semibold transition",
+                  billingInterval === "monthly" ? "bg-white text-[#11111f]" : "text-purple-100/85 hover:text-white",
+                )}
+              >
+                {t("pricing.monthly")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingInterval("annual")}
+                className={cn(
+                  "h-11 flex-1 rounded-full text-sm font-semibold transition",
+                  billingInterval === "annual" ? "bg-gradient-to-r from-[#A855F7] to-[#C084FC] text-white" : "text-purple-100/85 hover:text-white",
+                )}
+              >
+                {t("pricing.annual")}
+              </button>
+            </div>
+            <span className="text-xs text-purple-100/90">{t("pricing.saveTwenty")}</span>
+          </div>
+        </motion.section>
+
+        <div className="mx-auto max-w-7xl">
           <PricingCards
             currentTier={currentPlan}
             isAuthenticated={!!user}
