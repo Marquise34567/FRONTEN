@@ -375,11 +375,38 @@ const ManualTimestampEditor = ({
         </div>
         {previewMode === "split" && originalUrl ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <video ref={splitOriginalVideoRef} src={originalUrl} muted className="aspect-video w-full rounded bg-black object-contain" />
-            <video ref={splitEditedVideoRef} src={editedUrl} muted className="aspect-video w-full rounded bg-black object-contain" />
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-slate-300">Realtime Edited</p>
+              <video
+                ref={splitEditedVideoRef}
+                src={editedUrl}
+                muted
+                className="aspect-video w-full rounded bg-black object-contain"
+                aria-label="Realtime edited preview"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-slate-300">Original</p>
+              <video
+                ref={splitOriginalVideoRef}
+                src={originalUrl}
+                muted
+                className="aspect-video w-full rounded bg-black object-contain"
+                aria-label="Original preview"
+              />
+            </div>
           </div>
         ) : (
-          <video ref={splitEditedVideoRef} src={editedUrl} muted className="aspect-video w-full rounded bg-black object-contain" />
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-slate-300">Realtime Edited</p>
+            <video
+              ref={splitEditedVideoRef}
+              src={editedUrl}
+              muted
+              className="aspect-video w-full rounded bg-black object-contain"
+              aria-label="Realtime edited preview"
+            />
+          </div>
         )}
       </div>
     </div>
