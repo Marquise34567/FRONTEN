@@ -490,10 +490,7 @@ const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelecti
     : "auto";
 };
 
-const mapEditorModeForBackend = (value: EditorModeSelection): Exclude<EditorModeSelection, "podcast"> => {
-  if (value === "podcast") return "commentary";
-  return value;
-};
+const mapEditorModeForBackend = (value: EditorModeSelection): EditorModeSelection => value;
 
 const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   const normalized = String(value || "").trim().toLowerCase();
