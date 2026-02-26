@@ -91,6 +91,9 @@ type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
+type ViralModeSelection = "none" | "youtube" | "tiktok";
+type EnhanceModeSelection = "off" | "transitions" | "swoosh" | "zooms" | "all" | "auto";
+type EffectPreviewSelection = Exclude<EnhanceModeSelection, "off">;
 type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
@@ -195,6 +198,47 @@ const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; cl
   balanced: { aggression: 45, clarityVsSpeed: 68, tangentKiller: false },
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
+};
+const VIRAL_MODE_OPTIONS: Array<{ value: ViralModeSelection; label: string; description: string }> = [
+  {
+    value: "youtube",
+    label: "YouTube Viral",
+    description: "Retention + storytelling polish with smoother pacing and cinematic effect blend.",
+  },
+  {
+    value: "tiktok",
+    label: "TikTok Viral",
+    description: "Instant dopamine profile with aggressive pacing, snap zooms, and punchier FX.",
+  },
+  {
+    value: "none",
+    label: "None",
+    description: "Keep manual control over pacing and effect toggles.",
+  },
+];
+const ENHANCE_MODE_OPTIONS: Array<{ value: EnhanceModeSelection; label: string }> = [
+  { value: "off", label: "Off" },
+  { value: "transitions", label: "Transitions" },
+  { value: "swoosh", label: "Swoosh SFX" },
+  { value: "zooms", label: "Zooms" },
+  { value: "all", label: "All Effects" },
+  { value: "auto", label: "Auto" },
+];
+const deriveEnhanceModeFromEffectToggles = (
+  transitionsEnabled: boolean,
+  smartZoomEnabled: boolean,
+  soundFxEnabled: boolean,
+): EnhanceModeSelection => {
+  if (transitionsEnabled && smartZoomEnabled && soundFxEnabled) return "all";
+  if (!transitionsEnabled && !smartZoomEnabled && !soundFxEnabled) return "off";
+  if (transitionsEnabled && !smartZoomEnabled && !soundFxEnabled) return "transitions";
+  if (!transitionsEnabled && smartZoomEnabled && !soundFxEnabled) return "zooms";
+  if (!transitionsEnabled && !smartZoomEnabled && soundFxEnabled) return "swoosh";
+  return "auto";
+};
+const previewEffectTypeFromEnhanceMode = (enhanceMode: EnhanceModeSelection): EffectPreviewSelection | null => {
+  if (enhanceMode === "off") return null;
+  return enhanceMode;
 };
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
@@ -598,6 +642,14 @@ const Editor = () => {
   const [smartZoomEnabled, setSmartZoomEnabled] = useState(true);
   const [transitionsEnabled, setTransitionsEnabled] = useState(true);
   const [soundFxEnabled, setSoundFxEnabled] = useState(true);
+  const [viralMode, setViralMode] = useState<ViralModeSelection>("none");
+  const [enhanceMode, setEnhanceMode] = useState<EnhanceModeSelection>("all");
+  const [showEffectPreview, setShowEffectPreview] = useState(false);
+  const [effectPreviewUrl, setEffectPreviewUrl] = useState("");
+  const [effectPreviewLoading, setEffectPreviewLoading] = useState(false);
+  const [effectPreviewError, setEffectPreviewError] = useState("");
+  const [currentEffectPreview, setCurrentEffectPreview] = useState<EffectPreviewSelection>("all");
+  const [effectPreviewRefreshNonce, setEffectPreviewRefreshNonce] = useState(0);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
@@ -1378,9 +1430,13 @@ const Editor = () => {
       .then((d) => {
         setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
         setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
-        if (typeof d?.settings?.smartZoom === "boolean") setSmartZoomEnabled(Boolean(d.settings.smartZoom));
-        if (typeof d?.settings?.transitions === "boolean") setTransitionsEnabled(Boolean(d.settings.transitions));
-        if (typeof d?.settings?.soundFx === "boolean") setSoundFxEnabled(Boolean(d.settings.soundFx));
+        const nextSmartZoom = typeof d?.settings?.smartZoom === "boolean" ? Boolean(d.settings.smartZoom) : true;
+        const nextTransitions = typeof d?.settings?.transitions === "boolean" ? Boolean(d.settings.transitions) : true;
+        const nextSoundFx = typeof d?.settings?.soundFx === "boolean" ? Boolean(d.settings.soundFx) : true;
+        setSmartZoomEnabled(nextSmartZoom);
+        setTransitionsEnabled(nextTransitions);
+        setSoundFxEnabled(nextSoundFx);
+        setEnhanceMode(deriveEnhanceModeFromEffectToggles(nextTransitions, nextSmartZoom, nextSoundFx));
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
@@ -1527,9 +1583,13 @@ const Editor = () => {
                 const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
                 setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
                 setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
-                if (typeof s?.settings?.smartZoom === "boolean") setSmartZoomEnabled(Boolean(s.settings.smartZoom));
-                if (typeof s?.settings?.transitions === "boolean") setTransitionsEnabled(Boolean(s.settings.transitions));
-                if (typeof s?.settings?.soundFx === "boolean") setSoundFxEnabled(Boolean(s.settings.soundFx));
+                const nextSmartZoom = typeof s?.settings?.smartZoom === "boolean" ? Boolean(s.settings.smartZoom) : true;
+                const nextTransitions = typeof s?.settings?.transitions === "boolean" ? Boolean(s.settings.transitions) : true;
+                const nextSoundFx = typeof s?.settings?.soundFx === "boolean" ? Boolean(s.settings.soundFx) : true;
+                setSmartZoomEnabled(nextSmartZoom);
+                setTransitionsEnabled(nextTransitions);
+                setSoundFxEnabled(nextSoundFx);
+                setEnhanceMode(deriveEnhanceModeFromEffectToggles(nextTransitions, nextSmartZoom, nextSoundFx));
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
                 setSubtitleStyleDirty(false);
@@ -1775,6 +1835,8 @@ const Editor = () => {
               smartZoom: smartZoomEnabled,
               transitions: transitionsEnabled,
               soundFx: soundFxEnabled,
+              viralMode,
+              enhanceMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1801,6 +1863,8 @@ const Editor = () => {
               smartZoom: smartZoomEnabled,
               transitions: transitionsEnabled,
               soundFx: soundFxEnabled,
+              viralMode,
+              enhanceMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1965,6 +2029,8 @@ const Editor = () => {
             smartZoom: smartZoomEnabled,
             transitions: transitionsEnabled,
             soundFx: soundFxEnabled,
+            viralMode,
+            enhanceMode,
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
           }),
           token: accessToken,
@@ -2561,6 +2627,8 @@ const Editor = () => {
           smartZoom: smartZoomEnabled,
           transitions: transitionsEnabled,
           soundFx: soundFxEnabled,
+          viralMode,
+          enhanceMode,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -2682,6 +2750,8 @@ const Editor = () => {
       smartZoomEnabled,
       transitionsEnabled,
       soundFxEnabled,
+      viralMode,
+      enhanceMode,
       verticalCaptionText,
       isDevAccount,
       toast,
@@ -3229,6 +3299,88 @@ const Editor = () => {
   const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
   const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
   const hookPreviewRefreshNonce = activeJob ? hookPreviewRefreshNonceByJob[activeJob.id] || 0 : 0;
+  const selectedEffectPreviewType = previewEffectTypeFromEnhanceMode(enhanceMode);
+
+  useEffect(() => {
+    if (!showEffectPreview) return;
+    if (!accessToken) return;
+    if (!activeJob?.id) {
+      setEffectPreviewLoading(false);
+      setEffectPreviewUrl("");
+      setEffectPreviewError("Select a job to generate an effect preview.");
+      return;
+    }
+    if (onlyHookAndCut) {
+      setEffectPreviewLoading(false);
+      setEffectPreviewUrl("");
+      setEffectPreviewError("Disable Only Hook & Cut to preview transitions, swoosh, and zoom effects.");
+      return;
+    }
+    if (!selectedEffectPreviewType) {
+      setEffectPreviewLoading(false);
+      setEffectPreviewUrl("");
+      setEffectPreviewError("Enable an effect mode to preview.");
+      return;
+    }
+
+    let canceled = false;
+    const timer = setTimeout(() => {
+      setEffectPreviewLoading(true);
+      setCurrentEffectPreview(selectedEffectPreviewType);
+      setEffectPreviewError("");
+      void apiFetch<{
+        previewUrl?: string;
+        effectType?: string;
+      }>(`/api/jobs/${activeJob.id}/effect-preview`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          effectType: selectedEffectPreviewType,
+          viralMode,
+          previewDuration: viralMode === "tiktok" ? 10 : 12,
+        }),
+      })
+        .then((response) => {
+          if (canceled) return;
+          const nextUrl = typeof response?.previewUrl === "string" ? response.previewUrl : "";
+          if (!nextUrl) {
+            setEffectPreviewUrl("");
+            setEffectPreviewError("Preview render finished without a playable URL.");
+            return;
+          }
+          setEffectPreviewUrl(nextUrl);
+          setEffectPreviewError("");
+        })
+        .catch((err: any) => {
+          if (canceled) return;
+          setEffectPreviewUrl("");
+          setEffectPreviewError(err?.message || "Preview unavailable right now.");
+        })
+        .finally(() => {
+          if (canceled) return;
+          setEffectPreviewLoading(false);
+        });
+    }, 150);
+
+    return () => {
+      canceled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    accessToken,
+    activeJob?.id,
+    effectPreviewRefreshNonce,
+    onlyHookAndCut,
+    selectedEffectPreviewType,
+    showEffectPreview,
+    viralMode,
+  ]);
+
+  useEffect(() => {
+    if (!onlyHookAndCut) return;
+    setShowEffectPreview(false);
+  }, [onlyHookAndCut]);
+
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -3640,6 +3792,89 @@ const Editor = () => {
         : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-violet-300/40 hover:text-white hover:shadow-[0_0_16px_rgba(192,132,252,0.18)]"
     }`;
 
+  const refreshEffectPreview = useCallback(() => {
+    setEffectPreviewUrl("");
+    setEffectPreviewError("");
+    setShowEffectPreview(true);
+    setEffectPreviewRefreshNonce((prev) => prev + 1);
+  }, []);
+
+  const setEffectToggles = useCallback((next: { transitions: boolean; smartZoom: boolean; soundFx: boolean }) => {
+    setTransitionsEnabled(next.transitions);
+    setSmartZoomEnabled(next.smartZoom);
+    setSoundFxEnabled(next.soundFx);
+    setEnhanceMode(deriveEnhanceModeFromEffectToggles(next.transitions, next.smartZoom, next.soundFx));
+  }, []);
+
+  const applyEnhanceModeSelection = useCallback((nextMode: EnhanceModeSelection) => {
+    if (nextMode === "off") {
+      setEffectToggles({ transitions: false, smartZoom: false, soundFx: false });
+    } else if (nextMode === "transitions") {
+      setEffectToggles({ transitions: true, smartZoom: false, soundFx: false });
+    } else if (nextMode === "swoosh") {
+      setEffectToggles({ transitions: false, smartZoom: false, soundFx: true });
+    } else if (nextMode === "zooms") {
+      setEffectToggles({ transitions: false, smartZoom: true, soundFx: false });
+    } else if (nextMode === "all") {
+      setEffectToggles({ transitions: true, smartZoom: true, soundFx: true });
+    } else if (nextMode === "auto") {
+      if (viralMode === "youtube" || viralMode === "tiktok") {
+        setEffectToggles({ transitions: true, smartZoom: true, soundFx: true });
+      }
+      setEnhanceMode("auto");
+    }
+    refreshEffectPreview();
+    trackEditorEvent("enhance_mode_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        enhanceMode: nextMode,
+        viralMode,
+      },
+    });
+  }, [
+    activeSubtitlePreset,
+    refreshEffectPreview,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    setEffectToggles,
+    trackEditorEvent,
+    viralMode,
+  ]);
+
+  const applyViralModeSelection = useCallback((nextMode: ViralModeSelection) => {
+    setViralMode(nextMode);
+    if (nextMode === "youtube") {
+      setRetentionTargetPlatform("youtube");
+      setRetentionStrategyProfile((prev) => (prev === "viral" ? "balanced" : prev));
+      setEffectToggles({ transitions: true, smartZoom: true, soundFx: true });
+      setEnhanceMode("auto");
+    } else if (nextMode === "tiktok") {
+      setRetentionTargetPlatform("tiktok");
+      setRetentionStrategyProfile("viral");
+      setMaxCutsRequested((prev) => clamp(Math.max(prev, 10), MAX_CUTS_MIN, MAX_CUTS_MAX));
+      setEffectToggles({ transitions: true, smartZoom: true, soundFx: true });
+      setEnhanceMode("auto");
+    }
+    refreshEffectPreview();
+    trackEditorEvent("viral_mode_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        viralMode: nextMode,
+      },
+    });
+  }, [
+    activeSubtitlePreset,
+    refreshEffectPreview,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    setEffectToggles,
+    trackEditorEvent,
+  ]);
+
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
       return (
@@ -3838,31 +4073,176 @@ const Editor = () => {
                 {isVerticalMode ? "Vertical Short-Form Pipeline" : "Horizontal Long-Form Pipeline"}
               </span>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <button
-                type="button"
-                className={`${sectionPillClass(transitionsEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
-                disabled={onlyHookAndCut}
-                onClick={() => setTransitionsEnabled((prev) => !prev)}
-              >
-                Transitions {transitionsEnabled ? "On" : "Off"}
-              </button>
-              <button
-                type="button"
-                className={`${sectionPillClass(smartZoomEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
-                disabled={onlyHookAndCut}
-                onClick={() => setSmartZoomEnabled((prev) => !prev)}
-              >
-                Smart Zoom {smartZoomEnabled ? "On" : "Off"}
-              </button>
-              <button
-                type="button"
-                className={`${sectionPillClass(soundFxEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
-                disabled={onlyHookAndCut}
-                onClick={() => setSoundFxEnabled((prev) => !prev)}
-              >
-                Sound FX {soundFxEnabled ? "On" : "Off"}
-              </button>
+            <div className="space-y-3">
+              <div>
+                <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Viral Mode</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {VIRAL_MODE_OPTIONS.map((mode) => (
+                    <Tooltip key={mode.value}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className={sectionPillClass(viralMode === mode.value)}
+                          onClick={() => applyViralModeSelection(mode.value)}
+                        >
+                          {mode.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>{mode.description}</TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Enhance Effects</p>
+                  <span className="rounded-full border border-violet-300/40 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-100">
+                    {enhanceMode === "auto" ? "Auto mix" : ENHANCE_MODE_OPTIONS.find((mode) => mode.value === enhanceMode)?.label || "Custom"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                  {ENHANCE_MODE_OPTIONS.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      className={`${sectionPillClass(enhanceMode === mode.value)} ${onlyHookAndCut && mode.value !== "off" ? "cursor-not-allowed opacity-60" : ""}`}
+                      disabled={onlyHookAndCut && mode.value !== "off"}
+                      onClick={() => applyEnhanceModeSelection(mode.value)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  className={`${sectionPillClass(transitionsEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                  disabled={onlyHookAndCut}
+                  onClick={() => {
+                    const nextTransitions = !transitionsEnabled;
+                    setEffectToggles({
+                      transitions: nextTransitions,
+                      smartZoom: smartZoomEnabled,
+                      soundFx: soundFxEnabled,
+                    });
+                    refreshEffectPreview();
+                  }}
+                >
+                  Transitions {transitionsEnabled ? "On" : "Off"}
+                </button>
+                <button
+                  type="button"
+                  className={`${sectionPillClass(smartZoomEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                  disabled={onlyHookAndCut}
+                  onClick={() => {
+                    const nextSmartZoom = !smartZoomEnabled;
+                    setEffectToggles({
+                      transitions: transitionsEnabled,
+                      smartZoom: nextSmartZoom,
+                      soundFx: soundFxEnabled,
+                    });
+                    refreshEffectPreview();
+                  }}
+                >
+                  Smart Zoom {smartZoomEnabled ? "On" : "Off"}
+                </button>
+                <button
+                  type="button"
+                  className={`${sectionPillClass(soundFxEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                  disabled={onlyHookAndCut}
+                  onClick={() => {
+                    const nextSoundFx = !soundFxEnabled;
+                    setEffectToggles({
+                      transitions: transitionsEnabled,
+                      smartZoom: smartZoomEnabled,
+                      soundFx: nextSoundFx,
+                    });
+                    refreshEffectPreview();
+                  }}
+                >
+                  Sound FX {soundFxEnabled ? "On" : "Off"}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <p className="text-xs text-slate-300">Real-time preview clip</p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="min-h-10 px-3 text-xs md:min-h-9"
+                    onClick={() => {
+                      if (showEffectPreview) {
+                        setShowEffectPreview(false);
+                        return;
+                      }
+                      refreshEffectPreview();
+                    }}
+                  >
+                    {showEffectPreview ? "Hide" : "Show"}
+                  </Button>
+                  {showEffectPreview && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="min-h-10 px-3 text-xs md:min-h-9"
+                      disabled={effectPreviewLoading}
+                      onClick={refreshEffectPreview}
+                    >
+                      Refresh
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {showEffectPreview && (
+                <div className="overflow-hidden rounded-xl border border-violet-400/30 bg-black/35">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <p className="text-sm font-medium text-violet-100">Live Preview</p>
+                    <span className="text-xs text-slate-300">
+                      {currentEffectPreview === "all"
+                        ? "All effects"
+                        : currentEffectPreview === "auto"
+                          ? "Auto mix"
+                          : currentEffectPreview === "swoosh"
+                            ? "Swoosh SFX"
+                            : currentEffectPreview === "zooms"
+                              ? "Zooms"
+                              : "Transitions"}
+                    </span>
+                  </div>
+                  <div className="relative aspect-video bg-black">
+                    {effectPreviewLoading ? (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-violet-300" />
+                      </div>
+                    ) : effectPreviewUrl ? (
+                      <video
+                        src={effectPreviewUrl}
+                        autoPlay
+                        loop
+                        muted
+                        controls
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-slate-400">
+                        {effectPreviewError || "Preview will appear after your next effect selection."}
+                      </div>
+                    )}
+                  </div>
+                  <div className="px-3 py-2 text-xs text-slate-400">
+                    {effectPreviewError
+                      ? effectPreviewError
+                      : `Showing ${currentEffectPreview} on a high-energy segment (${viralMode === "none" ? "manual mode" : viralMode === "tiktok" ? "TikTok viral profile" : "YouTube viral profile"}).`}
+                  </div>
+                </div>
+              )}
             </div>
             <p className="mt-2 text-xs text-slate-400">
               {onlyHookAndCut
@@ -5734,4 +6114,3 @@ const Editor = () => {
 };
 
 export default Editor;
-
