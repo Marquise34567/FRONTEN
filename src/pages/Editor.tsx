@@ -80,6 +80,7 @@ type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education";
+type LongFormPreset = "balanced" | "aggressive" | "ultra";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
 type OutcomeAutomationProfile = {
@@ -151,6 +152,18 @@ const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; de
   { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
   { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
 ];
+const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string }> = [
+  { value: "balanced", label: "Balanced", description: "10-18 cuts/min, lighter compression, 0.28s silence target." },
+  { value: "aggressive", label: "Aggressive", description: "18-28 cuts/min, tighter pacing, 0.18s silence target." },
+  { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
+];
+const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
+  balanced: { aggression: 45, clarityVsSpeed: 68, tangentKiller: false },
+  aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
+  ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
+};
+const LONG_FORM_CONTROL_MIN = 0;
+const LONG_FORM_CONTROL_MAX = 100;
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -501,6 +514,10 @@ const Editor = () => {
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("balanced");
+  const [longFormAggression, setLongFormAggression] = useState(45);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
+  const [tangentKiller, setTangentKiller] = useState(false);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(false);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
@@ -614,6 +631,12 @@ const Editor = () => {
       EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode) ??
       EDITOR_MODE_OPTIONS[0],
     [editorMode],
+  );
+  const activeLongFormPresetMeta = useMemo(
+    () =>
+      LONG_FORM_PRESET_OPTIONS.find((preset) => preset.value === longFormPreset) ??
+      LONG_FORM_PRESET_OPTIONS[0],
+    [longFormPreset],
   );
   const activeSubtitlePresetMeta = useMemo(
     () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
@@ -1657,6 +1680,10 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode,
+              longFormPreset,
+              longFormAggression,
+              longFormClarityVsSpeed,
+              tangentKiller,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1674,6 +1701,10 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode,
+              longFormPreset,
+              longFormAggression,
+              longFormClarityVsSpeed,
+              tangentKiller,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1830,6 +1861,10 @@ const Editor = () => {
             subtitles: subtitlesPayload,
             maxCuts: maxCutsRequested,
             editorMode,
+            longFormPreset,
+            longFormAggression,
+            longFormClarityVsSpeed,
+            tangentKiller,
           }),
           token: accessToken,
         })
@@ -2369,6 +2404,10 @@ const Editor = () => {
           onlyHookAndCut,
           maxCuts: maxCutsRequested,
           editorMode,
+          longFormPreset,
+          longFormAggression,
+          longFormClarityVsSpeed,
+          tangentKiller,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -2472,11 +2511,15 @@ const Editor = () => {
       maxRendersPerMonth,
       maxRerendersPerDay,
       maxCutsRequested,
+      longFormPreset,
+      longFormAggression,
+      longFormClarityVsSpeed,
       onlyHookAndCut,
       qualityByJob,
       refetchMe,
       retentionStrategyProfile,
       retentionTargetPlatform,
+      tangentKiller,
       selectedHookByJob,
       subtitleStyleDraft,
       toast,
@@ -3389,6 +3432,90 @@ const Editor = () => {
                     : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
                 </p>
               ) : null}
+              </div>
+              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Long-Form Efficiency</p>
+                    <p className="text-xs text-muted-foreground">
+                      Preset: {activeLongFormPresetMeta.label}. Aggression {longFormAggression}, clarity {longFormClarityVsSpeed}.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/80">
+                      {activeLongFormPresetMeta.description}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={tangentKiller ? "default" : "outline"}
+                    className={`rounded-full ${
+                      tangentKiller
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "border-border/60 text-muted-foreground"
+                    }`}
+                    onClick={() => setTangentKiller((prev) => !prev)}
+                  >
+                    Tangent Killer {tangentKiller ? "On" : "Off"}
+                  </Button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/15 p-1">
+                  {LONG_FORM_PRESET_OPTIONS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                        longFormPreset === preset.value
+                          ? "bg-card text-foreground border border-border/60"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => {
+                        const defaults = LONG_FORM_PRESET_DEFAULTS[preset.value];
+                        setLongFormPreset(preset.value);
+                        setLongFormAggression(defaults.aggression);
+                        setLongFormClarityVsSpeed(defaults.clarityVsSpeed);
+                        setTangentKiller(defaults.tangentKiller);
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground/85">
+                      <span>Aggression</span>
+                      <span>{longFormAggression}</span>
+                    </div>
+                    <Slider
+                      min={LONG_FORM_CONTROL_MIN}
+                      max={LONG_FORM_CONTROL_MAX}
+                      step={1}
+                      value={[longFormAggression]}
+                      onValueChange={(values) => {
+                        const candidate = Number(values?.[0] ?? longFormAggression);
+                        if (!Number.isFinite(candidate)) return;
+                        setLongFormAggression(clamp(Math.round(candidate), LONG_FORM_CONTROL_MIN, LONG_FORM_CONTROL_MAX));
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground/85">
+                      <span>Clarity vs Speed</span>
+                      <span>{longFormClarityVsSpeed}</span>
+                    </div>
+                    <Slider
+                      min={LONG_FORM_CONTROL_MIN}
+                      max={LONG_FORM_CONTROL_MAX}
+                      step={1}
+                      value={[longFormClarityVsSpeed]}
+                      onValueChange={(values) => {
+                        const candidate = Number(values?.[0] ?? longFormClarityVsSpeed);
+                        if (!Number.isFinite(candidate)) return;
+                        setLongFormClarityVsSpeed(clamp(Math.round(candidate), LONG_FORM_CONTROL_MIN, LONG_FORM_CONTROL_MAX));
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
