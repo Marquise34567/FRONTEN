@@ -197,7 +197,8 @@ type VerticalCaptionPreset =
   | "retro_wave"
   | "glitch_pop"
   | "cinema_punch";
-type VerticalCaptionAnimationMode = "none" | "pop";
+type VerticalCaptionAnimationMode = "none" | "pop" | "slide" | "bounce" | "glitch";
+type VerticalEditorCardId = "preview" | "captions";
 type VerticalCaptionStyleDefaults = {
   fontId: SubtitleStyleConfig["fontId"];
   textColor: string;
@@ -209,7 +210,7 @@ type VerticalCaptionStyleDefaults = {
   shadowBlur: number;
   boxEnabled: boolean;
   boxColor: string;
-  animationEnabled: boolean;
+  animation: VerticalCaptionAnimationMode;
   forceUppercase: boolean;
 };
 type VerticalCaptionsPayload = {
@@ -576,6 +577,7 @@ const VERTICAL_CLIP_SELECTOR_OPTIONS: Array<{
 const DEFAULT_VERTICAL_SELECTION_MODE: VerticalSelectionMode = "best_moments";
 const DEFAULT_VERTICAL_ZOOM_PROFILE: VerticalZoomProfile = "smooth";
 const DEFAULT_VERTICAL_ZOOM_INTENSITY = 62;
+const DEFAULT_VERTICAL_EDITOR_CARD_ORDER: VerticalEditorCardId[] = ["preview", "captions"];
 const DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE: Record<VerticalSelectionMode, number> = {
   best_moments: 3,
   story_arc: 2,
@@ -623,6 +625,17 @@ const VERTICAL_ZOOM_PROFILE_OPTIONS: Array<{
   { id: "punch", label: "Punch", description: "Sharper zoom pops for high-energy beats." },
   { id: "kinetic", label: "Kinetic", description: "Strongest zoom profile for viral intensity." },
 ];
+const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{
+  id: VerticalCaptionAnimationMode;
+  label: string;
+  description: string;
+}> = [
+  { id: "none", label: "None", description: "No animation. Static caption style." },
+  { id: "pop", label: "Pop", description: "Quick scale-in punch animation." },
+  { id: "slide", label: "Slide", description: "Slides into place from the side." },
+  { id: "bounce", label: "Bounce", description: "Punchy bounce settle animation." },
+  { id: "glitch", label: "Glitch", description: "Jittery glitch flicker entry." },
+];
 const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCaptionStyleDefaults> = {
   basic_clean: {
     fontId: "sans_bold",
@@ -635,7 +648,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 0,
     boxEnabled: true,
     boxColor: "#020617",
-    animationEnabled: false,
+    animation: "none",
     forceUppercase: false,
   },
   mrbeast_animated: {
@@ -649,7 +662,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 8,
     boxEnabled: false,
     boxColor: "#000000",
-    animationEnabled: true,
+    animation: "pop",
     forceUppercase: true,
   },
   neon_glow: {
@@ -663,7 +676,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 26,
     boxEnabled: false,
     boxColor: "#0A0F1E",
-    animationEnabled: true,
+    animation: "slide",
     forceUppercase: true,
   },
   bold_clean_box: {
@@ -677,7 +690,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 10,
     boxEnabled: true,
     boxColor: "#111827",
-    animationEnabled: false,
+    animation: "none",
     forceUppercase: false,
   },
   rage_mode: {
@@ -691,7 +704,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 18,
     boxEnabled: false,
     boxColor: "#240202",
-    animationEnabled: true,
+    animation: "bounce",
     forceUppercase: true,
   },
   ice_pop: {
@@ -705,7 +718,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 18,
     boxEnabled: false,
     boxColor: "#041426",
-    animationEnabled: true,
+    animation: "pop",
     forceUppercase: true,
   },
   retro_wave: {
@@ -719,7 +732,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 16,
     boxEnabled: false,
     boxColor: "#240046",
-    animationEnabled: true,
+    animation: "slide",
     forceUppercase: true,
   },
   glitch_pop: {
@@ -733,7 +746,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 12,
     boxEnabled: false,
     boxColor: "#020617",
-    animationEnabled: true,
+    animation: "glitch",
     forceUppercase: true,
   },
   cinema_punch: {
@@ -747,7 +760,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 8,
     boxEnabled: true,
     boxColor: "#1F172A",
-    animationEnabled: false,
+    animation: "none",
     forceUppercase: false,
   },
 };
@@ -1699,6 +1712,8 @@ const Editor = () => {
   const [verticalClipCountTouched, setVerticalClipCountTouched] = useState(false);
   const [verticalZoomProfile, setVerticalZoomProfile] = useState<VerticalZoomProfile>(DEFAULT_VERTICAL_ZOOM_PROFILE);
   const [verticalZoomIntensity, setVerticalZoomIntensity] = useState(DEFAULT_VERTICAL_ZOOM_INTENSITY);
+  const [verticalCardReorderEnabled, setVerticalCardReorderEnabled] = useState(false);
+  const [verticalEditorCardOrder, setVerticalEditorCardOrder] = useState<VerticalEditorCardId[]>(DEFAULT_VERTICAL_EDITOR_CARD_ORDER);
   const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
   const [verticalCaptionAutoGenerate, setVerticalCaptionAutoGenerate] = useState(true);
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>(DEFAULT_VERTICAL_CAPTION_PRESET);
@@ -1714,7 +1729,9 @@ const Editor = () => {
   const [verticalCaptionShadowBlur, setVerticalCaptionShadowBlur] = useState(defaultVerticalCaptionStyle.shadowBlur);
   const [verticalCaptionBoxEnabled, setVerticalCaptionBoxEnabled] = useState(defaultVerticalCaptionStyle.boxEnabled);
   const [verticalCaptionBoxColor, setVerticalCaptionBoxColor] = useState(defaultVerticalCaptionStyle.boxColor);
-  const [verticalCaptionAnimationEnabled, setVerticalCaptionAnimationEnabled] = useState(defaultVerticalCaptionStyle.animationEnabled);
+  const [verticalCaptionAnimationMode, setVerticalCaptionAnimationMode] = useState<VerticalCaptionAnimationMode>(
+    defaultVerticalCaptionStyle.animation,
+  );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState(0.84);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
@@ -3082,8 +3099,8 @@ const Editor = () => {
     shadowBlur: clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur),
     boxEnabled: verticalCaptionBoxEnabled,
     boxColor: normalizeVerticalCaptionHex(verticalCaptionBoxColor, activeVerticalCaptionPresetStyle.boxColor),
-    animationEnabled: verticalCaptionAnimationEnabled,
-    animation: verticalCaptionAnimationEnabled ? "pop" : "none",
+    animationEnabled: verticalCaptionAnimationMode !== "none",
+    animation: verticalCaptionAnimationMode,
     positionX: Number(clampVerticalCaptionPosition(verticalCaptionPositionX).toFixed(4)),
     positionY: Number(clampVerticalCaptionPosition(verticalCaptionPositionY).toFixed(4)),
   }), [
@@ -3102,7 +3119,7 @@ const Editor = () => {
     verticalCaptionShadowBlur,
     verticalCaptionBoxEnabled,
     verticalCaptionBoxColor,
-    verticalCaptionAnimationEnabled,
+    verticalCaptionAnimationMode,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     activeVerticalCaptionPresetStyle,
@@ -3473,6 +3490,8 @@ const Editor = () => {
     setVerticalClipCountTouched(false);
     setVerticalZoomProfile(DEFAULT_VERTICAL_ZOOM_PROFILE);
     setVerticalZoomIntensity(DEFAULT_VERTICAL_ZOOM_INTENSITY);
+    setVerticalCardReorderEnabled(false);
+    setVerticalEditorCardOrder(DEFAULT_VERTICAL_EDITOR_CARD_ORDER);
     setSkipManualWebcamCrop(false);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
@@ -3561,7 +3580,20 @@ const Editor = () => {
     setVerticalCaptionShadowBlur(clampVerticalCaptionShadowBlur(defaults.shadowBlur));
     setVerticalCaptionBoxEnabled(defaults.boxEnabled);
     setVerticalCaptionBoxColor(defaults.boxColor);
-    setVerticalCaptionAnimationEnabled(defaults.animationEnabled);
+    setVerticalCaptionAnimationMode(defaults.animation);
+  }, []);
+
+  const moveVerticalEditorCard = useCallback((cardId: VerticalEditorCardId, direction: "up" | "down") => {
+    setVerticalEditorCardOrder((prev) => {
+      const currentIndex = prev.indexOf(cardId);
+      if (currentIndex === -1) return prev;
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
   }, []);
 
   const prepareVerticalFile = (file: File) => {
@@ -3742,6 +3774,10 @@ const Editor = () => {
     verticalCaptionPreset,
     verticalCaptionText,
   ]);
+  const previewCardIndex = verticalEditorCardOrder.indexOf("preview");
+  const captionsCardIndex = verticalEditorCardOrder.indexOf("captions");
+  const previewCardOrder = previewCardIndex === -1 ? 0 : previewCardIndex;
+  const captionsCardOrder = captionsCardIndex === -1 ? 1 : captionsCardIndex;
 
   useEffect(() => {
     const video = verticalCompositionVideoRef.current;
@@ -3854,14 +3890,29 @@ const Editor = () => {
         canvasHeight - textBlockHeight / 2 - 20,
       );
       const captionTop = centerY - textBlockHeight / 2;
-      const animationScale = verticalCaptionAnimationEnabled
-        ? clamp(0.92 + 0.12 * Math.sin(window.performance.now() / 180), 0.86, 1.06)
-        : 1;
+      const animationMode = verticalCaptionAnimationMode;
+      const animationActive = animationMode !== "none";
+      const animationClock = window.performance.now();
+      const popScale = clamp(0.92 + 0.12 * Math.sin(animationClock / 180), 0.86, 1.06);
+      const bounceScale = clamp(0.88 + 0.18 * Math.abs(Math.sin(animationClock / 130)), 0.86, 1.1);
+      const slideOffset = Math.round(16 * Math.sin(animationClock / 220));
+      const glitchOffsetX = Math.round(4 * Math.sin(animationClock / 45));
+      const glitchOffsetY = Math.round(2 * Math.cos(animationClock / 58));
 
       ctx.save();
-      if (verticalCaptionAnimationEnabled) {
+      if (animationActive) {
         ctx.translate(centerX, centerY);
-        ctx.scale(animationScale, animationScale);
+        if (animationMode === "pop") {
+          ctx.scale(popScale, popScale);
+        } else if (animationMode === "bounce") {
+          ctx.scale(bounceScale, bounceScale);
+          ctx.translate(0, -3 * Math.abs(Math.sin(animationClock / 120)));
+        } else if (animationMode === "slide") {
+          ctx.translate(slideOffset, 0);
+        } else if (animationMode === "glitch") {
+          ctx.translate(glitchOffsetX, glitchOffsetY);
+          ctx.globalAlpha = clamp(0.84 + 0.16 * Math.sin(animationClock / 90), 0.72, 1);
+        }
         ctx.translate(-centerX, -centerY);
       }
 
@@ -3971,7 +4022,7 @@ const Editor = () => {
     verticalCaptionShadowBlur,
     verticalCaptionBoxEnabled,
     verticalCaptionBoxColor,
-    verticalCaptionAnimationEnabled,
+    verticalCaptionAnimationMode,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
   ]);
@@ -5065,11 +5116,10 @@ const Editor = () => {
       activeInputPreviewUrl &&
       manualLivePreviewSegments.length > 0,
   );
-  const previewVideoUrl = manualLivePreviewEnabled ? activeInputPreviewUrl : previewOutputUrl;
-  const showVideo = Boolean(
-    activeJob &&
-      ((manualLivePreviewEnabled && previewVideoUrl) || (normalizedActiveStatus === "ready" && previewOutputUrl)),
-  );
+  const previewVideoUrl = manualLivePreviewEnabled
+    ? activeInputPreviewUrl
+    : (previewOutputUrl || activeInputPreviewUrl);
+  const showVideo = Boolean(activeJob && previewVideoUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -5276,7 +5326,7 @@ const Editor = () => {
     hookSelectorOpen,
   ]);
   useEffect(() => {
-    if (!manualMode || !activeJob?.id || !accessToken) return;
+    if (!activeJob?.id || !accessToken) return;
     const jobId = activeJob.id;
     if (inputPreviewUrlByJob[jobId]) return;
     let canceled = false;
@@ -5299,7 +5349,7 @@ const Editor = () => {
     return () => {
       canceled = true;
     };
-  }, [accessToken, activeJob?.id, inputPreviewUrlByJob, manualMode]);
+  }, [accessToken, activeJob?.id, inputPreviewUrlByJob]);
   useEffect(() => {
     if (!hookSelectorOpen) return;
     const video = hookPreviewVideoRef.current;
@@ -7243,10 +7293,14 @@ const Editor = () => {
                         />
                         {skipManualWebcamCrop ? "Using source framing" : "Use manual webcam crop"}
                       </button>
+                      <label className="inline-flex items-center gap-2 rounded-full border border-violet-300/35 bg-violet-500/10 px-3 py-1 text-[11px] text-violet-100">
+                        <span>Reorder cards</span>
+                        <Switch checked={verticalCardReorderEnabled} onCheckedChange={setVerticalCardReorderEnabled} />
+                      </label>
                     </div>
 
                   <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
-                    <div className="w-full">
+                    <div className="w-full" style={{ order: previewCardOrder }}>
                       <video
                         ref={verticalCompositionVideoRef}
                         src={verticalPreviewUrl || undefined}
@@ -7256,7 +7310,33 @@ const Editor = () => {
                         className="hidden"
                       />
                       <div className="rounded-2xl border border-emerald-300/30 bg-black/85 p-4 space-y-3">
-                        <p className="text-xs font-medium uppercase tracking-[0.13em] text-emerald-200">Live Preview</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium uppercase tracking-[0.13em] text-emerald-200">Live Preview</p>
+                          {verticalCardReorderEnabled ? (
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => moveVerticalEditorCard("preview", "up")}
+                                disabled={previewCardOrder <= 0}
+                              >
+                                Up
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => moveVerticalEditorCard("preview", "down")}
+                                disabled={previewCardOrder >= 1}
+                              >
+                                Down
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="mx-auto w-full max-w-[420px]">
                           <div ref={verticalCompositionFrameRef} className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
                             <canvas
@@ -7288,7 +7368,7 @@ const Editor = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-4 rounded-2xl border border-emerald-300/25 bg-slate-950/75 p-4">
+                    <div className="space-y-4 rounded-2xl border border-emerald-300/25 bg-slate-950/75 p-4" style={{ order: captionsCardOrder }}>
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-emerald-100">Vertical Captions</p>
@@ -7307,6 +7387,30 @@ const Editor = () => {
                         />
                       </div>
                     </div>
+                    {verticalCardReorderEnabled ? (
+                      <div className="-mt-1 flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => moveVerticalEditorCard("captions", "up")}
+                          disabled={captionsCardOrder <= 0}
+                        >
+                          Up
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => moveVerticalEditorCard("captions", "down")}
+                          disabled={captionsCardOrder >= 1}
+                        >
+                          Down
+                        </Button>
+                      </div>
+                    ) : null}
 
                     {verticalCaptionEnabled ? (
                       <>
@@ -7437,7 +7541,7 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-3">
+                        <div className="grid gap-3 md:grid-cols-2">
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Drop shadow</span>
                             <Switch
@@ -7454,14 +7558,32 @@ const Editor = () => {
                               className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
                             />
                           </label>
-                          <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
-                            <span className="text-muted-foreground">Animated captions</span>
-                            <Switch
-                              checked={verticalCaptionAnimationEnabled}
-                              onCheckedChange={setVerticalCaptionAnimationEnabled}
-                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
-                            />
-                          </label>
+                        </div>
+
+                        <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Caption animation</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {VERTICAL_CAPTION_ANIMATION_OPTIONS.find((option) => option.id === verticalCaptionAnimationMode)?.label || "Pop"}
+                            </span>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                className={`rounded-md border px-2.5 py-2 text-left text-[11px] transition ${
+                                  verticalCaptionAnimationMode === option.id
+                                    ? "border-emerald-300/65 bg-emerald-500/15 text-emerald-100"
+                                    : "border-border/60 text-muted-foreground hover:border-emerald-300/35 hover:text-foreground"
+                                }`}
+                                onClick={() => setVerticalCaptionAnimationMode(option.id)}
+                              >
+                                <p className="font-medium uppercase tracking-[0.08em]">{option.label}</p>
+                                <p className="mt-1 leading-relaxed text-[10px] opacity-80">{option.description}</p>
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
                         {verticalCaptionShadowEnabled ? (
@@ -7819,8 +7941,14 @@ const Editor = () => {
                   </div>
                 )}
 
-                <div className={isVerticalMode ? "" : "xl:sticky xl:top-24"}>
+                <div>
                   <div className="glass-card overflow-hidden">
+                    <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Real-Time Edited Preview</p>
+                      <span className="text-[10px] text-muted-foreground">
+                        {previewOutputUrl ? "Edited output" : "Live source fallback"}
+                      </span>
+                    </div>
                     <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
                       {showVideo ? (
                         <video
