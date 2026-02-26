@@ -12,6 +12,9 @@ import { API_URL, apiFetch } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 
+type LiveStatsTransport = "websocket" | "sse" | "polling" | "disconnected";
+type LiveStatsTransportPreference = "auto" | "websocket" | "sse" | "polling";
+
 type LiveStatsAccess = {
   tier: string;
   isPaid: boolean;
@@ -94,12 +97,24 @@ type LiveStatsContextValue = {
   upgradeCta: string | null;
   loading: boolean;
   connected: boolean;
-  transport: "websocket" | "sse" | "polling" | "disconnected";
+  transport: LiveStatsTransport;
+  transportPreference: LiveStatsTransportPreference;
+  canControlTransport: boolean;
+  setTransportPreference: (next: LiveStatsTransportPreference) => void;
   lastUpdated: string | null;
   refresh: () => Promise<void>;
 };
 
 const LiveStatsContext = createContext<LiveStatsContextValue | undefined>(undefined);
+const DEV_TRANSPORT_STORAGE_KEY = "ae_live_transport_preference";
+
+const normalizeTransportPreference = (value: unknown): LiveStatsTransportPreference => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "websocket") return "websocket";
+  if (normalized === "sse") return "sse";
+  if (normalized === "polling") return "polling";
+  return "auto";
+};
 
 const parseEventData = <T,>(event: MessageEvent): T | null => {
   try {
@@ -157,9 +172,35 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
   const [state, setState] = useState<LiveStatsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [transport, setTransport] = useState<"websocket" | "sse" | "polling" | "disconnected">("disconnected");
+  const [transport, setTransport] = useState<LiveStatsTransport>("disconnected");
+  const [transportPreference, setTransportPreferenceState] = useState<LiveStatsTransportPreference>("auto");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canControlTransport = Boolean(state?.access?.isDev);
+  const effectiveTransportPreference: LiveStatsTransportPreference = canControlTransport ? transportPreference : "auto";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(DEV_TRANSPORT_STORAGE_KEY);
+    setTransportPreferenceState(normalizeTransportPreference(stored));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !canControlTransport) return;
+    if (transportPreference === "auto") {
+      window.localStorage.removeItem(DEV_TRANSPORT_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(DEV_TRANSPORT_STORAGE_KEY, transportPreference);
+  }, [canControlTransport, transportPreference]);
+
+  const setTransportPreference = useCallback(
+    (next: LiveStatsTransportPreference) => {
+      if (!canControlTransport) return;
+      setTransportPreferenceState(normalizeTransportPreference(next));
+    },
+    [canControlTransport]
+  );
 
   const hydrate = useCallback((payload: LiveStatsResponse | null) => {
     if (!payload) return;
@@ -175,8 +216,9 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
         token: accessToken,
       });
       hydrate(payload);
-      if (transport === "disconnected") {
+      if (transport === "disconnected" || transport === "polling") {
         setTransport("polling");
+        setConnected(true);
       }
     } finally {
       setLoading(false);
@@ -200,6 +242,11 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (!accessToken) return;
+    if (effectiveTransportPreference === "polling") {
+      setTransport("polling");
+      setConnected(false);
+      return;
+    }
     const wsUrl = resolveWsUrl(accessToken);
     let cancelled = false;
     let socket: WebSocket | null = null;
@@ -251,12 +298,22 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
 
     const connectWs = () => {
       if (!wsUrl || cancelled) {
+        if (effectiveTransportPreference === "websocket") {
+          setConnected(false);
+          setTransport("polling");
+          return;
+        }
         connectSse();
         return;
       }
       try {
         socket = new WebSocket(wsUrl);
       } catch {
+        if (effectiveTransportPreference === "websocket") {
+          setConnected(false);
+          setTransport("polling");
+          return;
+        }
         connectSse();
         return;
       }
@@ -287,17 +344,25 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
       socket.onclose = () => {
         if (cancelled) return;
         setConnected(false);
+        if (effectiveTransportPreference === "websocket") {
+          setTransport("polling");
+          return;
+        }
         connectSse();
       };
     };
 
-    connectWs();
+    if (effectiveTransportPreference === "sse") {
+      connectSse();
+    } else {
+      connectWs();
+    }
     return () => {
       cancelled = true;
       closeAll();
       setConnected(false);
     };
-  }, [accessToken, hydrate]);
+  }, [accessToken, effectiveTransportPreference, hydrate]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -345,10 +410,13 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
       loading,
       connected,
       transport,
+      transportPreference,
+      canControlTransport,
+      setTransportPreference,
       lastUpdated,
       refresh,
     }),
-    [state, loading, connected, transport, lastUpdated, refresh]
+    [state, loading, connected, transport, transportPreference, canControlTransport, setTransportPreference, lastUpdated, refresh]
   );
 
   return <LiveStatsContext.Provider value={value}>{children}</LiveStatsContext.Provider>;

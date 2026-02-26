@@ -133,6 +133,9 @@ const ControlPanel = () => {
     teaserMessage,
     connected,
     transport,
+    transportPreference,
+    canControlTransport,
+    setTransportPreference,
     lastUpdated,
     refresh,
     loading,
@@ -161,6 +164,12 @@ const ControlPanel = () => {
   const topTrend = trending[0];
   const liveStatusLabel = connected ? `LIVE ${transport.toUpperCase()}` : "RECONNECTING";
   const lastSyncLabel = lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "--";
+  const transportOptions = [
+    { value: "auto", label: "Auto" },
+    { value: "websocket", label: "WebSocket" },
+    { value: "sse", label: "SSE" },
+    { value: "polling", label: "Polling" },
+  ] as const;
 
   const metricCards = useMemo(
     () => [
@@ -635,6 +644,28 @@ const ControlPanel = () => {
                 <p>WS clients: {snapshot?.debug?.wsClients ?? 0}</p>
                 <p>DB telemetry: {snapshot?.debug?.dbOk ? "ok" : "fallback"}</p>
                 <p>Transport: {transport}</p>
+                <p>Mode: {transportPreference}</p>
+                {canControlTransport ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {transportOptions.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={transportPreference === option.value ? "secondary" : "ghost"}
+                        className={cn(
+                          "h-7 px-2 text-[10px]",
+                          transportPreference === option.value
+                            ? "border border-purple-200/50 bg-purple-400/30 text-purple-50"
+                            : "border border-purple-200/25 text-purple-100 hover:bg-purple-400/15"
+                        )}
+                        onClick={() => setTransportPreference(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
             <Card className="glass-card border-cyan-300/35 bg-cyan-500/10">
