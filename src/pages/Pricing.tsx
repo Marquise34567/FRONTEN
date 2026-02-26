@@ -108,14 +108,18 @@ const Pricing = () => {
           transition={{ duration: 0.45 }}
         >
           <div className="mx-auto max-w-3xl text-center">
-            <h1 className="text-3xl font-bold text-white sm:text-4xl">{t("pricing.title")}</h1>
-            <p className="mt-2 text-sm text-slate-300 sm:text-base">{t("pricing.subtitle")}</p>
+            <h1 className="text-3xl font-bold text-white sm:text-4xl">
+              {t("pricing.title", { defaultValue: "Premium plans for serious creators" })}
+            </h1>
+            <p className="mt-2 text-sm text-slate-300 sm:text-base">
+              {t("pricing.subtitle", { defaultValue: "Choose the editing capacity your channel needs and scale whenever you want." })}
+            </p>
           </div>
 
           <div className="premium-trial-banner mx-auto mt-6 flex max-w-4xl flex-col items-start gap-3 rounded-2xl border border-purple-300/35 bg-gradient-to-r from-[#7E22CE]/40 via-[#A855F7]/30 to-[#C084FC]/25 px-4 py-3 text-purple-100 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-purple-100" />
-              <span className="text-sm font-semibold">{t("pricing.trialBanner")}</span>
+              <span className="text-sm font-semibold">{t("pricing.trialBanner", { defaultValue: "3-day free trial for Starter and above" })}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock3 className="h-4 w-4" />
@@ -123,7 +127,11 @@ const Pricing = () => {
                 {trialCountdown}
               </span>
               <Badge className="border border-purple-100/35 bg-white/15 text-purple-50">
-                {trialUsed ? t("pricing.trialUsedBadge") : trialActive ? t("pricing.trialLiveBadge") : t("pricing.trialNewBadge")}
+                {trialUsed
+                  ? t("pricing.trialUsedBadge", { defaultValue: "Trial used" })
+                  : trialActive
+                    ? t("pricing.trialLiveBadge", { defaultValue: "Trial live" })
+                    : t("pricing.trialNewBadge", { defaultValue: "Trial ready" })}
               </Badge>
             </div>
           </div>
@@ -138,7 +146,7 @@ const Pricing = () => {
                   billingInterval === "monthly" ? "bg-white text-[#11111f]" : "text-purple-100/85 hover:text-white",
                 )}
               >
-                {t("pricing.monthly")}
+                {t("pricing.monthly", { defaultValue: "Monthly" })}
               </button>
               <button
                 type="button"
@@ -148,10 +156,10 @@ const Pricing = () => {
                   billingInterval === "annual" ? "bg-gradient-to-r from-[#A855F7] to-[#C084FC] text-white" : "text-purple-100/85 hover:text-white",
                 )}
               >
-                {t("pricing.annual")}
+                {t("pricing.annual", { defaultValue: "Annual" })}
               </button>
             </div>
-            <span className="text-xs text-purple-100/90">{t("pricing.saveTwenty")}</span>
+            <span className="text-xs text-purple-100/90">{t("pricing.saveTwenty", { defaultValue: "Save 20% with annual billing" })}</span>
           </div>
         </motion.section>
 
