@@ -740,10 +740,13 @@ const VerticalClipBuilderInner = ({
 
       if (!lines.length) return;
 
-      ctx.font = "700 30px Arial";
+      const captionFontSize = 30;
+      const captionLineHeight = Math.round(captionFontSize * 1.24);
+      const captionPaddingY = 12;
+      ctx.font = `700 ${captionFontSize}px Arial`;
       const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
       const boxWidth = Math.min(canvasWidth * 0.9, textWidth + 44);
-      const boxHeight = lines.length * 36 + 20;
+      const boxHeight = lines.length * captionLineHeight + captionPaddingY * 2;
       const boxX = (canvasWidth - boxWidth) / 2;
       const boxY = canvasHeight - boxHeight - 24;
 
@@ -758,8 +761,9 @@ const VerticalClipBuilderInner = ({
       ctx.fillStyle = "#f8f5ff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
+      const firstLineCenterY = boxY + captionPaddingY + captionLineHeight / 2;
       lines.forEach((line, idx) => {
-        ctx.fillText(line, canvasWidth / 2, boxY + 18 + idx * 36);
+        ctx.fillText(line, canvasWidth / 2, firstLineCenterY + idx * captionLineHeight);
       });
     };
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -49,6 +49,62 @@ type FeedbackResponse = {
   generatedAt: string;
   feedback: FeedbackAnalysis;
 };
+
+type FeedbackRenderBoundaryProps = {
+  children: React.ReactNode;
+  resetKey: string | number;
+};
+
+type FeedbackRenderBoundaryState = {
+  hasError: boolean;
+  errorMessage: string | null;
+};
+
+class FeedbackRenderBoundary extends React.Component<FeedbackRenderBoundaryProps, FeedbackRenderBoundaryState> {
+  state: FeedbackRenderBoundaryState = {
+    hasError: false,
+    errorMessage: null,
+  };
+
+  static getDerivedStateFromError(error: unknown): FeedbackRenderBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error instanceof Error ? error.message : "Feedback rendering failed.",
+    };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("Feedback render error:", error);
+  }
+
+  componentDidUpdate(prevProps: FeedbackRenderBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({
+        hasError: false,
+        errorMessage: null,
+      });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-rose-400/35 bg-rose-500/10 p-4 text-sm text-rose-100">
+          <p className="font-semibold">Could not render feedback output.</p>
+          <p className="mt-1 text-xs text-rose-200/90">
+            Try another job/upload source and run analysis again.
+          </p>
+          {this.state.errorMessage ? (
+            <p className="mt-2 rounded-md border border-rose-300/35 bg-black/30 px-2 py-1 text-[11px] text-rose-100/90">
+              {this.state.errorMessage}
+            </p>
+          ) : null}
+        </section>
+      );
+    }
+    return <>{this.props.children}</>;
+  }
+}
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -191,6 +247,8 @@ const Feedback = () => {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackAnalysis | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [analysisRunKey, setAnalysisRunKey] = useState(0);
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const [uploadedDurationSeconds, setUploadedDurationSeconds] = useState<number>(0);
   const [manualTranscript, setManualTranscript] = useState<string>("");
@@ -267,6 +325,7 @@ const Feedback = () => {
 
   const handleAnalyze = async () => {
     if (!accessToken) return;
+    setAnalyzeError(null);
     if (!selectedJobId && !uploadedFileName) {
       toast({ title: "Select a source", description: "Choose a completed job or upload a video file first." });
       return;
@@ -288,16 +347,20 @@ const Feedback = () => {
         body: JSON.stringify(body),
         token: accessToken,
       });
-      setFeedback(normalizeFeedbackAnalysis(result.feedback));
+      const normalizedFeedback = normalizeFeedbackAnalysis(result?.feedback);
+      setFeedback(normalizedFeedback);
+      setAnalysisRunKey((current) => current + 1);
       toast({ title: "Feedback ready", description: "AI trend and retention insights have been generated." });
     } catch (error: any) {
       if (error instanceof ApiError && error.code === "PREMIUM_REQUIRED") {
         navigate("/pricing");
         return;
       }
+      const message = error?.message || "Please try again.";
+      setAnalyzeError(message);
       toast({
         title: "Analysis failed",
-        description: error?.message || "Please try again.",
+        description: message,
       });
     } finally {
       setAnalyzing(false);
@@ -453,155 +516,162 @@ const Feedback = () => {
                 {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                 Get Feedback
               </Button>
+              {analyzeError ? (
+                <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  {analyzeError}
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.section>
 
         {feedback ? (
-          <motion.section
-            className="mx-auto mt-6 max-w-6xl space-y-4"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
-          >
-            <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border border-purple-300/50 bg-purple-400/15 text-purple-100">
-                  Detected Niche: {formatNicheLabel(feedback.detectedNiche)}
-                </Badge>
-                {feedback.detectedTopics.slice(0, 4).map((topic) => (
-                  <Badge key={topic} className="border border-cyan-300/40 bg-cyan-400/12 text-cyan-100">
-                    {topic}
+          <FeedbackRenderBoundary resetKey={analysisRunKey}>
+            <motion.section
+              className="mx-auto mt-6 max-w-6xl space-y-4"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+            >
+              <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border border-purple-300/50 bg-purple-400/15 text-purple-100">
+                    Detected Niche: {formatNicheLabel(feedback.detectedNiche)}
                   </Badge>
-                ))}
+                  {feedback.detectedTopics.slice(0, 4).map((topic) => (
+                    <Badge key={topic} className="border border-cyan-300/40 bg-cyan-400/12 text-cyan-100">
+                      {topic}
+                    </Badge>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
-              <h3 className="mb-3 bg-gradient-to-r from-[#A855F7] to-cyan-300 bg-clip-text text-2xl font-bold text-transparent">
-                AI Trend Analysis for Your Video 🔥
-              </h3>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {feedback.trendInsights.slice(0, 6).map((trend, index) => (
-                  <motion.article
-                    key={`${trend.title}-${index}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="rounded-2xl border border-purple-400/35 bg-gradient-to-br from-purple-500/14 to-cyan-400/10 p-3 transition hover:shadow-[0_0_20px_rgba(168,85,247,0.35)]"
-                  >
-                    <p className="text-sm font-semibold text-slate-100">{trend.title}</p>
-                    <p className="mt-1 text-xs text-slate-300">{trend.summary}</p>
-                    <p className="mt-2 text-xs text-cyan-100">How to apply: {trend.howToApply}</p>
-                    {trend.url ? (
-                      <a href={trend.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[11px] text-purple-200 underline">
-                        Source
-                      </a>
-                    ) : null}
-                  </motion.article>
-                ))}
+              <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
+                <h3 className="mb-3 bg-gradient-to-r from-[#A855F7] to-cyan-300 bg-clip-text text-2xl font-bold text-transparent">
+                  AI Trend Analysis for Your Video 🔥
+                </h3>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {feedback.trendInsights.slice(0, 6).map((trend, index) => (
+                    <motion.article
+                      key={`${trend.title}-${index}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="rounded-2xl border border-purple-400/35 bg-gradient-to-br from-purple-500/14 to-cyan-400/10 p-3 transition hover:shadow-[0_0_20px_rgba(168,85,247,0.35)]"
+                    >
+                      <p className="text-sm font-semibold text-slate-100">{trend.title}</p>
+                      <p className="mt-1 text-xs text-slate-300">{trend.summary}</p>
+                      <p className="mt-2 text-xs text-cyan-100">How to apply: {trend.howToApply}</p>
+                      {trend.url ? (
+                        <a href={trend.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[11px] text-purple-200 underline">
+                          Source
+                        </a>
+                      ) : null}
+                    </motion.article>
+                  ))}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-slate-300">
+                    Retention boost estimate from trend alignment: +{feedback.retentionBoostEstimatePercent}%
+                  </p>
+                  <Button asChild variant="outline" className="border-purple-400/35 bg-purple-500/10 text-purple-100 hover:bg-purple-500/20">
+                    <Link to="/settings">Upgrade Effects to Match Trends</Link>
+                  </Button>
+                </div>
               </div>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-slate-300">
-                  Retention boost estimate from trend alignment: +{feedback.retentionBoostEstimatePercent}%
-                </p>
-                <Button asChild variant="outline" className="border-purple-400/35 bg-purple-500/10 text-purple-100 hover:bg-purple-500/20">
-                  <Link to="/settings">Upgrade Effects to Match Trends</Link>
-                </Button>
-              </div>
-            </div>
 
-            <Accordion type="multiple" className="space-y-3">
-              <AccordionItem value="niche" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Niche Detection</AccordionTrigger>
-                <AccordionContent className="text-sm text-slate-300">
-                  Your video's niche: {formatNicheLabel(feedback.detectedNiche)}. Trending topics: {feedback.trendingTopics.join(", ")}.
-                </AccordionContent>
-              </AccordionItem>
+              <Accordion type="multiple" className="space-y-3">
+                <AccordionItem value="niche" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Niche Detection</AccordionTrigger>
+                  <AccordionContent className="text-sm text-slate-300">
+                    Your video's niche: {formatNicheLabel(feedback.detectedNiche)}. Trending topics: {feedback.trendingTopics.join(", ")}.
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="voice" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Voice / Performance</AccordionTrigger>
-                <AccordionContent className="space-y-1 text-sm text-slate-300">
-                  {feedback.voicePerformance.map((line, index) => (
-                    <p key={`voice-${index}`}>- {line}</p>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
+                <AccordionItem value="voice" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Voice / Performance</AccordionTrigger>
+                  <AccordionContent className="space-y-1 text-sm text-slate-300">
+                    {feedback.voicePerformance.map((line, index) => (
+                      <p key={`voice-${index}`}>- {line}</p>
+                    ))}
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="positioning" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Positioning / Angle</AccordionTrigger>
-                <AccordionContent className="space-y-1 text-sm text-slate-300">
-                  {feedback.positioningAngle.map((line, index) => (
-                    <p key={`pos-${index}`}>- {line}</p>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
+                <AccordionItem value="positioning" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Positioning / Angle</AccordionTrigger>
+                  <AccordionContent className="space-y-1 text-sm text-slate-300">
+                    {feedback.positioningAngle.map((line, index) => (
+                      <p key={`pos-${index}`}>- {line}</p>
+                    ))}
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="content" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Content Tips</AccordionTrigger>
-                <AccordionContent className="space-y-1 text-sm text-slate-300">
-                  {feedback.contentTips.map((line, index) => (
-                    <p key={`content-${index}`}>- {line}</p>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
+                <AccordionItem value="content" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Content Tips</AccordionTrigger>
+                  <AccordionContent className="space-y-1 text-sm text-slate-300">
+                    {feedback.contentTips.map((line, index) => (
+                      <p key={`content-${index}`}>- {line}</p>
+                    ))}
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="retention" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Retention Boosts</AccordionTrigger>
-                <AccordionContent className="space-y-1 text-sm text-slate-300">
-                  {feedback.retentionBoosts.map((line, index) => (
-                    <p key={`ret-${index}`}>- {line}</p>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
+                <AccordionItem value="retention" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Retention Boosts</AccordionTrigger>
+                  <AccordionContent className="space-y-1 text-sm text-slate-300">
+                    {feedback.retentionBoosts.map((line, index) => (
+                      <p key={`ret-${index}`}>- {line}</p>
+                    ))}
+                  </AccordionContent>
+                </AccordionItem>
 
-              <AccordionItem value="visuals" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                <AccordionTrigger className="text-slate-100 hover:no-underline">Visuals</AccordionTrigger>
-                <AccordionContent>
-                  <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Retention Curve</p>
-                      <div className="h-56 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={feedback.visuals.retentionCurve}>
-                            <XAxis dataKey="second" stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                            <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                            <Tooltip
-                              formatter={(value: any) => [`${value}%`, "Retention"]}
-                              labelFormatter={(label) => `${label}s`}
-                              contentStyle={{
-                                backgroundColor: "rgba(15,23,42,0.92)",
-                                border: "1px solid rgba(168,85,247,0.45)",
-                                borderRadius: "10px",
-                              }}
-                            />
-                            <Line type="monotone" dataKey="score" stroke="#A855F7" strokeWidth={2.6} dot={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
+                <AccordionItem value="visuals" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
+                  <AccordionTrigger className="text-slate-100 hover:no-underline">Visuals</AccordionTrigger>
+                  <AccordionContent>
+                    <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                        <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Retention Curve</p>
+                        <div className="h-56 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={feedback.visuals.retentionCurve}>
+                              <XAxis dataKey="second" stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                              <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                              <Tooltip
+                                formatter={(value: any) => [`${value}%`, "Retention"]}
+                                labelFormatter={(label) => `${label}s`}
+                                contentStyle={{
+                                  backgroundColor: "rgba(15,23,42,0.92)",
+                                  border: "1px solid rgba(168,85,247,0.45)",
+                                  borderRadius: "10px",
+                                }}
+                              />
+                              <Line type="monotone" dataKey="score" stroke="#A855F7" strokeWidth={2.6} dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Timeline Suggestion Pins</p>
-                      <div className="space-y-2 text-xs text-slate-300">
-                        {feedback.visuals.suggestionPins.length ? (
-                          feedback.visuals.suggestionPins.map((pin, index) => (
-                            <div key={`${pin.second}-${index}`} className="rounded-lg border border-purple-400/25 bg-purple-500/10 p-2">
-                              <p className="text-purple-100">{pin.second}s</p>
-                              <p>{pin.label}</p>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                        <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Timeline Suggestion Pins</p>
+                        <div className="space-y-2 text-xs text-slate-300">
+                          {feedback.visuals.suggestionPins.length ? (
+                            feedback.visuals.suggestionPins.map((pin, index) => (
+                              <div key={`${pin.second}-${index}`} className="rounded-lg border border-purple-400/25 bg-purple-500/10 p-2">
+                                <p className="text-purple-100">{pin.second}s</p>
+                                <p>{pin.label}</p>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400">
+                              No major retention dips found. Keep the current pacing and add one extra micro-hook around minute 1.
                             </div>
-                          ))
-                        ) : (
-                          <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400">
-                            No major retention dips found. Keep the current pacing and add one extra micro-hook around minute 1.
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </motion.section>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </motion.section>
+          </FeedbackRenderBoundary>
         ) : (
           <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
             <div className="flex items-center gap-2 text-slate-200">

@@ -3625,7 +3625,7 @@ const Editor = () => {
       }
       if (current && lines.length < 2) lines.push(current);
       if (!lines.length) return;
-      const lineHeight = Math.round(scaledFontSize * 1.08);
+      const lineHeight = Math.round(scaledFontSize * 1.22);
       const renderedLines = lines.map((line) => (shouldUppercase ? line.toUpperCase() : line));
       const textWidth = Math.max(...renderedLines.map((line) => ctx.measureText(line).width));
       const textBlockHeight = lines.length * lineHeight;
@@ -6861,9 +6861,10 @@ const Editor = () => {
                 </div>
               </div>
 
-              {isVerticalMode && (
-                <div className="glass-card p-5 space-y-5">
-                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+              <div className={isVerticalMode ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)] xl:items-start" : ""}>
+                {isVerticalMode && (
+                  <div className="glass-card p-5 space-y-5">
+                  <div className="space-y-3">
                     <div className="space-y-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
@@ -6908,6 +6909,9 @@ const Editor = () => {
                       Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
                     </p>
                     </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
                     <div className="w-full xl:max-w-[320px]">
                       <video
                         ref={verticalCompositionVideoRef}
@@ -6949,9 +6953,8 @@ const Editor = () => {
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4">
+                    <div className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-foreground">Vertical Captions</p>
@@ -7223,6 +7226,7 @@ const Editor = () => {
                         Captions are disabled for this vertical render. Enable to apply preset styling.
                       </p>
                     )}
+                    </div>
                   </div>
 
                   {!verticalPreviewUrl && (
@@ -7415,49 +7419,52 @@ const Editor = () => {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              <div className="glass-card overflow-hidden">
-                <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
-                  {showVideo ? (
-                    <video
-                      ref={previewVideoRef}
-                      src={previewVideoUrl}
-                      controls
-                      onLoadedMetadata={handlePreviewLoadedMetadata}
-                      onTimeUpdate={handlePreviewTimeUpdate}
-                      onPlay={handlePreviewPlay}
-                      onPause={handlePreviewPause}
-                      onEnded={handlePreviewEnded}
-                      onError={handlePreviewVideoError}
-                      className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
-                    />
-                  ) : (
-                    <>
-                      <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
-                      <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
-                        <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-                          {activeJob && !isTerminalStatus(activeJob.status) ? (
-                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                          ) : (
-                            <Play className="w-6 h-6 text-primary ml-0.5" />
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {activeJob
-                            ? normalizedActiveStatus === "ready"
-                              ? "Ready to export"
-                              : normalizedActiveStatus === "failed"
-                                ? activeJob.error === "queue_canceled_by_user"
-                                  ? "Job canceled"
-                                  : "Job failed"
-                                : "Processing your edit..."
-                            : "Select a job to preview"}
-                        </p>
-                      </div>
-                    </>
-                  )}
+                <div className={isVerticalMode ? "xl:sticky xl:top-24" : ""}>
+                  <div className="glass-card overflow-hidden">
+                    <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
+                      {showVideo ? (
+                        <video
+                          ref={previewVideoRef}
+                          src={previewVideoUrl}
+                          controls
+                          onLoadedMetadata={handlePreviewLoadedMetadata}
+                          onTimeUpdate={handlePreviewTimeUpdate}
+                          onPlay={handlePreviewPlay}
+                          onPause={handlePreviewPause}
+                          onEnded={handlePreviewEnded}
+                          onError={handlePreviewVideoError}
+                          className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
+                        />
+                      ) : (
+                        <>
+                          <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
+                          <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
+                            <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+                              {activeJob && !isTerminalStatus(activeJob.status) ? (
+                                <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                              ) : (
+                                <Play className="w-6 h-6 text-primary ml-0.5" />
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {activeJob
+                                ? normalizedActiveStatus === "ready"
+                                  ? "Ready to export"
+                                  : normalizedActiveStatus === "failed"
+                                    ? activeJob.error === "queue_canceled_by_user"
+                                      ? "Job canceled"
+                                      : "Job failed"
+                                    : "Processing your edit..."
+                                : "Select a job to preview"}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
