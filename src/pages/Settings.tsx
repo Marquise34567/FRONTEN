@@ -20,7 +20,7 @@ import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
+import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, normalizeQuality, type PlanTier } from "@shared/planConfig";
 import {
   MRBEAST_ANIMATION_OPTIONS,
   MRBEAST_FONT_OPTIONS,
@@ -30,6 +30,7 @@ import {
 } from "@shared/subtitlePresets";
 
 type EditorSettings = {
+  exportQuality: string;
   subtitleStyle: string;
   autoZoomMax: number;
   smartZoom: boolean;
@@ -62,6 +63,13 @@ const getRequiredPlanForAutoZoom = (value: number): PlanTier => {
   return "studio";
 };
 
+const getRequiredPlanForQuality = (quality: string): PlanTier => {
+  const normalized = normalizeQuality(quality);
+  if (normalized === "720p") return "free";
+  if (normalized === "1080p") return "starter";
+  return "creator";
+};
+
 const getRequiredPlanForPreset = (presetId: string): PlanTier => {
   const resolvedPreset = parseSubtitleStyleConfig(presetId).preset;
   for (const tier of PLAN_TIERS) {
@@ -89,9 +97,10 @@ const Settings = () => {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
-  const { plan: currentPlan, features, subtitlePresets } = useSubscription();
+  const { plan: currentPlan, features, subtitlePresets, devOverride: subscriptionDevOverride } = useSubscription();
   const { data: founderAvailability } = useFounderAvailability();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
+  const isDevAccount = Boolean(data?.flags?.dev || subscriptionDevOverride);
   const trialInfo = data?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
@@ -204,6 +213,7 @@ const Settings = () => {
   };
 
   const defaultSettings: EditorSettings = {
+    exportQuality: features.maxResolution ?? "720p",
     subtitleStyle: "basic_clean",
     autoZoomMax: features.autoZoomMax,
     smartZoom: true,
@@ -227,6 +237,14 @@ const Settings = () => {
 
   const handleSaveSettings = async () => {
     if (!accessToken || !editorSettings) return;
+    const requestedQuality = normalizeQuality(editorSettings.exportQuality || "720p");
+    const maxQuality = isDevAccount ? "4k" : normalizeQuality(features.maxResolution || "720p");
+    if (QUALITY_ORDER.indexOf(requestedQuality) > QUALITY_ORDER.indexOf(maxQuality)) {
+      const required = getRequiredPlanForQuality(requestedQuality);
+      openUpgrade(required);
+      toast({ title: "Upgrade required", description: `Upgrade to ${required} to unlock ${requestedQuality}.` });
+      return;
+    }
     if (!isPresetAllowed(editorSettings.subtitleStyle)) {
       const required = getRequiredPlanForPreset(editorSettings.subtitleStyle);
       openUpgrade(required);
@@ -237,7 +255,10 @@ const Settings = () => {
       setSavingSettings(true);
       const result = await apiFetch<SettingsResponse>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify(editorSettings),
+        body: JSON.stringify({
+          ...editorSettings,
+          exportQuality: requestedQuality,
+        }),
         token: accessToken,
       });
       setEditorSettings(result.settings);
@@ -265,6 +286,7 @@ const Settings = () => {
   const rawTier = data?.subscription?.tier as PlanTier | undefined;
   const tier = rawTier && PLAN_TIERS.includes(rawTier) ? rawTier : "free";
   const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
+  const effectiveCurrentPlan: PlanTier = isDevAccount ? "studio" : ((currentPlan as PlanTier) || "free");
   const subtitleStyleConfig = parseSubtitleStyleConfig(resolvedSettings.subtitleStyle);
   const activeSubtitlePreset = subtitleStyleConfig.preset;
   const updateMrBeastSubtitleStyle = (updates: Partial<SubtitleStyleConfig>) => {
@@ -297,8 +319,8 @@ const Settings = () => {
       ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100)
       : 0;
   const isFounderPlan = tier === "founder";
-  const currentTierIndex = tierIndex(currentPlan || "free");
-  const advancedLocked = !features.advancedEffects;
+  const currentTierIndex = tierIndex(effectiveCurrentPlan);
+  const advancedLocked = !isDevAccount && !features.advancedEffects;
   const captionEngineStateLabel =
     captionCapability && captionCapability.available === false
       ? "Offline"
@@ -326,7 +348,9 @@ const Settings = () => {
               <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
                 <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
                   <p className="uppercase tracking-[0.14em] text-slate-400">Plan</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{isFounderPlan ? "Founder Lifetime" : tier.toUpperCase()}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">
+                    {isDevAccount ? "Dev Mode" : isFounderPlan ? "Founder Lifetime" : tier.toUpperCase()}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
                   <p className="uppercase tracking-[0.14em] text-slate-400">Subtitle Styles</p>
@@ -352,7 +376,7 @@ const Settings = () => {
                 </div>
               </div>
               <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                {isFounderPlan ? "Founder (Lifetime)" : tier}
+                {isDevAccount ? "dev" : isFounderPlan ? "Founder (Lifetime)" : tier}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
@@ -641,6 +665,42 @@ const Settings = () => {
                       </div>
                     </div>
                   )}
+                </div>
+
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Export Resolution</h3>
+                      <p className="text-xs text-muted-foreground">Set your default render quality.</p>
+                    </div>
+                    <span className="text-sm font-semibold text-foreground uppercase">
+                      {normalizeQuality(resolvedSettings.exportQuality || "720p")}
+                    </span>
+                  </div>
+                  <select
+                    className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                    value={normalizeQuality(resolvedSettings.exportQuality || "720p")}
+                    onChange={(event) => {
+                      const nextQuality = normalizeQuality(event.target.value);
+                      const requiredPlan = getRequiredPlanForQuality(nextQuality);
+                      if (!isDevAccount && tierIndex(requiredPlan) > currentTierIndex) {
+                        openUpgrade(requiredPlan);
+                        return;
+                      }
+                      mergeSettings({ exportQuality: nextQuality });
+                    }}
+                  >
+                    <option value="720p">720p (Free)</option>
+                    <option value="1080p" disabled={!isDevAccount && currentTierIndex < tierIndex("starter")}>
+                      1080p (Starter+)
+                    </option>
+                    <option value="4k" disabled={!isDevAccount && currentTierIndex < tierIndex("creator")}>
+                      4K (Creator+)
+                    </option>
+                  </select>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Max for your account: {(isDevAccount ? "4k" : features.maxResolution || plan.exportQuality).toUpperCase()}
+                  </p>
                 </div>
 
                 <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">

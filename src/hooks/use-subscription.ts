@@ -34,6 +34,7 @@ export type SubscriptionResponse = {
   currentPeriodEnd: string | null;
   features: SubscriptionFeatures;
   subtitlePresets?: SubtitlePresetDefinition[];
+  devOverride?: boolean;
 };
 
 const defaultFeatures: SubscriptionFeatures = {
@@ -74,6 +75,7 @@ export const useSubscription = () => {
     features: query.data?.features ?? defaultFeatures,
     status: query.data?.status ?? "free",
     subtitlePresets: query.data?.subtitlePresets ?? [],
+    devOverride: Boolean(query.data?.devOverride),
     loading: query.isLoading,
     refetch: query.refetch,
   };
