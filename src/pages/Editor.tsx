@@ -3038,9 +3038,44 @@ const Editor = () => {
       if (!video.paused) void video.play().catch(() => {});
     }
   }, [hookPreviewCandidate]);
+  const handleSetHookSelectionModeRealtime = useCallback(async (mode: HookSelectionMode) => {
+    if (!activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    const previousMode = hookSelectionModeByJob[jobId] ?? hookSelectionModeFromAnalysis;
+    setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: mode }));
+    setDefaultHookSelectionMode(mode);
+    if (mode === "auto") {
+      setSelectedHookByJob((prev) => ({ ...prev, [jobId]: null }));
+    }
+    setApplyingHookJobId(jobId);
+    try {
+      await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ hookSelectionMode: mode }),
+      });
+      await fetchJob(jobId);
+      toast({
+        title: mode === "auto" ? "Auto hook enabled" : "Manual hook enabled",
+        description: mode === "auto"
+          ? "The editor will choose the opening hook automatically."
+          : "Select and apply your preferred opening hook.",
+      });
+    } catch (err: any) {
+      setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: previousMode }));
+      toast({
+        title: err instanceof ApiError && err.status === 409 ? "Hook stage passed" : "Hook mode update failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setApplyingHookJobId((current) => (current === jobId ? null : current));
+    }
+  }, [accessToken, activeJob?.id, fetchJob, hookSelectionModeByJob, hookSelectionModeFromAnalysis, toast]);
   const handleApplyPreferredHookRealtime = useCallback(async (candidate: HookCandidate) => {
     if (!activeJob?.id || !accessToken) return;
     const jobId = activeJob.id;
+    setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: "manual" }));
+    setDefaultHookSelectionMode("manual");
     setSelectedHookByJob((prev) => ({ ...prev, [jobId]: candidate }));
     setHookPreviewCandidateByJob((prev) => ({ ...prev, [jobId]: candidate }));
     setApplyingHookJobId(jobId);
@@ -3048,7 +3083,7 @@ const Editor = () => {
       await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
         method: "POST",
         token: accessToken,
-        body: JSON.stringify({ preferredHook: candidate }),
+        body: JSON.stringify({ preferredHook: candidate, hookSelectionMode: "manual" }),
       });
       await fetchJob(jobId);
       toast({
