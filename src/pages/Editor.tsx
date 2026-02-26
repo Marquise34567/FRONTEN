@@ -1526,6 +1526,7 @@ const Editor = () => {
   const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
   const [verticalCaptionAutoGenerate, setVerticalCaptionAutoGenerate] = useState(true);
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>(DEFAULT_VERTICAL_CAPTION_PRESET);
+  const activeVerticalCaptionPresetStyle = VERTICAL_CAPTION_STYLE_DEFAULTS[verticalCaptionPreset];
   const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<SubtitleStyleConfig["fontId"]>(defaultVerticalCaptionStyle.fontId);
   const [verticalCaptionTextColor, setVerticalCaptionTextColor] = useState(defaultVerticalCaptionStyle.textColor);
@@ -3512,10 +3513,6 @@ const Editor = () => {
   const verticalSelectionReady = skipManualWebcamCrop
     ? Boolean(pendingVerticalFile && sourceVideoMeta)
     : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
-  const activeVerticalCaptionPresetStyle = useMemo(
-    () => VERTICAL_CAPTION_STYLE_DEFAULTS[verticalCaptionPreset],
-    [verticalCaptionPreset],
-  );
   const verticalCaptionPreviewText = useMemo(() => {
     if (!verticalCaptionEnabled) return "";
     const customPreviewCaption = normalizeVerticalCaptionTextForJob(verticalCaptionText)
