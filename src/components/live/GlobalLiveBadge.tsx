@@ -2,7 +2,10 @@ import { Activity, ArrowUpRight, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAuth } from "@/providers/AuthProvider";
 import { useLiveStats } from "@/providers/LiveStatsProvider";
+
+const DEV_LIVE_FEED_EMAIL = "fyequise03@gmail.com";
 
 const formatCompact = (value: number) =>
   new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(
@@ -11,11 +14,14 @@ const formatCompact = (value: number) =>
 
 const GlobalLiveBadge = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { snapshot, pulse, connected, transport } = useLiveStats();
+  const currentEmail = String(user?.email || "").trim().toLowerCase();
+  const canSeeDevLiveFeedOverlay = currentEmail === DEV_LIVE_FEED_EMAIL;
   const activeUsers = pulse?.activeUsers ?? snapshot?.activeUsers ?? 0;
   const upgradedToday = pulse?.upgradedToday ?? snapshot?.upgradeSignals?.upgradedToday ?? 0;
 
-  if (!snapshot && !pulse) return null;
+  if (!canSeeDevLiveFeedOverlay || (!snapshot && !pulse)) return null;
 
   return (
     <div className="pointer-events-none fixed bottom-3 right-3 z-40 sm:bottom-4 sm:right-4">
