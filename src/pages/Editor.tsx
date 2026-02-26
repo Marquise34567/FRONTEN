@@ -110,6 +110,9 @@ const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 8;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
+const VERTICAL_CAPTION_FONT_SIZE_MIN = 32;
+const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
+const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 128;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
@@ -120,8 +123,18 @@ const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 const HELP_DEMO_ROTATE_MS = 2600;
 const HELP_DEMO_SAMPLE_VIDEO_SRC = "/editor-help-sample.mp4";
+const clampVerticalCaptionFontSize = (value: number) =>
+  clamp(Math.round(Number(value) || VERTICAL_CAPTION_FONT_SIZE_DEFAULT), VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX);
 
 type VerticalFitMode = "cover" | "contain";
+type VerticalCaptionPreset = "basic_clean" | "mrbeast_animated" | "neon_glow";
+type VerticalCaptionsPayload = {
+  enabled: boolean;
+  autoGenerate: boolean;
+  preset: VerticalCaptionPreset;
+  fontSize: number;
+  text: string;
+};
 type RenderModeSelection = "horizontal" | "vertical";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
@@ -393,6 +406,16 @@ const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; desc
   { id: "caption_box", label: "Black Box", description: "Boxed captions for maximum readability." },
   { id: "neon_glow", label: "Neon Glow", description: "Bright glow treatment for stylized edits." },
   { id: "karaoke_highlight", label: "Karaoke Highlight", description: "Word-by-word highlight styling." },
+];
+const VERTICAL_CAPTION_PRESET_OPTIONS: Array<{
+  id: VerticalCaptionPreset;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  { id: "basic_clean", label: "Basic Clean", description: "Readable white captions for clean edits.", icon: Gauge },
+  { id: "mrbeast_animated", label: "Viral MrBeast", description: "Huge yellow punch style for Shorts.", icon: Flame },
+  { id: "neon_glow", label: "Neon Glow", description: "Cyan/magenta glow for stylized reels.", icon: Zap },
 ];
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -755,6 +778,10 @@ const Editor = () => {
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
+  const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
+  const [verticalCaptionAutoGenerate, setVerticalCaptionAutoGenerate] = useState(true);
+  const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>("mrbeast_animated");
+  const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
@@ -1984,7 +2011,14 @@ const Editor = () => {
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = autoCaptionsEnabled;
-    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const verticalCaptionsForJob: VerticalCaptionsPayload = {
+      enabled: verticalCaptionEnabled,
+      autoGenerate: verticalCaptionAutoGenerate,
+      preset: verticalCaptionPreset,
+      fontSize: clampVerticalCaptionFontSize(verticalCaptionFontSize),
+      text: normalizeVerticalCaptionTextForJob(verticalCaptionText),
+    };
+    const verticalCaptionTextForJob = verticalCaptionsForJob.text;
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
@@ -2031,6 +2065,7 @@ const Editor = () => {
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
               verticalCaptionText: verticalCaptionTextForJob,
+              verticalCaptions: verticalCaptionsForJob,
             }
           : {
               filename: file.name,
@@ -2219,7 +2254,9 @@ const Editor = () => {
             soundFx: soundFxEnabled,
             viralMode,
             enhanceMode,
-            ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+            ...(requestedMode === "vertical"
+              ? { verticalCaptionText: verticalCaptionTextForJob, verticalCaptions: verticalCaptionsForJob }
+              : {}),
           }),
           token: accessToken,
         })
@@ -2493,7 +2530,15 @@ const Editor = () => {
       .split(/\n+/)
       .map((line) => line.trim())
       .find((line) => line.length > 0) || "";
-    const previewCaptionText = customPreviewCaption || (autoCaptionsEnabled ? "Auto captions preview" : "");
+    const previewCaptionFallbacks: Record<VerticalCaptionPreset, string> = {
+      basic_clean: "Auto captions preview",
+      mrbeast_animated: "THIS PART GOES CRAZY 🔥",
+      neon_glow: "NEON MOMENT ⚡",
+    };
+    const previewCaptionText =
+      verticalCaptionEnabled
+        ? customPreviewCaption || (verticalCaptionAutoGenerate ? previewCaptionFallbacks[verticalCaptionPreset] : "")
+        : "";
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
@@ -2544,7 +2589,16 @@ const Editor = () => {
       const words = previewCaptionText.slice(0, 96).split(/\s+/).filter(Boolean);
       const lines: string[] = [];
       let current = "";
-      ctx.font = "700 30px Arial";
+      const scaledFontSize = clamp(
+        Math.round((clampVerticalCaptionFontSize(verticalCaptionFontSize) / DEFAULT_VERTICAL_OUTPUT.width) * canvasWidth),
+        24,
+        94,
+      );
+      const baseFont =
+        verticalCaptionPreset === "basic_clean"
+          ? `800 ${scaledFontSize}px "Arial Black", Arial, sans-serif`
+          : `900 ${scaledFontSize}px Impact, "Arial Black", sans-serif`;
+      ctx.font = baseFont;
       for (const word of words) {
         const candidate = current ? `${current} ${word}` : word;
         if (ctx.measureText(candidate).width <= maxWidth || !current) {
@@ -2557,28 +2611,48 @@ const Editor = () => {
       }
       if (current && lines.length < 2) lines.push(current);
       if (!lines.length) return;
-      const lineHeight = 34;
-      const boxPaddingX = 18;
-      const boxPaddingY = 12;
+      const lineHeight = Math.round(scaledFontSize * 1.08);
+      const captionBaseY = canvasHeight - lines.length * lineHeight - 40;
       const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
-      const boxWidth = Math.min(canvasWidth * 0.9, textWidth + boxPaddingX * 2);
-      const boxHeight = lines.length * lineHeight + boxPaddingY * 2;
-      const boxX = (canvasWidth - boxWidth) / 2;
-      const boxY = canvasHeight - boxHeight - 24;
-      ctx.fillStyle = "rgba(8, 7, 18, 0.75)";
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.32)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#F8FAFC";
+
+      if (verticalCaptionPreset === "basic_clean") {
+        const boxPaddingX = 18;
+        const boxPaddingY = 12;
+        const boxWidth = Math.min(canvasWidth * 0.9, textWidth + boxPaddingX * 2);
+        const boxHeight = lines.length * lineHeight + boxPaddingY * 2;
+        const boxX = (canvasWidth - boxWidth) / 2;
+        const boxY = captionBaseY - boxPaddingY + 4;
+        ctx.fillStyle = "rgba(8, 7, 18, 0.75)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.32)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#F8FAFC";
+      } else if (verticalCaptionPreset === "mrbeast_animated") {
+        ctx.fillStyle = "#FFE500";
+        ctx.strokeStyle = "#050505";
+        ctx.lineWidth = Math.max(4, Math.round(scaledFontSize * 0.15));
+      } else {
+        ctx.fillStyle = "#2DF6FF";
+        ctx.strokeStyle = "#071E28";
+        ctx.lineWidth = Math.max(3, Math.round(scaledFontSize * 0.12));
+        ctx.shadowColor = "rgba(45, 246, 255, 0.85)";
+        ctx.shadowBlur = Math.max(8, Math.round(scaledFontSize * 0.22));
+      }
+
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       lines.forEach((line, index) => {
-        const textY = boxY + boxPaddingY + lineHeight * (index + 0.5);
+        const textY = captionBaseY + lineHeight * (index + 0.5);
+        if (verticalCaptionPreset !== "basic_clean") {
+          ctx.strokeText(verticalCaptionPreset === "mrbeast_animated" ? line.toUpperCase() : line, canvasWidth / 2, textY);
+        }
         ctx.fillText(line, canvasWidth / 2, textY);
       });
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
     };
 
     let raf = 0;
@@ -2625,7 +2699,19 @@ const Editor = () => {
     return () => {
       window.cancelAnimationFrame(raf);
     };
-  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop, verticalCaptionText, autoCaptionsEnabled]);
+  }, [
+    verticalPreviewUrl,
+    sourceVideoMeta,
+    effectiveWebcamCrop,
+    bottomFitMode,
+    topHeightPx,
+    skipManualWebcamCrop,
+    verticalCaptionEnabled,
+    verticalCaptionAutoGenerate,
+    verticalCaptionPreset,
+    verticalCaptionFontSize,
+    verticalCaptionText,
+  ]);
 
   const startVerticalRender = async () => {
     if (!pendingVerticalFile) {
@@ -2788,6 +2874,13 @@ const Editor = () => {
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
+        const verticalCaptionsForJob: VerticalCaptionsPayload = {
+          enabled: verticalCaptionEnabled,
+          autoGenerate: verticalCaptionAutoGenerate,
+          preset: verticalCaptionPreset,
+          fontSize: clampVerticalCaptionFontSize(verticalCaptionFontSize),
+          text: normalizeVerticalCaptionTextForJob(verticalCaptionText),
+        };
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -2826,7 +2919,8 @@ const Editor = () => {
           },
         };
         if (requestedMode === "vertical") {
-          payload.verticalCaptionText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+          payload.verticalCaptionText = verticalCaptionsForJob.text;
+          payload.verticalCaptions = verticalCaptionsForJob;
         }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
           payload.preferredHook = {
@@ -2940,6 +3034,10 @@ const Editor = () => {
       soundFxEnabled,
       viralMode,
       enhanceMode,
+      verticalCaptionEnabled,
+      verticalCaptionAutoGenerate,
+      verticalCaptionPreset,
+      verticalCaptionFontSize,
       verticalCaptionText,
       isDevAccount,
       toast,
@@ -4830,18 +4928,18 @@ const Editor = () => {
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                           <div className="space-y-2">
                             <p className="text-xs text-slate-400">Format</p>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                               {RENDER_MODE_OPTIONS.map((mode) => {
                                 const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
                                 return (
                                   <button
                                     key={mode.value}
                                     type="button"
-                                    className={`${sectionPillClass(isActive)} flex items-center gap-2`}
+                                    className={`${sectionPillClass(isActive)} flex min-h-11 items-center gap-1.5 px-2 py-2 text-xs leading-tight md:text-sm`}
                                     onClick={() => setRenderMode(mode.value)}
                                   >
-                                    <mode.icon className="h-4 w-4 shrink-0" />
-                                    <span>{mode.label}</span>
+                                    <mode.icon className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
+                                    <span className="min-w-0 whitespace-normal break-words">{mode.label}</span>
                                   </button>
                                 );
                               })}
@@ -5201,17 +5299,86 @@ const Editor = () => {
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
-                    <Textarea
-                      value={verticalCaptionText}
-                      onChange={(event) => setVerticalCaptionText(event.target.value)}
-                      placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
-                      className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
-                    </p>
+                  <div className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Vertical Captions</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Local transcript-driven overlays with viral style presets.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[11px] ${verticalCaptionEnabled ? "text-emerald-300" : "text-muted-foreground"}`}>
+                          {verticalCaptionEnabled ? "On" : "Off"}
+                        </span>
+                        <Switch checked={verticalCaptionEnabled} onCheckedChange={setVerticalCaptionEnabled} />
+                      </div>
+                    </div>
+
+                    {verticalCaptionEnabled ? (
+                      <>
+                        <div className="grid gap-2 md:grid-cols-3">
+                          {VERTICAL_CAPTION_PRESET_OPTIONS.map((preset) => {
+                            const Icon = preset.icon;
+                            const selected = verticalCaptionPreset === preset.id;
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                className={`rounded-lg border p-3 text-left transition ${
+                                  selected
+                                    ? "border-primary bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(124,58,237,0.35)]"
+                                    : "border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                                }`}
+                                onClick={() => setVerticalCaptionPreset(preset.id)}
+                              >
+                                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em]">
+                                  <Icon className="h-3.5 w-3.5" />
+                                  {preset.label}
+                                </div>
+                                <p className="mt-1 text-[11px] leading-relaxed">{preset.description}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Font size</span>
+                            <span>{clampVerticalCaptionFontSize(verticalCaptionFontSize)} pt</span>
+                          </div>
+                          <Slider
+                            value={[clampVerticalCaptionFontSize(verticalCaptionFontSize)]}
+                            min={VERTICAL_CAPTION_FONT_SIZE_MIN}
+                            max={VERTICAL_CAPTION_FONT_SIZE_MAX}
+                            step={2}
+                            onValueChange={(value) => setVerticalCaptionFontSize(clampVerticalCaptionFontSize(value?.[0] ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT))}
+                          />
+                        </div>
+
+                        <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                          <span className="text-muted-foreground">Auto-generate phrases from local transcript</span>
+                          <Switch checked={verticalCaptionAutoGenerate} onCheckedChange={setVerticalCaptionAutoGenerate} />
+                        </label>
+
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-foreground">Custom caption phrases (optional)</p>
+                          <Textarea
+                            value={verticalCaptionText}
+                            onChange={(event) => setVerticalCaptionText(event.target.value)}
+                            placeholder={"WTF 😂\nNO WAY THIS HAPPENED\nRUN IT BACK 🔁"}
+                            className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            One phrase per line. Leave blank to rely on transcript auto-generation and style preset timing.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">
+                        Captions are disabled for this vertical render. Enable to apply preset styling.
+                      </p>
+                    )}
                   </div>
 
                   {!verticalPreviewUrl && (

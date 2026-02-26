@@ -13,6 +13,7 @@ export type SubtitleAnimationId = "pop" | "none";
 export type SubtitleStyleConfig = {
   preset: SubtitlePresetId;
   fontId: SubtitleFontId;
+  fontSize: number;
   textColor: string;
   accentColor: string;
   outlineColor: string;
@@ -35,6 +36,7 @@ export const MRBEAST_ANIMATION_OPTIONS: Array<{ id: SubtitleAnimationId; label: 
 const STYLE_CONFIG_DELIMITER = "::";
 const DEFAULT_STYLE: Omit<SubtitleStyleConfig, "preset"> = {
   fontId: "impact",
+  fontSize: 58,
   textColor: "FFFFFF",
   accentColor: "00E5FF",
   outlineColor: "111111",
@@ -80,7 +82,13 @@ const normalizeAnimation = (value?: string | null): SubtitleAnimationId => {
 const normalizeOutlineWidth = (value?: number | string | null) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_STYLE.outlineWidth;
-  return Math.max(1, Math.min(12, Math.round(parsed)));
+  return Math.max(1, Math.min(24, Math.round(parsed)));
+};
+
+const normalizeFontSize = (value?: number | string | null) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_STYLE.fontSize;
+  return Math.max(32, Math.min(220, Math.round(parsed)));
 };
 
 const parsePairs = (raw: string) => {
@@ -111,6 +119,7 @@ export const parseSubtitleStyleConfig = (value?: string | null): SubtitleStyleCo
   return {
     ...defaults,
     fontId: normalizeFont(payload.font ?? payload.fontid),
+    fontSize: normalizeFontSize(payload.fontsize ?? payload.size),
     textColor: normalizeHex(payload.text ?? payload.textcolor) ?? defaults.textColor,
     accentColor: normalizeHex(payload.accent ?? payload.accentcolor) ?? defaults.accentColor,
     outlineColor: normalizeHex(payload.outline ?? payload.outlinecolor) ?? defaults.outlineColor,
@@ -121,10 +130,12 @@ export const parseSubtitleStyleConfig = (value?: string | null): SubtitleStyleCo
 
 export const serializeSubtitleStyleConfig = (config: SubtitleStyleConfig) => {
   const preset = normalizePreset(config.preset);
-  if (preset !== "mrbeast_animated") return preset;
+  const supportsExtendedConfig = preset === "mrbeast_animated" || preset === "neon_glow";
+  if (!supportsExtendedConfig) return preset;
   const normalized = parseSubtitleStyleConfig(
     `${preset}${STYLE_CONFIG_DELIMITER}` +
       `font=${config.fontId};` +
+      `fontSize=${config.fontSize};` +
       `text=${config.textColor};` +
       `accent=${config.accentColor};` +
       `outline=${config.outlineColor};` +
@@ -134,6 +145,7 @@ export const serializeSubtitleStyleConfig = (config: SubtitleStyleConfig) => {
   return (
     `${preset}${STYLE_CONFIG_DELIMITER}` +
     `font=${normalized.fontId};` +
+    `fontSize=${normalized.fontSize};` +
     `text=${normalized.textColor};` +
     `accent=${normalized.accentColor};` +
     `outline=${normalized.outlineColor};` +

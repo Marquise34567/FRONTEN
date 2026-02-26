@@ -9,7 +9,8 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
-import { CreditCard, Shield, Sparkles } from "lucide-react";
+import { CreditCard, Flame, Gauge, Shield, Sparkles, WandSparkles, Zap } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import PricingCards from "@/components/PricingCards";
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
@@ -68,6 +69,16 @@ const getRequiredPlanForPreset = (presetId: string): PlanTier => {
     if (allowed === "ALL" || allowed.includes(resolvedPreset)) return tier;
   }
   return "studio";
+};
+
+const SUBTITLE_PRESET_ICONS: Record<string, LucideIcon> = {
+  basic_clean: Gauge,
+  bold_pop: Sparkles,
+  mrbeast_animated: Flame,
+  outline_heavy: Shield,
+  caption_box: CreditCard,
+  neon_glow: Zap,
+  karaoke_highlight: WandSparkles,
 };
 
 const Settings = () => {
@@ -288,15 +299,48 @@ const Settings = () => {
   const isFounderPlan = tier === "founder";
   const currentTierIndex = tierIndex(currentPlan || "free");
   const advancedLocked = !features.advancedEffects;
+  const captionEngineStateLabel =
+    captionCapability && captionCapability.available === false
+      ? "Offline"
+      : captionCapability?.provider
+      ? `${captionCapability.provider}${captionCapability.mode ? ` · ${captionCapability.mode}` : ""}`
+      : "Ready";
 
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
+      <main className="responsive-main mx-auto min-h-screen max-w-6xl px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <h1 className="text-3xl font-bold font-display text-foreground mb-8">Settings</h1>
+          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.28),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.22),transparent_48%),linear-gradient(145deg,rgba(10,12,24,0.92),rgba(18,20,34,0.9))] p-6 shadow-[0_28px_80px_-48px_rgba(99,102,241,0.9)]">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-300/40 bg-violet-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-100">
+                  <WandSparkles className="h-3.5 w-3.5" />
+                  Creator Settings
+                </div>
+                <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Tune your render defaults, caption style system, and effect behavior for fast, consistent output quality.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
+                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
+                  <p className="uppercase tracking-[0.14em] text-slate-400">Plan</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">{isFounderPlan ? "Founder Lifetime" : tier.toUpperCase()}</p>
+                </div>
+                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
+                  <p className="uppercase tracking-[0.14em] text-slate-400">Subtitle Styles</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">{subtitleBadge}</p>
+                </div>
+                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
+                  <p className="uppercase tracking-[0.14em] text-slate-400">Caption Engine</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-slate-100">{captionEngineStateLabel}</p>
+                </div>
+              </div>
+            </div>
+          </div>
 
-          <div className="glass-card p-6 mb-6">
+          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -321,14 +365,14 @@ const Settings = () => {
             </div>
           </div>
 
-          <div className="glass-card p-6 mb-6">
+          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
-              <Shield className="w-5 h-5 text-muted-foreground" />
+              <Shield className="w-5 h-5 text-slate-300" />
               <h2 className="font-semibold text-foreground">{dailyLimited ? "Daily Usage" : "Monthly Usage"}</h2>
             </div>
             {isFounderPlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <p className="text-muted-foreground mb-1">Plan</p>
                   <p className="text-lg font-semibold text-foreground">Founder (Lifetime)</p>
                   <div className="mt-3 space-y-1 text-xs text-muted-foreground">
@@ -345,7 +389,7 @@ const Settings = () => {
                     <Progress value={rendersUsagePercent} className="mt-2" />
                   </div>
                 </div>
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {usage?.minutesUsed ?? 0}{" "}
@@ -357,7 +401,7 @@ const Settings = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <p className="text-muted-foreground mb-1">Renders Remaining</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {dailyLimited ? (rendersRemainingToday ?? 0) : rendersRemaining}{" "}
@@ -372,7 +416,7 @@ const Settings = () => {
                   </p>
                   <Progress value={rendersUsagePercent} className="mt-2" />
                 </div>
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {usage?.minutesUsed ?? 0}{" "}
@@ -385,9 +429,9 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="glass-card p-6 mb-6">
+          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
-              <Sparkles className="w-5 h-5 text-primary" />
+              <Gauge className="w-5 h-5 text-primary" />
               <div>
                 <h2 className="font-semibold text-foreground">Editor Features</h2>
                 <p className="text-sm text-muted-foreground">Customize subtitles, auto zoom, and effects.</p>
@@ -400,7 +444,7 @@ const Settings = () => {
 
             {!settingsQuery.isLoading && (
               <div className="space-y-6">
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Only Cuts Mode</h3>
@@ -441,6 +485,7 @@ const Settings = () => {
                       const required = getRequiredPlanForPreset(preset.id);
                       const locked = !isPresetAllowed(preset.id);
                       const active = activeSubtitlePreset === preset.id;
+                      const PresetIcon = SUBTITLE_PRESET_ICONS[preset.id] || Sparkles;
                       const card = (
                         <button
                           key={preset.id}
@@ -466,7 +511,10 @@ const Settings = () => {
                           } ${locked ? "cursor-not-allowed opacity-70" : "hover:border-primary/40"}`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-foreground">{preset.label}</span>
+                            <span className="inline-flex items-center gap-2 text-sm text-foreground">
+                              <PresetIcon className="h-3.5 w-3.5 text-primary/80" />
+                              {preset.label}
+                            </span>
                           </div>
                           <p className="mt-1 text-[11px] text-muted-foreground">{preset.description}</p>
                           {locked && <LockedOverlay label={`Upgrade to ${required}`} />}
@@ -562,12 +610,27 @@ const Settings = () => {
                         </label>
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Font Size</span>
+                            <span>{subtitleStyleConfig.fontSize}px</span>
+                          </div>
+                          <Slider
+                            min={32}
+                            max={220}
+                            step={2}
+                            value={[subtitleStyleConfig.fontSize]}
+                            onValueChange={(values) =>
+                              updateMrBeastSubtitleStyle({ fontSize: Number(values?.[0] ?? subtitleStyleConfig.fontSize) })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
                             <span>Outline Width</span>
                             <span>{subtitleStyleConfig.outlineWidth}px</span>
                           </div>
                           <Slider
                             min={1}
-                            max={12}
+                            max={24}
                             step={1}
                             value={[subtitleStyleConfig.outlineWidth]}
                             onValueChange={(values) =>
@@ -580,7 +643,7 @@ const Settings = () => {
                   )}
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Auto Zoom Max</h3>
@@ -617,7 +680,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Transitions</h3>
@@ -636,7 +699,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Jump Cuts</h3>
@@ -655,7 +718,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Smart Face Zoom</h3>
@@ -674,7 +737,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Dynamic Sound FX</h3>
@@ -693,7 +756,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="glass-card p-4">
+                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Music Ducking</h3>
@@ -713,7 +776,7 @@ const Settings = () => {
                 </div>
 
                 <div
-                  className="relative glass-card p-4"
+                  className="relative rounded-xl border border-white/12 bg-white/[0.04] p-4"
                   onClick={() => {
                     if (advancedLocked) openUpgrade("studio");
                   }}
@@ -762,7 +825,7 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="glass-card p-6">
+          <div className="rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
             <h2 className="font-semibold text-foreground mb-4">Account</h2>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
