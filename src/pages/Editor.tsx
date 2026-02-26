@@ -80,6 +80,7 @@ type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education";
+type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "balanced" | "aggressive" | "ultra";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
@@ -151,6 +152,10 @@ const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; de
   { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage." },
   { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
   { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
+];
+const HOOK_SELECTION_MODE_OPTIONS: Array<{ value: HookSelectionMode; label: string; description: string }> = [
+  { value: "manual", label: "Manual", description: "You choose and apply the opening hook." },
+  { value: "auto", label: "Auto", description: "Editor picks the best opening hook automatically." },
 ];
 const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string }> = [
   { value: "balanced", label: "Balanced", description: "10-18 cuts/min, lighter compression, 0.28s silence target." },
@@ -445,6 +450,14 @@ const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelecti
     : "auto";
 };
 
+const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "null" || normalized === "undefined") return "manual";
+  if (normalized === "auto" || normalized === "automatic" || normalized === "editor") return "auto";
+  if (normalized === "manual" || normalized === "user" || normalized === "user_selected") return "manual";
+  return "manual";
+};
+
 const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
   for (const tier of PLAN_TIERS) {
     const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
@@ -514,6 +527,7 @@ const Editor = () => {
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
+  const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("manual");
   const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("balanced");
   const [longFormAggression, setLongFormAggression] = useState(45);
   const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
@@ -544,6 +558,7 @@ const Editor = () => {
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
   const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
+  const [hookSelectionModeByJob, setHookSelectionModeByJob] = useState<Record<string, HookSelectionMode>>({});
   const [hookPreviewCandidateByJob, setHookPreviewCandidateByJob] = useState<Record<string, HookCandidate | null>>({});
   const [hookPreviewUrlByJob, setHookPreviewUrlByJob] = useState<Record<string, string>>({});
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
@@ -1680,6 +1695,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode,
+              hookSelectionMode: defaultHookSelectionMode,
               longFormPreset,
               longFormAggression,
               longFormClarityVsSpeed,
@@ -1701,6 +1717,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode,
+              hookSelectionMode: defaultHookSelectionMode,
               longFormPreset,
               longFormAggression,
               longFormClarityVsSpeed,
@@ -1861,6 +1878,7 @@ const Editor = () => {
             subtitles: subtitlesPayload,
             maxCuts: maxCutsRequested,
             editorMode,
+            hookSelectionMode: defaultHookSelectionMode,
             longFormPreset,
             longFormAggression,
             longFormClarityVsSpeed,
