@@ -13,7 +13,42 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal } from "lucide-react";
+import {
+  Upload,
+  Plus,
+  Play,
+  Download,
+  Lock,
+  Loader2,
+  CheckCircle2,
+  ZoomIn,
+  ScissorsSquare,
+  Scissors,
+  MousePointerClick,
+  X,
+  XCircle,
+  Map as MapIcon,
+  RotateCcw,
+  SlidersHorizontal,
+  Bot,
+  Sparkles,
+  MessageSquareText,
+  Camera,
+  Gamepad2,
+  Trophy,
+  GraduationCap,
+  Mic,
+  Monitor,
+  Smartphone,
+  Youtube,
+  Flame,
+  CircleOff,
+  Gauge,
+  Rabbit,
+  Zap,
+  Volume2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -83,8 +118,11 @@ const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
+const HELP_DEMO_ROTATE_MS = 2600;
+const HELP_DEMO_SAMPLE_VIDEO_SRC = "/editor-help-sample.mp4";
 
 type VerticalFitMode = "cover" | "contain";
+type RenderModeSelection = "horizontal" | "vertical";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
@@ -95,6 +133,20 @@ type ViralModeSelection = "none" | "youtube" | "tiktok";
 type EnhanceModeSelection = "off" | "transitions" | "swoosh" | "zooms" | "all" | "auto";
 type EffectPreviewSelection = Exclude<EnhanceModeSelection, "off">;
 type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
+type HelpDemoStep = {
+  key: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  renderMode: RenderModeSelection;
+  retentionProfile: RetentionStrategyProfile;
+  platform: RetentionTargetPlatform;
+  editorMode: EditorModeSelection;
+  viralMode: ViralModeSelection;
+  enhanceMode: EnhanceModeSelection;
+  maxCuts: number;
+  captionsOn: boolean;
+};
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
 type OutcomeAutomationProfile = {
@@ -130,6 +182,10 @@ const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressi
   balanced: "medium",
   viral: "viral",
 };
+const RENDER_MODE_OPTIONS: Array<{ value: RenderModeSelection; label: string; icon: LucideIcon }> = [
+  { value: "horizontal", label: "Horizontal", icon: Monitor },
+  { value: "vertical", label: "Vertical", icon: Smartphone },
+];
 const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
   {
     value: "safe",
@@ -177,21 +233,21 @@ const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: strin
   { key: "cuts", label: "Cuts & Pacing" },
   { key: "captions", label: "Captions & Audio" },
 ];
-const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
-  { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
-  { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions." },
-  { value: "commentary", label: "Commentary", description: "Speech-first pacing with cleaner flow." },
-  { value: "vlog", label: "Vlog", description: "Conversational lifestyle pacing." },
-  { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage." },
-  { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
-  { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
-  { value: "podcast", label: "Podcast", description: "Multi-speaker cleanup with breathing room and chapter-friendly pacing." },
+const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string; icon: LucideIcon }> = [
+  { value: "auto", label: "Auto", description: "Let the model infer style from your content.", icon: Bot },
+  { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions.", icon: Sparkles },
+  { value: "commentary", label: "Commentary", description: "Speech-first pacing with cleaner flow.", icon: MessageSquareText },
+  { value: "vlog", label: "Vlog", description: "Conversational lifestyle pacing.", icon: Camera },
+  { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage.", icon: Gamepad2 },
+  { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays.", icon: Trophy },
+  { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers.", icon: GraduationCap },
+  { value: "podcast", label: "Podcast", description: "Multi-speaker cleanup with breathing room and chapter-friendly pacing.", icon: Mic },
 ];
-const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string }> = [
-  { value: "auto", label: "Auto", description: "Auto-tunes long-form pacing profile by runtime and retention settings." },
-  { value: "balanced", label: "Balanced", description: "10-18 cuts/min, lighter compression, 0.28s silence target." },
-  { value: "aggressive", label: "Aggressive", description: "18-28 cuts/min, tighter pacing, 0.18s silence target." },
-  { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
+const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string; icon: LucideIcon }> = [
+  { value: "auto", label: "Auto", description: "Auto-tunes long-form pacing profile by runtime and retention settings.", icon: Bot },
+  { value: "balanced", label: "Balanced", description: "10-18 cuts/min, lighter compression, 0.28s silence target.", icon: Gauge },
+  { value: "aggressive", label: "Aggressive", description: "18-28 cuts/min, tighter pacing, 0.18s silence target.", icon: Rabbit },
+  { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target.", icon: Zap },
 ];
 const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
   auto: { aggression: 62, clarityVsSpeed: 58, tangentKiller: true },
@@ -199,30 +255,119 @@ const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; cl
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
 };
-const VIRAL_MODE_OPTIONS: Array<{ value: ViralModeSelection; label: string; description: string }> = [
+const VIRAL_MODE_OPTIONS: Array<{ value: ViralModeSelection; label: string; description: string; icon: LucideIcon }> = [
   {
     value: "youtube",
     label: "YouTube Viral",
     description: "Retention + storytelling polish with smoother pacing and cinematic effect blend.",
+    icon: Youtube,
   },
   {
     value: "tiktok",
     label: "TikTok Viral",
     description: "Instant dopamine profile with aggressive pacing, snap zooms, and punchier FX.",
+    icon: Flame,
   },
   {
     value: "none",
     label: "None",
     description: "Keep manual control over pacing and effect toggles.",
+    icon: CircleOff,
   },
 ];
-const ENHANCE_MODE_OPTIONS: Array<{ value: EnhanceModeSelection; label: string }> = [
-  { value: "off", label: "Off" },
-  { value: "transitions", label: "Transitions" },
-  { value: "swoosh", label: "Swoosh SFX" },
-  { value: "zooms", label: "Zooms" },
-  { value: "all", label: "All Effects" },
-  { value: "auto", label: "Auto" },
+const ENHANCE_MODE_OPTIONS: Array<{ value: EnhanceModeSelection; label: string; icon: LucideIcon }> = [
+  { value: "off", label: "Off", icon: CircleOff },
+  { value: "transitions", label: "Transitions", icon: Scissors },
+  { value: "swoosh", label: "Swoosh SFX", icon: Volume2 },
+  { value: "zooms", label: "Zooms", icon: ZoomIn },
+  { value: "all", label: "All Effects", icon: Sparkles },
+  { value: "auto", label: "Auto", icon: Bot },
+];
+const HELP_DEMO_STEPS: HelpDemoStep[] = [
+  {
+    key: "default-safe",
+    title: "Long-form default",
+    description: "Horizontal + Safe keeps context and smooth pacing for standard uploads.",
+    icon: Monitor,
+    renderMode: "horizontal",
+    retentionProfile: "safe",
+    platform: "youtube",
+    editorMode: "auto",
+    viralMode: "none",
+    enhanceMode: "off",
+    maxCuts: 6,
+    captionsOn: false,
+  },
+  {
+    key: "vertical-viral",
+    title: "Short-form punch",
+    description: "Vertical + Viral + TikTok ramps speed, denser cuts, and stronger visual effects.",
+    icon: Flame,
+    renderMode: "vertical",
+    retentionProfile: "viral",
+    platform: "tiktok",
+    editorMode: "gaming",
+    viralMode: "tiktok",
+    enhanceMode: "all",
+    maxCuts: 13,
+    captionsOn: true,
+  },
+  {
+    key: "commentary-flow",
+    title: "Commentary flow",
+    description: "Balanced pacing on YouTube protects narrative while still trimming dead space.",
+    icon: MessageSquareText,
+    renderMode: "horizontal",
+    retentionProfile: "balanced",
+    platform: "youtube",
+    editorMode: "commentary",
+    viralMode: "youtube",
+    enhanceMode: "transitions",
+    maxCuts: 9,
+    captionsOn: true,
+  },
+  {
+    key: "education-clarity",
+    title: "Educational clarity",
+    description: "Safe profile + education mode prioritizes readability and lower overcut risk.",
+    icon: GraduationCap,
+    renderMode: "horizontal",
+    retentionProfile: "safe",
+    platform: "youtube",
+    editorMode: "education",
+    viralMode: "none",
+    enhanceMode: "off",
+    maxCuts: 5,
+    captionsOn: true,
+  },
+  {
+    key: "reels-mix",
+    title: "Reels middle-ground",
+    description: "Balanced IG Reels setup gives quick pacing without full TikTok intensity.",
+    icon: Smartphone,
+    renderMode: "vertical",
+    retentionProfile: "balanced",
+    platform: "instagram_reels",
+    editorMode: "vlog",
+    viralMode: "youtube",
+    enhanceMode: "zooms",
+    maxCuts: 10,
+    captionsOn: true,
+  },
+  {
+    key: "podcast-focus",
+    title: "Podcast focus",
+    description: "Podcast mode tunes cleanup around speakers, breathing room, and subtitle clarity.",
+    icon: Mic,
+    renderMode: "horizontal",
+    retentionProfile: "balanced",
+    platform: "youtube",
+    editorMode: "podcast",
+    viralMode: "none",
+    enhanceMode: "swoosh",
+    maxCuts: 8,
+    captionsOn: true,
+  },
 ];
 const deriveEnhanceModeFromEffectToggles = (
   transitionsEnabled: boolean,
@@ -660,6 +805,8 @@ const Editor = () => {
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
+  const [helpDemoStepIndex, setHelpDemoStepIndex] = useState(0);
+  const [helpDemoPlaying, setHelpDemoPlaying] = useState(true);
   const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
   const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
   const [hookSelectionModeByJob, setHookSelectionModeByJob] = useState<Record<string, HookSelectionMode>>({});
@@ -677,6 +824,7 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const helpDemoVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
@@ -754,6 +902,11 @@ const Editor = () => {
     () => (outcomeAutomationProfile ? Number(outcomeAutomationProfile.expectedLift || 0) * 100 : 0),
     [outcomeAutomationProfile],
   );
+  const activeHelpDemoStep = HELP_DEMO_STEPS[helpDemoStepIndex] ?? HELP_DEMO_STEPS[0];
+  const helpDemoProgress = useMemo(
+    () => Math.round(((helpDemoStepIndex + 1) / HELP_DEMO_STEPS.length) * 100),
+    [helpDemoStepIndex],
+  );
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
@@ -768,7 +921,7 @@ const Editor = () => {
     if (maxRerendersPerDay === null || maxRerendersPerDay === undefined) return null;
     return Math.max(0, maxRerendersPerDay - rerendersUsedToday);
   }, [maxRerendersPerDay, rerendersUsedToday]);
-  const hasReachedRenderLimitForMode = useCallback((_mode: "horizontal" | "vertical") => {
+  const hasReachedRenderLimitForMode = useCallback((_mode: RenderModeSelection) => {
     if (isDevAccount) return false;
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
     return (rendersRemaining ?? 0) <= 0;
@@ -1017,6 +1170,41 @@ const Editor = () => {
       window.removeEventListener("scroll", onScroll);
     };
   }, []);
+
+  useEffect(() => {
+    if (!editorGuideOpen) {
+      setHelpDemoPlaying(true);
+      return;
+    }
+    setHelpDemoStepIndex(0);
+    setHelpDemoPlaying(true);
+  }, [editorGuideOpen]);
+
+  useEffect(() => {
+    if (!editorGuideOpen || !helpDemoPlaying || HELP_DEMO_STEPS.length <= 1) return;
+    const intervalId = window.setInterval(() => {
+      setHelpDemoStepIndex((prev) => (prev + 1) % HELP_DEMO_STEPS.length);
+    }, HELP_DEMO_ROTATE_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [editorGuideOpen, helpDemoPlaying]);
+
+  useEffect(() => {
+    if (!editorGuideOpen) return;
+    const videoEl = helpDemoVideoRef.current;
+    if (!videoEl) return;
+    if (helpDemoPlaying) {
+      const playPromise = videoEl.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          // ignore autoplay blocks; user can still scrub the walkthrough.
+        });
+      }
+      return;
+    }
+    videoEl.pause();
+  }, [editorGuideOpen, helpDemoPlaying, helpDemoStepIndex]);
 
   const [authError, setAuthError] = useState(false);
 
@@ -2152,7 +2340,7 @@ const Editor = () => {
     };
   }, []);
 
-  const setRenderMode = useCallback((mode: "horizontal" | "vertical") => {
+  const setRenderMode = useCallback((mode: RenderModeSelection) => {
     const next = new URLSearchParams(searchParams);
     if (mode === "vertical") next.set("mode", "vertical");
     else next.delete("mode");
@@ -3792,6 +3980,13 @@ const Editor = () => {
         : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-violet-300/40 hover:text-white hover:shadow-[0_0_16px_rgba(192,132,252,0.18)]"
     }`;
 
+  const helpDemoPillClass = (active: boolean) =>
+    `inline-flex min-h-9 items-center justify-center rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
+      active
+        ? "border-violet-300/60 bg-violet-500/25 text-violet-100"
+        : "border-white/10 bg-white/[0.02] text-slate-400"
+    }`;
+
   const refreshEffectPreview = useCallback(() => {
     setEffectPreviewUrl("");
     setEffectPreviewError("");
@@ -3880,36 +4075,28 @@ const Editor = () => {
       return (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <button
-              type="button"
-              className={sectionPillClass(!isVerticalMode)}
-              onClick={() => {
-                trackEditorEvent("render_mode_selected", {
-                  retentionProfile: retentionStrategyProfile,
-                  targetPlatform: retentionTargetPlatform,
-                  captionStyle: activeSubtitlePreset,
-                  metadata: { mode: "horizontal" },
-                });
-                setRenderMode("horizontal");
-              }}
-            >
-              Horizontal
-            </button>
-            <button
-              type="button"
-              className={sectionPillClass(isVerticalMode)}
-              onClick={() => {
-                trackEditorEvent("render_mode_selected", {
-                  retentionProfile: retentionStrategyProfile,
-                  targetPlatform: retentionTargetPlatform,
-                  captionStyle: activeSubtitlePreset,
-                  metadata: { mode: "vertical" },
-                });
-                setRenderMode("vertical");
-              }}
-            >
-              Vertical
-            </button>
+            {RENDER_MODE_OPTIONS.map((mode) => {
+              const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
+              return (
+                <button
+                  key={mode.value}
+                  type="button"
+                  className={`${sectionPillClass(isActive)} flex items-center gap-2`}
+                  onClick={() => {
+                    trackEditorEvent("render_mode_selected", {
+                      retentionProfile: retentionStrategyProfile,
+                      targetPlatform: retentionTargetPlatform,
+                      captionStyle: activeSubtitlePreset,
+                      metadata: { mode: mode.value },
+                    });
+                    setRenderMode(mode.value);
+                  }}
+                >
+                  <mode.icon className="h-4 w-4 shrink-0" />
+                  <span>{mode.label}</span>
+                </button>
+              );
+            })}
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {PLATFORM_OPTIONS.map((platform) => (
@@ -4015,7 +4202,7 @@ const Editor = () => {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className={sectionPillClass(editorMode === mode.value)}
+                      className={`${sectionPillClass(editorMode === mode.value)} flex items-center gap-2`}
                       onClick={() => {
                         menuTouchedRef.current.editorMode = true;
                         trackEditorEvent("editor_mode_selected", {
@@ -4027,7 +4214,8 @@ const Editor = () => {
                         setEditorMode(mode.value);
                       }}
                     >
-                      {mode.label}
+                      <mode.icon className="h-4 w-4 shrink-0" />
+                      <span>{mode.label}</span>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>{mode.description}</TooltipContent>
@@ -4082,10 +4270,11 @@ const Editor = () => {
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          className={sectionPillClass(viralMode === mode.value)}
+                          className={`${sectionPillClass(viralMode === mode.value)} flex items-center gap-2`}
                           onClick={() => applyViralModeSelection(mode.value)}
                         >
-                          {mode.label}
+                          <mode.icon className="h-4 w-4 shrink-0" />
+                          <span>{mode.label}</span>
                         </button>
                       </TooltipTrigger>
                       <TooltipContent>{mode.description}</TooltipContent>
@@ -4106,11 +4295,12 @@ const Editor = () => {
                     <button
                       key={mode.value}
                       type="button"
-                      className={`${sectionPillClass(enhanceMode === mode.value)} ${onlyHookAndCut && mode.value !== "off" ? "cursor-not-allowed opacity-60" : ""}`}
+                      className={`${sectionPillClass(enhanceMode === mode.value)} flex items-center gap-2 ${onlyHookAndCut && mode.value !== "off" ? "cursor-not-allowed opacity-60" : ""}`}
                       disabled={onlyHookAndCut && mode.value !== "off"}
                       onClick={() => applyEnhanceModeSelection(mode.value)}
                     >
-                      {mode.label}
+                      <mode.icon className="h-4 w-4 shrink-0" />
+                      <span>{mode.label}</span>
                     </button>
                   ))}
                 </div>
@@ -4265,7 +4455,7 @@ const Editor = () => {
                         <button
                           key={preset.value}
                           type="button"
-                          className={sectionPillClass(longFormPreset === preset.value)}
+                          className={`${sectionPillClass(longFormPreset === preset.value)} flex items-center gap-2`}
                           onClick={() => {
                             const defaults = LONG_FORM_PRESET_DEFAULTS[preset.value];
                             setLongFormPreset(preset.value);
@@ -4274,7 +4464,8 @@ const Editor = () => {
                             setTangentKiller(defaults.tangentKiller);
                           }}
                         >
-                          {preset.label}
+                          <preset.icon className="h-4 w-4 shrink-0" />
+                          <span>{preset.label}</span>
                         </button>
                       ))}
                     </div>
@@ -4326,17 +4517,19 @@ const Editor = () => {
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        className={sectionPillClass(defaultHookSelectionMode === "auto")}
+                        className={`${sectionPillClass(defaultHookSelectionMode === "auto")} flex items-center gap-2`}
                         onClick={() => setDefaultHookSelectionMode("auto")}
                       >
-                        Hook Auto
+                        <Bot className="h-4 w-4 shrink-0" />
+                        <span>Hook Auto</span>
                       </button>
                       <button
                         type="button"
-                        className={sectionPillClass(defaultHookSelectionMode === "manual")}
+                        className={`${sectionPillClass(defaultHookSelectionMode === "manual")} flex items-center gap-2`}
                         onClick={() => setDefaultHookSelectionMode("manual")}
                       >
-                        Hook Manual
+                        <MousePointerClick className="h-4 w-4 shrink-0" />
+                        <span>Hook Manual</span>
                       </button>
                     </div>
                   </div>
@@ -4638,8 +4831,20 @@ const Editor = () => {
                           <div className="space-y-2">
                             <p className="text-xs text-slate-400">Format</p>
                             <div className="grid grid-cols-2 gap-2">
-                              <button type="button" className={sectionPillClass(!isVerticalMode)} onClick={() => setRenderMode("horizontal")}>Horizontal</button>
-                              <button type="button" className={sectionPillClass(isVerticalMode)} onClick={() => setRenderMode("vertical")}>Vertical</button>
+                              {RENDER_MODE_OPTIONS.map((mode) => {
+                                const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
+                                return (
+                                  <button
+                                    key={mode.value}
+                                    type="button"
+                                    className={`${sectionPillClass(isActive)} flex items-center gap-2`}
+                                    onClick={() => setRenderMode(mode.value)}
+                                  >
+                                    <mode.icon className="h-4 w-4 shrink-0" />
+                                    <span>{mode.label}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                           <div className="space-y-2">
@@ -5871,56 +6076,182 @@ const Editor = () => {
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Editor Help Menu</DialogTitle>
             <DialogDescription>
-              Quick guide to what each control does, how modes work, and where to review privacy and terms.
+              Animated walkthrough of each mode and setting using a sample video.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">How It Works</p>
-              <div className="mt-2 space-y-1 text-xs text-foreground/90">
-                <p>1. Click <span className="font-medium">New Project</span> and upload your video.</p>
-                <p>2. Pick render mode, retention profile, platform target, and caption settings.</p>
-                <p>3. The editor auto-selects the best 5-8 second opening hook.</p>
-                <p>4. Wait for <span className="font-medium">Ready</span> then open export and download.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Interactive Demo</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setHelpDemoPlaying(false);
+                      setHelpDemoStepIndex((prev) => (prev - 1 + HELP_DEMO_STEPS.length) % HELP_DEMO_STEPS.length);
+                    }}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setHelpDemoPlaying((prev) => !prev)}
+                  >
+                    {helpDemoPlaying ? "Pause tour" : "Resume tour"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setHelpDemoPlaying(false);
+                      setHelpDemoStepIndex((prev) => (prev + 1) % HELP_DEMO_STEPS.length);
+                    }}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1.45fr_1fr]">
+                <div className="overflow-hidden rounded-lg border border-white/10 bg-[#05070f]/95">
+                  <div className="relative aspect-video bg-black">
+                    <video
+                      ref={helpDemoVideoRef}
+                      src={HELP_DEMO_SAMPLE_VIDEO_SRC}
+                      className="h-full w-full object-cover"
+                      muted
+                      loop
+                      playsInline
+                      autoPlay
+                    />
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_22%,rgba(168,85,247,0.30),transparent_52%),radial-gradient(circle_at_84%_80%,rgba(56,189,248,0.20),transparent_50%)]" />
+                    <motion.div
+                      key={activeHelpDemoStep.key}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.26, ease: "easeOut" }}
+                      className="absolute inset-x-3 bottom-3 rounded-lg border border-white/20 bg-black/55 p-3 backdrop-blur-md"
+                    >
+                      <div className="flex items-center gap-2">
+                        <activeHelpDemoStep.icon className="h-4 w-4 text-violet-200" />
+                        <p className="text-sm font-semibold text-white">{activeHelpDemoStep.title}</p>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-200/90">{activeHelpDemoStep.description}</p>
+                    </motion.div>
+                  </div>
+                  <div className="border-t border-white/10 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between text-[11px] text-slate-300">
+                      <span>Step {helpDemoStepIndex + 1} / {HELP_DEMO_STEPS.length}</span>
+                      <span>{activeHelpDemoStep.renderMode === "vertical" ? "Vertical sample" : "Horizontal sample"}</span>
+                    </div>
+                    <Progress value={helpDemoProgress} className="h-1.5 bg-white/10" />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-white/10 bg-[#090c17]/90 p-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Settings Snapshot</p>
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-400">Render mode</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {RENDER_MODE_OPTIONS.map((mode) => (
+                          <span key={`help-render-${mode.value}`} className={helpDemoPillClass(activeHelpDemoStep.renderMode === mode.value)}>
+                            {mode.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-400">Retention profile</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {RETENTION_PROFILE_OPTIONS.map((profile) => (
+                          <span
+                            key={`help-retention-${profile.value}`}
+                            className={helpDemoPillClass(activeHelpDemoStep.retentionProfile === profile.value)}
+                          >
+                            {profile.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-400">Platform</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {PLATFORM_OPTIONS.map((platform) => (
+                          <span
+                            key={`help-platform-${platform.value}`}
+                            className={helpDemoPillClass(activeHelpDemoStep.platform === platform.value)}
+                          >
+                            {platform.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
+                        <p className="text-[11px] text-slate-400">Editor mode</p>
+                        <p className="mt-1 text-xs font-medium text-white">
+                          {EDITOR_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.editorMode)?.label || "Auto"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
+                        <p className="text-[11px] text-slate-400">Effects</p>
+                        <p className="mt-1 text-xs font-medium text-white">
+                          {ENHANCE_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.enhanceMode)?.label || "Auto"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
+                        <p className="text-[11px] text-slate-400">Viral mode</p>
+                        <p className="mt-1 text-xs font-medium text-white">
+                          {VIRAL_MODE_OPTIONS.find((mode) => mode.value === activeHelpDemoStep.viralMode)?.label || "None"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
+                        <p className="text-[11px] text-slate-400">Captions and cuts</p>
+                        <p className="mt-1 text-xs font-medium text-white">
+                          {activeHelpDemoStep.captionsOn ? "Captions on" : "Captions off"} - {activeHelpDemoStep.maxCuts} max cuts
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Main Buttons</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Modes Tour</p>
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <p className="text-xs text-foreground/90"><span className="font-medium">New Project:</span> Upload and start a new edit job.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Horizontal / Vertical:</span> Choose original format or 9:16 short-form output.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Safe / Balanced / Viral:</span> Control pacing and retention aggression.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">TikTok / IG Reels / YouTube:</span> Tune editing defaults for platform behavior.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Captions on/off:</span> Toggle subtitle burn-in for new renders.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Edit captions:</span> Open style/preset controls.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Save captions:</span> Persist caption settings to your account.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Only Hook + Cut:</span> Minimal edit path focused on hook and dead-space cuts.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Cut Count:</span> Set the maximum cuts (1-15) to remove low-energy and irrelevant moments.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Editor Mode:</span> Force style strategy (reaction, commentary, vlog, gaming, sports, education, or auto).</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Auto Hook:</span> Opening hook is selected automatically from top timeline moments.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
-                <p className="text-xs text-foreground/90"><span className="font-medium">Open Export / Open Clips:</span> Download final output files.</p>
+                {HELP_DEMO_STEPS.map((step, index) => (
+                  <button
+                    key={step.key}
+                    type="button"
+                    onClick={() => {
+                      setHelpDemoPlaying(false);
+                      setHelpDemoStepIndex(index);
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                      helpDemoStepIndex === index
+                        ? "border-violet-300/60 bg-violet-500/20 text-violet-100"
+                        : "border-white/10 bg-black/20 text-slate-300 hover:border-violet-300/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <step.icon className="h-3.5 w-3.5" />
+                      <span className="text-xs font-medium">{step.title}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-300/90">{step.description}</p>
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Modes</p>
-              <div className="mt-2 space-y-2 text-xs text-foreground/90">
-                <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
-                <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
-                <p><span className="font-medium">Retention Profiles:</span> Safe = conservative, Balanced = adaptive default, Viral = fastest pacing (best for short-form).</p>
-                <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Privacy And Terms</p>
-              <p className="mt-2 text-xs text-foreground/90">
-                By using the editor, you agree to the service terms. Review how uploads and processing are handled in the privacy policy.
-              </p>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <a
                   href="https://www.autoeditor.app/privacy"
                   target="_blank"
@@ -5938,10 +6269,8 @@ const Editor = () => {
                   Terms of Service
                 </a>
               </div>
-            </div>
-            <div className="flex justify-end">
               <Button type="button" size="sm" onClick={() => setEditorGuideOpen(false)}>
-                Okay
+                Close Demo
               </Button>
             </div>
           </div>
