@@ -526,6 +526,9 @@ type EditorSettingsResponse = {
     autoDownload?: boolean;
     autoCaptions?: boolean;
     subtitleStyle?: string;
+    smartZoom?: boolean;
+    transitions?: boolean;
+    soundFx?: boolean;
   };
   capabilities?: {
     captions?: CaptionCapability;
@@ -592,6 +595,9 @@ const Editor = () => {
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
   const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
+  const [smartZoomEnabled, setSmartZoomEnabled] = useState(true);
+  const [transitionsEnabled, setTransitionsEnabled] = useState(true);
+  const [soundFxEnabled, setSoundFxEnabled] = useState(true);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
@@ -1372,13 +1378,16 @@ const Editor = () => {
       .then((d) => {
         setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
         setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
+        if (typeof d?.settings?.smartZoom === "boolean") setSmartZoomEnabled(Boolean(d.settings.smartZoom));
+        if (typeof d?.settings?.transitions === "boolean") setTransitionsEnabled(Boolean(d.settings.transitions));
+        if (typeof d?.settings?.soundFx === "boolean") setSoundFxEnabled(Boolean(d.settings.soundFx));
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
         const runtimeCaptions = d?.capabilities?.captions;
         if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
           setCaptionCapability(runtimeCaptions);
-          if (!runtimeCaptions.available) {
+          if (!runtimeCaptions.available && !isVerticalMode) {
             setAutoCaptionsEnabled(false);
           }
         }
@@ -1390,7 +1399,7 @@ const Editor = () => {
           try { await signOut() } catch (e) {}
         }
       });
-  }, [accessToken, signOut]);
+  }, [accessToken, isVerticalMode, signOut]);
 
   useEffect(() => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
@@ -1518,13 +1527,16 @@ const Editor = () => {
                 const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
                 setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
                 setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
+                if (typeof s?.settings?.smartZoom === "boolean") setSmartZoomEnabled(Boolean(s.settings.smartZoom));
+                if (typeof s?.settings?.transitions === "boolean") setTransitionsEnabled(Boolean(s.settings.transitions));
+                if (typeof s?.settings?.soundFx === "boolean") setSoundFxEnabled(Boolean(s.settings.soundFx));
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
                 setSubtitleStyleDirty(false);
                 const runtimeCaptions = s?.capabilities?.captions;
                 if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
                   setCaptionCapability(runtimeCaptions);
-                  if (!runtimeCaptions.available) {
+                  if (!runtimeCaptions.available && !isVerticalMode) {
                     setAutoCaptionsEnabled(false);
                   }
                 }
@@ -1600,7 +1612,7 @@ const Editor = () => {
         })();
       }
     }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, submitDownloadFeedback]);
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, isVerticalMode, submitDownloadFeedback]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -1760,6 +1772,9 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
+              smartZoom: smartZoomEnabled,
+              transitions: transitionsEnabled,
+              soundFx: soundFxEnabled,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1783,6 +1798,9 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
+              smartZoom: smartZoomEnabled,
+              transitions: transitionsEnabled,
+              soundFx: soundFxEnabled,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -1944,6 +1962,9 @@ const Editor = () => {
             longFormAggression,
             longFormClarityVsSpeed,
             tangentKiller,
+            smartZoom: smartZoomEnabled,
+            transitions: transitionsEnabled,
+            soundFx: soundFxEnabled,
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
           }),
           token: accessToken,
@@ -2214,6 +2235,11 @@ const Editor = () => {
     const canvasHeight = Math.round((DEFAULT_VERTICAL_OUTPUT.height / DEFAULT_VERTICAL_OUTPUT.width) * canvasWidth);
     const topHeight = Math.round((topHeightPx / DEFAULT_VERTICAL_OUTPUT.height) * canvasHeight);
     const bottomHeight = canvasHeight - topHeight;
+    const customPreviewCaption = normalizeVerticalCaptionTextForJob(verticalCaptionText)
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) || "";
+    const previewCaptionText = customPreviewCaption || (autoCaptionsEnabled ? "Auto captions preview" : "");
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
@@ -2258,6 +2284,49 @@ const Editor = () => {
       ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
     };
 
+    const drawPreviewCaption = () => {
+      if (!previewCaptionText) return;
+      const maxWidth = canvasWidth * 0.84;
+      const words = previewCaptionText.slice(0, 96).split(/\s+/).filter(Boolean);
+      const lines: string[] = [];
+      let current = "";
+      ctx.font = "700 30px Arial";
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (ctx.measureText(candidate).width <= maxWidth || !current) {
+          current = candidate;
+          continue;
+        }
+        lines.push(current);
+        current = word;
+        if (lines.length >= 2) break;
+      }
+      if (current && lines.length < 2) lines.push(current);
+      if (!lines.length) return;
+      const lineHeight = 34;
+      const boxPaddingX = 18;
+      const boxPaddingY = 12;
+      const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
+      const boxWidth = Math.min(canvasWidth * 0.9, textWidth + boxPaddingX * 2);
+      const boxHeight = lines.length * lineHeight + boxPaddingY * 2;
+      const boxX = (canvasWidth - boxWidth) / 2;
+      const boxY = canvasHeight - boxHeight - 24;
+      ctx.fillStyle = "rgba(8, 7, 18, 0.75)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.32)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#F8FAFC";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      lines.forEach((line, index) => {
+        const textY = boxY + boxPaddingY + lineHeight * (index + 0.5);
+        ctx.fillText(line, canvasWidth / 2, textY);
+      });
+    };
+
     let raf = 0;
     const render = () => {
       if (video.readyState >= 2) {
@@ -2287,6 +2356,7 @@ const Editor = () => {
           ctx.lineTo(canvasWidth, topHeight + 0.5);
           ctx.stroke();
         }
+        drawPreviewCaption();
       }
       raf = window.requestAnimationFrame(render);
     };
@@ -2301,7 +2371,7 @@ const Editor = () => {
     return () => {
       window.cancelAnimationFrame(raf);
     };
-  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop]);
+  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop, verticalCaptionText, autoCaptionsEnabled]);
 
   const startVerticalRender = async () => {
     if (!pendingVerticalFile) {
@@ -2488,6 +2558,9 @@ const Editor = () => {
           longFormAggression,
           longFormClarityVsSpeed,
           tangentKiller,
+          smartZoom: smartZoomEnabled,
+          transitions: transitionsEnabled,
+          soundFx: soundFxEnabled,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -2606,6 +2679,9 @@ const Editor = () => {
       hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
+      smartZoomEnabled,
+      transitionsEnabled,
+      soundFxEnabled,
       verticalCaptionText,
       isDevAccount,
       toast,
@@ -2914,6 +2990,8 @@ const Editor = () => {
       : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
         ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
         : "";
+  const failureMessage = failedGateReason || activeJob?.error || "";
+  const isPacingToRenderingTransitionFailure = /invalid transition from pacing to rendering/i.test(failureMessage);
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
@@ -2990,8 +3068,6 @@ const Editor = () => {
   const confidenceValue = detectedNicheConfidencePercent !== null
     ? `${detectedNicheConfidencePercent}%`
     : null;
-  const failureMessage = failedGateReason || activeJob?.error || "";
-  const isPacingToRenderingTransitionFailure = /invalid transition from pacing to rendering/i.test(failureMessage);
   const stepMicroCopy: Record<string, string> = {
     queued: "Queued in worker lane",
     uploading:
@@ -3519,7 +3595,7 @@ const Editor = () => {
     PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform] ?? PLATFORM_RECOMMENDATION_MAP.youtube;
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
   const captionEngineOffline = captionCapability.available === false;
-  const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
+  const captionsToggleDisabled = !subtitlesEnabled || (captionEngineOffline && !isVerticalMode);
   const rerenderLimitReached =
     !isDevAccount && rerendersRemainingToday !== null && rerendersRemainingToday !== undefined && rerendersRemainingToday <= 0;
   const mobileApplyAndRenderDisabled =
@@ -3753,6 +3829,46 @@ const Editor = () => {
               <span>{MAX_CUTS_MIN}</span>
               <span>{MAX_CUTS_MAX}</span>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-slate-200">Effects</span>
+              <span className="rounded-full border border-violet-300/40 bg-violet-500/15 px-2 py-0.5 text-[10px] text-violet-100">
+                {isVerticalMode ? "Vertical Short-Form Pipeline" : "Horizontal Long-Form Pipeline"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                className={`${sectionPillClass(transitionsEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                disabled={onlyHookAndCut}
+                onClick={() => setTransitionsEnabled((prev) => !prev)}
+              >
+                Transitions {transitionsEnabled ? "On" : "Off"}
+              </button>
+              <button
+                type="button"
+                className={`${sectionPillClass(smartZoomEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                disabled={onlyHookAndCut}
+                onClick={() => setSmartZoomEnabled((prev) => !prev)}
+              >
+                Smart Zoom {smartZoomEnabled ? "On" : "Off"}
+              </button>
+              <button
+                type="button"
+                className={`${sectionPillClass(soundFxEnabled)} ${onlyHookAndCut ? "cursor-not-allowed opacity-60" : ""}`}
+                disabled={onlyHookAndCut}
+                onClick={() => setSoundFxEnabled((prev) => !prev)}
+              >
+                Sound FX {soundFxEnabled ? "On" : "Off"}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              {onlyHookAndCut
+                ? "Effects are disabled while Only Hook & Cut is enabled."
+                : "These toggles are applied to all new renders and re-renders."}
+            </p>
           </div>
 
           <Accordion type="single" collapsible className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
