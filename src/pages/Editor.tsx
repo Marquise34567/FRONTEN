@@ -6863,7 +6863,8 @@ const Editor = () => {
 
               {isVerticalMode && (
                 <div className="glass-card p-5 space-y-5">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+                    <div className="space-y-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
                       <p className="text-xs text-muted-foreground">
@@ -6906,6 +6907,48 @@ const Editor = () => {
                     <p className="text-[11px] text-muted-foreground">
                       Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
                     </p>
+                    </div>
+                    <div className="w-full xl:max-w-[320px]">
+                      <video
+                        ref={verticalCompositionVideoRef}
+                        src={verticalPreviewUrl || undefined}
+                        muted
+                        loop
+                        playsInline
+                        className="hidden"
+                      />
+                      <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
+                        <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
+                        <div className="mx-auto w-full max-w-[300px]">
+                          <div ref={verticalCompositionFrameRef} className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                            <canvas
+                              ref={verticalCompositionCanvasRef}
+                              className="h-full w-full rounded-lg border border-border/50 bg-black"
+                            />
+                            <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-white/10" />
+                            {verticalCaptionEnabled && verticalCaptionPreviewText && verticalPreviewUrl ? (
+                              <button
+                                type="button"
+                                className={`absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${captionDragInteraction ? "cursor-grabbing" : "cursor-grab"}`}
+                                style={{
+                                  left: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%`,
+                                  top: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%`,
+                                }}
+                                onPointerDown={beginCaptionDrag}
+                              >
+                                <MousePointerClick className="h-3 w-3" />
+                                Caption
+                              </button>
+                            ) : null}
+                            {!verticalPreviewUrl ? (
+                              <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 px-4 text-center text-[11px] text-muted-foreground">
+                                Upload a video to activate live preview.
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4">
@@ -7299,41 +7342,6 @@ const Editor = () => {
                         </div>
 
                         <div className="space-y-3">
-                          <video
-                            ref={verticalCompositionVideoRef}
-                            src={verticalPreviewUrl}
-                            muted
-                            loop
-                            playsInline
-                            className="hidden"
-                          />
-                          <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
-                            <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
-                            <div className="mx-auto w-full max-w-[300px]">
-                              <div ref={verticalCompositionFrameRef} className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
-                                <canvas
-                                  ref={verticalCompositionCanvasRef}
-                                  className="h-full w-full rounded-lg border border-border/50 bg-black"
-                                />
-                                <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-white/10" />
-                                {verticalCaptionEnabled && verticalCaptionPreviewText ? (
-                                  <button
-                                    type="button"
-                                    className={`absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${captionDragInteraction ? "cursor-grabbing" : "cursor-grab"}`}
-                                    style={{
-                                      left: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%`,
-                                      top: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%`,
-                                    }}
-                                    onPointerDown={beginCaptionDrag}
-                                  >
-                                    <MousePointerClick className="h-3 w-3" />
-                                    Caption
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-
                           <div className="rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
                             {!skipManualWebcamCrop ? (
                               <>
