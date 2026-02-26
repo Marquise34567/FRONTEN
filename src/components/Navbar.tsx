@@ -107,16 +107,22 @@ const Navbar = () => {
           {mobileMenuOpen ? (
             <div className="absolute right-0 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg">
               <LanguageDropdown />
-              <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                <Link to="/pricing">{t("nav.pricing")}</Link>
-              </Button>
-              <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                <Link to="/editor">{t("nav.editor")}</Link>
-              </Button>
-              {showControlPanel ? (
-                <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
-                  <Link to="/control-panel">{t("nav.controlPanel")}</Link>
+              <Link to="/pricing">
+                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                  {t("nav.pricing")}
                 </Button>
+              </Link>
+              <Link to="/editor">
+                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                  {t("nav.editor")}
+                </Button>
+              </Link>
+              {showControlPanel ? (
+                <Link to="/control-panel">
+                  <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
+                    {t("nav.controlPanel")}
+                  </Button>
+                </Link>
               ) : null}
               {user ? (
                 <Button onClick={handleLogout} size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
@@ -124,12 +130,16 @@ const Navbar = () => {
                 </Button>
               ) : (
                 <>
-                  <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                    <Link to="/login">{t("nav.login")}</Link>
-                  </Button>
-                  <Button asChild size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                    <Link to="/signup">{t("nav.signup")}</Link>
-                  </Button>
+                  <Link to="/login">
+                    <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                      {t("nav.login")}
+                    </Button>
+                  </Link>
+                  <Link to="/signup">
+                    <Button size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
+                      {t("nav.signup")}
+                    </Button>
+                  </Link>
                 </>
               )}
             </div>
