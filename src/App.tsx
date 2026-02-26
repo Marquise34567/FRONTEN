@@ -176,7 +176,9 @@ const App = () => {
                   path="/control-panel"
                   element={
                     <RequireAuth>
-                      <ControlPanel />
+                      <RequireDevAdmin>
+                        <ControlPanel />
+                      </RequireDevAdmin>
                     </RequireAuth>
                   }
                 />

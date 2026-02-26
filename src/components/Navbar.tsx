@@ -7,7 +7,6 @@ import { useAuth } from "@/providers/AuthProvider";
 import LanguageDropdown from "@/components/LanguageDropdown";
 import { useLiveStats } from "@/providers/LiveStatsProvider";
 import { useMe } from "@/hooks/use-me";
-import { isPaidTier, PLAN_CONFIG, type PlanTier } from "@/shared/planConfig";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
@@ -17,11 +16,8 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const rawTier = (me?.subscription?.tier as string | undefined) || "free";
-  const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const isDevAccount = Boolean(me?.flags?.dev);
-  const showFeedback = Boolean(user && (isDevAccount || isPaidTier(tier)));
-  const showControlPanel = Boolean(user);
+  const showControlPanel = Boolean(user && isDevAccount);
   const showLiveMiniBadges = Boolean(user && (snapshot || pulse));
   const activeUsers = pulse?.activeUsers ?? snapshot?.activeUsers ?? 0;
   const upgradesToday = snapshot?.upgradeSignals?.upgradedToday ?? pulse?.upgradedToday ?? 0;
@@ -71,13 +67,6 @@ const Navbar = () => {
               {t("nav.editor")}
             </Button>
           </Link>
-          {showFeedback ? (
-            <Link to="/feedback">
-              <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-                Video Feedback
-              </Button>
-            </Link>
-          ) : null}
           {showControlPanel ? (
             <Link to="/control-panel">
               <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
@@ -124,11 +113,6 @@ const Navbar = () => {
               <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
                 <Link to="/editor">{t("nav.editor")}</Link>
               </Button>
-              {showFeedback ? (
-                <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                  <Link to="/feedback">Video Feedback</Link>
-                </Button>
-              ) : null}
               {showControlPanel ? (
                 <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
                   <Link to="/control-panel">{t("nav.controlPanel")}</Link>

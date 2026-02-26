@@ -1577,15 +1577,17 @@ const Editor = () => {
       description: "Premium features are now active.",
     });
     void refetchMe();
-    const next = new URLSearchParams(searchParams);
-    next.delete("success");
-    next.delete("tier");
-    next.delete("session_id");
-    next.delete("source");
-    next.delete("trial");
-    next.delete("endsAt");
-    setSearchParams(next, { replace: true });
-  }, [successParam, successTierParam, me?.subscription?.tier, tier, toast, refetchMe, searchParams, setSearchParams]);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("success");
+      next.delete("tier");
+      next.delete("session_id");
+      next.delete("source");
+      next.delete("trial");
+      next.delete("endsAt");
+      return next;
+    }, { replace: true });
+  }, [successParam, successTierParam, me?.subscription?.tier, tier, toast, refetchMe, setSearchParams]);
 
   useEffect(() => {
     if (isDevAccount || !freeMinutesWarning?.reached) return;
@@ -2184,11 +2186,13 @@ const Editor = () => {
 
   useEffect(() => {
     if (!selectedJobId && jobs.length > 0) {
-      const next = new URLSearchParams(searchParams);
-      next.set("jobId", jobs[0].id);
-      setSearchParams(next, { replace: true });
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("jobId", jobs[0].id);
+        return next;
+      }, { replace: true });
     }
-  }, [jobs, searchParams, selectedJobId, setSearchParams]);
+  }, [jobs, selectedJobId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedJobId || !accessToken || authError) {
@@ -2621,9 +2625,11 @@ const Editor = () => {
       statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
       setJobs((prev) => [{ ...create.job, renderMode: requestedMode, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("jobId", create.job.id);
-      setSearchParams(nextParams, { replace: false });
+      setSearchParams((prev) => {
+        const nextParams = new URLSearchParams(prev);
+        nextParams.set("jobId", create.job.id);
+        return nextParams;
+      }, { replace: false });
 
       // Attempt R2 multipart first (preferred for large files)
       const tryR2Multipart = async () => {
@@ -2895,11 +2901,13 @@ const Editor = () => {
   }, []);
 
   const setRenderMode = useCallback((mode: RenderModeSelection) => {
-    const next = new URLSearchParams(searchParams);
-    if (mode === "vertical") next.set("mode", "vertical");
-    else next.delete("mode");
-    setSearchParams(next, { replace: false });
-  }, [searchParams, setSearchParams]);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (mode === "vertical") next.set("mode", "vertical");
+      else next.delete("mode");
+      return next;
+    }, { replace: false });
+  }, [setSearchParams]);
 
   const prepareVerticalFile = (file: File) => {
     if (!isAllowedUploadFile(file)) {
@@ -3301,9 +3309,11 @@ const Editor = () => {
   };
 
   const handleSelectJob = (jobId: string) => {
-    const next = new URLSearchParams(searchParams);
-    next.set("jobId", jobId);
-    setSearchParams(next, { replace: false });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("jobId", jobId);
+      return next;
+    }, { replace: false });
   };
 
   const handleCancelJob = useCallback(
@@ -6915,13 +6925,25 @@ const Editor = () => {
                               ? `Vertical clips are ready (${activeOutputUrls.length}).`
                               : "Export is ready. Download your final cut."}
                           </p>
-                          <Button
-                            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-                            onClick={() => setExportOpen(true)}
-                          >
-                            <Download className="h-4 w-4" />
-                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
-                          </Button>
+                          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                            <Button
+                              className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                              onClick={() => setExportOpen(true)}
+                            >
+                              <Download className="h-4 w-4" />
+                              {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
+                            </Button>
+                            {paidTier ? (
+                              <Button
+                                variant="outline"
+                                className="min-h-12 w-full gap-2 border-emerald-300/45 bg-emerald-500/5 text-emerald-100 hover:bg-emerald-500/15 sm:w-auto"
+                                onClick={() => navigate("/feedback")}
+                              >
+                                <MessageSquareText className="h-4 w-4" />
+                                Video Feedback
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </motion.div>
                     )}
