@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Check, Pause, Play, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Gauge, Pause, Play, Sparkles, Trash2, X } from "lucide-react";
 
 import "./manual-timestamp-editor.css";
 

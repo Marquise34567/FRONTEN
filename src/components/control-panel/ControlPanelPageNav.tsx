@@ -3,7 +3,7 @@ import { Bot, ChevronDown, Cpu, Flame, Globe2, Landmark, LayoutDashboard, Shield
 import { useLocation, useNavigate } from "react-router-dom"
 
 type ControlPanelPage = {
-  key: "overview" | "emotion" | "audience" | "growth" | "infrastructure" | "security" | "algorithm" | "bank" | "ops"
+  key: "overview" | "emotion" | "audience" | "growth" | "infrastructure" | "security" | "algorithm" | "bank" | "ops" | "blacksite"
   label: string
   path: string
   Icon: typeof LayoutDashboard
@@ -18,7 +18,8 @@ const CONTROL_PANEL_PAGES: ControlPanelPage[] = [
   { key: "security", label: "Security", path: "/dev/control-panel/security", Icon: ShieldAlert },
   { key: "algorithm", label: "Algorithm", path: "/dev/control-panel/algorithm", Icon: Bot },
   { key: "ops", label: "Ops Tools", path: "/dev/control-panel/ops", Icon: Wrench },
-  { key: "bank", label: "The Bank", path: "/dev/control-panel/bank", Icon: Landmark }
+  { key: "bank", label: "The Bank", path: "/dev/control-panel/bank", Icon: Landmark },
+  { key: "blacksite", label: "Secret", path: "/dev/control-panel/blacksite", Icon: KeyRound }
 ]
 
 const resolveCurrentPath = (pathname: string) => {
@@ -50,11 +51,12 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
       <button
         type="button"
         onClick={() => navigate("/x-quantum-control-9")}
-        className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent bg-transparent text-sky-100/20 transition hover:border-sky-300/30 hover:bg-sky-500/10 hover:text-sky-100 focus-visible:border-sky-300/40 focus-visible:text-sky-100"
+        className="absolute right-3 top-3 inline-flex h-8 items-center gap-1 rounded-full border border-fuchsia-300/40 bg-fuchsia-500/15 px-2.5 text-[11px] font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/25 focus-visible:border-fuchsia-200/60 focus-visible:bg-fuchsia-500/25"
         aria-label="Open operator deck"
         title="Operator deck"
       >
         <KeyRound className="h-3.5 w-3.5" />
+        Secret
       </button>
 
       <div className="relative flex flex-col gap-3">

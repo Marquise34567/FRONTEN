@@ -135,6 +135,17 @@ const normalizeVerticalCaptionTextForJob = (value: string) =>
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const verticalTextColorFromSlider = (value: number) => {
+  const normalized = clamp(Math.round(Number(value) || 0), 0, 100);
+  const green = Math.round(clamp(132 + normalized * 1.23, 0, 255));
+  const blue = Math.round(clamp(10 + normalized * 0.52, 0, 255));
+  return `#${[255, green, blue].map((channel) => channel.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+};
+const verticalTextColorSliderFromHex = (value: string) => {
+  const normalized = normalizeVerticalCaptionHex(value, "#FFE500").replace("#", "");
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  return clamp(Math.round((green - 132) / 1.23), 0, 100);
+};
 const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 8;
@@ -174,7 +185,19 @@ const clampVerticalCaptionShadowBlur = (value: number) =>
 const clampVerticalCaptionPosition = (value: number) => clamp(Number(value) || 0, 0.02, 0.98);
 
 type VerticalFitMode = "cover" | "contain";
-type VerticalCaptionPreset = "basic_clean" | "mrbeast_animated" | "neon_glow" | "bold_clean_box" | "rage_mode" | "ice_pop";
+type VerticalSelectionMode = "best_moments" | "story_arc" | "hook_storm" | "loop_builder";
+type VerticalZoomProfile = "none" | "smooth" | "punch" | "kinetic";
+type VerticalCaptionPreset =
+  | "basic_clean"
+  | "mrbeast_animated"
+  | "neon_glow"
+  | "bold_clean_box"
+  | "rage_mode"
+  | "ice_pop"
+  | "retro_wave"
+  | "glitch_pop"
+  | "cinema_punch";
+type VerticalCaptionAnimationMode = "none" | "pop";
 type VerticalCaptionStyleDefaults = {
   fontId: SubtitleStyleConfig["fontId"];
   textColor: string;
@@ -186,6 +209,7 @@ type VerticalCaptionStyleDefaults = {
   shadowBlur: number;
   boxEnabled: boolean;
   boxColor: string;
+  animationEnabled: boolean;
   forceUppercase: boolean;
 };
 type VerticalCaptionsPayload = {
@@ -204,6 +228,8 @@ type VerticalCaptionsPayload = {
   shadowBlur: number;
   boxEnabled: boolean;
   boxColor: string;
+  animationEnabled: boolean;
+  animation: VerticalCaptionAnimationMode;
   positionX: number;
   positionY: number;
 };
@@ -485,6 +511,34 @@ const previewEffectTypeFromEnhanceMode = (enhanceMode: EnhanceModeSelection): Ef
   if (enhanceMode === "off") return null;
   return enhanceMode;
 };
+const deriveVerticalModeEffects = ({
+  selectionMode,
+  zoomProfile,
+  zoomIntensity,
+}: {
+  selectionMode: VerticalSelectionMode;
+  zoomProfile: VerticalZoomProfile;
+  zoomIntensity: number;
+}) => {
+  const intensity = clamp(Number(zoomIntensity) || 0, 0, 100) / 100;
+  const smartZoom = zoomProfile !== "none";
+  const transitions = selectionMode !== "story_arc";
+  const soundFx = selectionMode === "hook_storm" || selectionMode === "loop_builder";
+  const baseZoom = zoomProfile === "none"
+    ? 1.04
+    : zoomProfile === "smooth"
+      ? 1.08
+      : zoomProfile === "punch"
+        ? 1.12
+        : 1.16;
+  const autoZoomMax = Number((baseZoom + intensity * 0.12).toFixed(3));
+  return {
+    smartZoom,
+    transitions,
+    soundFx,
+    autoZoomMax,
+  };
+};
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -500,12 +554,74 @@ const VERTICAL_CAPTION_PRESET_OPTIONS: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { id: "mrbeast_animated", label: "Viral Beast", description: "High-energy punch text for Shorts and clips.", icon: Flame },
-  { id: "rage_mode", label: "Rage Mode", description: "Aggressive red/yellow callout style.", icon: Rabbit },
-  { id: "neon_glow", label: "Neon Glow", description: "Cyan/magenta nightlife glow.", icon: Zap },
-  { id: "ice_pop", label: "Ice Pop", description: "Cool high-contrast blue style.", icon: Trophy },
-  { id: "bold_clean_box", label: "Solid Box", description: "Strong boxed callout with hard contrast.", icon: Camera },
-  { id: "basic_clean", label: "Basic Clean", description: "Readable clean captions for softer edits.", icon: Gauge },
+  { id: "mrbeast_animated", label: "VIRAL BEAST", description: "High-energy punch text for shorts and clips.", icon: Flame },
+  { id: "rage_mode", label: "RAGE MODE", description: "Aggressive red/yellow style.", icon: Rabbit },
+  { id: "neon_glow", label: "NEON GLOW", description: "Cyan/magenta nightglow glow.", icon: Zap },
+  { id: "ice_pop", label: "ICE COP", description: "Cool high-contrast blue style.", icon: Trophy },
+  { id: "bold_clean_box", label: "SOLID BOX", description: "Strong boxed callout with hard contrast.", icon: Camera },
+  { id: "basic_clean", label: "BASIC CLEAN", description: "Readable clean captions for sober edits.", icon: Gauge },
+];
+const VERTICAL_CLIP_SELECTOR_OPTIONS: Array<{
+  value: number;
+  label: string;
+  status?: "ready" | "failed";
+}> = [
+  { value: 0, label: "Auto", status: "ready" },
+  { value: 8, label: "8 clips", status: "ready" },
+  { value: 10, label: "10 clips" },
+  { value: 12, label: "12 clips" },
+  { value: 15, label: "15 clips", status: "failed" },
+  { value: 20, label: "20 clips" },
+];
+const DEFAULT_VERTICAL_SELECTION_MODE: VerticalSelectionMode = "best_moments";
+const DEFAULT_VERTICAL_ZOOM_PROFILE: VerticalZoomProfile = "smooth";
+const DEFAULT_VERTICAL_ZOOM_INTENSITY = 62;
+const DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE: Record<VerticalSelectionMode, number> = {
+  best_moments: 3,
+  story_arc: 2,
+  hook_storm: 5,
+  loop_builder: 4,
+};
+const VERTICAL_SELECTION_MODE_OPTIONS: Array<{
+  id: VerticalSelectionMode;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    id: "best_moments",
+    label: "Best Moments",
+    description: "Editor picks highest-retention peaks. Default output: 3 clips.",
+    icon: Sparkles,
+  },
+  {
+    id: "story_arc",
+    label: "Story Arc",
+    description: "Longer clips with smoother pacing and clearer context.",
+    icon: Gauge,
+  },
+  {
+    id: "hook_storm",
+    label: "Hook Storm",
+    description: "Aggressive hook-heavy picks tuned for TikTok velocity.",
+    icon: Flame,
+  },
+  {
+    id: "loop_builder",
+    label: "Loop Builder",
+    description: "Moments optimized for replay loops and strong endings.",
+    icon: Play,
+  },
+];
+const VERTICAL_ZOOM_PROFILE_OPTIONS: Array<{
+  id: VerticalZoomProfile;
+  label: string;
+  description: string;
+}> = [
+  { id: "none", label: "None", description: "Disable smart zoom for static framing." },
+  { id: "smooth", label: "Smooth", description: "Gentle zoom motion for Reels and Shorts." },
+  { id: "punch", label: "Punch", description: "Sharper zoom pops for high-energy beats." },
+  { id: "kinetic", label: "Kinetic", description: "Strongest zoom profile for viral intensity." },
 ];
 const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCaptionStyleDefaults> = {
   basic_clean: {
@@ -519,6 +635,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 0,
     boxEnabled: true,
     boxColor: "#020617",
+    animationEnabled: false,
     forceUppercase: false,
   },
   mrbeast_animated: {
@@ -532,6 +649,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 8,
     boxEnabled: false,
     boxColor: "#000000",
+    animationEnabled: true,
     forceUppercase: true,
   },
   neon_glow: {
@@ -545,6 +663,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 26,
     boxEnabled: false,
     boxColor: "#0A0F1E",
+    animationEnabled: true,
     forceUppercase: true,
   },
   bold_clean_box: {
@@ -558,6 +677,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 10,
     boxEnabled: true,
     boxColor: "#111827",
+    animationEnabled: false,
     forceUppercase: false,
   },
   rage_mode: {
@@ -571,6 +691,7 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 18,
     boxEnabled: false,
     boxColor: "#240202",
+    animationEnabled: true,
     forceUppercase: true,
   },
   ice_pop: {
@@ -584,7 +705,50 @@ const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCap
     shadowBlur: 18,
     boxEnabled: false,
     boxColor: "#041426",
+    animationEnabled: true,
     forceUppercase: true,
+  },
+  retro_wave: {
+    fontId: "display_black",
+    textColor: "#FFE8FF",
+    accentColor: "#5CF6FF",
+    outlineColor: "#25003A",
+    outlineWidth: 9,
+    shadowEnabled: true,
+    shadowColor: "#6D28D9",
+    shadowBlur: 16,
+    boxEnabled: false,
+    boxColor: "#240046",
+    animationEnabled: true,
+    forceUppercase: true,
+  },
+  glitch_pop: {
+    fontId: "mono_bold",
+    textColor: "#F8FAFC",
+    accentColor: "#67E8F9",
+    outlineColor: "#111827",
+    outlineWidth: 8,
+    shadowEnabled: true,
+    shadowColor: "#111827",
+    shadowBlur: 12,
+    boxEnabled: false,
+    boxColor: "#020617",
+    animationEnabled: true,
+    forceUppercase: true,
+  },
+  cinema_punch: {
+    fontId: "serif_bold",
+    textColor: "#FFF8E8",
+    accentColor: "#FFD166",
+    outlineColor: "#1A1203",
+    outlineWidth: 7,
+    shadowEnabled: true,
+    shadowColor: "#1A1203",
+    shadowBlur: 8,
+    boxEnabled: true,
+    boxColor: "#1F172A",
+    animationEnabled: false,
+    forceUppercase: false,
   },
 };
 const VERTICAL_CAPTION_PREVIEW_FALLBACKS: Record<VerticalCaptionPreset, string> = {
@@ -594,11 +758,16 @@ const VERTICAL_CAPTION_PREVIEW_FALLBACKS: Record<VerticalCaptionPreset, string> 
   bold_clean_box: "Watch this next part",
   rage_mode: "NO WAY THIS JUST HAPPENED",
   ice_pop: "COLD MOMENT RIGHT HERE",
+  retro_wave: "RETRO WAVE ENERGY",
+  glitch_pop: "SYSTEM JUST SPIKED",
+  cinema_punch: "Watch this turn",
 };
 const resolveVerticalCaptionCanvasFont = (fontId: SubtitleStyleConfig["fontId"]) => {
   if (fontId === "sans_bold") return '"Arial Black", Arial, sans-serif';
   if (fontId === "condensed") return '"Roboto Condensed", "Arial Narrow", Arial, sans-serif';
   if (fontId === "serif_bold") return '"Georgia", "Times New Roman", serif';
+  if (fontId === "display_black") return '"Arial Black", Impact, "Segoe UI Black", sans-serif';
+  if (fontId === "mono_bold") return '"Space Mono", "Courier New", monospace';
   return 'Impact, "Arial Black", sans-serif';
 };
 type WebcamCrop = { x: number; y: number; w: number; h: number };
@@ -615,6 +784,9 @@ type VerticalModePayload = {
   output: { width: number; height: number };
   source?: { width: number; height: number };
   layout?: VerticalLayoutMode;
+  selectionMode?: VerticalSelectionMode;
+  zoomProfile?: VerticalZoomProfile;
+  zoomIntensity?: number;
   webcamCrop?: WebcamCrop | null;
   webcamPlacement?: { heightPct: number };
   topHeightPx?: number | null;
@@ -1522,7 +1694,11 @@ const Editor = () => {
   const successTierParam = toPlanTier(searchParams.get("tier"));
   const isVerticalMode = modeParam === "vertical";
   const defaultVerticalCaptionStyle = VERTICAL_CAPTION_STYLE_DEFAULTS[DEFAULT_VERTICAL_CAPTION_PRESET];
-  const [verticalClipCount, setVerticalClipCount] = useState(0);
+  const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>(DEFAULT_VERTICAL_SELECTION_MODE);
+  const [verticalClipCount, setVerticalClipCount] = useState(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[DEFAULT_VERTICAL_SELECTION_MODE]);
+  const [verticalClipCountTouched, setVerticalClipCountTouched] = useState(false);
+  const [verticalZoomProfile, setVerticalZoomProfile] = useState<VerticalZoomProfile>(DEFAULT_VERTICAL_ZOOM_PROFILE);
+  const [verticalZoomIntensity, setVerticalZoomIntensity] = useState(DEFAULT_VERTICAL_ZOOM_INTENSITY);
   const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
   const [verticalCaptionAutoGenerate, setVerticalCaptionAutoGenerate] = useState(true);
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>(DEFAULT_VERTICAL_CAPTION_PRESET);
@@ -1538,6 +1714,7 @@ const Editor = () => {
   const [verticalCaptionShadowBlur, setVerticalCaptionShadowBlur] = useState(defaultVerticalCaptionStyle.shadowBlur);
   const [verticalCaptionBoxEnabled, setVerticalCaptionBoxEnabled] = useState(defaultVerticalCaptionStyle.boxEnabled);
   const [verticalCaptionBoxColor, setVerticalCaptionBoxColor] = useState(defaultVerticalCaptionStyle.boxColor);
+  const [verticalCaptionAnimationEnabled, setVerticalCaptionAnimationEnabled] = useState(defaultVerticalCaptionStyle.animationEnabled);
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState(0.84);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
@@ -1612,6 +1789,7 @@ const Editor = () => {
   const [manualSuggestionsByJob, setManualSuggestionsByJob] = useState<Record<string, ManualTimestampSuggestion[]>>({});
   const [manualSavedSignatureByJob, setManualSavedSignatureByJob] = useState<Record<string, string>>({});
   const [manualAiSuggestLoadingJobId, setManualAiSuggestLoadingJobId] = useState<string | null>(null);
+  const [manualTimestampEditorOpen, setManualTimestampEditorOpen] = useState(false);
   const [inputPreviewUrlByJob, setInputPreviewUrlByJob] = useState<Record<string, string>>({});
   const [previewDurationByJob, setPreviewDurationByJob] = useState<Record<string, number>>({});
   const [previewCurrentTimeByJob, setPreviewCurrentTimeByJob] = useState<Record<string, number>>({});
@@ -2647,6 +2825,11 @@ const Editor = () => {
   }, [isVerticalMode, manualAutoAssist, manualMode]);
 
   useEffect(() => {
+    if (manualMode && !isVerticalMode) return;
+    setManualTimestampEditorOpen(false);
+  }, [isVerticalMode, manualMode]);
+
+  useEffect(() => {
     if (!accessToken || !hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
@@ -2899,6 +3082,8 @@ const Editor = () => {
     shadowBlur: clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur),
     boxEnabled: verticalCaptionBoxEnabled,
     boxColor: normalizeVerticalCaptionHex(verticalCaptionBoxColor, activeVerticalCaptionPresetStyle.boxColor),
+    animationEnabled: verticalCaptionAnimationEnabled,
+    animation: verticalCaptionAnimationEnabled ? "pop" : "none",
     positionX: Number(clampVerticalCaptionPosition(verticalCaptionPositionX).toFixed(4)),
     positionY: Number(clampVerticalCaptionPosition(verticalCaptionPositionY).toFixed(4)),
   }), [
@@ -2917,6 +3102,7 @@ const Editor = () => {
     verticalCaptionShadowBlur,
     verticalCaptionBoxEnabled,
     verticalCaptionBoxColor,
+    verticalCaptionAnimationEnabled,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     activeVerticalCaptionPresetStyle,
@@ -2930,6 +3116,12 @@ const Editor = () => {
       mode?: "horizontal" | "vertical";
       verticalClipCount?: number;
       verticalMode?: VerticalModePayload | null;
+      verticalEffects?: {
+        smartZoom: boolean;
+        transitions: boolean;
+        soundFx: boolean;
+        autoZoomMax: number;
+      } | null;
     },
   ) => {
     if (!isAllowedUploadFile(file)) {
@@ -2938,6 +3130,11 @@ const Editor = () => {
     }
     if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
+    const verticalEffects = requestedMode === "vertical" ? (renderOptions?.verticalEffects || null) : null;
+    const smartZoomForJob = verticalEffects ? verticalEffects.smartZoom : smartZoomEnabled;
+    const transitionsForJob = verticalEffects ? verticalEffects.transitions : transitionsEnabled;
+    const soundFxForJob = verticalEffects ? verticalEffects.soundFx : soundFxEnabled;
+    const autoZoomMaxForJob = verticalEffects ? verticalEffects.autoZoomMax : undefined;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
     const editorModeForJob = mapEditorModeForBackend(editorMode);
@@ -2982,9 +3179,10 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
-              smartZoom: smartZoomEnabled,
-              transitions: transitionsEnabled,
-              soundFx: soundFxEnabled,
+              smartZoom: smartZoomForJob,
+              transitions: transitionsForJob,
+              soundFx: soundFxForJob,
+              ...(autoZoomMaxForJob ? { autoZoomMax: autoZoomMaxForJob } : {}),
               viralMode,
               enhanceMode,
               autoCaptions: captionsEnabledForJob,
@@ -3017,9 +3215,9 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
-              smartZoom: smartZoomEnabled,
-              transitions: transitionsEnabled,
-              soundFx: soundFxEnabled,
+              smartZoom: smartZoomForJob,
+              transitions: transitionsForJob,
+              soundFx: soundFxForJob,
               viralMode,
               enhanceMode,
               autoCaptions: captionsEnabledForJob,
@@ -3270,6 +3468,11 @@ const Editor = () => {
 
   useEffect(() => {
     if (isVerticalMode) return;
+    setVerticalSelectionMode(DEFAULT_VERTICAL_SELECTION_MODE);
+    setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[DEFAULT_VERTICAL_SELECTION_MODE]);
+    setVerticalClipCountTouched(false);
+    setVerticalZoomProfile(DEFAULT_VERTICAL_ZOOM_PROFILE);
+    setVerticalZoomIntensity(DEFAULT_VERTICAL_ZOOM_INTENSITY);
     setSkipManualWebcamCrop(false);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
@@ -3279,12 +3482,17 @@ const Editor = () => {
     setBottomFitMode("cover");
     setCropInteraction(null);
     setCaptionDragInteraction(null);
-    setVerticalClipCount(0);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
   }, [isVerticalMode]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    if (verticalClipCountTouched) return;
+    setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]);
+  }, [isVerticalMode, verticalSelectionMode, verticalClipCountTouched]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const y = Math.round(sourceHeight * 0.05);
@@ -3348,6 +3556,7 @@ const Editor = () => {
     setVerticalCaptionShadowBlur(clampVerticalCaptionShadowBlur(defaults.shadowBlur));
     setVerticalCaptionBoxEnabled(defaults.boxEnabled);
     setVerticalCaptionBoxColor(defaults.boxColor);
+    setVerticalCaptionAnimationEnabled(defaults.animationEnabled);
   }, []);
 
   const prepareVerticalFile = (file: File) => {
@@ -3640,6 +3849,16 @@ const Editor = () => {
         canvasHeight - textBlockHeight / 2 - 20,
       );
       const captionTop = centerY - textBlockHeight / 2;
+      const animationScale = verticalCaptionAnimationEnabled
+        ? clamp(0.92 + 0.12 * Math.sin(window.performance.now() / 180), 0.86, 1.06)
+        : 1;
+
+      ctx.save();
+      if (verticalCaptionAnimationEnabled) {
+        ctx.translate(centerX, centerY);
+        ctx.scale(animationScale, animationScale);
+        ctx.translate(-centerX, -centerY);
+      }
 
       if (verticalCaptionBoxEnabled) {
         const boxPaddingX = 20;
@@ -3680,6 +3899,7 @@ const Editor = () => {
       });
       ctx.shadowBlur = 0;
       ctx.shadowColor = "transparent";
+      ctx.restore();
     };
 
     let raf = 0;
@@ -3746,6 +3966,7 @@ const Editor = () => {
     verticalCaptionShadowBlur,
     verticalCaptionBoxEnabled,
     verticalCaptionBoxColor,
+    verticalCaptionAnimationEnabled,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
   ]);
@@ -3764,13 +3985,23 @@ const Editor = () => {
       return;
     }
     const verticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
+    const requestedVerticalClipCount = verticalClipCountTouched ? verticalClipCount : 0;
+    const verticalEffects = deriveVerticalModeEffects({
+      selectionMode: verticalSelectionMode,
+      zoomProfile: verticalZoomProfile,
+      zoomIntensity: verticalZoomIntensity,
+    });
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
-      verticalClipCount,
+      verticalClipCount: requestedVerticalClipCount,
+      verticalEffects,
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
         layout: verticalLayout,
+        selectionMode: verticalSelectionMode,
+        zoomProfile: verticalZoomProfile,
+        zoomIntensity: Number((clamp(verticalZoomIntensity, 0, 100) / 100).toFixed(3)),
         source: sourceVideoMeta,
         webcamCrop: verticalLayout === "stacked" ? effectiveWebcamCrop : null,
         webcamPlacement: verticalLayout === "stacked"
@@ -3999,6 +4230,22 @@ const Editor = () => {
           payload.hookSelectionMode = "manual";
         }
         if (requestedMode === "vertical") {
+          const verticalEffects = deriveVerticalModeEffects({
+            selectionMode: verticalSelectionMode,
+            zoomProfile: verticalZoomProfile,
+            zoomIntensity: verticalZoomIntensity,
+          });
+          payload.smartZoom = verticalEffects.smartZoom;
+          payload.transitions = verticalEffects.transitions;
+          payload.soundFx = verticalEffects.soundFx;
+          payload.autoZoomMax = verticalEffects.autoZoomMax;
+          payload.verticalClipCount = verticalClipCountTouched ? verticalClipCount : 0;
+          payload.verticalMode = {
+            enabled: true,
+            selectionMode: verticalSelectionMode,
+            zoomProfile: verticalZoomProfile,
+            zoomIntensity: Number((clamp(verticalZoomIntensity, 0, 100) / 100).toFixed(3)),
+          };
           payload.verticalCaptionText = verticalCaptionsForJob.text;
           payload.verticalCaptions = verticalCaptionsForJob;
         }
@@ -4122,6 +4369,11 @@ const Editor = () => {
       viralMode,
       enhanceMode,
       verticalCaptionsForJob,
+      verticalSelectionMode,
+      verticalClipCount,
+      verticalClipCountTouched,
+      verticalZoomProfile,
+      verticalZoomIntensity,
       isDevAccount,
       toast,
     ],
@@ -4206,7 +4458,7 @@ const Editor = () => {
   const metadataNiche = metadataSummary?.niche && typeof metadataSummary.niche === "object"
     ? metadataSummary.niche
     : null;
-  const verticalSelectionMode = typeof metadataSummary?.selectionMode === "string"
+  const metadataSelectionMode = typeof metadataSummary?.selectionMode === "string"
     ? metadataSummary.selectionMode
     : null;
   const verticalClipPredictions: VerticalClipPrediction[] = Array.isArray(metadataSummary?.clips)
@@ -5740,6 +5992,7 @@ const Editor = () => {
 
   const handleManualModeSwitch = useCallback((next: boolean) => {
     setManualMode(next);
+    setManualTimestampEditorOpen(next);
     if (!next) {
       setManualAutoAssist(false);
     }
@@ -5773,6 +6026,35 @@ const Editor = () => {
               );
             })}
           </div>
+          {isVerticalMode ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-slate-200">Vertical Pipeline Mode</p>
+                <span className="rounded-full border border-violet-300/40 bg-violet-500/15 px-2 py-0.5 text-xs text-violet-100">
+                  {VERTICAL_SELECTION_MODE_OPTIONS.find((item) => item.id === verticalSelectionMode)?.label || "Best Moments"}
+                </span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {VERTICAL_SELECTION_MODE_OPTIONS.map((mode) => (
+                  <button
+                    key={`settings-vertical-mode-${mode.id}`}
+                    type="button"
+                    className={sectionPillClass(verticalSelectionMode === mode.id)}
+                    onClick={() => {
+                      setVerticalSelectionMode(mode.id);
+                      setVerticalClipCountTouched(false);
+                      setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[mode.id]);
+                    }}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Best Moments is default and exports 3 clips unless you override the count.
+              </p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {PLATFORM_OPTIONS.map((platform) => (
               <Tooltip key={platform.value}>
@@ -6521,12 +6803,26 @@ const Editor = () => {
                               Manual Timestamp Editor (override auto cuts & hook)
                             </label>
                           </div>
-                        <p className="mt-2 text-xs text-slate-300">
-                          {manualMode
-                            ? "Manual mode ON: your markers control hook/cuts/removals, override automatic pacing choices, and typically add 10-30% ETA for iteration."
-                            : "Manual mode OFF: full Auto mode is active and the editor controls hook/cuts automatically."}
-                        </p>
-                      </div>
+                          <p className="mt-2 text-xs text-slate-300">
+                            {manualMode
+                              ? "Manual mode ON: your markers control hook/cuts/removals, override automatic pacing choices, and typically add 10-30% ETA for iteration."
+                              : "Manual mode OFF: full Auto mode is active and the editor controls hook/cuts automatically."}
+                          </p>
+                          {manualMode ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => setManualTimestampEditorOpen(true)}
+                              >
+                                <Sparkles className="h-3.5 w-3.5" />
+                                Open Manual Timestamp Editor
+                              </Button>
+                              <span className="text-[11px] text-violet-200/85">Opens as popup</span>
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
 
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
@@ -6766,8 +7062,8 @@ const Editor = () => {
             }}
           />
 
-          <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
-            {!hideJobsPanel ? (
+          <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel || isVerticalMode ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
+            {!hideJobsPanel && !isVerticalMode ? (
               <aside className="glass-card min-w-0 space-y-4 p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">Recent Jobs</h2>
@@ -6825,6 +7121,61 @@ const Editor = () => {
             ) : null}
 
             <section className="min-w-0 space-y-6">
+              {isVerticalMode && (
+                <div className="glass-card border border-emerald-400/35 bg-gradient-to-r from-emerald-950/55 via-slate-950/70 to-slate-950/60 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Clips Selector</p>
+                      <p className="text-xs text-emerald-100/80">
+                        Auto uses duration-based batch scaling up to 20 exports. Fixed buttons force exact clip count.
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-emerald-200/75">Vertical Clip Builder</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {VERTICAL_CLIP_SELECTOR_OPTIONS.map((option) => {
+                      const autoSelected = !verticalClipCountTouched || verticalClipCount === 0;
+                      const selected = option.value === 0
+                        ? autoSelected
+                        : verticalClipCountTouched && verticalClipCount === option.value;
+                      return (
+                        <button
+                          key={option.label}
+                          type="button"
+                          onClick={() => {
+                            if (option.value === 0) {
+                              setVerticalClipCountTouched(false);
+                              setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]);
+                              return;
+                            }
+                            setVerticalClipCountTouched(true);
+                            setVerticalClipCount(option.value);
+                          }}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+                            selected
+                              ? "border-emerald-300/75 bg-emerald-400/20 text-emerald-100 shadow-[0_0_0_1px_rgba(74,222,128,0.35)]"
+                              : "border-emerald-200/20 bg-slate-900/70 text-slate-200 hover:border-emerald-300/40 hover:text-white"
+                          }`}
+                        >
+                          <span>{option.label}</span>
+                          {option.status ? (
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                                option.status === "ready"
+                                  ? "bg-emerald-500/25 text-emerald-200"
+                                  : "bg-red-500/20 text-red-200"
+                              }`}
+                            >
+                              {option.status === "ready" ? "Ready" : "Failed"}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div
                 className={`glass-card p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
                   isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
@@ -6889,24 +7240,139 @@ const Editor = () => {
                         {skipManualWebcamCrop ? "Using source framing (skip manual crop)" : "Use manual webcam crop"}
                       </button>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {[0, 8, 10, 12, 15, 20].map((count) => (
+                    <div className="space-y-2">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Vertical Mode</p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {VERTICAL_SELECTION_MODE_OPTIONS.map((mode) => {
+                          const Icon = mode.icon;
+                          const selected = verticalSelectionMode === mode.id;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              className={`rounded-lg border p-3 text-left transition ${
+                                selected
+                                  ? "border-primary bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(124,58,237,0.35)]"
+                                  : "border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                setVerticalSelectionMode(mode.id);
+                                setVerticalClipCountTouched(false);
+                                setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[mode.id]);
+                              }}
+                            >
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em]">
+                                <Icon className="h-3.5 w-3.5" />
+                                {mode.label}
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed">{mode.description}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Target Platform</p>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          { value: "tiktok" as RetentionTargetPlatform, label: "TikTok" },
+                          { value: "instagram_reels" as RetentionTargetPlatform, label: "IG Reels" },
+                          { value: "youtube" as RetentionTargetPlatform, label: "YouTube Shorts" },
+                        ]).map((platform) => (
+                          <button
+                            key={platform.value}
+                            type="button"
+                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                              retentionTargetPlatform === platform.value
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border/60 text-muted-foreground hover:border-primary/40"
+                            }`}
+                            onClick={() => setRetentionTargetPlatform(platform.value)}
+                          >
+                            {platform.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span className="uppercase tracking-[0.12em]">Clip Count</span>
+                        <span>
+                          {verticalClipCountTouched
+                            ? `${verticalClipCount} selected`
+                            : `Mode default (${DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]})`}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
-                          key={count}
                           type="button"
                           className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                            verticalClipCount === count
+                            !verticalClipCountTouched
                               ? "border-primary bg-primary/10 text-primary"
                               : "border-border/60 text-muted-foreground hover:border-primary/40"
                           }`}
-                          onClick={() => setVerticalClipCount(count)}
+                          onClick={() => {
+                            setVerticalClipCountTouched(false);
+                            setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]);
+                          }}
                         >
-                          {count === 0 ? "Auto" : `${count} clips`}
+                          Mode Default
                         </button>
-                      ))}
+                        {[2, 3, 4, 5, 6].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                              verticalClipCountTouched && verticalClipCount === count
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border/60 text-muted-foreground hover:border-primary/40"
+                            }`}
+                            onClick={() => {
+                              setVerticalClipCountTouched(true);
+                              setVerticalClipCount(count);
+                            }}
+                          >
+                            {count} clips
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Zoom Effects</p>
+                      <div className="flex flex-wrap gap-2">
+                        {VERTICAL_ZOOM_PROFILE_OPTIONS.map((zoomMode) => (
+                          <button
+                            key={zoomMode.id}
+                            type="button"
+                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                              verticalZoomProfile === zoomMode.id
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border/60 text-muted-foreground hover:border-primary/40"
+                            }`}
+                            onClick={() => setVerticalZoomProfile(zoomMode.id)}
+                            title={zoomMode.description}
+                          >
+                            {zoomMode.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Intensity</span>
+                          <span>{Math.round(verticalZoomIntensity)}%</span>
+                        </div>
+                        <Slider
+                          value={[verticalZoomIntensity]}
+                          min={0}
+                          max={100}
+                          step={1}
+                          disabled={verticalZoomProfile === "none"}
+                          onValueChange={(value) => setVerticalZoomIntensity(clamp(Math.round(value?.[0] ?? 0), 0, 100))}
+                        />
+                      </div>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
+                      Best Moments is default and exports 3 strong moments. You can force an exact clip count any time.
                     </p>
                     </div>
                   </div>
@@ -6959,7 +7425,7 @@ const Editor = () => {
                       <div>
                         <p className="text-sm font-medium text-foreground">Vertical Captions</p>
                         <p className="text-[11px] text-muted-foreground">
-                          Local transcript-driven overlays with viral style presets.
+                          Choose manual captions or let the editor auto-generate them from transcript signals.
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -7090,7 +7556,7 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-2">
+                        <div className="grid gap-3 md:grid-cols-3">
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Drop shadow</span>
                             <Switch checked={verticalCaptionShadowEnabled} onCheckedChange={setVerticalCaptionShadowEnabled} />
@@ -7098,6 +7564,10 @@ const Editor = () => {
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Solid caption box</span>
                             <Switch checked={verticalCaptionBoxEnabled} onCheckedChange={setVerticalCaptionBoxEnabled} />
+                          </label>
+                          <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                            <span className="text-muted-foreground">Animated captions</span>
+                            <Switch checked={verticalCaptionAnimationEnabled} onCheckedChange={setVerticalCaptionAnimationEnabled} />
                           </label>
                         </div>
 
@@ -7195,7 +7665,7 @@ const Editor = () => {
                         </div>
 
                         <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
-                          <span className="text-muted-foreground">Auto-generate phrases from local transcript</span>
+                          <span className="text-muted-foreground">Editor auto-generate captions from transcript</span>
                           <Switch checked={verticalCaptionAutoGenerate} onCheckedChange={setVerticalCaptionAutoGenerate} />
                         </label>
 
@@ -7467,41 +7937,6 @@ const Editor = () => {
                   </div>
                 </div>
               </div>
-
-              {manualMode && activeJob && !isVerticalMode ? (
-                <ManualTimestampEditor
-                  markers={activeManualMarkers}
-                  suggestions={activeManualSuggestions}
-                  durationSec={activeManualDurationSec}
-                  currentTimeSec={activeManualCurrentTimeSec}
-                  isPlaying={activeManualPlaying}
-                  autoAssist={manualAutoAssist}
-                  aiSuggestLoading={manualAiSuggestLoadingJobId === activeJob.id}
-                  retentionDelta={manualRetentionDisplay}
-                  removeRatio={manualRemovalRatio}
-                  microHookSuggestions={manualMicroHookSuggestions}
-                  warning={manualWarnings[0] || null}
-                  editedUrl={previewVideoUrl || activeInputPreviewUrl}
-                  originalUrl={activeInputPreviewUrl}
-                  onTogglePlay={handleManualTogglePlay}
-                  onSeek={handleManualPreviewSeek}
-                  onAutoAssistChange={setManualAutoAssist}
-                  onRequestAiSuggest={() => void handleManualAiSuggest()}
-                  onClearAll={handleManualClearAll}
-                  onMarkersChange={handleManualMarkersChange}
-                  onAcceptSuggestion={handleManualAcceptSuggestion}
-                  onRejectSuggestion={handleManualRejectSuggestion}
-                  onApplyAllSuggestions={handleManualApplyAllSuggestions}
-                  onSave={() => void handleManualSaveAndRender()}
-                  saveDisabled={
-                    reprocessingJobId === activeJob.id ||
-                    !manualHasUnsavedChanges ||
-                    !isTerminalStatus(activeJob.status)
-                  }
-                  saving={reprocessingJobId === activeJob.id}
-                  hasUnsavedChanges={manualHasUnsavedChanges}
-                />
-              ) : null}
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
@@ -8005,7 +8440,7 @@ const Editor = () => {
                             {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
                               <p>
                                 Predicted completion: {verticalPredictedAverage.toFixed(1)}%
-                                {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
+                                {metadataSelectionMode ? ` (${formatNicheLabel(metadataSelectionMode)})` : ""}
                               </p>
                             ) : null}
                             {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
@@ -8167,6 +8602,55 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
+
+      <Dialog open={manualTimestampEditorOpen} onOpenChange={setManualTimestampEditorOpen}>
+        <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-white/10 bg-background/95 p-4 backdrop-blur-xl sm:max-w-5xl sm:p-5">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Manual Timestamp Editor</DialogTitle>
+            <DialogDescription>
+              Fine-tune hook, keep, and remove windows in a dedicated timeline workspace.
+            </DialogDescription>
+          </DialogHeader>
+          {manualMode && activeJob && !isVerticalMode ? (
+            <ManualTimestampEditor
+              markers={activeManualMarkers}
+              suggestions={activeManualSuggestions}
+              durationSec={activeManualDurationSec}
+              currentTimeSec={activeManualCurrentTimeSec}
+              isPlaying={activeManualPlaying}
+              autoAssist={manualAutoAssist}
+              aiSuggestLoading={manualAiSuggestLoadingJobId === activeJob.id}
+              retentionDelta={manualRetentionDisplay}
+              removeRatio={manualRemovalRatio}
+              microHookSuggestions={manualMicroHookSuggestions}
+              warning={manualWarnings[0] || null}
+              editedUrl={previewVideoUrl || activeInputPreviewUrl}
+              originalUrl={activeInputPreviewUrl}
+              onTogglePlay={handleManualTogglePlay}
+              onSeek={handleManualPreviewSeek}
+              onAutoAssistChange={setManualAutoAssist}
+              onRequestAiSuggest={() => void handleManualAiSuggest()}
+              onClearAll={handleManualClearAll}
+              onMarkersChange={handleManualMarkersChange}
+              onAcceptSuggestion={handleManualAcceptSuggestion}
+              onRejectSuggestion={handleManualRejectSuggestion}
+              onApplyAllSuggestions={handleManualApplyAllSuggestions}
+              onSave={() => void handleManualSaveAndRender()}
+              saveDisabled={
+                reprocessingJobId === activeJob.id ||
+                !manualHasUnsavedChanges ||
+                !isTerminalStatus(activeJob.status)
+              }
+              saving={reprocessingJobId === activeJob.id}
+              hasUnsavedChanges={manualHasUnsavedChanges}
+            />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-slate-300">
+              Enable Manual Timestamp mode on a horizontal job to edit timestamp ranges.
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={editorGuideOpen}

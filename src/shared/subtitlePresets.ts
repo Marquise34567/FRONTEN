@@ -7,7 +7,13 @@ export type SubtitlePresetId =
   | "mrbeast_animated"
   | "neon_glow";
 
-export type SubtitleFontId = "impact" | "sans_bold" | "condensed" | "serif_bold";
+export type SubtitleFontId =
+  | "impact"
+  | "sans_bold"
+  | "condensed"
+  | "serif_bold"
+  | "display_black"
+  | "mono_bold";
 export type SubtitleAnimationId = "pop" | "none";
 
 export type SubtitleStyleConfig = {
@@ -26,6 +32,8 @@ export const MRBEAST_FONT_OPTIONS: Array<{ id: SubtitleFontId; label: string }> 
   { id: "sans_bold", label: "Sans Bold" },
   { id: "condensed", label: "Condensed" },
   { id: "serif_bold", label: "Serif Bold" },
+  { id: "display_black", label: "Display Black" },
+  { id: "mono_bold", label: "Mono Bold" },
 ];
 
 export const MRBEAST_ANIMATION_OPTIONS: Array<{ id: SubtitleAnimationId; label: string }> = [
@@ -70,6 +78,8 @@ const normalizeFont = (value?: string | null): SubtitleFontId => {
   if (raw === "sans_bold") return "sans_bold";
   if (raw === "condensed") return "condensed";
   if (raw === "serif_bold") return "serif_bold";
+  if (raw === "display_black") return "display_black";
+  if (raw === "mono_bold") return "mono_bold";
   return DEFAULT_STYLE.fontId;
 };
 

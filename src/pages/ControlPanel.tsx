@@ -9,6 +9,7 @@ import {
   Crown,
   Flame,
   Gauge,
+  KeyRound,
   Lock,
   RefreshCcw,
   Server,
@@ -416,6 +417,15 @@ const ControlPanel = () => {
               >
                 <RefreshCcw className="h-4 w-4" />
                 Refresh
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate("/dev/control-panel/blacksite")}
+                className="border border-fuchsia-300/35 bg-fuchsia-500/20 text-fuchsia-100 hover:bg-fuchsia-500/30"
+              >
+                <KeyRound className="h-4 w-4" />
+                Secret
               </Button>
             </div>
           </div>
