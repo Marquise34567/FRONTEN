@@ -2413,6 +2413,14 @@ const Editor = () => {
         const captionsEnabledForJob = autoCaptionsEnabled && captionCapability.available;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
+        const hookSelectionModeForJob =
+          hookSelectionModeByJob[job.id] ??
+          normalizeHookSelectionMode(
+            (job.analysis as any)?.hook_selection_mode ??
+            (job.analysis as any)?.hookSelectionMode ??
+            (job.analysis as any)?.hook_mode ??
+            (job.analysis as any)?.hookMode,
+          );
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
           retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
@@ -2422,6 +2430,7 @@ const Editor = () => {
           onlyHookAndCut,
           maxCuts: maxCutsRequested,
           editorMode,
+          hookSelectionMode: hookSelectionModeForJob,
           longFormPreset,
           longFormAggression,
           longFormClarityVsSpeed,
@@ -2434,7 +2443,7 @@ const Editor = () => {
             style: subtitleStyleForJob,
           },
         };
-        if (preferredHook) {
+        if (preferredHook && hookSelectionModeForJob !== "auto") {
           payload.preferredHook = {
             start: preferredHook.start,
             duration: preferredHook.duration,
@@ -2665,6 +2674,18 @@ const Editor = () => {
           ).toFixed(2),
         )
       : null;
+  const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
+    activeAnalysis?.hook_selection_mode ??
+    activeAnalysis?.hookSelectionMode ??
+    activeAnalysis?.hook_mode ??
+    activeAnalysis?.hookMode ??
+    metadataRetention?.hookSelectionMode ??
+    metadataRetention?.hook_selection_mode ??
+    activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.hookSelectionMode,
+  );
+  const activeHookSelectionMode = activeJob
+    ? (hookSelectionModeByJob[activeJob.id] ?? hookSelectionModeFromAnalysis)
+    : defaultHookSelectionMode;
   const hookSelectionSource = typeof activeAnalysis?.hook_selection_source === "string"
     ? activeAnalysis.hook_selection_source
     : typeof metadataRetention?.hookSelectionSource === "string"
@@ -2862,11 +2883,11 @@ const Editor = () => {
   const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
   const hookPreviewRefreshNonce = activeJob ? hookPreviewRefreshNonceByJob[activeJob.id] || 0 : 0;
   useEffect(() => {
-    if (!activeJob?.id || !canShowRealtimeHookSelector) return;
+    if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
     setHookPromptedByJob((prev) => ({ ...prev, [activeJob.id]: true }));
     setHookSelectorOpen(true);
-  }, [activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
+  }, [activeHookSelectionMode, activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
   useEffect(() => {
     if (!hookSelectorOpen || !activeJob?.id || !canShowRealtimeHookSelector) return;
     const jobId = activeJob.id;
