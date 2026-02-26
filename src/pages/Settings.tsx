@@ -338,12 +338,10 @@ const Settings = () => {
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-300/40 bg-violet-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-100">
                   <WandSparkles className="h-3.5 w-3.5" />
-                  Creator Settings
+                  Creator Studio
                 </div>
-                <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                  Tune your render defaults, caption style system, and effect behavior for fast, consistent output quality.
-                </p>
+                <h1 className="text-3xl font-bold font-display text-foreground">Creator Studio</h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">Ship edits faster with live preview and real-time feedback</p>
               </div>
               <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
                 <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
