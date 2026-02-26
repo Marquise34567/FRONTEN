@@ -2547,6 +2547,7 @@ const Editor = () => {
       retentionStrategyProfile,
       retentionTargetPlatform,
       tangentKiller,
+      hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
       toast,
@@ -4742,6 +4743,32 @@ const Editor = () => {
               Pick one of the top hook moments found across your full video timeline, preview it, then apply before render lock.
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Hook mode</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {activeHookSelectionMode === "manual"
+                ? "Manual mode waits for your choice. Pick a candidate, then apply."
+                : "Auto mode skips manual waiting and lets the editor pick the opener."}
+            </p>
+            <div className="mt-2 inline-flex rounded-full border border-border/60 bg-background/50 p-1">
+              {HOOK_SELECTION_MODE_OPTIONS.map((modeOption) => (
+                <button
+                  key={`hook-mode-${modeOption.value}`}
+                  type="button"
+                  className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                    activeHookSelectionMode === modeOption.value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  disabled={applyingHookJobId === activeJob?.id}
+                  onClick={() => void handleSetHookSelectionModeRealtime(modeOption.value)}
+                  title={modeOption.description}
+                >
+                  {modeOption.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-2">
               <div className="rounded-xl border border-border/60 bg-black/80 p-2">
@@ -4824,8 +4851,15 @@ const Editor = () => {
             <Button
               size="sm"
               className="sm:min-w-[150px]"
-              disabled={!hookPreviewCandidate || applyingHookJobId === activeJob?.id}
+              disabled={
+                applyingHookJobId === activeJob?.id ||
+                (activeHookSelectionMode === "manual" && !hookPreviewCandidate)
+              }
               onClick={() => {
+                if (activeHookSelectionMode === "auto") {
+                  void handleSetHookSelectionModeRealtime("auto");
+                  return;
+                }
                 if (!hookPreviewCandidate) return;
                 void handleApplyPreferredHookRealtime(hookPreviewCandidate);
               }}
@@ -4833,7 +4867,7 @@ const Editor = () => {
               {applyingHookJobId === activeJob?.id ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : null}
-              Use this hook
+              {activeHookSelectionMode === "auto" ? "Use auto hook" : "Use this hook"}
             </Button>
           </div>
         </DialogContent>
