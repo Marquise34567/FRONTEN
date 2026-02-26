@@ -4389,7 +4389,11 @@ const Editor = () => {
                         <div className="flex items-start justify-between gap-2">
                           <div className="space-y-1">
                             <p className="text-xs uppercase tracking-[0.2em] text-primary/80">Hook Job</p>
-                            <p className="text-xs text-muted-foreground">Pick the opening hook now. Changes apply in real time.</p>
+                            <p className="text-xs text-muted-foreground">
+                              {activeHookSelectionMode === "manual"
+                                ? "Manual mode: pick and apply your opening hook."
+                                : "Auto mode: the editor will choose the opening hook for you."}
+                            </p>
                           </div>
                           <Button
                             type="button"
@@ -4402,9 +4406,12 @@ const Editor = () => {
                             {applyingHookJobId === activeJob.id ? (
                               <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                             ) : null}
-                            Select hook
+                            Hook selector
                           </Button>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                          Hook mode: {activeHookSelectionMode === "manual" ? "Manual" : "Auto"}
+                        </p>
                         {selectedHookCandidate ? (
                           <p className="text-xs text-foreground/90">
                             Selected: {formatHookRange(
@@ -4479,6 +4486,9 @@ const Editor = () => {
                           ))}
                         </div>
                       ) : null}
+                      <p className="text-xs text-muted-foreground">
+                        Hook mode: {activeHookSelectionMode === "manual" ? "Manual" : "Auto"}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         Hook selection: {hookSelectionSource === "user_selected" ? "User-selected" : hookSelectionSource === "fallback" ? "Fallback" : "Auto"}
                       </p>
