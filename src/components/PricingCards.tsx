@@ -1,9 +1,26 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Check, Clock3, Film, Sparkles, Star, Zap } from "lucide-react";
+import { ArrowRight, Check, Crown, Sparkles, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
-import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
+import { useTranslation } from "react-i18next";
+import { PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+type BillingInterval = "monthly" | "annual";
+
+type PricingCardDefinition = {
+  tier: PlanTier;
+  name: string;
+  description: string;
+  monthlyPrice: number;
+  oneTimePrice?: number;
+  minuteAllowance: string;
+  usageMeta: string;
+  features: string[];
+  highlighted?: boolean;
+  badge?: "popular" | "scale" | "founder";
+  annualEligible?: boolean;
+};
 
 type PricingCardsProps = {
   currentTier?: string;
@@ -13,54 +30,125 @@ type PricingCardsProps = {
   onPortal: () => void;
   actionTier?: PlanTier | null;
   actionKind?: "subscribe" | null;
-  billingInterval?: "monthly" | "annual";
+  billingInterval?: BillingInterval;
   founderSlotsRemaining?: number;
 };
 
-const PLAN_PERSONA: Record<PlanTier, string> = {
-  free: "testing Auto-Editor with lightweight weekly uploads",
-  starter: "solo creators posting consistently",
-  creator: "full-time channels scaling output",
-  studio: "agencies and teams shipping at volume",
-  founder: "early builders locking lifetime value",
-};
-
-const gridVariants = {
-  hidden: {},
-  show: {
-    transition: {
-      staggerChildren: 0.08,
-      delayChildren: 0.04,
-    },
+const PRICING_PLANS: Record<PlanTier, PricingCardDefinition> = {
+  free: {
+    tier: "free",
+    name: "Free",
+    description: "Start editing today with core tools.",
+    monthlyPrice: 0,
+    minuteAllowance: "Up to 10 minutes of video per month",
+    usageMeta: "3 renders/day • 720p exports",
+    features: [
+      "720p exports",
+      "Watermark included",
+      "Standard queue",
+      "3 renders/day",
+      "Basic subtitle presets",
+      "Personal use",
+    ],
+    annualEligible: false,
+  },
+  starter: {
+    tier: "starter",
+    name: "Starter",
+    description: "For solo creators posting consistently.",
+    monthlyPrice: 9,
+    minuteAllowance: "Up to 60 minutes of video per month",
+    usageMeta: "20 renders/month • 1080p exports",
+    features: [
+      "1080p exports",
+      "No watermark",
+      "20 renders/month",
+      "Standard queue",
+      "Creator subtitle presets",
+      "Email support",
+    ],
+    annualEligible: true,
+  },
+  creator: {
+    tier: "creator",
+    name: "Creator",
+    description: "Best for fast-growing creator businesses.",
+    monthlyPrice: 29,
+    minuteAllowance: "Up to 300 minutes of video per month",
+    usageMeta: "100 renders/month • 4K exports",
+    features: [
+      "4K exports",
+      "No watermark",
+      "100 renders/month",
+      "Priority queue",
+      "All presets",
+      "Advanced effects",
+      "Repurpose-ready workflows",
+    ],
+    highlighted: true,
+    badge: "popular",
+    annualEligible: true,
+  },
+  studio: {
+    tier: "studio",
+    name: "Studio",
+    description: "For teams and agencies shipping at volume.",
+    monthlyPrice: 99,
+    minuteAllowance: "Up to 1500 minutes of video per month",
+    usageMeta: "5000 renders/month • 4K exports",
+    features: [
+      "4K exports",
+      "Priority queue",
+      "All features unlocked",
+      "Unlimited team members",
+      "5000 renders/month",
+      "Shared workflow controls",
+      "Priority support",
+    ],
+    highlighted: true,
+    badge: "scale",
+    annualEligible: true,
+  },
+  founder: {
+    tier: "founder",
+    name: "Founder",
+    description: "Limited lifetime access for early adopters.",
+    monthlyPrice: 0,
+    oneTimePrice: 149,
+    minuteAllowance: "Up to 500 minutes of video per month forever",
+    usageMeta: "Lifetime license • First 100 users",
+    features: [
+      "One-time payment",
+      "500 minutes/month forever",
+      "4K exports",
+      "Priority queue",
+      "All premium features",
+      "Founder lifetime badge",
+      "No recurring subscription",
+    ],
+    badge: "founder",
+    annualEligible: false,
   },
 };
 
 const cardVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.985 },
-  show: {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
     opacity: 1,
     y: 0,
-    scale: 1,
-    transition: {
-      duration: 0.45,
-      ease: [0.22, 1, 0.36, 1] as const,
-    },
+    transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
   },
 };
 
-const featureVariants = {
-  hidden: { opacity: 0, x: -8 },
-  show: {
-    opacity: 1,
-    x: 0,
-    transition: { duration: 0.25 },
-  },
-};
+const annualPriceForMonthly = (monthlyPrice: number) => Math.round(monthlyPrice * 12 * 0.8);
+
+const resolveDisplayOrder = (showFounder: boolean): PlanTier[] =>
+  showFounder ? ["free", "starter", "creator", "studio", "founder"] : ["free", "starter", "creator", "studio"];
 
 const PricingCards = ({
   currentTier,
   isAuthenticated,
-  loading,
+  loading = false,
   onCheckout,
   onPortal,
   actionTier,
@@ -68,220 +156,148 @@ const PricingCards = ({
   billingInterval = "monthly",
   founderSlotsRemaining = 0,
 }: PricingCardsProps) => {
+  const { t } = useTranslation("common");
   const currentPlan = currentTier && PLAN_TIERS.includes(currentTier as PlanTier) ? (currentTier as PlanTier) : "free";
   const currentIndex = PLAN_TIERS.indexOf(currentPlan);
-  const founderSlots = Math.max(0, founderSlotsRemaining ?? 0);
-  const showFounderForLayout = founderSlots > 0;
-  const displayTiers: PlanTier[] = showFounderForLayout
-    ? ["founder", ...PLAN_TIERS.filter((tier) => tier !== "founder")]
-    : PLAN_TIERS.filter((tier) => tier !== "founder");
-  const visibleTiers = displayTiers;
+  const founderSlots = Math.max(0, founderSlotsRemaining);
+  const showFounderCard = founderSlots > 0 || currentPlan === "founder";
+  const planOrder = resolveDisplayOrder(showFounderCard);
+  const isAnnual = billingInterval === "annual";
 
   return (
-    <motion.div
-      className={cn("grid grid-cols-1 md:grid-cols-2 gap-6", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
-      variants={gridVariants}
-      initial="hidden"
-      animate="show"
-    >
-      {visibleTiers.map((tier, index) => {
-        const plan = PLAN_CONFIG[tier];
-        const isPopular = plan.badge === "popular";
-        const isFounder = plan.badge === "founder";
-        const isCurrent = isAuthenticated && currentPlan === tier;
+    <div className={cn("grid grid-cols-1 gap-4 md:gap-5", showFounderCard ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
+      {planOrder.map((tier) => {
+        const plan = PRICING_PLANS[tier];
         const tierIndex = PLAN_TIERS.indexOf(tier);
+        const isCurrent = isAuthenticated && currentPlan === tier;
         const isUpgrade = isAuthenticated && tierIndex > currentIndex;
         const isDowngrade = isAuthenticated && tierIndex < currentIndex;
-        const showCurrent = isAuthenticated && isCurrent;
-        const showUpgrade = isAuthenticated && isUpgrade;
         const showManage = isAuthenticated && isDowngrade && tier !== "free";
+        const showUpgrade = isAuthenticated && isUpgrade;
+        const showCurrent = isAuthenticated && isCurrent;
         const showSubscribe = !isAuthenticated && tier !== "free";
-        const showSignup = !isAuthenticated && tier === "free";
-        const isAnnual = billingInterval === "annual";
-        const isLifetime = plan.lifetime;
-        const annualLabel = plan.priceMonthly === 0 ? plan.priceLabel : `$${plan.priceMonthly * 12}`;
-        const priceLabel = isLifetime ? plan.priceLabel : isAnnual ? annualLabel : plan.priceLabel;
-        const cadenceLabel = isLifetime || tier === "free" ? "" : isAnnual ? "/year" : "/month";
-        const resolutionLabel = plan.exportQuality === "4k" ? "4K exports" : `${plan.exportQuality} exports`;
-        const rerenderLabel = `${plan.maxRerendersPerDay} rerenders/day`;
-        const queueLabel = plan.priority ? "Priority queue" : "Standard queue";
-        const minuteCapLabel =
-          plan.maxMinutesPerMonth === null ? "No minute cap" : `${plan.maxMinutesPerMonth} min / month`;
-        const billingNote = isLifetime
-          ? tier === "founder"
-            ? "1-time purchase"
-            : "One-time payment"
-          : tier === "free"
-          ? "Free forever"
-          : isAnnual
-          ? "Billed annually"
-          : "Billed monthly";
-        const renderLimitLabel = tier === "free"
-          ? "10 renders / month"
-          : `${plan.maxRendersPerMonth} renders / month`;
+        const showFreeSignup = !isAuthenticated && tier === "free";
+        const annualEligible = plan.annualEligible !== false && !plan.oneTimePrice && tier !== "free";
+        const monthlyEquivalent = annualEligible ? Math.round((annualPriceForMonthly(plan.monthlyPrice) / 12) * 100) / 100 : null;
+        const displayPrice = plan.oneTimePrice
+          ? `$${plan.oneTimePrice}`
+          : annualEligible && isAnnual
+            ? `$${annualPriceForMonthly(plan.monthlyPrice)}`
+            : `$${plan.monthlyPrice}`;
+        const cadence = plan.oneTimePrice ? t("pricing.card.oneTime") : tier === "free" ? t("pricing.card.forever") : isAnnual ? "/year" : "/month";
 
         return (
           <motion.article
             key={tier}
             variants={cardVariants}
-            custom={index}
-            whileHover={{ y: -8, scale: 1.01 }}
-            transition={{ type: "spring", stiffness: 320, damping: 22 }}
+            initial="hidden"
+            animate="visible"
+            whileHover={{ y: -4 }}
             className={cn(
-              "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
-              isPopular && "ring-1 ring-primary/45 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
-              isFounder && "ring-1 ring-amber-400/55 shadow-[0_25px_80px_rgba(251,191,36,0.2)]"
+              "pricing-neon-glow group relative flex h-full flex-col overflow-hidden rounded-2xl border border-purple-800/30 bg-[linear-gradient(160deg,rgba(17,17,30,0.88),rgba(22,22,39,0.82))] p-5 backdrop-blur-md shadow-[0_10px_40px_rgba(0,0,0,0.42)]",
+              plan.highlighted && "border-purple-500/45 ring-1 ring-purple-500/30",
             )}
           >
-            <div
-              className={cn(
-                "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100",
-                isFounder
-                  ? "bg-[radial-gradient(circle_at_88%_8%,rgba(251,191,36,0.28),transparent_48%)]"
-                  : isPopular
-                  ? "bg-[radial-gradient(circle_at_88%_8%,rgba(124,58,237,0.3),transparent_48%)]"
-                  : "bg-[radial-gradient(circle_at_88%_8%,rgba(148,163,184,0.16),transparent_48%)]"
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(192,132,252,0.2),transparent_42%),radial-gradient(circle_at_92%_0%,rgba(168,85,247,0.18),transparent_38%)] opacity-80" />
+
+            <div className="relative z-10 flex items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
+              {plan.badge === "popular" ? (
+                <span className="inline-flex items-center rounded-full border border-purple-300/40 bg-purple-500/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-purple-100">
+                  {t("pricing.card.mostPopular")}
+                </span>
+              ) : null}
+              {plan.badge === "scale" ? (
+                <span className="inline-flex items-center rounded-full border border-violet-300/35 bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-100">
+                  <Zap className="mr-1 h-3 w-3" />
+                  {t("pricing.card.studioPick")}
+                </span>
+              ) : null}
+              {plan.badge === "founder" ? (
+                <span className="inline-flex items-center rounded-full border border-amber-300/35 bg-amber-400/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
+                  <Crown className="mr-1 h-3 w-3" />
+                  {t("pricing.card.founderBadge")}
+                </span>
+              ) : null}
+            </div>
+
+            <p className="relative z-10 mt-1 text-sm text-slate-300/90">{plan.description}</p>
+
+            <div className="relative z-10 mt-4">
+              <div className="flex items-end gap-2">
+                <span className="text-5xl font-bold leading-none text-white">{displayPrice}</span>
+                <span className="pb-1 text-sm text-slate-300">{cadence}</span>
+              </div>
+              {annualEligible && isAnnual ? (
+                <p className="mt-1 text-xs text-purple-200/90">
+                  {t("pricing.card.equivalent")} ${monthlyEquivalent?.toFixed(2)}/mo
+                </p>
+              ) : null}
+              {plan.badge === "founder" ? (
+                <p className="mt-1 text-xs text-amber-200/90">
+                  {t("pricing.card.founderSlots", { count: founderSlots })}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-300/85">{plan.usageMeta}</p>
               )}
-            />
-            <div className="pointer-events-none absolute inset-x-7 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-            {(isPopular || isFounder) && (
-              <div className="absolute -top-3 right-6 z-20">
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold tracking-wide uppercase",
-                    isFounder ? "bg-amber-400/90 text-amber-950 animate-pulse" : "bg-primary/90 text-primary-foreground"
-                  )}
-                >
-                      {isFounder ? (
-                        <Star className="w-3 h-3" />
-                      ) : (
-                        <Zap className="w-3 h-3" />
-                      )}
-                      {isFounder ? "Founder" : "Popular"}
-                </span>
-              </div>
-            )}
-            <div className="relative z-10 mb-4 flex items-center gap-2">
-              <div
-                className={cn(
-                  "h-9 w-9 rounded-xl flex items-center justify-center",
-                  isFounder ? "bg-amber-400/15" : isPopular ? "bg-primary/20" : "bg-white/5"
-                )}
-              >
-                {isFounder ? (
-                  <Star className="w-4 h-4 text-amber-400" />
-                ) : isPopular ? (
-                  <Zap className="w-4 h-4 text-primary" />
-                ) : (
-                  <Check className="w-4 h-4 text-muted-foreground" />
-                )}
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold font-display text-foreground">{plan.name}</h3>
-                <p className="text-xs text-muted-foreground">{plan.description}</p>
-              </div>
+              <p className="mt-3 text-sm font-semibold text-purple-200">{plan.minuteAllowance}</p>
             </div>
-            {isFounder && (
-              <div className="relative z-10 mb-4 space-y-2">
-                <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
-                  Limited to first 100 users
-                </span>
-                <div className="rounded-xl border border-amber-300/35 bg-amber-500/10 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-100">
-                    {founderSlots} lifetime slots remaining
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="relative z-10 mb-4">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold font-display text-foreground">{priceLabel}</span>
-                {cadenceLabel ? <span className="text-sm text-muted-foreground">{cadenceLabel}</span> : null}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">{billingNote}</p>
-              <p className="text-xs text-muted-foreground mt-1">{renderLimitLabel}</p>
-            </div>
-            <div className="relative z-10 mb-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
-                <Sparkles className="w-3 h-3 text-primary" />
-                {resolutionLabel}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
-                <Clock3 className="w-3 h-3 text-sky-300" />
-                {rerenderLabel}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
-                <Film className="w-3 h-3 text-emerald-300" />
-                {queueLabel}
-              </span>
-            </div>
-            <p className="relative z-10 mb-4 text-xs leading-relaxed text-muted-foreground">
-              Best for {PLAN_PERSONA[tier]}. {minuteCapLabel}.
-            </p>
-            <motion.ul className="mb-5 space-y-2 text-sm text-foreground" variants={gridVariants}>
-              {plan.features.map((feature) => (
-                <motion.li key={feature} className="flex items-center gap-2" variants={featureVariants}>
-                  <span className="h-5 w-5 rounded-full bg-white/5 flex items-center justify-center">
-                    <Check className="w-3 h-3 text-success" />
-                  </span>
-                  <span className="text-[13px]">{feature}</span>
-                </motion.li>
+
+            <ul className="relative z-10 mt-4 space-y-2">
+              {plan.features.slice(0, 8).map((feature) => (
+                <li key={`${tier}-${feature}`} className="flex items-start gap-2 text-sm text-slate-200">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <span>{feature}</span>
+                </li>
               ))}
-            </motion.ul>
-            <div className="relative z-10 mt-auto">
-              {showSignup && (
-                <Link to="/signup">
-                  <Button className="w-full gap-1 rounded-lg bg-foreground text-background hover:bg-foreground/90">
-                    Sign up
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-              )}
-              {showCurrent && (
-                <Button variant="secondary" className="w-full rounded-lg" disabled>
-                  Current plan
+            </ul>
+
+            <div className="relative z-10 mt-5">
+              {showCurrent ? (
+                <Button disabled className="h-11 w-full rounded-xl border border-purple-300/20 bg-white/10 text-white">
+                  {t("pricing.card.currentPlan")}
                 </Button>
-              )}
-              {showUpgrade && (
+              ) : null}
+
+              {showUpgrade ? (
                 <Button
                   onClick={() => onCheckout(tier)}
                   disabled={loading && actionTier === tier && actionKind === "subscribe"}
-                  className={cn(
-                    "w-full gap-1 rounded-lg",
-                    isPopular || isFounder
-                      ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                      : "bg-white/10 hover:bg-white/20 text-foreground"
-                  )}
+                  className="h-11 w-full rounded-xl bg-gradient-to-r from-[#A855F7] to-[#C084FC] font-semibold text-white hover:brightness-110"
                 >
-                  {loading && actionTier === tier && actionKind === "subscribe" ? "Redirecting..." : "Upgrade"}
-                  {loading && actionTier === tier && actionKind === "subscribe" ? null : <ArrowRight className="w-4 h-4" />}
+                  {loading && actionTier === tier && actionKind === "subscribe" ? t("pricing.card.redirecting") : t("pricing.card.upgrade")}
+                  {loading && actionTier === tier && actionKind === "subscribe" ? null : <ArrowRight className="ml-1 h-4 w-4" />}
                 </Button>
-              )}
-              {showManage && (
-                <Button onClick={onPortal} className="w-full rounded-lg bg-foreground text-background hover:bg-foreground/90">
-                  Manage
+              ) : null}
+
+              {showManage ? (
+                <Button onClick={onPortal} className="h-11 w-full rounded-xl border border-purple-300/25 bg-white/10 text-white hover:bg-white/15">
+                  {t("pricing.card.manage")}
                 </Button>
-              )}
-              {showSubscribe && (
+              ) : null}
+
+              {showSubscribe ? (
                 <Link to="/signup">
-                  <Button
-                    className={cn(
-                      "w-full gap-1 rounded-lg",
-                      isPopular || isFounder
-                        ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                        : "bg-white/10 hover:bg-white/20 text-foreground"
-                    )}
-                  >
-                    Subscribe
-                    <ArrowRight className="w-4 h-4" />
+                  <Button className="h-11 w-full rounded-xl bg-gradient-to-r from-[#A855F7] to-[#C084FC] font-semibold text-white hover:brightness-110">
+                    {t("pricing.card.subscribe")}
+                    <ArrowRight className="ml-1 h-4 w-4" />
                   </Button>
                 </Link>
-              )}
+              ) : null}
+
+              {showFreeSignup ? (
+                <Link to="/signup">
+                  <Button className="h-11 w-full rounded-xl border border-purple-300/25 bg-white/10 font-semibold text-white hover:bg-white/15">
+                    <Sparkles className="mr-1 h-4 w-4 text-purple-200" />
+                    {t("pricing.card.getStarted")}
+                  </Button>
+                </Link>
+              ) : null}
             </div>
           </motion.article>
         );
       })}
-    </motion.div>
+    </div>
   );
 };
 
