@@ -2882,6 +2882,45 @@ const Editor = () => {
     });
   };
 
+  const verticalCaptionsForJob = useMemo<VerticalCaptionsPayload>(() => ({
+    enabled: verticalCaptionEnabled,
+    autoGenerate: verticalCaptionAutoGenerate,
+    preset: verticalCaptionPreset,
+    fontSize: clampVerticalCaptionFontSize(verticalCaptionFontSize),
+    text: normalizeVerticalCaptionTextForJob(verticalCaptionText),
+    fontId: verticalCaptionFontId,
+    textColor: normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor),
+    accentColor: normalizeVerticalCaptionHex(verticalCaptionAccentColor, activeVerticalCaptionPresetStyle.accentColor),
+    outlineColor: normalizeVerticalCaptionHex(verticalCaptionOutlineColor, activeVerticalCaptionPresetStyle.outlineColor),
+    outlineWidth: clampVerticalCaptionOutlineWidth(verticalCaptionOutlineWidth),
+    shadowEnabled: verticalCaptionShadowEnabled,
+    shadowColor: normalizeVerticalCaptionHex(verticalCaptionShadowColor, activeVerticalCaptionPresetStyle.shadowColor),
+    shadowBlur: clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur),
+    boxEnabled: verticalCaptionBoxEnabled,
+    boxColor: normalizeVerticalCaptionHex(verticalCaptionBoxColor, activeVerticalCaptionPresetStyle.boxColor),
+    positionX: Number(clampVerticalCaptionPosition(verticalCaptionPositionX).toFixed(4)),
+    positionY: Number(clampVerticalCaptionPosition(verticalCaptionPositionY).toFixed(4)),
+  }), [
+    verticalCaptionEnabled,
+    verticalCaptionAutoGenerate,
+    verticalCaptionPreset,
+    verticalCaptionFontSize,
+    verticalCaptionText,
+    verticalCaptionFontId,
+    verticalCaptionTextColor,
+    verticalCaptionAccentColor,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionShadowEnabled,
+    verticalCaptionShadowColor,
+    verticalCaptionShadowBlur,
+    verticalCaptionBoxEnabled,
+    verticalCaptionBoxColor,
+    verticalCaptionPositionX,
+    verticalCaptionPositionY,
+    activeVerticalCaptionPresetStyle,
+  ]);
+
   // Resumable upload logic removed — we use backend-presigned multipart upload to R2
 
   const handleFile = async (
@@ -2904,13 +2943,6 @@ const Editor = () => {
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = autoCaptionsEnabled;
-    const verticalCaptionsForJob: VerticalCaptionsPayload = {
-      enabled: verticalCaptionEnabled,
-      autoGenerate: verticalCaptionAutoGenerate,
-      preset: verticalCaptionPreset,
-      fontSize: clampVerticalCaptionFontSize(verticalCaptionFontSize),
-      text: normalizeVerticalCaptionTextForJob(verticalCaptionText),
-    };
     const verticalCaptionTextForJob = verticalCaptionsForJob.text;
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
@@ -3245,6 +3277,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
+    setCaptionDragInteraction(null);
     setVerticalClipCount(0);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -3328,6 +3361,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
+    setCaptionDragInteraction(null);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -3356,6 +3390,18 @@ const Editor = () => {
       startCrop: webcamCrop,
     });
   }, [webcamCrop]);
+
+  const beginCaptionDrag = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (!verticalCaptionEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setCaptionDragInteraction({
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: verticalCaptionPositionX,
+      startY: verticalCaptionPositionY,
+    });
+  }, [verticalCaptionEnabled, verticalCaptionPositionX, verticalCaptionPositionY]);
 
   useEffect(() => {
     if (!cropInteraction || !sourceVideoMeta) return;
@@ -3403,6 +3449,27 @@ const Editor = () => {
     };
   }, [cropInteraction, sourceVideoMeta, normalizeWebcamCrop]);
 
+  useEffect(() => {
+    if (!captionDragInteraction) return;
+    const onMove = (event: PointerEvent) => {
+      const rect = verticalCompositionFrameRef.current?.getBoundingClientRect();
+      if (!rect || !rect.width || !rect.height) return;
+      const dx = (event.clientX - captionDragInteraction.startClientX) / rect.width;
+      const dy = (event.clientY - captionDragInteraction.startClientY) / rect.height;
+      setVerticalCaptionPositionX(clampVerticalCaptionPosition(captionDragInteraction.startX + dx));
+      setVerticalCaptionPositionY(clampVerticalCaptionPosition(captionDragInteraction.startY + dy));
+    };
+    const onEnd = () => setCaptionDragInteraction(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  }, [captionDragInteraction]);
+
   const webcamPaddingMax = useMemo(() => {
     if (!webcamCrop) return 0;
     return Math.max(0, Math.floor(Math.min(webcamCrop.w, webcamCrop.h) / 2) - 1);
@@ -3445,6 +3512,25 @@ const Editor = () => {
   const verticalSelectionReady = skipManualWebcamCrop
     ? Boolean(pendingVerticalFile && sourceVideoMeta)
     : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
+  const activeVerticalCaptionPresetStyle = useMemo(
+    () => VERTICAL_CAPTION_STYLE_DEFAULTS[verticalCaptionPreset],
+    [verticalCaptionPreset],
+  );
+  const verticalCaptionPreviewText = useMemo(() => {
+    if (!verticalCaptionEnabled) return "";
+    const customPreviewCaption = normalizeVerticalCaptionTextForJob(verticalCaptionText)
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) || "";
+    if (customPreviewCaption) return customPreviewCaption;
+    if (!verticalCaptionAutoGenerate) return "";
+    return VERTICAL_CAPTION_PREVIEW_FALLBACKS[verticalCaptionPreset] || "";
+  }, [
+    verticalCaptionEnabled,
+    verticalCaptionAutoGenerate,
+    verticalCaptionPreset,
+    verticalCaptionText,
+  ]);
 
   useEffect(() => {
     const video = verticalCompositionVideoRef.current;
@@ -3458,19 +3544,17 @@ const Editor = () => {
     const canvasHeight = Math.round((DEFAULT_VERTICAL_OUTPUT.height / DEFAULT_VERTICAL_OUTPUT.width) * canvasWidth);
     const topHeight = Math.round((topHeightPx / DEFAULT_VERTICAL_OUTPUT.height) * canvasHeight);
     const bottomHeight = canvasHeight - topHeight;
-    const customPreviewCaption = normalizeVerticalCaptionTextForJob(verticalCaptionText)
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) || "";
-    const previewCaptionFallbacks: Record<VerticalCaptionPreset, string> = {
-      basic_clean: "Auto captions preview",
-      mrbeast_animated: "THIS PART GOES CRAZY 🔥",
-      neon_glow: "NEON MOMENT ⚡",
-    };
-    const previewCaptionText =
-      verticalCaptionEnabled
-        ? customPreviewCaption || (verticalCaptionAutoGenerate ? previewCaptionFallbacks[verticalCaptionPreset] : "")
-        : "";
+    const previewCaptionText = verticalCaptionPreviewText;
+    const previewTextColor = normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor);
+    const previewAccentColor = normalizeVerticalCaptionHex(verticalCaptionAccentColor, activeVerticalCaptionPresetStyle.accentColor);
+    const previewOutlineColor = normalizeVerticalCaptionHex(verticalCaptionOutlineColor, activeVerticalCaptionPresetStyle.outlineColor);
+    const previewShadowColor = normalizeVerticalCaptionHex(verticalCaptionShadowColor, activeVerticalCaptionPresetStyle.shadowColor);
+    const previewBoxColor = normalizeVerticalCaptionHex(verticalCaptionBoxColor, activeVerticalCaptionPresetStyle.boxColor);
+    const shouldUppercase = activeVerticalCaptionPresetStyle.forceUppercase;
+    const resolvedOutlineWidth = clampVerticalCaptionOutlineWidth(verticalCaptionOutlineWidth);
+    const resolvedShadowBlur = clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur);
+    const resolvedPosX = clampVerticalCaptionPosition(verticalCaptionPositionX);
+    const resolvedPosY = clampVerticalCaptionPosition(verticalCaptionPositionY);
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
@@ -3518,7 +3602,11 @@ const Editor = () => {
     const drawPreviewCaption = () => {
       if (!previewCaptionText) return;
       const maxWidth = canvasWidth * 0.84;
-      const words = previewCaptionText.slice(0, 96).split(/\s+/).filter(Boolean);
+      const words = previewCaptionText
+        .slice(0, 96)
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, MAX_VERTICAL_CAPTION_WORDS);
       const lines: string[] = [];
       let current = "";
       const scaledFontSize = clamp(
@@ -3526,10 +3614,7 @@ const Editor = () => {
         24,
         94,
       );
-      const baseFont =
-        verticalCaptionPreset === "basic_clean"
-          ? `800 ${scaledFontSize}px "Arial Black", Arial, sans-serif`
-          : `900 ${scaledFontSize}px Impact, "Arial Black", sans-serif`;
+      const baseFont = `${shouldUppercase ? "900" : "800"} ${scaledFontSize}px ${resolveVerticalCaptionCanvasFont(verticalCaptionFontId)}`;
       ctx.font = baseFont;
       for (const word of words) {
         const candidate = current ? `${current} ${word}` : word;
@@ -3544,44 +3629,57 @@ const Editor = () => {
       if (current && lines.length < 2) lines.push(current);
       if (!lines.length) return;
       const lineHeight = Math.round(scaledFontSize * 1.08);
-      const captionBaseY = canvasHeight - lines.length * lineHeight - 40;
-      const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
+      const renderedLines = lines.map((line) => (shouldUppercase ? line.toUpperCase() : line));
+      const textWidth = Math.max(...renderedLines.map((line) => ctx.measureText(line).width));
+      const textBlockHeight = lines.length * lineHeight;
+      const centerX = clamp(
+        resolvedPosX * canvasWidth,
+        textWidth / 2 + 20,
+        canvasWidth - textWidth / 2 - 20,
+      );
+      const centerY = clamp(
+        resolvedPosY * canvasHeight,
+        textBlockHeight / 2 + 20,
+        canvasHeight - textBlockHeight / 2 - 20,
+      );
+      const captionTop = centerY - textBlockHeight / 2;
 
-      if (verticalCaptionPreset === "basic_clean") {
-        const boxPaddingX = 18;
+      if (verticalCaptionBoxEnabled) {
+        const boxPaddingX = 20;
         const boxPaddingY = 12;
-        const boxWidth = Math.min(canvasWidth * 0.9, textWidth + boxPaddingX * 2);
-        const boxHeight = lines.length * lineHeight + boxPaddingY * 2;
-        const boxX = (canvasWidth - boxWidth) / 2;
-        const boxY = captionBaseY - boxPaddingY + 4;
-        ctx.fillStyle = "rgba(8, 7, 18, 0.75)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.32)";
-        ctx.lineWidth = 2;
+        const boxWidth = Math.min(canvasWidth - 24, textWidth + boxPaddingX * 2);
+        const boxHeight = textBlockHeight + boxPaddingY * 2;
+        const boxX = clamp(centerX - boxWidth / 2, 12, canvasWidth - boxWidth - 12);
+        const boxY = clamp(captionTop - boxPaddingY + 2, 10, canvasHeight - boxHeight - 10);
+        ctx.fillStyle = previewBoxColor;
+        ctx.strokeStyle = previewOutlineColor;
+        ctx.lineWidth = Math.max(1, Math.round(Math.max(2, resolvedOutlineWidth) * 0.35));
         ctx.beginPath();
         ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#F8FAFC";
-      } else if (verticalCaptionPreset === "mrbeast_animated") {
-        ctx.fillStyle = "#FFE500";
-        ctx.strokeStyle = "#050505";
-        ctx.lineWidth = Math.max(4, Math.round(scaledFontSize * 0.15));
-      } else {
-        ctx.fillStyle = "#2DF6FF";
-        ctx.strokeStyle = "#071E28";
-        ctx.lineWidth = Math.max(3, Math.round(scaledFontSize * 0.12));
-        ctx.shadowColor = "rgba(45, 246, 255, 0.85)";
-        ctx.shadowBlur = Math.max(8, Math.round(scaledFontSize * 0.22));
       }
 
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      lines.forEach((line, index) => {
-        const textY = captionBaseY + lineHeight * (index + 0.5);
-        if (verticalCaptionPreset !== "basic_clean") {
-          ctx.strokeText(verticalCaptionPreset === "mrbeast_animated" ? line.toUpperCase() : line, canvasWidth / 2, textY);
+      const fillGradient = ctx.createLinearGradient(centerX, captionTop, centerX, captionTop + textBlockHeight);
+      fillGradient.addColorStop(0, previewAccentColor);
+      fillGradient.addColorStop(1, previewTextColor);
+      ctx.fillStyle = fillGradient;
+      if (verticalCaptionShadowEnabled && resolvedShadowBlur > 0) {
+        ctx.shadowColor = previewShadowColor;
+        ctx.shadowBlur = Math.max(2, Math.round(resolvedShadowBlur * 0.9));
+      }
+      if (resolvedOutlineWidth > 0) {
+        ctx.strokeStyle = previewOutlineColor;
+        ctx.lineWidth = Math.max(1, Math.round((scaledFontSize / 56) * resolvedOutlineWidth));
+      }
+      renderedLines.forEach((line, index) => {
+        const textY = captionTop + lineHeight * (index + 0.5);
+        if (resolvedOutlineWidth > 0) {
+          ctx.strokeText(line, centerX, textY);
         }
-        ctx.fillText(line, canvasWidth / 2, textY);
+        ctx.fillText(line, centerX, textY);
       });
       ctx.shadowBlur = 0;
       ctx.shadowColor = "transparent";
@@ -3638,11 +3736,21 @@ const Editor = () => {
     bottomFitMode,
     topHeightPx,
     skipManualWebcamCrop,
-    verticalCaptionEnabled,
-    verticalCaptionAutoGenerate,
-    verticalCaptionPreset,
+    verticalCaptionPreviewText,
+    activeVerticalCaptionPresetStyle,
     verticalCaptionFontSize,
-    verticalCaptionText,
+    verticalCaptionFontId,
+    verticalCaptionTextColor,
+    verticalCaptionAccentColor,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionShadowEnabled,
+    verticalCaptionShadowColor,
+    verticalCaptionShadowBlur,
+    verticalCaptionBoxEnabled,
+    verticalCaptionBoxColor,
+    verticalCaptionPositionX,
+    verticalCaptionPositionY,
   ]);
 
   const startVerticalRender = async () => {
@@ -3687,6 +3795,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
+    setCaptionDragInteraction(null);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -3837,13 +3946,6 @@ const Editor = () => {
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
-        const verticalCaptionsForJob: VerticalCaptionsPayload = {
-          enabled: verticalCaptionEnabled,
-          autoGenerate: verticalCaptionAutoGenerate,
-          preset: verticalCaptionPreset,
-          fontSize: clampVerticalCaptionFontSize(verticalCaptionFontSize),
-          text: normalizeVerticalCaptionTextForJob(verticalCaptionText),
-        };
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -6772,11 +6874,11 @@ const Editor = () => {
                       <p className="text-xs text-muted-foreground">
                         {skipManualWebcamCrop
                           ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
-                          : "Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame."}
+                          : "Manual Webcam Selector (premium mode): drag, resize, and fine-tune the top crop while the bottom panel keeps full-frame context."}
                       </p>
                       <button
                         type="button"
-                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/70 bg-gradient-to-r from-slate-900/70 to-slate-800/45 px-3 py-1 text-[11px] text-slate-200 transition hover:border-primary/40 hover:text-white"
                         onClick={() => {
                           setCropInteraction(null);
                           setSkipManualWebcamCrop((prev) => !prev);
@@ -6829,7 +6931,7 @@ const Editor = () => {
 
                     {verticalCaptionEnabled ? (
                       <>
-                        <div className="grid gap-2 md:grid-cols-3">
+                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                           {VERTICAL_CAPTION_PRESET_OPTIONS.map((preset) => {
                             const Icon = preset.icon;
                             const selected = verticalCaptionPreset === preset.id;
@@ -6842,7 +6944,7 @@ const Editor = () => {
                                     ? "border-primary bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(124,58,237,0.35)]"
                                     : "border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
                                 }`}
-                                onClick={() => setVerticalCaptionPreset(preset.id)}
+                                onClick={() => applyVerticalCaptionPreset(preset.id)}
                               >
                                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em]">
                                   <Icon className="h-3.5 w-3.5" />
@@ -6854,18 +6956,201 @@ const Editor = () => {
                           })}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <label className="space-y-1">
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Font</span>
+                            <select
+                              className="w-full rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                              value={verticalCaptionFontId}
+                              onChange={(event) => setVerticalCaptionFontId(event.target.value as SubtitleStyleConfig["fontId"])}
+                            >
+                              {MRBEAST_FONT_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Text color</span>
+                            <input
+                              type="color"
+                              value={normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor)}
+                              onChange={(event) =>
+                                setVerticalCaptionTextColor(
+                                  normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.textColor),
+                                )
+                              }
+                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Accent color</span>
+                            <input
+                              type="color"
+                              value={normalizeVerticalCaptionHex(verticalCaptionAccentColor, activeVerticalCaptionPresetStyle.accentColor)}
+                              onChange={(event) =>
+                                setVerticalCaptionAccentColor(
+                                  normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.accentColor),
+                                )
+                              }
+                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Outline color</span>
+                            <input
+                              type="color"
+                              value={normalizeVerticalCaptionHex(verticalCaptionOutlineColor, activeVerticalCaptionPresetStyle.outlineColor)}
+                              onChange={(event) =>
+                                setVerticalCaptionOutlineColor(
+                                  normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.outlineColor),
+                                )
+                              }
+                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Font size</span>
+                              <span>{clampVerticalCaptionFontSize(verticalCaptionFontSize)} pt</span>
+                            </div>
+                            <Slider
+                              value={[clampVerticalCaptionFontSize(verticalCaptionFontSize)]}
+                              min={VERTICAL_CAPTION_FONT_SIZE_MIN}
+                              max={VERTICAL_CAPTION_FONT_SIZE_MAX}
+                              step={2}
+                              onValueChange={(value) =>
+                                setVerticalCaptionFontSize(
+                                  clampVerticalCaptionFontSize(value?.[0] ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT),
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Outline</span>
+                              <span>{clampVerticalCaptionOutlineWidth(verticalCaptionOutlineWidth)} px</span>
+                            </div>
+                            <Slider
+                              value={[clampVerticalCaptionOutlineWidth(verticalCaptionOutlineWidth)]}
+                              min={VERTICAL_CAPTION_OUTLINE_WIDTH_MIN}
+                              max={VERTICAL_CAPTION_OUTLINE_WIDTH_MAX}
+                              step={1}
+                              onValueChange={(value) =>
+                                setVerticalCaptionOutlineWidth(
+                                  clampVerticalCaptionOutlineWidth(value?.[0] ?? activeVerticalCaptionPresetStyle.outlineWidth),
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                            <span className="text-muted-foreground">Drop shadow</span>
+                            <Switch checked={verticalCaptionShadowEnabled} onCheckedChange={setVerticalCaptionShadowEnabled} />
+                          </label>
+                          <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                            <span className="text-muted-foreground">Solid caption box</span>
+                            <Switch checked={verticalCaptionBoxEnabled} onCheckedChange={setVerticalCaptionBoxEnabled} />
+                          </label>
+                        </div>
+
+                        {verticalCaptionShadowEnabled ? (
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="space-y-1">
+                              <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Shadow color</span>
+                              <input
+                                type="color"
+                                value={normalizeVerticalCaptionHex(verticalCaptionShadowColor, activeVerticalCaptionPresetStyle.shadowColor)}
+                                onChange={(event) =>
+                                  setVerticalCaptionShadowColor(
+                                    normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.shadowColor),
+                                  )
+                                }
+                                className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                              />
+                            </label>
+                            <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>Shadow blur</span>
+                                <span>{clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur)} px</span>
+                              </div>
+                              <Slider
+                                value={[clampVerticalCaptionShadowBlur(verticalCaptionShadowBlur)]}
+                                min={VERTICAL_CAPTION_SHADOW_BLUR_MIN}
+                                max={VERTICAL_CAPTION_SHADOW_BLUR_MAX}
+                                step={1}
+                                onValueChange={(value) =>
+                                  setVerticalCaptionShadowBlur(
+                                    clampVerticalCaptionShadowBlur(value?.[0] ?? activeVerticalCaptionPresetStyle.shadowBlur),
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {verticalCaptionBoxEnabled ? (
+                          <label className="space-y-1">
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Solid box color</span>
+                            <input
+                              type="color"
+                              value={normalizeVerticalCaptionHex(verticalCaptionBoxColor, activeVerticalCaptionPresetStyle.boxColor)}
+                              onChange={(event) =>
+                                setVerticalCaptionBoxColor(
+                                  normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.boxColor),
+                                )
+                              }
+                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                            />
+                          </label>
+                        ) : null}
+
+                        <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>Font size</span>
-                            <span>{clampVerticalCaptionFontSize(verticalCaptionFontSize)} pt</span>
+                            <span>Caption position X</span>
+                            <span>{Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%</span>
                           </div>
                           <Slider
-                            value={[clampVerticalCaptionFontSize(verticalCaptionFontSize)]}
-                            min={VERTICAL_CAPTION_FONT_SIZE_MIN}
-                            max={VERTICAL_CAPTION_FONT_SIZE_MAX}
-                            step={2}
-                            onValueChange={(value) => setVerticalCaptionFontSize(clampVerticalCaptionFontSize(value?.[0] ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT))}
+                            value={[Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)]}
+                            min={2}
+                            max={98}
+                            step={1}
+                            onValueChange={(value) => setVerticalCaptionPositionX(clampVerticalCaptionPosition((value?.[0] ?? 50) / 100))}
                           />
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Caption position Y</span>
+                            <span>{Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%</span>
+                          </div>
+                          <Slider
+                            value={[Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)]}
+                            min={2}
+                            max={98}
+                            step={1}
+                            onValueChange={(value) => setVerticalCaptionPositionY(clampVerticalCaptionPosition((value?.[0] ?? 84) / 100))}
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-muted-foreground">
+                              Drag the CAPTION handle in the preview to place text anywhere.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => {
+                                setVerticalCaptionPositionX(0.5);
+                                setVerticalCaptionPositionY(0.84);
+                              }}
+                            >
+                              Reset
+                            </Button>
+                          </div>
                         </div>
 
                         <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
@@ -6877,12 +7162,21 @@ const Editor = () => {
                           <p className="text-xs font-medium text-foreground">Custom caption phrases (optional)</p>
                           <Textarea
                             value={verticalCaptionText}
-                            onChange={(event) => setVerticalCaptionText(event.target.value)}
-                            placeholder={"WTF 😂\nNO WAY THIS HAPPENED\nRUN IT BACK 🔁"}
+                            onChange={(event) =>
+                              setVerticalCaptionText(
+                                String(event.target.value || "")
+                                  .replace(/\r\n?/g, "\n")
+                                  .split("\n")
+                                  .map((line) => normalizeVerticalCaptionPhrase(line))
+                                  .slice(0, 18)
+                                  .join("\n"),
+                              )
+                            }
+                            placeholder={"WTF 😂\nNO WAY HAPPENED\nRUN IT BACK"}
                             className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
                           />
                           <p className="text-[11px] text-muted-foreground">
-                            One phrase per line. Leave blank to rely on transcript auto-generation and style preset timing.
+                            One phrase per line, maximum 5 words each. Leave blank to use transcript-driven generation.
                           </p>
                         </div>
                       </>
