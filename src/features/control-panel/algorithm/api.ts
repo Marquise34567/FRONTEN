@@ -7,6 +7,9 @@ import type {
   AlgorithmPreset,
   AnalyzeResponse,
   ExperimentStatusResponse,
+  FeedbackLoopRunResponse,
+  FeedbackLoopSettings,
+  FeedbackLoopStatus,
   ImprovementSuggestion,
   PromptApplyResponse,
   RenderQualityMetric,
@@ -91,6 +94,35 @@ export const algorithmApi = {
       `${BASE}/suggestions?range=${encodeURIComponent(range)}`,
       withToken(token)
     ),
+
+  getFeedbackLoopStatus: ({ token }: TokenInput) =>
+    apiFetch<{ status: FeedbackLoopStatus }>(`${BASE}/feedback-loop/status`, withToken(token)),
+
+  updateFeedbackLoopSettings: ({
+    token,
+    patch
+  }: TokenInput & {
+    patch: Partial<FeedbackLoopSettings>
+  }) =>
+    apiFetch<{ status: FeedbackLoopStatus }>(`${BASE}/feedback-loop/settings`, {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify(patch || {})
+    }),
+
+  runFeedbackLoop: ({
+    token,
+    force_apply
+  }: TokenInput & {
+    force_apply?: boolean
+  }) =>
+    apiFetch<FeedbackLoopRunResponse>(`${BASE}/feedback-loop/run`, {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify({
+        ...(typeof force_apply === "boolean" ? { force_apply } : {})
+      })
+    }),
 
   analyzeRenders: ({ token, limit = 1000, range }: TokenInput & { limit?: number; range?: string }) =>
     apiFetch<AnalyzeResponse>(`${BASE}/analyze-renders`, {

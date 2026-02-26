@@ -14,7 +14,7 @@ import {
   YAxis
 } from "recharts"
 import { motion } from "framer-motion"
-import { Activity, FlaskConical, Rocket, Sparkles, TestTubeDiagonal, Wand2 } from "lucide-react"
+import { Activity, BrainCircuit, FlaskConical, RefreshCw, Rocket, Sparkles, TestTubeDiagonal, Wand2 } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +34,7 @@ import { controlPanelLiveQueryOptions } from "./control-panel/shared"
 import type {
   AlgorithmConfigParams,
   AnalyzeResponse,
+  FeedbackLoopSettings,
   ImprovementSuggestion,
   PromptApplyChange
 } from "@/features/control-panel/algorithm/types"
@@ -154,6 +155,8 @@ const formatClock = (iso: string) => {
 }
 
 const formatPct = (value: number) => `${(value * 100).toFixed(0)}%`
+const formatPctMaybe = (value: number | null | undefined) => (value === null || value === undefined ? "--" : `${(value * 100).toFixed(1)}%`)
+const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(3)}`
 
 const toNumber = (value: unknown, fallback = 0) => {
   const numeric = Number(value)
@@ -202,6 +205,9 @@ const ControlPanelAlgorithm = () => {
   const [promptAppliedChanges, setPromptAppliedChanges] = useState<PromptApplyChange[]>([])
   const [realtimeSyncEnabled, setRealtimeSyncEnabled] = useState(true)
   const [realtimeNote, setRealtimeNote] = useState("Realtime Control Room sync")
+  const [feedbackLoopDraft, setFeedbackLoopDraft] = useState<FeedbackLoopSettings | null>(null)
+  const [feedbackLoopDirty, setFeedbackLoopDirty] = useState(false)
+  const [feedbackLoopMessage, setFeedbackLoopMessage] = useState<string | null>(null)
   const autoPushDebounceRef = useRef<number | null>(null)
   const lastAutoPushFingerprintRef = useRef<string>("")
 
@@ -247,6 +253,13 @@ const ControlPanelAlgorithm = () => {
     ...controlPanelLiveQueryOptions(15000)
   })
 
+  const feedbackLoopQuery = useQuery({
+    queryKey: ["algorithm-feedback-loop-status"],
+    queryFn: () => algorithmApi.getFeedbackLoopStatus({ token: accessToken || "" }),
+    enabled: canLoad,
+    ...controlPanelLiveQueryOptions(6000)
+  })
+
   const experimentStatusQuery = useQuery({
     queryKey: ["algorithm-experiment-status"],
     queryFn: () => algorithmApi.getExperimentStatus({ token: accessToken || "" }),
@@ -282,6 +295,12 @@ const ControlPanelAlgorithm = () => {
     ])
   }, [configVersionsQuery.data?.versions, experimentDraftArms])
 
+  useEffect(() => {
+    const settings = feedbackLoopQuery.data?.status?.settings
+    if (!settings || feedbackLoopDirty) return
+    setFeedbackLoopDraft(settings)
+  }, [feedbackLoopQuery.data?.status?.settings, feedbackLoopDirty])
+
   const refreshAlgorithmQueries = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["algorithm-config-active"] }),
@@ -289,7 +308,8 @@ const ControlPanelAlgorithm = () => {
       queryClient.invalidateQueries({ queryKey: ["algorithm-metrics-recent"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-scorecards"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-suggestions"] }),
-      queryClient.invalidateQueries({ queryKey: ["algorithm-experiment-status"] })
+      queryClient.invalidateQueries({ queryKey: ["algorithm-experiment-status"] }),
+      queryClient.invalidateQueries({ queryKey: ["algorithm-feedback-loop-status"] })
     ])
   }
 
@@ -499,6 +519,50 @@ const ControlPanelAlgorithm = () => {
     }
   })
 
+  const feedbackLoopSettingsMutation = useMutation({
+    mutationFn: () =>
+      algorithmApi.updateFeedbackLoopSettings({
+        token: accessToken || "",
+        patch: feedbackLoopDraft || {}
+      }),
+    onSuccess: async (result) => {
+      setFeedbackLoopDraft(result.status.settings)
+      setFeedbackLoopDirty(false)
+      setFeedbackLoopMessage("Feedback brain settings saved.")
+      setActionError(null)
+      setActionSuccess("Feedback brain settings updated.")
+      await refreshAlgorithmQueries()
+    },
+    onError: (error) => {
+      setActionSuccess(null)
+      setActionError((error as Error).message || "Could not save feedback brain settings.")
+    }
+  })
+
+  const feedbackLoopRunMutation = useMutation({
+    mutationFn: (forceApply: boolean) =>
+      algorithmApi.runFeedbackLoop({
+        token: accessToken || "",
+        force_apply: forceApply
+      }),
+    onSuccess: async (result) => {
+      setFeedbackLoopMessage(result.reason)
+      setFeedbackLoopDraft(result.status.settings)
+      setFeedbackLoopDirty(false)
+      if (result.config?.params) {
+        setDraftParams(result.config.params)
+        setParamsDirty(false)
+      }
+      setActionError(null)
+      setActionSuccess(result.applied ? "Feedback brain run applied a new live config." : result.reason)
+      await refreshAlgorithmQueries()
+    },
+    onError: (error) => {
+      setActionSuccess(null)
+      setActionError((error as Error).message || "Feedback brain run failed.")
+    }
+  })
+
   const setParamValue = (key: keyof AlgorithmConfigParams, value: number | string) => {
     setDraftParams((prev) => {
       if (!prev) return prev
@@ -516,6 +580,11 @@ const ControlPanelAlgorithm = () => {
       }
     })
     setParamsDirty(true)
+  }
+
+  const setFeedbackLoopSetting = <K extends keyof FeedbackLoopSettings>(key: K, value: FeedbackLoopSettings[K]) => {
+    setFeedbackLoopDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
+    setFeedbackLoopDirty(true)
   }
 
   const applyQuickTuneProfile = (profileId: string) => {
@@ -602,6 +671,15 @@ const ControlPanelAlgorithm = () => {
 
   const suggestions = deepAnalysis?.suggestions || suggestionsQuery.data?.suggestions || []
   const activeConfig = activeConfigQuery.data?.config || null
+  const feedbackLoopStatus = feedbackLoopQuery.data?.status || null
+  const brainSnapshot = feedbackLoopStatus?.brain_snapshot || null
+  const proposedDeltaRows = useMemo(
+    () =>
+      Object.entries(brainSnapshot?.proposed_param_deltas || {}).sort(
+        (a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0))
+      ),
+    [brainSnapshot?.proposed_param_deltas]
+  )
   const liveDotClass = canLoad ? "bg-emerald-400" : "bg-slate-500"
 
   return (
@@ -645,7 +723,11 @@ const ControlPanelAlgorithm = () => {
           <Badge variant="outline" className="border-slate-600/70 text-slate-300">
             Renders tracked: {recentMetricsQuery.data?.metrics.length || 0}
           </Badge>
+          <Badge variant="outline" className="border-cyan-400/30 text-cyan-100">
+            Brain Loop: {feedbackLoopStatus?.settings.enabled ? "ON" : "OFF"}
+          </Badge>
           {promptSummary ? <span className="text-cyan-200">{promptSummary}</span> : null}
+          {feedbackLoopMessage ? <span className="text-cyan-200">{feedbackLoopMessage}</span> : null}
           {actionError ? <span className="text-rose-300">{actionError}</span> : null}
           {actionSuccess ? <span className="text-emerald-300">{actionSuccess}</span> : null}
         </div>
@@ -1121,6 +1203,172 @@ const ControlPanelAlgorithm = () => {
               <CardTitle className="text-sm text-slate-100">Improve Now</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <Card className="border-cyan-400/25 bg-slate-900/70">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-xs text-cyan-100">
+                    <span className="inline-flex items-center gap-1.5">
+                      <BrainCircuit className="h-3.5 w-3.5" />
+                      Feedback Brain Loop
+                    </span>
+                    <Badge className="bg-cyan-500/20 text-cyan-100">
+                      {brainSnapshot?.sample_size || 0} signals
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center justify-between rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5 text-slate-200">
+                      <span>Learning Enabled</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(feedbackLoopDraft?.enabled)}
+                        onChange={(event) => setFeedbackLoopSetting("enabled", event.target.checked)}
+                        className="h-3.5 w-3.5 accent-cyan-400"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5 text-slate-200">
+                      <span>Auto Apply</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(feedbackLoopDraft?.auto_apply)}
+                        onChange={(event) => setFeedbackLoopSetting("auto_apply", event.target.checked)}
+                        className="h-3.5 w-3.5 accent-cyan-400"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-300">Min Samples</p>
+                      <input
+                        type="number"
+                        min={3}
+                        max={80}
+                        value={feedbackLoopDraft?.min_feedback_samples ?? 8}
+                        onChange={(event) => setFeedbackLoopSetting("min_feedback_samples", clamp(toNumber(event.target.value, 8), 3, 80))}
+                        className="h-7 w-full rounded-md border border-slate-700 bg-slate-900/70 px-2 text-[11px] text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-300">Cooldown (min)</p>
+                      <input
+                        type="number"
+                        min={2}
+                        max={1440}
+                        value={feedbackLoopDraft?.cooldown_minutes ?? 30}
+                        onChange={(event) => setFeedbackLoopSetting("cooldown_minutes", clamp(toNumber(event.target.value, 30), 2, 1440))}
+                        className="h-7 w-full rounded-md border border-slate-700 bg-slate-900/70 px-2 text-[11px] text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-300">Min Confidence</p>
+                      <input
+                        type="number"
+                        min={0.2}
+                        max={0.99}
+                        step={0.01}
+                        value={feedbackLoopDraft?.min_confidence ?? 0.58}
+                        onChange={(event) => setFeedbackLoopSetting("min_confidence", clamp(toNumber(event.target.value, 0.58), 0.2, 0.99))}
+                        className="h-7 w-full rounded-md border border-slate-700 bg-slate-900/70 px-2 text-[11px] text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-300">Min Delta Score</p>
+                      <input
+                        type="number"
+                        min={0.001}
+                        max={0.2}
+                        step={0.001}
+                        value={feedbackLoopDraft?.min_delta_score ?? 0.012}
+                        onChange={(event) => setFeedbackLoopSetting("min_delta_score", clamp(toNumber(event.target.value, 0.012), 0.001, 0.2))}
+                        className="h-7 w-full rounded-md border border-slate-700 bg-slate-900/70 px-2 text-[11px] text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!feedbackLoopDraft || !feedbackLoopDirty || feedbackLoopSettingsMutation.isPending}
+                      onClick={() => feedbackLoopSettingsMutation.mutate()}
+                      className="bg-cyan-500/85 text-slate-950 hover:bg-cyan-400"
+                    >
+                      Save Brain Settings
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={feedbackLoopRunMutation.isPending}
+                      onClick={() => feedbackLoopRunMutation.mutate(false)}
+                      className="border-cyan-400/40 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20"
+                    >
+                      <RefreshCw className="mr-1.5 h-3 w-3" />
+                      Run Loop Now
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={feedbackLoopRunMutation.isPending}
+                      onClick={() => feedbackLoopRunMutation.mutate(true)}
+                      className="col-span-2 border-amber-400/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                    >
+                      Force Run + Apply
+                    </Button>
+                  </div>
+
+                  <div className="rounded-md border border-slate-700/80 bg-slate-950/70 p-2 text-[11px] text-slate-300">
+                    <p>Outcome: {formatPctMaybe(brainSnapshot?.avg_outcome)}</p>
+                    <p>Confidence: {formatPctMaybe(brainSnapshot?.confidence)}</p>
+                    <p>Predicted Lift: {formatPctMaybe(brainSnapshot?.predicted_delta_score)}</p>
+                    <p>Recommended Mode: {brainSnapshot?.recommended_editor_mode || "mixed"}</p>
+                    <p>Recommended Strategy: {brainSnapshot?.recommended_strategy_profile || "mixed"}</p>
+                    <p>Recommended Platform: {brainSnapshot?.recommended_target_platform || "mixed"}</p>
+                    <p>Last Applied: {feedbackLoopStatus?.runtime.last_applied_at ? formatClock(feedbackLoopStatus.runtime.last_applied_at) : "--"}</p>
+                    <p>
+                      Last Config: {feedbackLoopStatus?.runtime.last_applied_config_version_id
+                        ? feedbackLoopStatus.runtime.last_applied_config_version_id.slice(0, 10)
+                        : "--"}
+                    </p>
+                  </div>
+
+                  {brainSnapshot?.rationale?.length ? (
+                    <div className="space-y-1 rounded-md border border-slate-700/80 bg-slate-950/65 p-2 text-[11px] text-slate-300">
+                      <p className="font-semibold text-slate-100">Brain Rationale</p>
+                      {brainSnapshot.rationale.slice(0, 4).map((reason, index) => (
+                        <p key={`brain-reason-${index}`} className="line-clamp-2">
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {proposedDeltaRows.length ? (
+                    <div className="space-y-1 rounded-md border border-slate-700/80 bg-slate-950/65 p-2 text-[11px] text-slate-300">
+                      <p className="font-semibold text-slate-100">Proposed Param Shifts</p>
+                      {proposedDeltaRows.slice(0, 8).map(([key, value]) => (
+                        <p key={`brain-delta-${key}`}>
+                          {formatParamKey(key)}: {formatSigned(Number(value))}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {brainSnapshot?.recent_signals?.length ? (
+                    <div className="space-y-1 rounded-md border border-slate-700/80 bg-slate-950/65 p-2 text-[11px] text-slate-300">
+                      <p className="font-semibold text-slate-100">Recent Brain Inputs</p>
+                      {brainSnapshot.recent_signals.slice(0, 6).map((signal) => (
+                        <p key={`brain-signal-${signal.job_id}-${signal.created_at}`} className="line-clamp-1">
+                          {signal.job_id.slice(0, 8)} • {formatPctMaybe(signal.signal_outcome)} • mode {signal.editor_mode || "auto"} • {signal.source_type}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+
               <Button
                 type="button"
                 onClick={() => analyzeMutation.mutate()}

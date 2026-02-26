@@ -191,3 +191,91 @@ export type AutoOptimizeResponse = {
   suggestion: ImprovementSuggestion
   config: AlgorithmConfigVersion
 }
+
+export type FeedbackLoopSignal = {
+  job_id: string
+  created_at: string
+  source_type: 'platform' | 'internal'
+  signal_outcome: number
+  watch_percent: number | null
+  hook_hold_percent: number | null
+  completion_percent: number | null
+  rewatch_rate: number | null
+  manual_score: number | null
+  first30_retention: number | null
+  click_through_rate: number | null
+  shares_per_view: number | null
+  likes_per_view: number | null
+  comments_per_view: number | null
+  editor_mode: string | null
+  strategy_profile: string | null
+  target_platform: string | null
+  hook_selection_mode: string | null
+  model_hook_score: number | null
+  model_pacing_score: number | null
+  model_jank_score: number | null
+  model_retention_score: number | null
+}
+
+export type FeedbackLoopPerformanceRow = {
+  key: string
+  count: number
+  avg_outcome: number
+}
+
+export type FeedbackBrainSnapshot = {
+  generated_at: string
+  sample_size: number
+  platform_feedback_share: number
+  avg_outcome: number
+  avg_hook_hold: number | null
+  avg_completion: number | null
+  avg_model_hook: number | null
+  avg_model_pacing: number | null
+  avg_model_jank: number | null
+  confidence: number
+  predicted_delta_score: number
+  recommended_editor_mode: string | null
+  recommended_strategy_profile: string | null
+  recommended_target_platform: string | null
+  rationale: string[]
+  proposed_param_deltas: Record<string, number>
+  mode_performance: FeedbackLoopPerformanceRow[]
+  strategy_performance: FeedbackLoopPerformanceRow[]
+  platform_performance: FeedbackLoopPerformanceRow[]
+  recent_signals: FeedbackLoopSignal[]
+}
+
+export type FeedbackLoopSettings = {
+  enabled: boolean
+  auto_apply: boolean
+  min_feedback_samples: number
+  lookback_limit: number
+  cooldown_minutes: number
+  min_confidence: number
+  min_delta_score: number
+}
+
+export type FeedbackLoopRuntime = {
+  last_run_at: string | null
+  last_run_reason: string | null
+  last_trigger: string | null
+  last_applied_at: string | null
+  last_applied_note: string | null
+  last_applied_config_version_id: string | null
+  last_apply_confidence: number | null
+  last_apply_delta_score: number | null
+}
+
+export type FeedbackLoopStatus = {
+  settings: FeedbackLoopSettings
+  runtime: FeedbackLoopRuntime
+  brain_snapshot: FeedbackBrainSnapshot
+}
+
+export type FeedbackLoopRunResponse = {
+  applied: boolean
+  reason: string
+  config: AlgorithmConfigVersion | null
+  status: FeedbackLoopStatus
+}
