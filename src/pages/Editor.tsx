@@ -1811,6 +1811,7 @@ const Editor = () => {
   const [previewDurationByJob, setPreviewDurationByJob] = useState<Record<string, number>>({});
   const [previewCurrentTimeByJob, setPreviewCurrentTimeByJob] = useState<Record<string, number>>({});
   const [previewPlayingByJob, setPreviewPlayingByJob] = useState<Record<string, boolean>>({});
+  const [manualPlaybackRateByJob, setManualPlaybackRateByJob] = useState<Record<string, number>>({});
   const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
     strategy: false,
     targetPlatform: false,
@@ -5041,6 +5042,9 @@ const Editor = () => {
   const activeManualPlaying = activeJob
     ? Boolean(previewPlayingByJob[activeJob.id])
     : false;
+  const activeManualPlaybackRate = activeJob
+    ? Number(manualPlaybackRateByJob[activeJob.id] || 1)
+    : 1;
   const activeInputPreviewUrl = activeJob ? (inputPreviewUrlByJob[activeJob.id] || "") : "";
   const activeManualDraftSignature = activeJob
     ? buildManualConfigSignature({
@@ -5108,18 +5112,9 @@ const Editor = () => {
   });
   const manualLivePreviewSegments = manualLivePreviewPlan?.segments || [];
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
-  const manualLivePreviewEnabled = Boolean(
-    manualMode &&
-      manualHasUnsavedChanges &&
-      activeJob &&
-      !isVerticalMode &&
-      activeInputPreviewUrl &&
-      manualLivePreviewSegments.length > 0,
-  );
-  const previewVideoUrl = manualLivePreviewEnabled
-    ? activeInputPreviewUrl
-    : (previewOutputUrl || activeInputPreviewUrl);
-  const showVideo = Boolean(activeJob && previewVideoUrl);
+  const manualLivePreviewEnabled = false;
+  const previewVideoUrl = manualMode ? previewOutputUrl : "";
+  const showVideo = Boolean(activeJob && manualMode && previewVideoUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -5637,6 +5632,10 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    const preferredRate = Number(manualPlaybackRateByJob[activeJob.id] || 1);
+    if (Number.isFinite(preferredRate) && preferredRate > 0 && Math.abs(video.playbackRate - preferredRate) > 0.001) {
+      video.playbackRate = preferredRate;
+    }
     let currentTime = clamp(Number(video.currentTime || 0), 0, duration);
     if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
       const snapped = snapToManualPreviewTime(manualLivePreviewSegments, currentTime);
@@ -5651,7 +5650,7 @@ const Editor = () => {
     if (!manualLivePreviewEnabled) {
       ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
     }
-  }, [activeJob, ensurePlaybackTelemetry, manualLivePreviewEnabled, manualLivePreviewSegments]);
+  }, [activeJob, ensurePlaybackTelemetry, manualLivePreviewEnabled, manualLivePreviewSegments, manualPlaybackRateByJob]);
 
   const handlePreviewTimeUpdate = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
@@ -5844,6 +5843,27 @@ const Editor = () => {
     }
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: !prev[activeJob.id] }));
   }, [activeJob?.id, manualLivePreviewEnabled, manualLivePreviewSegments]);
+
+  const handleManualPlaybackRateChange = useCallback((nextRate: number) => {
+    if (!activeJob?.id) return;
+    const allowedRates = [1, 1.25, 1.5, 2];
+    const normalizedRate = allowedRates.includes(nextRate) ? nextRate : 1;
+    setManualPlaybackRateByJob((prev) => ({ ...prev, [activeJob.id]: normalizedRate }));
+    const video = previewVideoRef.current;
+    if (!video) return;
+    if (Math.abs(video.playbackRate - normalizedRate) > 0.001) {
+      video.playbackRate = normalizedRate;
+    }
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    const video = previewVideoRef.current;
+    if (!video) return;
+    if (!Number.isFinite(activeManualPlaybackRate) || activeManualPlaybackRate <= 0) return;
+    if (Math.abs(video.playbackRate - activeManualPlaybackRate) > 0.001) {
+      video.playbackRate = activeManualPlaybackRate;
+    }
+  }, [activeManualPlaybackRate, previewVideoUrl]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -7938,9 +7958,9 @@ const Editor = () => {
                 <div>
                   <div className="glass-card overflow-hidden">
                     <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Real-Time Edited Preview</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Manual Output Preview</p>
                       <span className="text-[10px] text-muted-foreground">
-                        {previewOutputUrl ? "Edited output" : "Live source fallback"}
+                        {!manualMode ? "Manual mode off" : previewOutputUrl ? "Manual output ready" : "No manual output yet"}
                       </span>
                     </div>
                     <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
@@ -7962,14 +7982,18 @@ const Editor = () => {
                           <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
                           <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
                             <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-                              {activeJob && !isTerminalStatus(activeJob.status) ? (
+                              {!manualMode ? (
+                                <CircleOff className="w-6 h-6 text-muted-foreground" />
+                              ) : activeJob && !isTerminalStatus(activeJob.status) ? (
                                 <Loader2 className="w-6 h-6 text-primary animate-spin" />
                               ) : (
                                 <Play className="w-6 h-6 text-primary ml-0.5" />
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              {activeJob
+                              {!manualMode
+                                ? "Enable Manual Mode to view manual output preview."
+                                : activeJob
                                 ? normalizedActiveStatus === "ready"
                                   ? "Ready to export"
                                   : normalizedActiveStatus === "failed"
@@ -8667,16 +8691,17 @@ const Editor = () => {
               durationSec={activeManualDurationSec}
               currentTimeSec={activeManualCurrentTimeSec}
               isPlaying={activeManualPlaying}
+              playbackRate={activeManualPlaybackRate}
               autoAssist={manualAutoAssist}
               aiSuggestLoading={manualAiSuggestLoadingJobId === activeJob.id}
               retentionDelta={manualRetentionDisplay}
               removeRatio={manualRemovalRatio}
               microHookSuggestions={manualMicroHookSuggestions}
               warning={manualWarnings[0] || null}
-              editedUrl={previewVideoUrl || activeInputPreviewUrl}
-              originalUrl={activeInputPreviewUrl}
+              editedUrl={previewOutputUrl}
               onTogglePlay={handleManualTogglePlay}
               onSeek={handleManualPreviewSeek}
+              onPlaybackRateChange={handleManualPlaybackRateChange}
               onAutoAssistChange={setManualAutoAssist}
               onRequestAiSuggest={() => void handleManualAiSuggest()}
               onClearAll={handleManualClearAll}

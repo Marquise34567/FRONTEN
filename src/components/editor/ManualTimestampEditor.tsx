@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -6,9 +6,8 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Check, Gauge, Pause, Play, Sparkles, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Gauge, Maximize2, Pause, Play, Sparkles, Trash2, Volume2, VolumeX, X } from "lucide-react";
 
 import "./manual-timestamp-editor.css";
 
@@ -42,6 +41,7 @@ type ManualTimestampEditorProps = {
   durationSec: number;
   currentTimeSec: number;
   isPlaying: boolean;
+  playbackRate: number;
   autoAssist: boolean;
   aiSuggestLoading: boolean;
   retentionDelta: number | null;
@@ -49,9 +49,9 @@ type ManualTimestampEditorProps = {
   microHookSuggestions: Array<{ start: number; end: number }>;
   warning: string | null;
   editedUrl: string;
-  originalUrl: string;
   onTogglePlay: () => void;
   onSeek: (seconds: number) => void;
+  onPlaybackRateChange: (next: number) => void;
   onAutoAssistChange: (next: boolean) => void;
   onRequestAiSuggest: () => void;
   onClearAll: () => void;
@@ -118,12 +118,16 @@ const overlapDuration = (aStart: number, aEnd: number, bStart: number, bEnd: num
 
 const formatRange = (start: number, end: number) => `${formatTimelineTime(start)}-${formatTimelineTime(end)}`;
 
+const PLAYBACK_RATE_OPTIONS = [1, 1.25, 1.5, 2] as const;
+const FRAME_STEP_SECONDS = 1 / 30;
+
 const ManualTimestampEditor = ({
   markers,
   suggestions,
   durationSec,
   currentTimeSec,
   isPlaying,
+  playbackRate,
   autoAssist,
   aiSuggestLoading,
   retentionDelta,
@@ -131,9 +135,9 @@ const ManualTimestampEditor = ({
   microHookSuggestions,
   warning,
   editedUrl,
-  originalUrl,
   onTogglePlay,
   onSeek,
+  onPlaybackRateChange,
   onAutoAssistChange,
   onRequestAiSuggest,
   onClearAll,
@@ -148,12 +152,15 @@ const ManualTimestampEditor = ({
 }: ManualTimestampEditorProps) => {
   const [pendingMarker, setPendingMarker] = useState<{ type: ManualMarkerType; start: number } | null>(null);
   const [zoom, setZoom] = useState(1.5);
-  const [previewMode, setPreviewMode] = useState<"edited" | "split">("edited");
+  const [liveMonitorMuted, setLiveMonitorMuted] = useState(true);
+  const [liveMonitorReady, setLiveMonitorReady] = useState(false);
+  const [liveMonitorErrored, setLiveMonitorErrored] = useState(false);
   const [dragState, setDragState] = useState<{ id: string; boundary: DragBoundary } | null>(null);
   const timelineInnerRef = useRef<HTMLDivElement | null>(null);
-  const editedVideoRef = useRef<HTMLVideoElement | null>(null);
-  const splitOriginalVideoRef = useRef<HTMLVideoElement | null>(null);
-  const splitEditedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveMonitorVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveMonitorFrameRef = useRef<HTMLDivElement | null>(null);
+  const scrubDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingScrubSeekRef = useRef<number | null>(null);
 
   const sortedMarkers = useMemo(
     () => [...markers].sort((a, b) => a.start - b.start || a.end - b.end),
@@ -178,26 +185,39 @@ const ManualTimestampEditor = ({
   );
 
   useEffect(() => {
-    const targets = [
-      editedVideoRef.current,
-      splitEditedVideoRef.current,
-      previewMode === "split" ? splitOriginalVideoRef.current : null,
-    ].filter((video, index, list): video is HTMLVideoElement => Boolean(video) && list.indexOf(video) === index);
-    for (const video of targets) {
-      try {
-        if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.08) {
-          video.currentTime = currentTimeSec;
-        }
-      } catch (_error) {
-        // ignore sync drift in preview-only videos.
+    const video = liveMonitorVideoRef.current;
+    if (!video) return;
+    try {
+      if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.05) {
+        video.currentTime = currentTimeSec;
       }
-      if (isPlaying) {
-        void video.play().catch(() => undefined);
-      } else {
-        video.pause();
-      }
+    } catch (_error) {
+      // ignore drift updates for preview-only monitor.
     }
-  }, [currentTimeSec, isPlaying, previewMode]);
+    if (Math.abs(video.playbackRate - playbackRate) > 0.001) {
+      video.playbackRate = playbackRate;
+    }
+    if (video.muted !== liveMonitorMuted) {
+      video.muted = liveMonitorMuted;
+    }
+    if (isPlaying) {
+      void video.play().catch(() => undefined);
+      return;
+    }
+    video.pause();
+  }, [currentTimeSec, isPlaying, liveMonitorMuted, playbackRate]);
+
+  useEffect(() => {
+    setLiveMonitorReady(false);
+    setLiveMonitorErrored(false);
+  }, [editedUrl]);
+
+  useEffect(() => () => {
+    if (scrubDebounceTimerRef.current) {
+      clearTimeout(scrubDebounceTimerRef.current);
+      scrubDebounceTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!dragState) return;
@@ -227,7 +247,24 @@ const ManualTimestampEditor = ({
     };
   }, [dragState, durationSec, markers, onMarkersChange]);
 
-  const createMarker = (type: ManualMarkerType) => {
+  const flushScrubSeek = useCallback((explicitSeconds?: number) => {
+    const nextRaw = typeof explicitSeconds === "number" ? explicitSeconds : pendingScrubSeekRef.current;
+    if (nextRaw === null || nextRaw === undefined || !Number.isFinite(nextRaw)) return;
+    const next = clamp(Number(nextRaw), 0, durationSec);
+    pendingScrubSeekRef.current = null;
+    onSeek(Number(next.toFixed(3)));
+  }, [durationSec, onSeek]);
+
+  const scheduleScrubSeek = useCallback((seconds: number) => {
+    pendingScrubSeekRef.current = clamp(Number(seconds), 0, durationSec);
+    if (scrubDebounceTimerRef.current) return;
+    scrubDebounceTimerRef.current = setTimeout(() => {
+      scrubDebounceTimerRef.current = null;
+      flushScrubSeek();
+    }, 18);
+  }, [durationSec, flushScrubSeek]);
+
+  const createMarker = useCallback((type: ManualMarkerType) => {
     if (durationSec <= 0) return;
     if (!pendingMarker || pendingMarker.type !== type) {
       setPendingMarker({ type, start: currentTimeSec });
@@ -244,11 +281,50 @@ const ManualTimestampEditor = ({
     };
     onMarkersChange([...markers, marker]);
     setPendingMarker(null);
-  };
+  }, [currentTimeSec, durationSec, markers, onMarkersChange, pendingMarker]);
 
-  const removeMarker = (id: string) => {
+  const removeMarker = useCallback((id: string) => {
     onMarkersChange(markers.filter((marker) => marker.id !== id));
-  };
+  }, [markers, onMarkersChange]);
+
+  const handleLiveMonitorMuteToggle = useCallback(() => {
+    setLiveMonitorMuted((prev) => !prev);
+  }, []);
+
+  const handleLiveMonitorPopOut = useCallback(async () => {
+    const video = liveMonitorVideoRef.current;
+    if (!video) return;
+    try {
+      const anyDoc = document as Document & {
+        pictureInPictureElement?: Element | null;
+        pictureInPictureEnabled?: boolean;
+        exitPictureInPicture?: () => Promise<void>;
+      };
+      const pipVideo = video as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> };
+      if (anyDoc.pictureInPictureElement === video && typeof anyDoc.exitPictureInPicture === "function") {
+        await anyDoc.exitPictureInPicture();
+        return;
+      }
+      if (anyDoc.pictureInPictureEnabled && typeof pipVideo.requestPictureInPicture === "function") {
+        await pipVideo.requestPictureInPicture();
+        return;
+      }
+    } catch (_error) {
+      // fall through to fullscreen mode.
+    }
+    const frame = liveMonitorFrameRef.current;
+    if (!frame) return;
+    if (document.fullscreenElement === frame) {
+      await document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    await frame.requestFullscreen?.().catch(() => undefined);
+  }, []);
+
+  const handleStepFrame = useCallback((direction: -1 | 1) => {
+    const next = clamp(currentTimeSec + direction * FRAME_STEP_SECONDS, 0, durationSec);
+    flushScrubSeek(next);
+  }, [currentTimeSec, durationSec, flushScrubSeek]);
 
   const timelineCursorPercent = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
   const timelineWidthPercent = clamp(Math.round(zoom * 100), 100, 800);
@@ -391,6 +467,123 @@ const ManualTimestampEditor = ({
     };
   }, [durationSec, microHookSuggestions, primaryHookMarker, removalPercent, retentionDelta, sortedMarkers]);
 
+  const timelineMarkerNodes = useMemo(
+    () =>
+      sortedMarkers.map((marker) => {
+        const left = durationSec > 0 ? (marker.start / durationSec) * 100 : 0;
+        const width = durationSec > 0 ? ((marker.end - marker.start) / durationSec) * 100 : 0;
+        return (
+          <div
+            key={marker.id}
+            className={cn("manual-editor-range absolute top-6 h-12 rounded-md border", rangeClassByType[marker.type])}
+            style={{ left: `${left}%`, width: `${Math.max(width, 0.35)}%` }}
+          >
+            <button
+              type="button"
+              className="manual-editor-range-handle manual-editor-range-handle--start"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDragState({ id: marker.id, boundary: "start" });
+              }}
+              onClick={(event) => event.stopPropagation()}
+            />
+            <button
+              type="button"
+              className="manual-editor-range-handle manual-editor-range-handle--end"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDragState({ id: marker.id, boundary: "end" });
+              }}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
+        );
+      }),
+    [durationSec, sortedMarkers],
+  );
+
+  const markerListNodes = useMemo(
+    () =>
+      sortedMarkers.map((marker) => (
+        <div key={marker.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Badge
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px]",
+                    markerBadgeClassByType[marker.type],
+                  )}
+                >
+                  {labelByType[marker.type]}
+                </Badge>
+                <span className="truncate text-xs text-slate-200">
+                  {formatTimelineTime(marker.start)}-{formatTimelineTime(marker.end)}
+                </span>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => removeMarker(marker.id)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )),
+    [removeMarker, sortedMarkers],
+  );
+
+  const suggestionListNodes = useMemo(
+    () =>
+      suggestions.map((suggestion) => (
+        <div key={suggestion.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Badge
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[10px]",
+                suggestionBadgeClassByType[suggestion.type],
+              )}
+            >
+              {suggestion.type}
+            </Badge>
+            <span className="text-[11px] text-slate-300">
+              {formatTimelineTime(suggestion.start)}-{formatTimelineTime(suggestion.end)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-200">{suggestion.rationale}</p>
+          <div className="mt-2 flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => onAcceptSuggestion(suggestion.id)}
+            >
+              <Check className="h-3.5 w-3.5 text-emerald-200" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => onRejectSuggestion(suggestion.id)}
+            >
+              <X className="h-3.5 w-3.5 text-rose-200" />
+            </Button>
+          </div>
+        </div>
+      )),
+    [onAcceptSuggestion, onRejectSuggestion, suggestions],
+  );
+
+  const liveMonitorSrc = editedUrl;
+
   return (
     <section className="manual-editor-shell space-y-4 rounded-2xl border border-cyan-200/20 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -419,12 +612,211 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="manual-editor-top-grid grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(260px,320px)_minmax(0,1.2fr)]">
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Playhead</p>
-          <p className="mt-1 text-lg font-semibold text-slate-100">{formatTimelineTime(currentTimeSec)}</p>
-          <p className="text-[11px] text-slate-400">Total {formatTimelineTime(durationSec)}</p>
+          <p className="mt-1 text-xl font-semibold text-slate-100">{formatTimelineTime(currentTimeSec)}</p>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Total {formatTimelineTime(durationSec)}</span>
+            <span>{playbackRate.toFixed(playbackRate % 1 === 0 ? 0 : 2)}x</span>
+          </div>
         </div>
+
+        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Live Monitor</p>
+            <span className="text-[10px] text-slate-400">Muted by default</span>
+          </div>
+          <div
+            ref={liveMonitorFrameRef}
+            className="manual-editor-live-monitor group relative mx-auto aspect-video w-full min-w-[260px] max-w-[320px] overflow-hidden rounded-xl border border-cyan-300/30 bg-[#03050c]"
+          >
+            {liveMonitorSrc ? (
+              <video
+                ref={liveMonitorVideoRef}
+                src={liveMonitorSrc}
+                muted={liveMonitorMuted}
+                playsInline
+                preload="metadata"
+                onLoadedData={() => {
+                  setLiveMonitorReady(true);
+                  setLiveMonitorErrored(false);
+                }}
+                onError={() => {
+                  setLiveMonitorReady(false);
+                  setLiveMonitorErrored(true);
+                }}
+                className="manual-editor-video h-full w-full bg-black object-contain"
+                aria-label="Live timeline monitor"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center px-3 text-center text-xs text-slate-400">
+                Manual output unavailable. Save and render to preview.
+              </div>
+            )}
+            <div className="manual-editor-live-monitor-overlay absolute inset-0 flex items-end justify-between bg-gradient-to-t from-black/70 via-black/10 to-transparent p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="manual-editor-monitor-btn"
+                  onClick={() => handleStepFrame(-1)}
+                  aria-label="Step back one frame"
+                  title="Step back"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="manual-editor-monitor-btn"
+                  onClick={onTogglePlay}
+                  aria-label={isPlaying ? "Pause preview" : "Play preview"}
+                  title={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  className="manual-editor-monitor-btn"
+                  onClick={() => handleStepFrame(1)}
+                  aria-label="Step forward one frame"
+                  title="Step forward"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="manual-editor-monitor-btn"
+                  onClick={handleLiveMonitorMuteToggle}
+                  aria-label={liveMonitorMuted ? "Unmute preview" : "Mute preview"}
+                  title={liveMonitorMuted ? "Unmute" : "Mute"}
+                >
+                  {liveMonitorMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  className="manual-editor-monitor-btn"
+                  onClick={() => {
+                    void handleLiveMonitorPopOut();
+                  }}
+                  aria-label="Expand preview"
+                  title="Expand / Pop-out"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            {!liveMonitorReady && !liveMonitorErrored ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
+                <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300/80" />
+              </div>
+            ) : null}
+            {liveMonitorErrored ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/65 px-3 text-center text-[11px] text-rose-100">
+                Preview unavailable
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="manual-editor-toolbar rounded-xl border border-white/10 bg-black/25 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={onTogglePlay} className="gap-1.5">
+                {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {isPlaying ? "Pause" : "Play"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={onSave}
+                disabled={saveDisabled}
+                loading={saving}
+                loadingText="Saving edit"
+                className="gap-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Save
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onRequestAiSuggest}
+                loading={aiSuggestLoading}
+                loadingText="Generating"
+                className="gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                AI Suggest
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={onClearAll} className="gap-1.5">
+                <Trash2 className="h-3.5 w-3.5" />
+                Clear All
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Speed</span>
+              {PLAYBACK_RATE_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onPlaybackRateChange(option)}
+                  className={cn(
+                    "manual-editor-rate-chip inline-flex h-7 min-w-[42px] items-center justify-center rounded-md border px-2 text-[11px] font-medium",
+                    Math.abs(playbackRate - option) < 0.001
+                      ? "manual-editor-rate-chip--active border-cyan-300/60 bg-cyan-500/18 text-cyan-100"
+                      : "border-white/15 bg-white/[0.03] text-slate-300 hover:border-cyan-300/35 hover:text-cyan-100",
+                  )}
+                >
+                  {option}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Separator className="my-3 bg-white/10" />
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => createMarker("keep")}
+              className={cn(
+                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                pendingMarker?.type === "keep" && "border-emerald-300/55 bg-emerald-500/15 text-emerald-100",
+              )}
+            >
+              <p className="font-semibold">Keep</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Protect this section</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => createMarker("remove")}
+              className={cn(
+                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                pendingMarker?.type === "remove" && "border-rose-300/55 bg-rose-500/15 text-rose-100",
+              )}
+            >
+              <p className="font-semibold">Remove</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Cut this section</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => createMarker("hook")}
+              className={cn(
+                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                pendingMarker?.type === "hook" && "border-cyan-300/55 bg-cyan-500/15 text-cyan-100",
+              )}
+            >
+              <p className="font-semibold">Hook</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Anchor the opener</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Markers</p>
           <p className="mt-1 text-lg font-semibold text-slate-100">{sortedMarkers.length}</p>
@@ -439,75 +831,6 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="manual-editor-toolbar rounded-xl border border-white/10 bg-black/25 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={onTogglePlay} className="gap-1.5">
-            {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            {isPlaying ? "Pause" : "Play"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={onSave}
-            disabled={saveDisabled}
-            loading={saving}
-            loadingText="Saving edit"
-            className="gap-1.5"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Save
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={onRequestAiSuggest}
-            loading={aiSuggestLoading}
-            loadingText="Generating"
-            className="gap-1.5"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            AI Suggest
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onClearAll} className="gap-1.5">
-            <Trash2 className="h-3.5 w-3.5" />
-            Clear All
-          </Button>
-        </div>
-
-        <Separator className="my-3 bg-white/10" />
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => createMarker("keep")}
-            className={cn(pendingMarker?.type === "keep" && "border-emerald-300/55 bg-emerald-500/15 text-emerald-100")}
-          >
-            Keep Segment
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => createMarker("remove")}
-            className={cn(pendingMarker?.type === "remove" && "border-rose-300/55 bg-rose-500/15 text-rose-100")}
-          >
-            Remove Segment
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => createMarker("hook")}
-            className={cn(pendingMarker?.type === "hook" && "border-cyan-300/55 bg-cyan-500/15 text-cyan-100")}
-          >
-            Hook Segment
-          </Button>
-        </div>
-      </div>
-
       {pendingMarker ? (
         <div className="rounded-lg border border-cyan-300/35 bg-cyan-500/10 px-2.5 py-2 text-xs text-cyan-100">
           {labelByType[pendingMarker.type]} start set at {formatTimelineTime(pendingMarker.start)}. Press the same button
@@ -516,17 +839,26 @@ const ManualTimestampEditor = ({
       ) : null}
 
       <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-        <div className="flex items-center justify-between text-[11px] text-slate-300">
-          <span>{formatTimelineTime(currentTimeSec)}</span>
-          <span>{formatTimelineTime(durationSec)}</span>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
+          <div className="flex items-center gap-2">
+            <span>{formatTimelineTime(currentTimeSec)}</span>
+            <span className="text-slate-500">/</span>
+            <span>{formatTimelineTime(durationSec)}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full border border-emerald-300/40 bg-emerald-500/12 px-2 py-0.5 text-[10px] text-emerald-100">Keep</span>
+            <span className="rounded-full border border-rose-300/40 bg-rose-500/12 px-2 py-0.5 text-[10px] text-rose-100">Remove</span>
+            <span className="rounded-full border border-cyan-300/40 bg-cyan-500/12 px-2 py-0.5 text-[10px] text-cyan-100">Hook</span>
+          </div>
         </div>
         <Slider
           min={0}
           max={Math.max(durationSec, 0.001)}
           step={1 / 30}
           value={[Math.min(currentTimeSec, durationSec || 0)]}
-          onValueChange={(value) => onSeek(clamp(Number(value?.[0] ?? 0), 0, durationSec))}
-          className="manual-editor-slider mt-2"
+          onValueChange={(value) => scheduleScrubSeek(clamp(Number(value?.[0] ?? 0), 0, durationSec))}
+          onValueCommit={(value) => flushScrubSeek(clamp(Number(value?.[0] ?? 0), 0, durationSec))}
+          className="manual-editor-slider mt-1.5"
         />
         <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
           <span>Timeline zoom</span>
@@ -550,42 +882,11 @@ const ManualTimestampEditor = ({
               if (durationSec <= 0 || !timelineInnerRef.current) return;
               const rect = timelineInnerRef.current.getBoundingClientRect();
               const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
-              onSeek(Number((ratio * durationSec).toFixed(3)));
+              flushScrubSeek(Number((ratio * durationSec).toFixed(3)));
             }}
           >
             <div className="manual-editor-timeline-track absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full" />
-            {sortedMarkers.map((marker) => {
-              const left = durationSec > 0 ? (marker.start / durationSec) * 100 : 0;
-              const width = durationSec > 0 ? ((marker.end - marker.start) / durationSec) * 100 : 0;
-              return (
-                <div
-                  key={marker.id}
-                  className={cn("manual-editor-range absolute top-6 h-12 rounded-md border", rangeClassByType[marker.type])}
-                  style={{ left: `${left}%`, width: `${Math.max(width, 0.35)}%` }}
-                >
-                  <button
-                    type="button"
-                    className="manual-editor-range-handle manual-editor-range-handle--start"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setDragState({ id: marker.id, boundary: "start" });
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                  <button
-                    type="button"
-                    className="manual-editor-range-handle manual-editor-range-handle--end"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setDragState({ id: marker.id, boundary: "end" });
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                </div>
-              );
-            })}
+            {timelineMarkerNodes}
             <div className="manual-editor-cursor absolute top-2 bottom-2 w-0.5" style={{ left: `${timelineCursorPercent}%` }} />
           </div>
         </div>
@@ -599,38 +900,7 @@ const ManualTimestampEditor = ({
           </div>
           {sortedMarkers.length > 0 ? (
             <ScrollArea className="max-h-44 pr-2">
-              <div className="space-y-2">
-                {sortedMarkers.map((marker) => (
-                  <div key={marker.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            className={cn(
-                              "rounded-full border px-2 py-0.5 text-[10px]",
-                              markerBadgeClassByType[marker.type],
-                            )}
-                          >
-                            {labelByType[marker.type]}
-                          </Badge>
-                          <span className="truncate text-xs text-slate-200">
-                            {formatTimelineTime(marker.start)}-{formatTimelineTime(marker.end)}
-                          </span>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                        onClick={() => removeMarker(marker.id)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-2">{markerListNodes}</div>
             </ScrollArea>
           ) : (
             <p className="text-xs text-slate-400">No markers yet.</p>
@@ -646,46 +916,7 @@ const ManualTimestampEditor = ({
           </div>
           {suggestions.length > 0 ? (
             <ScrollArea className="max-h-44 pr-2">
-              <div className="space-y-2">
-                {suggestions.map((suggestion) => (
-                  <div key={suggestion.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Badge
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-[10px]",
-                          suggestionBadgeClassByType[suggestion.type],
-                        )}
-                      >
-                        {suggestion.type}
-                      </Badge>
-                      <span className="text-[11px] text-slate-300">
-                        {formatTimelineTime(suggestion.start)}-{formatTimelineTime(suggestion.end)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-200">{suggestion.rationale}</p>
-                    <div className="mt-2 flex items-center gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                        onClick={() => onAcceptSuggestion(suggestion.id)}
-                      >
-                        <Check className="h-3.5 w-3.5 text-emerald-200" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                        onClick={() => onRejectSuggestion(suggestion.id)}
-                      >
-                        <X className="h-3.5 w-3.5 text-rose-200" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-2">{suggestionListNodes}</div>
             </ScrollArea>
           ) : (
             <p className="text-xs text-slate-400">No AI suggestions yet.</p>
@@ -693,7 +924,7 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-3">
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
@@ -838,59 +1069,6 @@ const ManualTimestampEditor = ({
               {warning}
             </p>
           ) : null}
-        </div>
-
-        <div className="rounded-xl border border-white/10 bg-black/25 p-3 md:sticky md:top-2 md:self-start">
-          <Tabs value={previewMode} onValueChange={(value) => setPreviewMode(value === "split" ? "split" : "edited")}>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-slate-100">Realtime Preview</p>
-              <TabsList className="manual-editor-tabs-list h-8 p-0.5">
-                <TabsTrigger value="edited" className="manual-editor-tabs-trigger h-7 px-3 text-xs">
-                  Edited
-                </TabsTrigger>
-                <TabsTrigger value="split" className="manual-editor-tabs-trigger h-7 px-3 text-xs">
-                  Side-by-side
-                </TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="edited" className="mt-0">
-              <video
-                ref={editedVideoRef}
-                src={editedUrl}
-                muted
-                className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
-                aria-label="Realtime edited preview"
-              />
-            </TabsContent>
-            <TabsContent value="split" className="mt-0">
-              {originalUrl ? (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-cyan-200/90">Realtime edited</p>
-                    <video
-                      ref={splitEditedVideoRef}
-                      src={editedUrl}
-                      muted
-                      className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
-                      aria-label="Realtime edited preview"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-300">Original</p>
-                    <video
-                      ref={splitOriginalVideoRef}
-                      src={originalUrl}
-                      muted
-                      className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
-                      aria-label="Original preview"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-400">Original preview unavailable.</p>
-              )}
-            </TabsContent>
-          </Tabs>
         </div>
       </div>
     </section>
