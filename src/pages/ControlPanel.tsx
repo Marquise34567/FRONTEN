@@ -425,7 +425,7 @@ const ControlPanel = () => {
                 className="border border-fuchsia-300/35 bg-fuchsia-500/20 text-fuchsia-100 hover:bg-fuchsia-500/30"
               >
                 <KeyRound className="h-4 w-4" />
-                Secret
+                Secret Panel
               </Button>
             </div>
           </div>

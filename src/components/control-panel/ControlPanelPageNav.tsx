@@ -19,7 +19,7 @@ const CONTROL_PANEL_PAGES: ControlPanelPage[] = [
   { key: "algorithm", label: "Algorithm", path: "/dev/control-panel/algorithm", Icon: Bot },
   { key: "ops", label: "Ops Tools", path: "/dev/control-panel/ops", Icon: Wrench },
   { key: "bank", label: "The Bank", path: "/dev/control-panel/bank", Icon: Landmark },
-  { key: "blacksite", label: "Secret", path: "/dev/control-panel/blacksite", Icon: KeyRound }
+  { key: "blacksite", label: "Secret Panel", path: "/dev/control-panel/blacksite", Icon: KeyRound }
 ]
 
 const resolveCurrentPath = (pathname: string) => {
@@ -56,7 +56,7 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
         title="Operator deck"
       >
         <KeyRound className="h-3.5 w-3.5" />
-        Secret
+        Secret Panel
       </button>
 
       <div className="relative flex flex-col gap-3">
