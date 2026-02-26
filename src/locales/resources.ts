@@ -103,13 +103,15 @@ const en: CommonTranslationMap = {
   "pricing.card.studioPick": "Studio",
   "pricing.card.founderBadge": "Founder",
   "pricing.card.equivalent": "Equivalent to",
-  "pricing.card.founderSlots": "{{count}} lifetime slots left",
+  "pricing.card.founderSlots": "Limited founder slots available",
   "pricing.card.currentPlan": "Current plan",
   "pricing.card.redirecting": "Redirecting...",
   "pricing.card.upgrade": "Upgrade",
-  "pricing.card.manage": "Manage",
+  "pricing.card.manage": "Manage plan",
   "pricing.card.subscribe": "Subscribe",
-  "pricing.card.getStarted": "Get Started"
+  "pricing.card.getStarted": "Get started",
+  "pricing.card.getFounderAccess": "Get Founder Access",
+  "pricing.card.youHaveFounder": "You have Founder"
 };
 
 const es: CommonTranslationMap = {
