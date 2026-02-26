@@ -12,6 +12,8 @@ type ScreenProfile = {
   ratioBucket: ScreenRatioBucket;
   device: ScreenDevice;
   hasCoarsePointer: boolean;
+  isMobileSignal: boolean;
+  isTouchSignal: boolean;
 };
 
 const MOBILE_MAX_WIDTH = 767;
@@ -32,6 +34,11 @@ const getViewport = () => {
 const hasCoarsePointer = () => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+};
+
+const hasTouchPoints = () => {
+  if (typeof navigator === "undefined") return false;
+  return Number(navigator.maxTouchPoints || 0) > 0;
 };
 
 const resolveRatioBucket = (ratio: number): ScreenRatioBucket => {
@@ -61,8 +68,13 @@ const resolveDevice = ({
 
 const buildScreenProfile = (): ScreenProfile => {
   const { width, height } = getViewport();
+  const innerWidth = typeof window === "undefined"
+    ? width
+    : Math.max(1, Math.round(window.innerWidth || width));
   const ratio = width / Math.max(1, height);
   const coarsePointer = hasCoarsePointer();
+  const touchSignal = coarsePointer || hasTouchPoints();
+  const mobileSignal = innerWidth <= MOBILE_MAX_WIDTH || touchSignal;
   const orientation: ScreenOrientation = width >= height ? "landscape" : "portrait";
   return {
     width,
@@ -72,6 +84,8 @@ const buildScreenProfile = (): ScreenProfile => {
     ratioBucket: resolveRatioBucket(ratio),
     device: resolveDevice({ width, height, coarsePointer }),
     hasCoarsePointer: coarsePointer,
+    isMobileSignal: mobileSignal,
+    isTouchSignal: touchSignal,
   };
 };
 
@@ -81,9 +95,12 @@ const applyScreenProfileToDocument = (profile: ScreenProfile) => {
   root.dataset.device = profile.device;
   root.dataset.orientation = profile.orientation;
   root.dataset.ratio = profile.ratioBucket;
+  root.dataset.touch = profile.isTouchSignal ? "true" : "false";
   root.style.setProperty("--ae-screen-width", `${profile.width}`);
   root.style.setProperty("--ae-screen-height", `${profile.height}`);
   root.style.setProperty("--ae-screen-ratio", profile.ratio.toFixed(4));
+  root.classList.toggle("mobile", profile.isMobileSignal);
+  root.classList.toggle("touch", profile.isTouchSignal);
 };
 
 const clearScreenProfileFromDocument = () => {
@@ -92,9 +109,12 @@ const clearScreenProfileFromDocument = () => {
   delete root.dataset.device;
   delete root.dataset.orientation;
   delete root.dataset.ratio;
+  delete root.dataset.touch;
   root.style.removeProperty("--ae-screen-width");
   root.style.removeProperty("--ae-screen-height");
   root.style.removeProperty("--ae-screen-ratio");
+  root.classList.remove("mobile");
+  root.classList.remove("touch");
 };
 
 export const useScreenProfile = () => {
@@ -132,4 +152,3 @@ export const useScreenProfile = () => {
 
   return profile;
 };
-

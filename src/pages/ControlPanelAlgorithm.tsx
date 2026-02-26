@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { useAuth } from "@/providers/AuthProvider"
 import { algorithmApi } from "@/features/control-panel/algorithm/api"
+import { AUTOEDITOR_MASTER_PROMPT_TEMPLATE } from "@/features/control-panel/algorithm/masterPromptTemplate"
 import type {
   AlgorithmConfigParams,
   AnalyzeResponse,
@@ -158,7 +159,7 @@ const toNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(numeric) ? numeric : fallback
 }
 
-const PROMPT_MAX_CHARS = 12_000
+const PROMPT_MAX_CHARS = 30_000
 
 const formatParamKey = (key: string) =>
   key
@@ -194,7 +195,7 @@ const ControlPanelAlgorithm = () => {
   } | null>(null)
   const [analysisLimit, setAnalysisLimit] = useState("1000")
   const [analysisRange, setAnalysisRange] = useState("7d")
-  const [promptText, setPromptText] = useState("")
+  const [promptText, setPromptText] = useState(AUTOEDITOR_MASTER_PROMPT_TEMPLATE)
   const [promptSummary, setPromptSummary] = useState<string | null>(null)
   const [promptWarnings, setPromptWarnings] = useState<string[]>([])
   const [promptAppliedChanges, setPromptAppliedChanges] = useState<PromptApplyChange[]>([])
@@ -727,14 +728,36 @@ const ControlPanelAlgorithm = () => {
               </div>
 
               <div className="rounded-xl border border-slate-700/80 bg-slate-900/55 p-3">
-                <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-300/80">Prompt To Tune + Apply</p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300/80">Prompt To Tune + Apply</p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => setPromptText(AUTOEDITOR_MASTER_PROMPT_TEMPLATE)}
+                    >
+                      Load Master Prompt
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => setPromptText("")}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
                 <textarea
                   value={promptText}
                   onChange={(event) => setPromptText(event.target.value)}
-                  rows={4}
+                  rows={8}
                   maxLength={PROMPT_MAX_CHARS}
                   className="w-full resize-y rounded-md border border-slate-700 bg-slate-900/75 px-2 py-2 text-xs text-slate-100"
-                  placeholder="Example: Make hooks stronger in the first 5 seconds, reduce jank, and keep better story flow."
+                  placeholder="Describe your full strategy prompt. Platform/content selections should be explicit for deterministic mapping."
                 />
                 <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400">
                   <span>Supports detailed long-form prompts.</span>
