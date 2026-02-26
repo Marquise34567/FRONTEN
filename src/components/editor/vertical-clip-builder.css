@@ -1,0 +1,127 @@
+.vcb-glass {
+  backdrop-filter: blur(14px);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 36px rgba(2, 2, 12, 0.55);
+}
+
+.vcb-gear {
+  box-shadow: 0 0 0 rgba(168, 85, 247, 0);
+}
+
+.vcb-crop-box {
+  background: rgba(168, 85, 247, 0.16);
+  transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.vcb-crop-box:hover {
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.45), 0 0 24px rgba(168, 85, 247, 0.35);
+}
+
+.vcb-resizable {
+  position: relative;
+}
+
+.vcb-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: #a855f7;
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.7);
+  z-index: 20;
+}
+
+.react-resizable-handle-se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
+.react-resizable-handle-sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+
+.react-resizable-handle-ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+
+.react-resizable-handle-nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+
+.react-resizable-handle-n {
+  left: calc(50% - 6px);
+  top: -6px;
+  cursor: ns-resize;
+}
+
+.react-resizable-handle-s {
+  left: calc(50% - 6px);
+  bottom: -6px;
+  cursor: ns-resize;
+}
+
+.react-resizable-handle-e {
+  right: -6px;
+  top: calc(50% - 6px);
+  cursor: ew-resize;
+}
+
+.react-resizable-handle-w {
+  left: -6px;
+  top: calc(50% - 6px);
+  cursor: ew-resize;
+}
+
+.vcb-range {
+  appearance: none;
+  background: transparent;
+}
+
+.vcb-range::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.7), rgba(99, 102, 241, 0.65));
+}
+
+.vcb-range::-webkit-slider-thumb {
+  appearance: none;
+  margin-top: -5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: #c084fc;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.65);
+}
+
+.vcb-range::-moz-range-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.7), rgba(99, 102, 241, 0.65));
+}
+
+.vcb-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: #c084fc;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.65);
+}
+
+.vcb-marker {
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.vcb-marker:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.5);
+}
