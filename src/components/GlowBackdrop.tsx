@@ -1,28 +1,70 @@
-const GlowBackdrop = ({ children }: { children: React.ReactNode }) => {
+import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
+
+type GlowBackdropProps = {
+  children: React.ReactNode;
+};
+
+const GlowBackdrop = ({ children }: GlowBackdropProps) => {
+  const prefersReducedMotion = useReducedMotion();
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const staticMode = prefersReducedMotion || isMobile;
+
   return (
-    <div className="relative min-h-screen bg-background overflow-hidden">
-      {/* Primary glow */}
-      <div
-        className="pointer-events-none fixed inset-0 z-0"
-        aria-hidden="true"
-      >
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] rounded-full opacity-20 blur-[120px] animate-pulse-glow"
-          style={{ background: 'radial-gradient(circle, hsl(258 80% 60% / 0.6) 0%, hsl(220 90% 56% / 0.3) 50%, transparent 70%)' }}
+    <div className="relative min-h-screen overflow-hidden bg-background">
+      <div className="pointer-events-none absolute inset-0 z-0 [contain:paint]" aria-hidden="true">
+        <div
+          className="absolute inset-0 opacity-90"
+          style={{
+            background:
+              "radial-gradient(65% 48% at 48% 8%, hsl(258 80% 60% / 0.24), transparent 70%), radial-gradient(58% 56% at 82% 24%, hsl(220 90% 56% / 0.16), transparent 74%), hsl(240 15% 5%)",
+          }}
         />
-        <div className="absolute top-2/3 left-1/3 w-[400px] h-[400px] rounded-full opacity-10 blur-[100px]"
-          style={{ background: 'radial-gradient(circle, hsl(258 60% 50% / 0.5) 0%, transparent 70%)' }}
-        />
-        <div className="absolute top-1/4 right-1/4 w-[300px] h-[300px] rounded-full opacity-10 blur-[80px]"
-          style={{ background: 'radial-gradient(circle, hsl(220 90% 56% / 0.4) 0%, transparent 70%)' }}
+
+        {staticMode ? (
+          <div
+            className="absolute left-1/2 top-[18%] h-[26rem] w-[26rem] -translate-x-1/2 rounded-full opacity-20 blur-[72px]"
+            style={{
+              background: "radial-gradient(circle, hsl(258 80% 60% / 0.42) 0%, hsl(220 90% 56% / 0.16) 52%, transparent 78%)",
+            }}
+          />
+        ) : (
+          <>
+            <motion.div
+              className="absolute left-[14%] top-[16%] h-[28rem] w-[28rem] rounded-full opacity-[0.18] blur-[84px] transform-gpu [backface-visibility:hidden] will-change-transform"
+              style={{
+                background: "radial-gradient(circle, hsl(258 80% 60% / 0.45) 0%, hsl(220 90% 56% / 0.15) 56%, transparent 78%)",
+              }}
+              animate={{ x: [0, 24, 8, 0], y: [0, -20, -8, 0], opacity: [0.15, 0.22, 0.18, 0.15] }}
+              transition={{ duration: 16, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
+            />
+            <motion.div
+              className="absolute right-[12%] top-[32%] h-[24rem] w-[24rem] rounded-full opacity-[0.12] blur-[78px] transform-gpu [backface-visibility:hidden] will-change-transform"
+              style={{
+                background: "radial-gradient(circle, hsl(220 90% 56% / 0.42) 0%, hsl(258 80% 60% / 0.12) 52%, transparent 76%)",
+              }}
+              animate={{ x: [0, -18, -4, 0], y: [0, 14, 4, 0], opacity: [0.1, 0.16, 0.13, 0.1] }}
+              transition={{ duration: 18, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
+            />
+          </>
+        )}
+
+        <div
+          className="absolute inset-0"
+          style={{ background: "radial-gradient(ellipse at center, transparent 54%, hsl(240 15% 5% / 0.76) 100%)" }}
         />
       </div>
-      {/* Vignette */}
-      <div
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{ background: 'radial-gradient(ellipse at center, transparent 50%, hsl(240 15% 5% / 0.8) 100%)' }}
-        aria-hidden="true"
-      />
-      <div className="relative z-10">{children}</div>
+
+      <div className="relative z-10 [contain:layout_paint_style]">{children}</div>
     </div>
   );
 };

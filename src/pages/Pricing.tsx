@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Clock3, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,7 @@ const formatCountdown = (msRemaining: number) => {
 };
 
 const Pricing = () => {
+  const prefersReducedMotion = useReducedMotion();
   const { t } = useTranslation("common");
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
@@ -58,10 +59,33 @@ const Pricing = () => {
   }, [trialActive, trialUsed]);
 
   useEffect(() => {
-    const tick = () => setTrialCountdown(formatCountdown(trialCountdownTargetMs - Date.now()));
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
+    let frameId = 0;
+    let lastCheck = 0;
+    let lastSeconds = -1;
+
+    const syncCountdown = () => {
+      const seconds = Math.max(0, Math.floor((trialCountdownTargetMs - Date.now()) / 1000));
+      if (seconds === lastSeconds) return;
+      lastSeconds = seconds;
+      setTrialCountdown(formatCountdown(seconds * 1000));
+    };
+
+    const loop = (timestamp: number) => {
+      if (!document.hidden && (lastCheck === 0 || timestamp - lastCheck >= 220)) {
+        lastCheck = timestamp;
+        syncCountdown();
+      }
+      frameId = window.requestAnimationFrame(loop);
+    };
+
+    syncCountdown();
+    frameId = window.requestAnimationFrame(loop);
+    document.addEventListener("visibilitychange", syncCountdown);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      document.removeEventListener("visibilitychange", syncCountdown);
+    };
   }, [trialCountdownTargetMs]);
 
   const handleCheckout = async (tier: PlanTier) => {
@@ -106,9 +130,9 @@ const Pricing = () => {
       <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
         <motion.section
           className="mx-auto mb-6 max-w-6xl rounded-3xl border border-purple-900/40 bg-[linear-gradient(145deg,#0F0F1A_0%,#12121F_100%)] px-4 py-8 shadow-[0_28px_100px_-50px_rgba(168,85,247,0.7)] md:px-8"
-          initial={{ opacity: 0, y: 18 }}
+          initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 18 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45 }}
+          transition={{ duration: 0.46, ease: [0.25, 0.1, 0.25, 1] }}
         >
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-3xl font-bold text-white sm:text-4xl">
@@ -148,7 +172,8 @@ const Pricing = () => {
                 type="button"
                 onClick={() => setBillingInterval("monthly")}
                 className={cn(
-                  "h-11 flex-1 rounded-full text-sm font-semibold transition",
+                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                  billingInterval === "monthly" ? "scale-[1.01]" : "scale-100",
                   billingInterval === "monthly" ? "bg-white text-[#11111f]" : "text-purple-100/85 hover:text-white",
                 )}
               >
@@ -158,7 +183,8 @@ const Pricing = () => {
                 type="button"
                 onClick={() => setBillingInterval("annual")}
                 className={cn(
-                  "h-11 flex-1 rounded-full text-sm font-semibold transition",
+                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                  billingInterval === "annual" ? "scale-[1.01]" : "scale-100",
                   billingInterval === "annual" ? "bg-gradient-to-r from-[#A855F7] to-[#C084FC] text-white" : "text-purple-100/85 hover:text-white",
                 )}
               >
