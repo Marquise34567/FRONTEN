@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ZoomIn, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
@@ -60,6 +63,12 @@ const uploadParallelismForFile = (size: number) => {
   return 1;
 };
 
+const normalizeVerticalCaptionTextForJob = (value: string) =>
+  String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, 1800);
+
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const MAX_CUTS_MIN = 1;
@@ -79,9 +88,10 @@ type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
-type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education";
+type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
+type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
 type OutcomeAutomationProfile = {
@@ -144,6 +154,26 @@ const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
   instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
   youtube: "Context-first pacing for stronger narrative clarity and lower overcut risk.",
 };
+const PLATFORM_RECOMMENDATION_MAP: Record<
+  RetentionTargetPlatform,
+  { profile: RetentionStrategyProfile; suggestedCuts: number; label: string }
+> = {
+  tiktok: { profile: "viral", suggestedCuts: 12, label: "TikTok -> Viral + 10-14 cuts suggested" },
+  instagram_reels: { profile: "balanced", suggestedCuts: 10, label: "Reels -> Balanced + 8-12 cuts suggested" },
+  youtube: { profile: "safe", suggestedCuts: 8, label: "YouTube -> Safe + 6-10 cuts suggested" },
+};
+const RETENTION_PROFILE_HINTS: Record<RetentionStrategyProfile, string> = {
+  safe: "Safe = clean pacing + context protection",
+  balanced: "Balanced = adaptive cuts + smooth flow",
+  viral: "Viral = faster cuts + shock hooks",
+};
+const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
+const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
+  { key: "format", label: "Format & Platform" },
+  { key: "vibe", label: "Vibe & Style" },
+  { key: "cuts", label: "Cuts & Pacing" },
+  { key: "captions", label: "Captions & Audio" },
+];
 const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
   { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
   { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions." },
@@ -152,6 +182,7 @@ const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; de
   { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage." },
   { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
   { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
+  { value: "podcast", label: "Podcast", description: "Multi-speaker cleanup with breathing room and chapter-friendly pacing." },
 ];
 const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string }> = [
   { value: "auto", label: "Auto", description: "Auto-tunes long-form pacing profile by runtime and retention settings." },
@@ -459,6 +490,11 @@ const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelecti
     : "auto";
 };
 
+const mapEditorModeForBackend = (value: EditorModeSelection): Exclude<EditorModeSelection, "podcast"> => {
+  if (value === "podcast") return "commentary";
+  return value;
+};
+
 const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
@@ -530,6 +566,7 @@ const Editor = () => {
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
+  const [verticalCaptionText, setVerticalCaptionText] = useState("");
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -544,6 +581,7 @@ const Editor = () => {
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(false);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
+  const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
   const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
@@ -558,7 +596,6 @@ const Editor = () => {
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
   const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
-  const [captionsPanelOpen, setCaptionsPanelOpen] = useState(false);
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
@@ -647,24 +684,6 @@ const Editor = () => {
   );
   const subtitleStyleConfig = useMemo(() => parseSubtitleStyleConfig(subtitleStyleDraft), [subtitleStyleDraft]);
   const activeSubtitlePreset = subtitleStyleConfig.preset;
-  const activeRetentionProfileMeta = useMemo(
-    () =>
-      RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile) ??
-      RETENTION_PROFILE_OPTIONS[1],
-    [retentionStrategyProfile],
-  );
-  const activeEditorModeMeta = useMemo(
-    () =>
-      EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode) ??
-      EDITOR_MODE_OPTIONS[0],
-    [editorMode],
-  );
-  const activeLongFormPresetMeta = useMemo(
-    () =>
-      LONG_FORM_PRESET_OPTIONS.find((preset) => preset.value === longFormPreset) ??
-      LONG_FORM_PRESET_OPTIONS[0],
-    [longFormPreset],
-  );
   const activeSubtitlePresetMeta = useMemo(
     () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
     [activeSubtitlePreset],
@@ -802,7 +821,6 @@ const Editor = () => {
       setSubtitleStyleDraft(persisted);
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
-      setCaptionsPanelOpen(false);
       trackEditorEvent("subtitle_preferences_saved", {
         captionStyle: persisted,
         retentionProfile: retentionStrategyProfile,
@@ -1385,12 +1403,11 @@ const Editor = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const pointerQuery = window.matchMedia("(pointer: coarse)");
-    // Mobile signal follows product spec: width <= 767 OR coarse pointer OR touch points.
+    // Mobile signal follows product spec: width <= 767 OR coarse pointer.
     const syncMobileSignal = () => {
       const isMobile =
         window.innerWidth <= 767 ||
-        pointerQuery.matches ||
-        Number(window.navigator?.maxTouchPoints || 0) > 0;
+        pointerQuery.matches;
       setMobilePipeline(isMobile);
       document.documentElement.classList.toggle("mobile", isMobile);
     };
@@ -1704,16 +1721,13 @@ const Editor = () => {
     }
     if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
-    const effectiveRetentionStrategyProfile: RetentionStrategyProfile =
-      requestedMode === "vertical"
-        ? "viral"
-        : retentionStrategyProfile === "viral"
-          ? "balanced"
-          : retentionStrategyProfile;
+    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
+    const editorModeForJob = mapEditorModeForBackend(editorMode);
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = autoCaptionsEnabled;
+    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
@@ -1743,7 +1757,7 @@ const Editor = () => {
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
-              editorMode,
+              editorMode: editorModeForJob,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset,
               longFormAggression,
@@ -1754,6 +1768,7 @@ const Editor = () => {
               subtitles: subtitlesPayload,
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
+              verticalCaptionText: verticalCaptionTextForJob,
             }
           : {
               filename: file.name,
@@ -1765,7 +1780,7 @@ const Editor = () => {
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
-              editorMode,
+              editorMode: editorModeForJob,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset,
               longFormAggression,
@@ -1926,12 +1941,13 @@ const Editor = () => {
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
             maxCuts: maxCutsRequested,
-            editorMode,
+            editorMode: editorModeForJob,
             hookSelectionMode: defaultHookSelectionMode,
             longFormPreset,
             longFormAggression,
             longFormClarityVsSpeed,
             tangentKiller,
+            ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
           }),
           token: accessToken,
         })
@@ -2011,18 +2027,6 @@ const Editor = () => {
       return null;
     });
   }, [isVerticalMode]);
-
-  useEffect(() => {
-    if (isVerticalMode) {
-      if (retentionStrategyProfile !== "viral") {
-        setRetentionStrategyProfile("viral");
-      }
-      return;
-    }
-    if (retentionStrategyProfile === "viral") {
-      setRetentionStrategyProfile("balanced");
-    }
-  }, [isVerticalMode, retentionStrategyProfile]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const y = Math.round(sourceHeight * 0.05);
@@ -2450,13 +2454,8 @@ const Editor = () => {
       if (!accessToken || !job?.id) return;
       setReprocessingJobId(job.id);
       try {
-        const requestedMode = String(job.renderMode || "").toLowerCase() === "vertical" ? "vertical" : "horizontal";
-        const effectiveRetentionStrategyProfile: RetentionStrategyProfile =
-          requestedMode === "vertical"
-            ? "viral"
-            : retentionStrategyProfile === "viral"
-              ? "balanced"
-              : retentionStrategyProfile;
+        const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+        const editorModeForJob = mapEditorModeForBackend(editorMode);
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
@@ -2478,7 +2477,7 @@ const Editor = () => {
           platformProfile: retentionTargetPlatform,
           onlyHookAndCut,
           maxCuts: maxCutsRequested,
-          editorMode,
+          editorMode: editorModeForJob,
           hookSelectionMode: hookSelectionModeForJob,
           longFormPreset,
           longFormAggression,
@@ -2492,6 +2491,9 @@ const Editor = () => {
             style: subtitleStyleForJob,
           },
         };
+        if (requestedMode === "vertical") {
+          payload.verticalCaptionText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+        }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
           payload.preferredHook = {
             start: preferredHook.start,
@@ -2598,6 +2600,7 @@ const Editor = () => {
       hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
+      verticalCaptionText,
       toast,
     ],
   );
@@ -3503,6 +3506,487 @@ const Editor = () => {
   const showUploadStatusOnly = normalizedActiveStatus === "uploading";
   const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
   const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
+  const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
+  const captionEngineOffline = captionCapability.available === false;
+  const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
+  const mobileApplyAndRenderDisabled =
+    Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
+  const mobileApplyAndRenderLabel = isVerticalMode
+    ? pendingVerticalFile
+      ? "Apply & Render"
+      : "Pick Clip & Render"
+    : "Apply & Render";
+
+  const applyPlatformRecommendation = () => {
+    setRetentionStrategyProfile(activePlatformRecommendation.profile);
+    setMaxCutsRequested(clamp(activePlatformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX));
+    trackEditorEvent("platform_recommendation_applied", {
+      retentionProfile: activePlatformRecommendation.profile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        suggestedCuts: activePlatformRecommendation.suggestedCuts,
+      },
+    });
+  };
+
+  const runApplyAndRender = () => {
+    if (isVerticalMode && pendingVerticalFile) {
+      void startVerticalRender();
+      return;
+    }
+    handlePickFile();
+  };
+
+  const sectionPillClass = (active: boolean) =>
+    `editor-settings-pill min-h-12 rounded-xl border px-3 py-2 text-left text-sm font-medium transition-all md:min-h-[46px] ${
+      active
+        ? "border-violet-300/70 bg-violet-500/20 text-violet-100 shadow-[0_0_20px_rgba(168,85,247,0.34)]"
+        : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-violet-300/40 hover:text-white hover:shadow-[0_0_16px_rgba(192,132,252,0.18)]"
+    }`;
+
+  const renderSettingsSection = (section: EditorSettingsSection) => {
+    if (section === "format") {
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <button
+              type="button"
+              className={sectionPillClass(!isVerticalMode)}
+              onClick={() => {
+                trackEditorEvent("render_mode_selected", {
+                  retentionProfile: retentionStrategyProfile,
+                  targetPlatform: retentionTargetPlatform,
+                  captionStyle: activeSubtitlePreset,
+                  metadata: { mode: "horizontal" },
+                });
+                setRenderMode("horizontal");
+              }}
+            >
+              Horizontal
+            </button>
+            <button
+              type="button"
+              className={sectionPillClass(isVerticalMode)}
+              onClick={() => {
+                trackEditorEvent("render_mode_selected", {
+                  retentionProfile: retentionStrategyProfile,
+                  targetPlatform: retentionTargetPlatform,
+                  captionStyle: activeSubtitlePreset,
+                  metadata: { mode: "vertical" },
+                });
+                setRenderMode("vertical");
+              }}
+            >
+              Vertical
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {PLATFORM_OPTIONS.map((platform) => (
+              <Tooltip key={platform.value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={sectionPillClass(retentionTargetPlatform === platform.value)}
+                    onClick={() => {
+                      menuTouchedRef.current.targetPlatform = true;
+                      trackEditorEvent("target_platform_selected", {
+                        retentionProfile: retentionStrategyProfile,
+                        targetPlatform: platform.value,
+                        captionStyle: activeSubtitlePreset,
+                        metadata: {
+                          fromMode: isVerticalMode ? "vertical" : "horizontal",
+                        },
+                      });
+                      setRetentionTargetPlatform(platform.value);
+                    }}
+                    aria-label={`Target platform ${platform.label}`}
+                  >
+                    {platform.label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{PLATFORM_HELP_TEXT[platform.value]}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <div className="rounded-xl border border-violet-400/25 bg-gradient-to-r from-violet-500/15 via-fuchsia-400/10 to-transparent px-3 py-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-violet-100">{activePlatformRecommendation.label}</span>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-12 rounded-xl bg-violet-500/85 px-4 text-white hover:bg-violet-400 md:min-h-10"
+                onClick={applyPlatformRecommendation}
+              >
+                Apply Recommendation
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (section === "vibe") {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-slate-200">Vibe</span>
+              <span className="rounded-full border border-violet-300/40 bg-violet-500/15 px-2 py-0.5 text-xs text-violet-100">
+                {RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label || "Balanced"}
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={RETENTION_PROFILE_SEQUENCE.length - 1}
+              step={1}
+              value={[retentionSliderValue]}
+              className="editor-settings-slider"
+              onValueChange={(values) => {
+                const candidate = Number(values?.[0] ?? retentionSliderValue);
+                const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
+                menuTouchedRef.current.strategy = true;
+                setRetentionStrategyProfile(next);
+              }}
+            />
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {RETENTION_PROFILE_OPTIONS.map((profile) => (
+                <Tooltip key={profile.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={sectionPillClass(retentionStrategyProfile === profile.value)}
+                      onClick={() => {
+                        menuTouchedRef.current.strategy = true;
+                        trackEditorEvent("retention_profile_selected", {
+                          retentionProfile: profile.value,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: {
+                            fromMode: isVerticalMode ? "vertical" : "horizontal",
+                          },
+                        });
+                        setRetentionStrategyProfile(profile.value);
+                      }}
+                    >
+                      {profile.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{RETENTION_PROFILE_HINTS[profile.value]}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <p className="mb-3 text-sm text-slate-200">Content Type</p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {EDITOR_MODE_OPTIONS.map((mode) => (
+                <Tooltip key={mode.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={sectionPillClass(editorMode === mode.value)}
+                      onClick={() => {
+                        menuTouchedRef.current.editorMode = true;
+                        trackEditorEvent("editor_mode_selected", {
+                          retentionProfile: retentionStrategyProfile,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: { editorMode: mode.value },
+                        });
+                        setEditorMode(mode.value);
+                      }}
+                    >
+                      {mode.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{mode.description}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (section === "cuts") {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-slate-200">Cut Count</span>
+              <span className="rounded-full border border-violet-300/40 bg-violet-500/15 px-2 py-0.5 text-xs text-violet-100">
+                {maxCutsRequested} cuts
+              </span>
+            </div>
+            <Slider
+              min={MAX_CUTS_MIN}
+              max={MAX_CUTS_MAX}
+              step={1}
+              value={[maxCutsRequested]}
+              className="editor-settings-slider"
+              onValueChange={(values) => {
+                const candidate = Number(values?.[0] ?? maxCutsRequested);
+                if (!Number.isFinite(candidate)) return;
+                setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
+              }}
+            />
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+              <span>{MAX_CUTS_MIN}</span>
+              <span>{MAX_CUTS_MAX}</span>
+            </div>
+          </div>
+
+          <Accordion type="single" collapsible className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
+            <AccordionItem value="more-options" className="border-0">
+              <AccordionTrigger className="py-3 text-sm text-slate-200 hover:no-underline">
+                More Options
+              </AccordionTrigger>
+              <AccordionContent className="pb-3">
+                <div className="space-y-4">
+                  <div>
+                    <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Long-Form Efficiency</p>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      {LONG_FORM_PRESET_OPTIONS.map((preset) => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          className={sectionPillClass(longFormPreset === preset.value)}
+                          onClick={() => {
+                            const defaults = LONG_FORM_PRESET_DEFAULTS[preset.value];
+                            setLongFormPreset(preset.value);
+                            setLongFormAggression(defaults.aggression);
+                            setLongFormClarityVsSpeed(defaults.clarityVsSpeed);
+                            setTangentKiller(defaults.tangentKiller);
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                        <span>Aggression</span>
+                        <span>{longFormAggression}</span>
+                      </div>
+                      <Slider
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[longFormAggression]}
+                        onValueChange={(values) => {
+                          const next = clamp(Math.round(Number(values?.[0] ?? longFormAggression)), 0, 100);
+                          setLongFormAggression(next);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                        <span>Clarity vs Speed</span>
+                        <span>{longFormClarityVsSpeed}</span>
+                      </div>
+                      <Slider
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[longFormClarityVsSpeed]}
+                        onValueChange={(values) => {
+                          const next = clamp(Math.round(Number(values?.[0] ?? longFormClarityVsSpeed)), 0, 100);
+                          setLongFormClarityVsSpeed(next);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <button
+                      type="button"
+                      className={sectionPillClass(tangentKiller)}
+                      onClick={() => setTangentKiller((prev) => !prev)}
+                    >
+                      Tangent Killer {tangentKiller ? "On" : "Off"}
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className={sectionPillClass(defaultHookSelectionMode === "auto")}
+                        onClick={() => setDefaultHookSelectionMode("auto")}
+                      >
+                        Hook Auto
+                      </button>
+                      <button
+                        type="button"
+                        className={sectionPillClass(defaultHookSelectionMode === "manual")}
+                        onClick={() => setDefaultHookSelectionMode("manual")}
+                      >
+                        Hook Manual
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm text-slate-200">Captions</p>
+              <p className="text-xs text-slate-400">
+                {autoCaptionsEnabled ? "Enabled" : "Disabled"} · {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                type="button"
+                className={`min-h-12 rounded-xl px-5 md:min-h-10 ${
+                  autoCaptionsEnabled
+                    ? "bg-violet-500/85 text-white hover:bg-violet-400"
+                    : "border border-white/15 bg-white/[0.03] text-slate-200 hover:border-violet-300/40 hover:bg-violet-400/10"
+                }`}
+                onClick={() => {
+                  if (captionsToggleDisabled) return;
+                  const nextState = !autoCaptionsEnabled;
+                  trackEditorEvent("captions_toggled", {
+                    retentionProfile: retentionStrategyProfile,
+                    targetPlatform: retentionTargetPlatform,
+                    captionStyle: activeSubtitlePreset,
+                    metadata: { enabled: nextState },
+                  });
+                  setAutoCaptionsEnabled(nextState);
+                  setSubtitleStyleDirty(true);
+                }}
+                disabled={captionsToggleDisabled}
+              >
+                {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+              </Button>
+              {captionEngineOffline ? (
+                <Button
+                  type="button"
+                  className="min-h-12 rounded-xl bg-gradient-to-r from-rose-500/90 to-violet-500/90 text-white hover:from-rose-400 hover:to-violet-400 md:min-h-10"
+                  onClick={() => navigate("/settings")}
+                >
+                  Setup Captions
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <Accordion type="single" collapsible className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
+          <AccordionItem value="caption-options" className="border-0">
+            <AccordionTrigger className="py-3 text-sm text-slate-200 hover:no-underline">
+              More Options
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {SUBTITLE_PRESET_OPTIONS.map((preset) => {
+                    const locked = !isSubtitlePresetAllowed(preset.id);
+                    const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
+                    const active = activeSubtitlePreset === preset.id;
+                    const card = (
+                      <button
+                        type="button"
+                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+                          active
+                            ? "border-violet-300/70 bg-violet-500/20 text-violet-100 shadow-[0_0_16px_rgba(168,85,247,0.28)]"
+                            : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-violet-300/40 hover:text-white"
+                        } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
+                        onClick={() => selectSubtitlePreset(preset.id)}
+                        disabled={locked}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{preset.label}</span>
+                          {locked ? <Lock className="h-3.5 w-3.5" /> : null}
+                        </div>
+                      </button>
+                    );
+                    if (!locked) return <div key={preset.id}>{card}</div>;
+                    return (
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>{card}</TooltipTrigger>
+                        <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+
+                {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-slate-400">Font</span>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs text-slate-100"
+                        value={subtitleStyleConfig.fontId}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
+                        }
+                      >
+                        {MRBEAST_FONT_OPTIONS.map((fontOption) => (
+                          <option key={fontOption.id} value={fontOption.id} className="bg-[#12121f] text-white">
+                            {fontOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-slate-400">Animation</span>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs text-slate-100"
+                        value={subtitleStyleConfig.animation}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
+                        }
+                      >
+                        {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
+                          <option key={animationOption.id} value={animationOption.id} className="bg-[#12121f] text-white">
+                            {animationOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-slate-400">Outline ({subtitleStyleConfig.outlineWidth}px)</span>
+                      <Slider
+                        min={1}
+                        max={12}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[subtitleStyleConfig.outlineWidth]}
+                        onValueChange={(values) =>
+                          updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {subtitleStyleDirty ? <span className="text-xs text-amber-300">Unsaved caption changes</span> : <span />}
+                  <Button
+                    type="button"
+                    className="min-h-12 rounded-xl bg-violet-500/85 text-white hover:bg-violet-400 md:min-h-10"
+                    onClick={() => void saveSubtitleStyle()}
+                    disabled={!subtitleStyleDirty || savingSubtitleStyle}
+                  >
+                    {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save Captions" : "Captions Saved"}
+                  </Button>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+    );
+  };
 
   return (
     <GlowBackdrop>
@@ -3586,18 +4070,18 @@ const Editor = () => {
                   </Button>
                 </div>
               </div>
-              <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
+              <div className="editor-settings-shell w-full rounded-[1.35rem] border border-violet-400/20 bg-[linear-gradient(145deg,#0F0F1A_0%,#12121F_100%)] p-3.5 shadow-[0_16px_55px_-34px_rgba(168,85,247,0.65)] md:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-foreground/90">{t("editor.settings.title")}</span>
+                    <span className="text-sm font-semibold text-violet-100/95">{t("editor.settings.title")}</span>
                     {hideEditorControlsPanel ? (
-                      <span className="text-xs text-muted-foreground/80">{t("editor.settings.collapsed")}</span>
+                      <span className="text-xs text-slate-400">{t("editor.settings.collapsed")}</span>
                     ) : null}
                   </div>
                   <button
                     type="button"
                     onClick={() => setHideEditorControlsPanel((prev) => !prev)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-muted-foreground transition hover:text-foreground"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/[0.05] text-slate-300 transition hover:border-violet-300/40 hover:text-violet-100"
                     aria-label={hideEditorControlsPanel ? t("editor.settings.open") : t("editor.settings.close")}
                     title={hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}
                   >
@@ -3605,446 +4089,181 @@ const Editor = () => {
                   </button>
                 </div>
                 <div
-                  className={`overflow-hidden transition-all duration-200 ${
-                    hideEditorControlsPanel ? "max-h-16 opacity-95" : "max-h-[2600px] opacity-100"
+                  className={`overflow-hidden transition-all duration-300 ${
+                    hideEditorControlsPanel ? "max-h-16 opacity-95" : "max-h-[3400px] opacity-100"
                   }`}
                 >
                   {hideEditorControlsPanel ? (
-                    <div className="w-full rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground/85">
+                    <div className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
                       {t("editor.settings.hidden")}
                     </div>
                   ) : (
-                    <>
-              <div className="w-full rounded-2xl border border-border/60 bg-muted/15 p-3">
-              <div className="flex w-full flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 sm:w-auto sm:flex-row sm:items-center sm:rounded-full">
-                <button
-                  type="button"
-                  className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
-                    !isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => {
-                    trackEditorEvent("render_mode_selected", {
-                      retentionProfile: retentionStrategyProfile,
-                      targetPlatform: retentionTargetPlatform,
-                      captionStyle: activeSubtitlePreset,
-                      metadata: { mode: "horizontal" },
-                    });
-                    setRenderMode("horizontal");
-                  }}
-                  aria-label="Horizontal original mode"
-                >
-                  {t("editor.mode.horizontal")}
-                </button>
-                <button
-                  type="button"
-                  className={`w-full rounded-full px-3 py-1.5 text-[11px] text-center transition-colors sm:w-auto sm:text-xs ${
-                    isVerticalMode ? "bg-card text-foreground border border-border/60" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => {
-                    trackEditorEvent("render_mode_selected", {
-                      retentionProfile: retentionStrategyProfile,
-                      targetPlatform: retentionTargetPlatform,
-                      captionStyle: activeSubtitlePreset,
-                      metadata: { mode: "vertical" },
-                    });
-                    setRenderMode("vertical");
-                  }}
-                  aria-label="Vertical 9:16 mode"
-                >
-                  {t("editor.mode.vertical")}
-                </button>
-              </div>
-              <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
-                {RETENTION_PROFILE_OPTIONS.map((profile) => {
-                  const lockedForMode = !isVerticalMode && profile.value === "viral";
-                  return (
-                    <button
-                      key={profile.value}
-                      type="button"
-                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                        retentionStrategyProfile === profile.value
-                          ? "bg-card text-foreground border border-border/60"
-                          : "text-muted-foreground hover:text-foreground"
-                      } ${lockedForMode ? "opacity-55 cursor-not-allowed" : ""}`}
-                      disabled={lockedForMode}
-                      onClick={() => {
-                        if (lockedForMode) return;
-                        menuTouchedRef.current.strategy = true;
-                        trackEditorEvent("retention_profile_selected", {
-                          retentionProfile: profile.value,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: {
-                            fromMode: isVerticalMode ? "vertical" : "horizontal",
-                          },
-                        });
-                        setRetentionStrategyProfile(profile.value);
-                      }}
-                      aria-label={`Retention profile ${profile.label}`}
-                      title={profile.description}
-                    >
-                      {profile.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
-                {activeRetentionProfileMeta.description}
-              </p>
-              <div className="flex w-full flex-wrap items-center gap-1 rounded-full border border-border/60 bg-muted/20 p-1 sm:w-auto">
-                {PLATFORM_OPTIONS.map((platform) => (
-                  <Tooltip key={platform.value}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                          retentionTargetPlatform === platform.value
-                            ? "bg-card text-foreground border border-border/60"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        onClick={() => {
-                          menuTouchedRef.current.targetPlatform = true;
-                          trackEditorEvent("target_platform_selected", {
-                            retentionProfile: retentionStrategyProfile,
-                            targetPlatform: platform.value,
-                            captionStyle: activeSubtitlePreset,
-                            metadata: {
-                              fromMode: isVerticalMode ? "vertical" : "horizontal",
-                            },
-                          });
-                          setRetentionTargetPlatform(platform.value);
-                        }}
-                        aria-label={`Target platform ${platform.label}`}
-                      >
-                        {platform.label}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{PLATFORM_HELP_TEXT[platform.value]}</TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
-                {isVerticalMode
-                  ? "Vertical mode keeps a viral short-form baseline, while editor mode still tunes pacing/scoring behavior. Platform profile also tunes clip windows, captions, and export encoding."
-                  : "Horizontal mode preserves long-form context while platform profile tunes cadence, caption defaults, and export encoding."}
-              </p>
-              <div className="flex w-full flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/20 p-1">
-                {EDITOR_MODE_OPTIONS.map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                      editorMode === mode.value
-                        ? "bg-card text-foreground border border-border/60"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    onClick={() => {
-                      menuTouchedRef.current.editorMode = true;
-                      trackEditorEvent("editor_mode_selected", {
-                        retentionProfile: retentionStrategyProfile,
-                        targetPlatform: retentionTargetPlatform,
-                        captionStyle: activeSubtitlePreset,
-                        metadata: { editorMode: mode.value },
-                      });
-                      setEditorMode(mode.value);
-                    }}
-                    aria-label={`Editor mode ${mode.label}`}
-                    title={mode.description}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-              <p className="w-full px-1 text-[11px] text-muted-foreground/90">
-                Editor mode: {activeEditorModeMeta.description}
-              </p>
-              {outcomeAutomationProfile ? (
-                <p className="w-full px-1 text-[11px] text-muted-foreground/80">
-                  Outcome automation: {outcomeAutomationProfile.enabled
-                    ? `${outcomeAutomationProfile.sampleSize} watch-time outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
-                    : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
-                </p>
-              ) : null}
-              </div>
-              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Long-Form Efficiency</p>
-                    <p className="text-xs text-muted-foreground">
-                      Preset: {activeLongFormPresetMeta.label}.
-                    </p>
-                    <p className="text-[11px] text-muted-foreground/80">
-                      {activeLongFormPresetMeta.description}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={tangentKiller ? "default" : "outline"}
-                    className={`rounded-full ${
-                      tangentKiller
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                        : "border-border/60 text-muted-foreground"
-                    }`}
-                    onClick={() => setTangentKiller((prev) => !prev)}
-                  >
-                    Tangent Killer {tangentKiller ? "On" : "Off"}
-                  </Button>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/15 p-1">
-                  {LONG_FORM_PRESET_OPTIONS.map((preset) => (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                        longFormPreset === preset.value
-                          ? "bg-card text-foreground border border-border/60"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => {
-                        const defaults = LONG_FORM_PRESET_DEFAULTS[preset.value];
-                        setLongFormPreset(preset.value);
-                        setLongFormAggression(defaults.aggression);
-                        setLongFormClarityVsSpeed(defaults.clarityVsSpeed);
-                        setTangentKiller(defaults.tangentKiller);
-                      }}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Cut Count</p>
-                    <p className="text-xs text-muted-foreground">
-                      Target max cuts: {maxCutsRequested} {maxCutsRequested === 1 ? "cut" : "cuts"} per render.
-                    </p>
-                    <p className="text-[11px] text-muted-foreground/80">
-                      The editor prioritizes removing boring, irrelevant, or low-energy sections while staying under this cap.
-                    </p>
-                  </div>
-                  <Badge variant="secondary" className="bg-muted/30 text-muted-foreground border-border/60">
-                    Max {MAX_CUTS_MAX}
-                  </Badge>
-                </div>
-                <div className="mt-3 space-y-2">
-                  <Slider
-                    min={MAX_CUTS_MIN}
-                    max={MAX_CUTS_MAX}
-                    step={1}
-                    value={[maxCutsRequested]}
-                    onValueChange={(values) => {
-                      const candidate = Number(values?.[0] ?? maxCutsRequested);
-                      if (!Number.isFinite(candidate)) return;
-                      setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
-                    }}
-                  />
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground/75">
-                    <span>{MAX_CUTS_MIN}</span>
-                    <span>{MAX_CUTS_MAX}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Captions</p>
-                    <p className="text-xs text-muted-foreground">
-                      Captions in renders: {autoCaptionsEnabled ? "On" : "Off"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Current style: {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
-                    </p>
-                    {subtitleStyleDirty ? (
-                      <p className="text-[11px] text-amber-300/90">Unsaved caption changes</p>
-                    ) : null}
-                    {!captionCapability.available ? (
-                      <p className="text-[11px] text-amber-300/90">
-                        Caption engine unavailable: {captionCapability.reason || "No caption engine is configured on backend."}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={autoCaptionsEnabled ? "default" : "outline"}
-                      className={`rounded-full ${
-                        autoCaptionsEnabled
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                          : "border-border/60 text-muted-foreground"
-                      }`}
-                      onClick={() => {
-                        if (!subtitlesEnabled) return;
-                        const nextState = !autoCaptionsEnabled;
-                        trackEditorEvent("captions_toggled", {
-                          retentionProfile: retentionStrategyProfile,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: { enabled: nextState },
-                        });
-                        setAutoCaptionsEnabled(nextState);
-                        setSubtitleStyleDirty(true);
-                        setCaptionsPanelOpen(true);
-                      }}
-                      disabled={!subtitlesEnabled}
-                    >
-                      {autoCaptionsEnabled ? "Captions on" : "Captions off"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={captionsPanelOpen ? "default" : "outline"}
-                      className={`rounded-full ${
-                        captionsPanelOpen
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                          : "border-border/60 text-muted-foreground"
-                      }`}
-                      onClick={() => {
-                        const nextOpen = !captionsPanelOpen;
-                        trackEditorEvent("captions_panel_toggled", {
-                          retentionProfile: retentionStrategyProfile,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: { open: nextOpen },
-                        });
-                        setCaptionsPanelOpen(nextOpen);
-                      }}
-                    >
-                      {captionsPanelOpen ? "Close captions" : "Edit captions"}
-                    </Button>
-                    {captionsPanelOpen ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={subtitleStyleDirty ? "default" : "outline"}
-                        className={`rounded-full ${
-                          subtitleStyleDirty
-                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                            : "border-border/60 text-muted-foreground"
-                        }`}
-                        onClick={() => void saveSubtitleStyle()}
-                        disabled={!subtitleStyleDirty || savingSubtitleStyle}
-                      >
-                        {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save captions" : "Captions saved"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                {captionsPanelOpen ? (
-                  <>
-                    <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                      {SUBTITLE_PRESET_OPTIONS.map((preset) => {
-                        const locked = !isSubtitlePresetAllowed(preset.id);
-                        const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
-                        const active = activeSubtitlePreset === preset.id;
-                        const card = (
-                          <button
-                            type="button"
-                            className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                              active
-                                ? "border-primary/60 bg-primary/10 text-foreground"
-                                : "border-border/60 text-muted-foreground hover:text-foreground"
-                            } ${locked ? "opacity-65" : ""}`}
-                            onClick={() => selectSubtitlePreset(preset.id)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium">{preset.label}</span>
-                              {locked ? <Lock className="h-3 w-3" /> : null}
+                    <div className={`space-y-3 ${mobilePipeline ? "pb-20" : ""}`}>
+                      {captionEngineOffline ? (
+                        <div className="rounded-xl border border-rose-300/30 bg-gradient-to-r from-rose-500/25 via-violet-500/15 to-transparent px-3 py-2.5">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-medium text-rose-100">Captions Offline - Set OpenAI Key to Unlock</p>
+                            <Button
+                              type="button"
+                              className="min-h-12 rounded-xl bg-gradient-to-r from-rose-500/90 to-violet-500/90 text-white hover:from-rose-400 hover:to-violet-400 md:min-h-10"
+                              onClick={() => navigate("/settings")}
+                            >
+                              Fix Now
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
+                        <div className="mb-3 flex items-center justify-between">
+                          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Quick Controls</p>
+                          <Badge className="border-violet-300/35 bg-violet-500/15 text-violet-100">Recommended</Badge>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-400">Format</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button type="button" className={sectionPillClass(!isVerticalMode)} onClick={() => setRenderMode("horizontal")}>Horizontal</button>
+                              <button type="button" className={sectionPillClass(isVerticalMode)} onClick={() => setRenderMode("vertical")}>Vertical</button>
                             </div>
-                            <p className="mt-1 text-[11px] text-muted-foreground/90">{preset.description}</p>
-                          </button>
-                        );
-                        if (!locked) return <div key={preset.id}>{card}</div>;
-                        return (
-                          <Tooltip key={preset.id}>
-                            <TooltipTrigger asChild>{card}</TooltipTrigger>
-                            <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                    {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Font</span>
-                          <select
-                            className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
-                            value={subtitleStyleConfig.fontId}
-                            onChange={(event) =>
-                              updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
-                            }
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-400">Vibe</p>
+                            <Slider
+                              min={0}
+                              max={RETENTION_PROFILE_SEQUENCE.length - 1}
+                              step={1}
+                              value={[retentionSliderValue]}
+                              className="editor-settings-slider"
+                              onValueChange={(values) => {
+                                const candidate = Number(values?.[0] ?? retentionSliderValue);
+                                const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
+                                setRetentionStrategyProfile(next);
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-400">Cuts</p>
+                            <Slider
+                              min={MAX_CUTS_MIN}
+                              max={MAX_CUTS_MAX}
+                              step={1}
+                              value={[maxCutsRequested]}
+                              className="editor-settings-slider"
+                              onValueChange={(values) => {
+                                const candidate = Number(values?.[0] ?? maxCutsRequested);
+                                if (!Number.isFinite(candidate)) return;
+                                setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-400">Captions</p>
+                            <Button
+                              type="button"
+                              className={`w-full min-h-12 rounded-xl md:min-h-[46px] ${
+                                autoCaptionsEnabled
+                                  ? "bg-violet-500/85 text-white hover:bg-violet-400"
+                                  : "border border-white/15 bg-white/[0.03] text-slate-200 hover:border-violet-300/40 hover:bg-violet-400/10"
+                              }`}
+                              onClick={() => {
+                                if (captionsToggleDisabled) return;
+                                const nextState = !autoCaptionsEnabled;
+                                setAutoCaptionsEnabled(nextState);
+                                setSubtitleStyleDirty(true);
+                              }}
+                              disabled={captionsToggleDisabled}
+                            >
+                              {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="rounded-full border border-violet-300/35 bg-violet-500/15 px-2.5 py-1 text-xs text-violet-100">
+                            {activePlatformRecommendation.label}
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="min-h-12 rounded-xl bg-violet-500/85 px-4 text-white hover:bg-violet-400 md:min-h-10"
+                            onClick={applyPlatformRecommendation}
                           >
-                            {MRBEAST_FONT_OPTIONS.map((fontOption) => (
-                              <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
-                                {fontOption.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Animation</span>
-                          <select
-                            className="w-full rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 text-xs text-foreground"
-                            value={subtitleStyleConfig.animation}
-                            onChange={(event) =>
-                              updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
-                            }
-                          >
-                            {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
-                              <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
-                                {animationOption.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Text color</span>
-                          <input
-                            type="color"
-                            value={`#${subtitleStyleConfig.textColor}`}
-                            onChange={(event) => updateMrBeastSubtitleStyle({ textColor: event.target.value })}
-                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Accent color</span>
-                          <input
-                            type="color"
-                            value={`#${subtitleStyleConfig.accentColor}`}
-                            onChange={(event) => updateMrBeastSubtitleStyle({ accentColor: event.target.value })}
-                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Outline color</span>
-                          <input
-                            type="color"
-                            value={`#${subtitleStyleConfig.outlineColor}`}
-                            onChange={(event) => updateMrBeastSubtitleStyle({ outlineColor: event.target.value })}
-                            className="h-8 w-full rounded-md border border-border/60 bg-background/40 p-1"
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Outline width ({subtitleStyleConfig.outlineWidth}px)</span>
-                          <Slider
-                            min={1}
-                            max={12}
-                            step={1}
-                            value={[subtitleStyleConfig.outlineWidth]}
-                            onValueChange={(values) =>
-                              updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
-                            }
-                          />
-                        </label>
+                            Apply Suggestion
+                          </Button>
+                        </div>
                       </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-                    </>
+
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
+                        {mobilePipeline ? (
+                          <Accordion
+                            type="single"
+                            collapsible
+                            value={editorSettingsSection}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              setEditorSettingsSection(value as EditorSettingsSection);
+                            }}
+                            className="space-y-2"
+                          >
+                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                              <AccordionItem key={item.key} value={item.key} className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
+                                <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">
+                                  {item.label}
+                                </AccordionTrigger>
+                                <AccordionContent className="pb-2">{renderSettingsSection(item.key)}</AccordionContent>
+                              </AccordionItem>
+                            ))}
+                          </Accordion>
+                        ) : (
+                          <Tabs
+                            value={editorSettingsSection}
+                            onValueChange={(value) => setEditorSettingsSection(value as EditorSettingsSection)}
+                            className="space-y-3"
+                          >
+                            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-1.5 md:grid-cols-4">
+                              {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                                <TabsTrigger
+                                  key={item.key}
+                                  value={item.key}
+                                  className="editor-settings-tab min-h-12 rounded-lg border border-transparent text-xs text-slate-300 data-[state=active]:border-violet-300/60 data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-100 data-[state=active]:shadow-[0_0_18px_rgba(168,85,247,0.3)]"
+                                >
+                                  {item.label}
+                                </TabsTrigger>
+                              ))}
+                            </TabsList>
+                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                              <TabsContent key={item.key} value={item.key} className="mt-0">
+                                {renderSettingsSection(item.key)}
+                              </TabsContent>
+                            ))}
+                          </Tabs>
+                        )}
+                      </div>
+
+                      {outcomeAutomationProfile ? (
+                        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-slate-400">
+                          Outcome automation: {outcomeAutomationProfile.enabled
+                            ? `${outcomeAutomationProfile.sampleSize} outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
+                            : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
+                        </div>
+                      ) : null}
+
+                      {/* Mobile adaptation: persistent bottom CTA for one-thumb apply-and-render flow. */}
+                      {mobilePipeline ? (
+                        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+                          <div className="pointer-events-auto rounded-2xl border border-violet-300/35 bg-[linear-gradient(145deg,rgba(15,15,26,0.96),rgba(18,18,31,0.92))] p-2 shadow-[0_-10px_30px_-14px_rgba(168,85,247,0.55)] backdrop-blur-xl">
+                            <Button
+                              type="button"
+                              className="min-h-12 w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-400 text-white hover:from-violet-400 hover:to-fuchsia-300"
+                              onClick={runApplyAndRender}
+                              disabled={mobileApplyAndRenderDisabled}
+                            >
+                              {mobileApplyAndRenderLabel}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               </div>
@@ -4258,6 +4477,19 @@ const Editor = () => {
                     </div>
                     <p className="text-[11px] text-muted-foreground">
                       Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
+                    <Textarea
+                      value={verticalCaptionText}
+                      onChange={(event) => setVerticalCaptionText(event.target.value)}
+                      placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
+                      className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
                     </p>
                   </div>
 
@@ -4642,7 +4874,7 @@ const Editor = () => {
                           ))}
                         </ol>
                       ) : (
-                        <div className="overflow-x-auto">
+                        <div className="pipeline-scrollbar overflow-x-auto">
                           <ol className="flex min-w-[980px] items-start" aria-label="Pipeline stages">
                             {pipelineRows.map((row, idx) => (
                               <li key={row.key} className="relative flex-1 px-1">
@@ -5043,7 +5275,7 @@ const Editor = () => {
                           <span className="font-mono text-[11px] text-muted-foreground">{pipelineLogOpen ? "Hide" : "Show"} stream</span>
                         </button>
                         {pipelineLogOpen ? (
-                          <div className="max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
+                          <div className="pipeline-scrollbar max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
                             {pipelineLogEntries.length > 0 ? (
                               pipelineLogEntries.map((entry, index) => (
                                 <p
@@ -5337,3 +5569,4 @@ const Editor = () => {
 };
 
 export default Editor;
+
