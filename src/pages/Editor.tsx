@@ -9,10 +9,15 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import ManualTimestampEditor, {
+  type ManualTimestampMarker,
+  type ManualTimestampSuggestion,
+} from "@/components/editor/ManualTimestampEditor";
 import {
   Upload,
   Plus,
@@ -54,6 +59,7 @@ import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useMe } from "@/hooks/use-me";
+import { useLiveStats } from "@/providers/LiveStatsProvider";
 import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 import {
   MRBEAST_ANIMATION_OPTIONS,
@@ -502,6 +508,25 @@ type HookCandidate = {
   synthetic: boolean;
 };
 
+type ManualTimestampConfigPayload = {
+  enabled: boolean;
+  autoAssist: boolean;
+  markers: ManualTimestampMarker[];
+  suggestions: ManualTimestampSuggestion[];
+  requested: boolean;
+  retentionDeltaEstimate: number | null;
+  updatedAt: string;
+};
+
+type ManualOverrideStructuredPlan = {
+  manualMode: "ON";
+  hook: string;
+  userCuts: string[];
+  removals: string[];
+  retentionImpact: string;
+  aiSuggestions: string[];
+};
+
 type VerticalClipPrediction = {
   clip: number;
   start: number;
@@ -709,6 +734,345 @@ const formatHookRange = (start: number, end: number) => {
   return `${formatHookTimestamp(safeStart)} - ${formatHookTimestamp(safeEnd)}`;
 };
 
+const parseManualOverrideStructuredPlan = (value: any): ManualOverrideStructuredPlan | null => {
+  if (!value || typeof value !== "object") return null;
+  const manualModeRaw = String(value.manualMode ?? value.manual_mode ?? "").trim().toUpperCase();
+  const hook = typeof value.hook === "string" ? value.hook.trim() : "";
+  const userCuts = Array.isArray(value.userCuts ?? value.user_cuts)
+    ? (value.userCuts ?? value.user_cuts)
+        .filter((entry: unknown) => typeof entry === "string")
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+    : [];
+  const removals = Array.isArray(value.removals)
+    ? value.removals
+        .filter((entry: unknown) => typeof entry === "string")
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+    : [];
+  const retentionImpact = typeof value.retentionImpact === "string"
+    ? value.retentionImpact.trim()
+    : typeof value.retention_impact === "string"
+      ? value.retention_impact.trim()
+      : "";
+  const aiSuggestions = Array.isArray(value.aiSuggestions ?? value.ai_suggestions)
+    ? (value.aiSuggestions ?? value.ai_suggestions)
+        .filter((entry: unknown) => typeof entry === "string")
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+    : [];
+  if (manualModeRaw !== "ON" && !hook && userCuts.length === 0 && removals.length === 0 && !retentionImpact && aiSuggestions.length === 0) {
+    return null;
+  }
+  return {
+    manualMode: "ON",
+    hook: hook || "none",
+    userCuts,
+    removals,
+    retentionImpact: retentionImpact || "n/a",
+    aiSuggestions,
+  };
+};
+
+const parseManualRetentionImpactPoints = (value: unknown): number | null => {
+  if (typeof value !== "string") return null;
+  const match = value.match(/[-+]?\d+(\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeManualTimeRange = (value: any): { start: number; end: number } | null => {
+  const start = Number(value?.start ?? value?.from ?? value?.t0);
+  const end = Number(value?.end ?? value?.to ?? value?.t1);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return {
+    start: Number(Math.max(0, start).toFixed(3)),
+    end: Number(Math.max(start + 0.05, end).toFixed(3)),
+  };
+};
+
+const normalizeManualTimestampMarker = (marker: any, index: number): ManualTimestampMarker | null => {
+  if (!marker || typeof marker !== "object") return null;
+  const typeRaw = String(marker.type || marker.markerType || marker.kind || "").trim().toLowerCase();
+  if (typeRaw !== "keep" && typeRaw !== "remove" && typeRaw !== "hook") return null;
+  const start = Number(marker.start ?? marker.from ?? marker.t0);
+  const end = Number(marker.end ?? marker.to ?? marker.t1);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const sourceRaw = String(marker.source || "").trim().toLowerCase();
+  const source: "user" | "ai" = sourceRaw === "ai" ? "ai" : "user";
+  const safeStart = Number(Math.max(0, start).toFixed(3));
+  const safeEnd = Number(Math.max(safeStart + 0.05, end).toFixed(3));
+  const id = typeof marker.id === "string" && marker.id.trim()
+    ? marker.id.trim()
+    : `${typeRaw}_${index}_${Math.round(safeStart * 1000)}_${Math.round(safeEnd * 1000)}`;
+  const rationale = typeof marker.rationale === "string" ? marker.rationale.trim().slice(0, 280) : "";
+  return {
+    id,
+    type: typeRaw as ManualTimestampMarker["type"],
+    start: safeStart,
+    end: safeEnd,
+    source,
+    ...(rationale ? { rationale } : {}),
+  };
+};
+
+const normalizeManualTimestampSuggestion = (value: any, index: number): ManualTimestampSuggestion | null => {
+  if (!value || typeof value !== "object") return null;
+  const typeRaw = String(value.type || value.suggestionType || value.kind || "").trim().toLowerCase();
+  const normalizedType = typeRaw === "keep" ? "cut" : typeRaw;
+  if (normalizedType !== "hook" && normalizedType !== "remove" && normalizedType !== "cut") return null;
+  const start = Number(value.start ?? value.from ?? value.t0);
+  const end = Number(value.end ?? value.to ?? value.t1);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const safeStart = Number(Math.max(0, start).toFixed(3));
+  const safeEnd = Number(Math.max(safeStart + 0.05, end).toFixed(3));
+  const rationale = typeof value.rationale === "string" && value.rationale.trim()
+    ? value.rationale.trim().slice(0, 280)
+    : "AI suggestion";
+  const id = typeof value.id === "string" && value.id.trim()
+    ? value.id.trim()
+    : `suggest_${normalizedType}_${index}_${Math.round(safeStart * 1000)}_${Math.round(safeEnd * 1000)}`;
+  return {
+    id,
+    type: normalizedType as ManualTimestampSuggestion["type"],
+    start: safeStart,
+    end: safeEnd,
+    rationale,
+    source: "ai",
+  };
+};
+
+const parseManualTimestampConfigFromAnalysis = (analysis: any): ManualTimestampConfigPayload | null => {
+  const nested = analysis?.manualTimestamp ?? analysis?.manual_timestamp ?? null;
+  const source = nested && typeof nested === "object" ? nested : analysis;
+  const hasSignal = nested
+    || source?.manualTimestampEditor !== undefined
+    || source?.manual_timestamp_editor !== undefined
+    || source?.manualMarkers !== undefined
+    || source?.manual_markers !== undefined;
+  if (!hasSignal) return null;
+  const markersRaw = Array.isArray(source?.markers)
+    ? source.markers
+    : Array.isArray(source?.manualMarkers)
+      ? source.manualMarkers
+      : Array.isArray(source?.manual_markers)
+        ? source.manual_markers
+        : [];
+  const suggestionsRaw = Array.isArray(source?.suggestions)
+    ? source.suggestions
+    : Array.isArray(source?.manualSuggestions)
+      ? source.manualSuggestions
+      : Array.isArray(source?.manual_suggestions)
+        ? source.manual_suggestions
+        : [];
+  const markers = markersRaw
+    .map((marker: any, index: number) => normalizeManualTimestampMarker(marker, index))
+    .filter((marker: ManualTimestampMarker | null): marker is ManualTimestampMarker => Boolean(marker));
+  const suggestions = suggestionsRaw
+    .map((item: any, index: number) => normalizeManualTimestampSuggestion(item, index))
+    .filter((item: ManualTimestampSuggestion | null): item is ManualTimestampSuggestion => Boolean(item));
+  const enabledRaw =
+    source?.enabled ??
+    source?.manualMode ??
+    source?.manual_mode ??
+    source?.manualTimestampEditor ??
+    source?.manual_timestamp_editor ??
+    source?.manualTimestampEnabled ??
+    source?.manual_timestamp_enabled;
+  const enabled = typeof enabledRaw === "boolean" ? enabledRaw : markers.length > 0;
+  const autoAssistRaw =
+    source?.autoAssist ??
+    source?.auto_assist ??
+    source?.manualAutoAssist ??
+    source?.manual_auto_assist ??
+    source?.aiAssist ??
+    source?.ai_assist;
+  const autoAssist = typeof autoAssistRaw === "boolean" ? autoAssistRaw : false;
+  const retentionDeltaRaw =
+    source?.retentionDeltaEstimate ??
+    source?.manualRetentionDeltaEstimate ??
+    source?.manual_retention_delta_estimate ??
+    null;
+  const retentionDeltaEstimate = Number.isFinite(Number(retentionDeltaRaw))
+    ? Number(retentionDeltaRaw)
+    : null;
+  const requestedRaw = source?.requested ?? source?.aiSuggestRequested ?? source?.ai_suggest_requested;
+  const requested = typeof requestedRaw === "boolean" ? requestedRaw : suggestions.length > 0;
+  const updatedAtRaw =
+    source?.updatedAt ??
+    source?.manualUpdatedAt ??
+    source?.manual_updated_at ??
+    null;
+  const updatedAt = typeof updatedAtRaw === "string" && updatedAtRaw.trim()
+    ? updatedAtRaw.trim()
+    : new Date().toISOString();
+  return {
+    enabled,
+    autoAssist,
+    markers,
+    suggestions,
+    requested,
+    retentionDeltaEstimate,
+    updatedAt,
+  };
+};
+
+const buildMicroHookSuggestions = (durationSec: number) => {
+  const suggestions: Array<{ start: number; end: number }> = [];
+  if (!Number.isFinite(durationSec) || durationSec < 180) return suggestions;
+  for (let anchor = 150; anchor < durationSec - 20 && suggestions.length < 10; anchor += 150) {
+    const start = Number(anchor.toFixed(3));
+    const end = Number(Math.min(durationSec, anchor + 3).toFixed(3));
+    if (end > start + 0.2) suggestions.push({ start, end });
+  }
+  return suggestions;
+};
+
+const computeManualRemovalRatio = (markers: ManualTimestampMarker[], durationSec: number) => {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
+  const explicitKeeps = markers.filter((marker) => marker.type === "keep");
+  const removals = markers.filter((marker) => marker.type === "remove");
+  const baseRanges = explicitKeeps.length > 0
+    ? explicitKeeps.map((range) => ({ start: range.start, end: range.end }))
+    : [{ start: 0, end: durationSec }];
+  const merged = [...baseRanges].sort((a, b) => a.start - b.start).reduce<Array<{ start: number; end: number }>>((acc, range) => {
+    const current = {
+      start: clamp(range.start, 0, durationSec),
+      end: clamp(range.end, 0, durationSec),
+    };
+    if (current.end <= current.start) return acc;
+    const prev = acc[acc.length - 1];
+    if (!prev || current.start > prev.end) {
+      acc.push(current);
+    } else {
+      prev.end = Math.max(prev.end, current.end);
+    }
+    return acc;
+  }, []);
+  let keepDuration = merged.reduce((sum, range) => sum + Math.max(0, range.end - range.start), 0);
+  if (removals.length > 0) {
+    const removeDuration = removals.reduce((sum, range) => sum + Math.max(0, range.end - range.start), 0);
+    keepDuration = Math.max(0, keepDuration - removeDuration);
+  }
+  const removed = Math.max(0, durationSec - keepDuration);
+  return clamp01(removed / Math.max(0.1, durationSec));
+};
+
+const computeManualRetentionDelta = ({
+  markers,
+  durationSec,
+  autoAssist,
+}: {
+  markers: ManualTimestampMarker[];
+  durationSec: number;
+  autoAssist: boolean;
+}) => {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return null;
+  const manualHook = markers.find((marker) => marker.type === "hook" && marker.source === "user")
+    || markers.find((marker) => marker.type === "hook")
+    || null;
+  const removeRatio = computeManualRemovalRatio(markers, durationSec);
+  const keepSegments = markers.filter((marker) => marker.type === "keep");
+  const longestKeep = keepSegments.reduce((max, marker) => Math.max(max, marker.end - marker.start), 0);
+  let score = 0;
+  if (manualHook && manualHook.start <= 0.35) score += 8;
+  else if (manualHook) score += 4;
+  else if (autoAssist) score += 3;
+  else score -= 2;
+  score += Math.min(6, keepSegments.length * 0.7);
+  if (removeRatio > 0.4) score -= Math.min(15, 4 + (removeRatio - 0.4) * 42);
+  if (longestKeep > 45) score -= Math.min(10, (longestKeep - 45) / 9);
+  return Number(clamp(score, -25, 25).toFixed(2));
+};
+
+const buildAiManualSuggestionsFromAnalysis = (analysis: any, durationSec: number): ManualTimestampSuggestion[] => {
+  const suggestions: ManualTimestampSuggestion[] = [];
+  const pushUnique = (candidate: ManualTimestampSuggestion) => {
+    const duplicate = suggestions.some((existing) => (
+      existing.type === candidate.type &&
+      Math.abs(existing.start - candidate.start) < 0.08 &&
+      Math.abs(existing.end - candidate.end) < 0.08
+    ));
+    if (!duplicate) suggestions.push(candidate);
+  };
+  const hookCandidates = normalizeHookCandidates(
+    analysis?.hook_variants ||
+    analysis?.hook_candidates ||
+    analysis?.editPlan?.hookCandidates ||
+    analysis?.editPlan?.hookVariants,
+  );
+  const firstHook = hookCandidates[0] || null;
+  if (firstHook) {
+    pushUnique({
+      id: `ai_hook_${Math.round(firstHook.start * 1000)}`,
+      type: "hook",
+      start: Number(firstHook.start.toFixed(3)),
+      end: Number((firstHook.start + firstHook.duration).toFixed(3)),
+      rationale: firstHook.reason || "Top-ranked hook candidate.",
+      source: "ai",
+    });
+  }
+  const removeRangesRaw = Array.isArray(analysis?.boredom_ranges)
+    ? analysis.boredom_ranges
+    : Array.isArray(analysis?.removed_segments)
+      ? analysis.removed_segments
+      : [];
+  removeRangesRaw.slice(0, 4).forEach((range: any, index: number) => {
+    const start = Number(range?.start);
+    const end = Number(range?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+    pushUnique({
+      id: `ai_remove_${index}_${Math.round(start * 1000)}`,
+      type: "remove",
+      start: Number(start.toFixed(3)),
+      end: Number(end.toFixed(3)),
+      rationale: "Low-energy/dead-air window.",
+      source: "ai",
+    });
+  });
+  const segmentRangesRaw = Array.isArray(analysis?.editPlan?.segments)
+    ? analysis.editPlan.segments
+    : Array.isArray(analysis?.metadata_summary?.segments)
+      ? analysis.metadata_summary.segments
+      : [];
+  segmentRangesRaw.slice(0, 4).forEach((segment: any, index: number) => {
+    const start = Number(segment?.start);
+    const end = Number(segment?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+    pushUnique({
+      id: `ai_cut_${index}_${Math.round(start * 1000)}`,
+      type: "cut",
+      start: Number(start.toFixed(3)),
+      end: Number(end.toFixed(3)),
+      rationale: "Scene-change/energy segment to keep.",
+      source: "ai",
+    });
+  });
+  if (durationSec >= 180) {
+    buildMicroHookSuggestions(durationSec).slice(0, 3).forEach((range, index) => {
+      pushUnique({
+        id: `ai_micro_hook_${index}_${Math.round(range.start * 1000)}`,
+        type: "hook",
+        start: range.start,
+        end: range.end,
+        rationale: "Micro-hook insert for long-form retention.",
+        source: "ai",
+      });
+    });
+  }
+  return suggestions.slice(0, 10);
+};
+
+const mapSuggestionToManualMarker = (suggestion: ManualTimestampSuggestion): ManualTimestampMarker => ({
+  id: `marker_${suggestion.id}_${Date.now()}`,
+  type: suggestion.type === "cut" ? "keep" : suggestion.type,
+  start: Number(suggestion.start.toFixed(3)),
+  end: Number(suggestion.end.toFixed(3)),
+  source: "ai",
+  rationale: suggestion.rationale,
+});
+
 const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelection => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
@@ -723,7 +1087,7 @@ const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
   if (normalized === "auto" || normalized === "automatic" || normalized === "editor") return "auto";
-  if (normalized === "manual" || normalized === "user" || normalized === "user_selected") return "auto";
+  if (normalized === "manual" || normalized === "user" || normalized === "user_selected") return "manual";
   return "auto";
 };
 
@@ -733,6 +1097,12 @@ const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier 
     if (allowed === "ALL" || allowed.includes(presetId)) return tier;
   }
   return "studio";
+};
+
+const toPlanTier = (value?: string | null): PlanTier | null => {
+  if (!value) return null;
+  const normalized = String(value).toLowerCase();
+  return PLAN_CONFIG[normalized as PlanTier] ? (normalized as PlanTier) : null;
 };
 
 const normalizeSubtitleStyleFromSettings = (value: unknown) => {
@@ -790,6 +1160,7 @@ const Editor = () => {
   const { accessToken, signOut } = useAuth();
   const { t } = useTranslation("common");
   const { toast } = useToast();
+  const { snapshot: liveSnapshot, pulse: livePulse } = useLiveStats();
   const getRenderModeLabel = (mode: RenderModeSelection) =>
     mode === "vertical" ? t("editor.mode.vertical") : t("editor.mode.horizontal");
   const getEditorModeLabel = (mode: EditorModeSelection, fallback: string) =>
@@ -797,6 +1168,8 @@ const Editor = () => {
   const getEditorModeDescription = (mode: EditorModeSelection, fallback: string) =>
     t(`editor.contentType.${mode}.description`, { defaultValue: fallback });
   const modeParam = searchParams.get("mode");
+  const successParam = String(searchParams.get("success") || "").toLowerCase();
+  const successTierParam = toPlanTier(searchParams.get("tier"));
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
   const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
@@ -863,6 +1236,15 @@ const Editor = () => {
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const [manualMode, setManualMode] = useState(false);
+  const [manualAutoAssist, setManualAutoAssist] = useState(false);
+  const [manualMarkersByJob, setManualMarkersByJob] = useState<Record<string, ManualTimestampMarker[]>>({});
+  const [manualSuggestionsByJob, setManualSuggestionsByJob] = useState<Record<string, ManualTimestampSuggestion[]>>({});
+  const [manualAiSuggestLoadingJobId, setManualAiSuggestLoadingJobId] = useState<string | null>(null);
+  const [inputPreviewUrlByJob, setInputPreviewUrlByJob] = useState<Record<string, string>>({});
+  const [previewDurationByJob, setPreviewDurationByJob] = useState<Record<string, number>>({});
+  const [previewCurrentTimeByJob, setPreviewCurrentTimeByJob] = useState<Record<string, number>>({});
+  const [previewPlayingByJob, setPreviewPlayingByJob] = useState<Record<string, boolean>>({});
   const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
     strategy: false,
     targetPlatform: false,
@@ -879,8 +1261,11 @@ const Editor = () => {
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
+  const manualHydratedSignatureByJobRef = useRef<Record<string, string>>({});
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
+  const successToastShownRef = useRef(false);
+  const minutesWarningToastRef = useRef<string | null>(null);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
 
   const selectedJobId = searchParams.get("jobId");
@@ -894,7 +1279,8 @@ const Editor = () => {
   const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
-  const paidTier = isPaidTier(tier);
+  const paidTier = isPaidTier(tier) || Boolean(me?.flags?.dev);
+  const activeEditorsNow = livePulse?.activeUsers ?? liveSnapshot?.activeUsers ?? 0;
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
@@ -922,7 +1308,9 @@ const Editor = () => {
       : null;
   const subscriptionCardHideKey = me?.user?.id ? `editor_subscription_card_hidden_${me.user.id}` : null;
   const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
-  const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
+  const isDevAccount = Boolean(me?.flags?.dev);
+  const qualityTier: PlanTier = isDevAccount ? "studio" : (trialActive ? trialUnlockTier : tier);
+  const maxQuality = (PLAN_CONFIG[qualityTier] ?? PLAN_CONFIG.free).exportQuality;
   const subtitleFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
   const allowedSubtitlePresets = (PLAN_CONFIG[subtitleFeatureTier] ?? PLAN_CONFIG.free).allowedSubtitlePresets;
   const subtitlesEnabled = allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.length > 0;
@@ -955,8 +1343,7 @@ const Editor = () => {
     () => Math.round(((helpDemoStepIndex + 1) / HELP_DEMO_STEPS.length) * 100),
     [helpDemoStepIndex],
   );
-  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
-  const isDevAccount = Boolean(me?.flags?.dev);
+  const tierLabel = isDevAccount ? "Dev" : tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
   const rendersRemaining = useMemo(() => {
@@ -965,6 +1352,7 @@ const Editor = () => {
   }, [maxRendersPerMonth, rendersUsed]);
   const maxRerendersPerDay = me?.limits?.maxRerendersPerDay ?? PLAN_CONFIG[tier].maxRerendersPerDay;
   const rerendersUsedToday = me?.rerenderUsageDaily?.rerendersUsed ?? 0;
+  const freeMinutesWarning = me?.usageWarnings?.freeMinutes ?? null;
   const rerendersRemainingToday = useMemo(() => {
     if (maxRerendersPerDay === null || maxRerendersPerDay === undefined) return null;
     return Math.max(0, maxRerendersPerDay - rerendersUsedToday);
@@ -1174,6 +1562,47 @@ const Editor = () => {
     }
     setTrialUpgradeOpen(true);
   }, [trialEnded, trialUpgradePromptKey]);
+
+  useEffect(() => {
+    if (successParam !== "true" || successToastShownRef.current) return;
+    const unlockedTier = successTierParam ?? toPlanTier(me?.subscription?.tier as string | undefined) ?? tier;
+    const plan = PLAN_CONFIG[unlockedTier] ?? PLAN_CONFIG.free;
+    const minutesLabel = plan.maxMinutesPerMonth === null ? "Unlimited" : String(plan.maxMinutesPerMonth);
+    const qualityLabel =
+      plan.exportQuality === "4k" ? "4K exports" : plan.exportQuality === "1080p" ? "1080p exports" : "720p exports";
+    successToastShownRef.current = true;
+    toast({
+      title: `Congrats! You've unlocked ${plan.name} — enjoy ${minutesLabel} minutes/mo + ${qualityLabel}!`,
+      description: "Premium features are now active.",
+    });
+    void refetchMe();
+    const next = new URLSearchParams(searchParams);
+    next.delete("success");
+    next.delete("tier");
+    next.delete("session_id");
+    next.delete("source");
+    next.delete("trial");
+    next.delete("endsAt");
+    setSearchParams(next, { replace: true });
+  }, [successParam, successTierParam, me?.subscription?.tier, tier, toast, refetchMe, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (isDevAccount || !freeMinutesWarning?.reached) return;
+    const warningKey = `${freeMinutesWarning.used}:${freeMinutesWarning.blocked ? "blocked" : "warn"}`;
+    if (minutesWarningToastRef.current === warningKey) return;
+    minutesWarningToastRef.current = warningKey;
+    if (freeMinutesWarning.blocked) {
+      toast({
+        title: "Monthly minutes limit reached",
+        description: "Upgrade for more minutes.",
+      });
+      return;
+    }
+    toast({
+      title: "Approaching monthly minutes limit",
+      description: `${freeMinutesWarning.used}/${freeMinutesWarning.limit} minutes used. Free users are blocked at ${freeMinutesWarning.limit}.`,
+    });
+  }, [isDevAccount, freeMinutesWarning, toast]);
 
   useEffect(() => {
     if (!subscriptionCardHideKey) {
@@ -1469,7 +1898,7 @@ const Editor = () => {
   const submitCreatorFeedback = useCallback(
     async (category: CreatorFeedbackCategory) => {
       if (!activeJob?.id || !accessToken) return;
-      if (!paidTier) {
+      if (!paidTier && !isDevAccount) {
         toast({
           title: "Paid feature",
           description: "Creator correction feedback is available on paid plans.",
@@ -1515,7 +1944,7 @@ const Editor = () => {
         setCreatorFeedbackSubmitting(null);
       }
     },
-    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
+    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, isDevAccount, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
   useEffect(() => {
@@ -1772,6 +2201,52 @@ const Editor = () => {
   useEffect(() => {
     setHookSelectorOpen(false);
   }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    const parsed = parseManualTimestampConfigFromAnalysis(activeJob.analysis || {});
+    if (!parsed) {
+      setManualMode(false);
+      setManualAutoAssist(false);
+      setPreviewPlayingByJob((prev) => (prev[jobId] ? { ...prev, [jobId]: false } : prev));
+      return;
+    }
+
+    const signature = `${parsed.updatedAt}|${parsed.enabled ? 1 : 0}|${parsed.markers.length}|${parsed.suggestions.length}|${parsed.autoAssist ? 1 : 0}`;
+    if (manualHydratedSignatureByJobRef.current[jobId] !== signature) {
+      setManualMarkersByJob((prev) => ({ ...prev, [jobId]: parsed.markers }));
+      setManualSuggestionsByJob((prev) => ({ ...prev, [jobId]: parsed.suggestions }));
+      setPreviewDurationByJob((prev) => {
+        if (prev[jobId]) return prev;
+        const fallbackDuration = Number((activeJob as any)?.inputDurationSeconds || 0);
+        if (!Number.isFinite(fallbackDuration) || fallbackDuration <= 0) return prev;
+        return { ...prev, [jobId]: Number(fallbackDuration.toFixed(3)) };
+      });
+      setPreviewCurrentTimeByJob((prev) => (Object.prototype.hasOwnProperty.call(prev, jobId) ? prev : { ...prev, [jobId]: 0 }));
+      manualHydratedSignatureByJobRef.current[jobId] = signature;
+    }
+    setManualMode(parsed.enabled);
+    setManualAutoAssist(parsed.autoAssist);
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    const nextMode: HookSelectionMode = manualMode ? "manual" : "auto";
+    setDefaultHookSelectionMode(nextMode);
+    setHookSelectionModeByJob((prev) => (prev[jobId] === nextMode ? prev : { ...prev, [jobId]: nextMode }));
+    if (!manualMode) {
+      setSelectedHookByJob((prev) => (prev[jobId] ? { ...prev, [jobId]: null } : prev));
+    }
+  }, [activeJob?.id, manualMode]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    if (!manualMode && !manualAutoAssist) return;
+    setManualMode(false);
+    setManualAutoAssist(false);
+  }, [isVerticalMode, manualAutoAssist, manualMode]);
 
   useEffect(() => {
     if (!accessToken || !hasActiveJobs || authError) return;
@@ -2045,6 +2520,8 @@ const Editor = () => {
       preset: subtitlePresetForJob,
       style: subtitleStyleForJob,
     };
+    const manualTimestampPayload = buildManualTimestampPayload(null);
+    const effectiveHookSelectionMode = manualTimestampPayload?.enabled ? "manual" : defaultHookSelectionMode;
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -2070,7 +2547,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode: editorModeForJob,
-              hookSelectionMode: defaultHookSelectionMode,
+              hookSelectionMode: effectiveHookSelectionMode,
               longFormPreset,
               longFormAggression,
               longFormClarityVsSpeed,
@@ -2083,6 +2560,12 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(manualTimestampPayload
+                ? {
+                    manualTimestamp: manualTimestampPayload,
+                    manualTimestampEditor: manualTimestampPayload.enabled,
+                  }
+                : {}),
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
               verticalCaptionText: verticalCaptionTextForJob,
@@ -2099,7 +2582,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: maxCutsRequested,
               editorMode: editorModeForJob,
-              hookSelectionMode: defaultHookSelectionMode,
+              hookSelectionMode: effectiveHookSelectionMode,
               longFormPreset,
               longFormAggression,
               longFormClarityVsSpeed,
@@ -2112,6 +2595,12 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(manualTimestampPayload
+                ? {
+                    manualTimestamp: manualTimestampPayload,
+                    manualTimestampEditor: manualTimestampPayload.enabled,
+                  }
+                : {}),
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -2265,7 +2754,7 @@ const Editor = () => {
             subtitles: subtitlesPayload,
             maxCuts: maxCutsRequested,
             editorMode: editorModeForJob,
-            hookSelectionMode: defaultHookSelectionMode,
+            hookSelectionMode: effectiveHookSelectionMode,
             longFormPreset,
             longFormAggression,
             longFormClarityVsSpeed,
@@ -2275,6 +2764,12 @@ const Editor = () => {
             soundFx: soundFxEnabled,
             viralMode,
             enhanceMode,
+            ...(manualTimestampPayload
+              ? {
+                  manualTimestamp: manualTimestampPayload,
+                  manualTimestampEditor: manualTimestampPayload.enabled,
+                }
+              : {}),
             ...(requestedMode === "vertical"
               ? { verticalCaptionText: verticalCaptionTextForJob, verticalCaptions: verticalCaptionsForJob }
               : {}),
@@ -2877,6 +3372,35 @@ const Editor = () => {
     [accessToken, fetchJobs, signOut, toast],
   );
 
+  const buildManualTimestampPayload = useCallback((jobId?: string | null): ManualTimestampConfigPayload | null => {
+    if (isVerticalMode) return null;
+    const key = jobId && jobId.trim().length > 0 ? jobId : null;
+    const markers = key ? (manualMarkersByJob[key] || []) : [];
+    const suggestions = key ? (manualSuggestionsByJob[key] || []) : [];
+    const fallbackDurationSec = key && activeJob?.id === key
+      ? Number((activeJob as any)?.inputDurationSeconds || (activeJob.analysis as any)?.input_duration_seconds || 0)
+      : 0;
+    const durationSec = key ? Number(previewDurationByJob[key] || fallbackDurationSec || 0) : 0;
+    const retentionDeltaEstimate =
+      Number.isFinite(durationSec) && durationSec > 0
+        ? computeManualRetentionDelta({
+            markers,
+            durationSec,
+            autoAssist: manualAutoAssist,
+          })
+        : null;
+    if (!manualMode && markers.length === 0 && suggestions.length === 0) return null;
+    return {
+      enabled: manualMode,
+      autoAssist: manualAutoAssist,
+      markers,
+      suggestions,
+      requested: suggestions.length > 0,
+      retentionDeltaEstimate,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [activeJob, isVerticalMode, manualAutoAssist, manualMarkersByJob, manualMode, manualSuggestionsByJob, previewDurationByJob]);
+
   const handleRedoRender = useCallback(
     async (job: JobDetail) => {
       if (!accessToken || !job?.id) return;
@@ -2912,6 +3436,7 @@ const Editor = () => {
             (job.analysis as any)?.hook_mode ??
             (job.analysis as any)?.hookMode,
           );
+        const manualTimestampPayload = buildManualTimestampPayload(job.id);
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
           retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
@@ -2938,7 +3463,16 @@ const Editor = () => {
             preset: subtitlePresetForJob,
             style: subtitleStyleForJob,
           },
+          ...(manualTimestampPayload
+            ? {
+                manualTimestamp: manualTimestampPayload,
+                manualTimestampEditor: manualTimestampPayload.enabled,
+              }
+            : {}),
         };
+        if (manualTimestampPayload?.enabled) {
+          payload.hookSelectionMode = "manual";
+        }
         if (requestedMode === "vertical") {
           payload.verticalCaptionText = verticalCaptionsForJob.text;
           payload.verticalCaptions = verticalCaptionsForJob;
@@ -3048,6 +3582,7 @@ const Editor = () => {
       retentionTargetPlatform,
       tangentKiller,
       hookSelectionModeByJob,
+      buildManualTimestampPayload,
       selectedHookByJob,
       subtitleStyleDraft,
       smartZoomEnabled,
@@ -3584,6 +4119,72 @@ const Editor = () => {
       : []),
   ].slice(0, 8);
   const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
+  const activeManualMarkers = activeJob ? (manualMarkersByJob[activeJob.id] || []) : [];
+  const activeManualSuggestions = activeJob ? (manualSuggestionsByJob[activeJob.id] || []) : [];
+  const activeManualDurationSec = activeJob
+    ? Number(
+        previewDurationByJob[activeJob.id] ||
+        (activeJob as any)?.inputDurationSeconds ||
+        activeAnalysis?.input_duration_seconds ||
+        0,
+      )
+    : 0;
+  const activeManualCurrentTimeSec = activeJob
+    ? Number(previewCurrentTimeByJob[activeJob.id] || 0)
+    : 0;
+  const activeManualPlaying = activeJob
+    ? Boolean(previewPlayingByJob[activeJob.id])
+    : false;
+  const activeInputPreviewUrl = activeJob ? (inputPreviewUrlByJob[activeJob.id] || "") : "";
+  const manualRemovalRatio = activeManualDurationSec > 0
+    ? computeManualRemovalRatio(activeManualMarkers, activeManualDurationSec)
+    : 0;
+  const manualRetentionDeltaEstimate = activeManualDurationSec > 0
+    ? computeManualRetentionDelta({
+        markers: activeManualMarkers,
+        durationSec: activeManualDurationSec,
+        autoAssist: manualAutoAssist,
+      })
+    : null;
+  const manualOverridePlan = parseManualOverrideStructuredPlan(
+    activeAnalysis?.manual_override_plan ??
+    activeAnalysis?.manualOverridePlan ??
+    activeAnalysis?.manual?.overridePlan,
+  );
+  const analysisManualWarnings: string[] = Array.isArray(
+    activeAnalysis?.manual_warnings ?? activeAnalysis?.manualWarnings,
+  )
+    ? (activeAnalysis?.manual_warnings ?? activeAnalysis?.manualWarnings)
+        .filter((item: unknown) => typeof item === "string")
+        .map((item: string) => item.trim())
+        .filter(Boolean)
+    : [];
+  const analysisManualMicroHooks: Array<{ start: number; end: number }> = Array.isArray(
+    activeAnalysis?.manual_micro_hook_suggestions ?? activeAnalysis?.manualMicroHookSuggestions,
+  )
+    ? (activeAnalysis?.manual_micro_hook_suggestions ?? activeAnalysis?.manualMicroHookSuggestions)
+        .map((entry: any) => normalizeManualTimeRange(entry))
+        .filter((entry: { start: number; end: number } | null): entry is { start: number; end: number } => Boolean(entry))
+    : [];
+  const manualMicroHookSuggestions = analysisManualMicroHooks.length > 0
+    ? analysisManualMicroHooks
+    : buildMicroHookSuggestions(activeManualDurationSec);
+  const manualWarnings = (() => {
+    const merged = [...analysisManualWarnings];
+    if (manualRemovalRatio > 0.4 && !merged.some((line) => line.toLowerCase().includes("40%"))) {
+      merged.push("Warning: removing >40% may hurt retention.");
+    }
+    if (
+      activeManualDurationSec >= 180 &&
+      manualMicroHookSuggestions.length > 0 &&
+      !merged.some((line) => line.toLowerCase().includes("micro-hook"))
+    ) {
+      merged.push("Suggestion: add micro-hooks every 2-3 minutes for long-form retention.");
+    }
+    return merged;
+  })();
+  const manualStructuredPlanRetentionPoints = parseManualRetentionImpactPoints(manualOverridePlan?.retentionImpact);
+  const manualRetentionDisplay = manualStructuredPlanRetentionPoints ?? manualRetentionDeltaEstimate;
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const canApplyHookRealtime = Boolean(
@@ -3592,6 +4193,7 @@ const Editor = () => {
   const canShowRealtimeHookSelector = Boolean(
     activeJob &&
       activeJob.renderMode !== "vertical" &&
+      !manualMode &&
       canApplyHookRealtime,
   );
   const hookPreviewCandidate =
@@ -3695,6 +4297,11 @@ const Editor = () => {
     setHookSelectorOpen(true);
   }, [activeHookSelectionMode, activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
   useEffect(() => {
+    if (!manualMode) return;
+    if (!hookSelectorOpen) return;
+    setHookSelectorOpen(false);
+  }, [hookSelectorOpen, manualMode]);
+  useEffect(() => {
     if (!hookSelectorOpen || !activeJob?.id || !canShowRealtimeHookSelector) return;
     const jobId = activeJob.id;
     setHookPreviewCandidateByJob((prev) => {
@@ -3785,6 +4392,31 @@ const Editor = () => {
     hookPreviewRefreshNonce,
     hookSelectorOpen,
   ]);
+  useEffect(() => {
+    if (!manualMode || !activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    if (inputPreviewUrlByJob[jobId]) return;
+    let canceled = false;
+    void apiFetch<{ url?: string }>(`/api/jobs/${jobId}/input-url`, {
+      method: "POST",
+      token: accessToken,
+    })
+      .then((response) => {
+        if (canceled) return;
+        const nextUrl = typeof response?.url === "string" ? response.url.trim() : "";
+        if (!nextUrl) return;
+        setInputPreviewUrlByJob((prev) => ({ ...prev, [jobId]: nextUrl }));
+      })
+      .catch((error: any) => {
+        if (canceled) return;
+        if (!(error instanceof ApiError && error.status === 404)) {
+          console.warn("manual input preview url failed", error);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [accessToken, activeJob?.id, inputPreviewUrlByJob, manualMode]);
   useEffect(() => {
     if (!hookSelectorOpen) return;
     const video = hookPreviewVideoRef.current;
@@ -3905,11 +4537,98 @@ const Editor = () => {
       setApplyingHookJobId((current) => (current === jobId ? null : current));
     }
   }, [accessToken, activeJob?.id, fetchJob, toast]);
+  const handleManualMarkersChange = useCallback((nextMarkers: ManualTimestampMarker[]) => {
+    if (!activeJob?.id) return;
+    const sanitized = nextMarkers
+      .map((marker, index) => normalizeManualTimestampMarker(marker, index))
+      .filter((marker: ManualTimestampMarker | null): marker is ManualTimestampMarker => Boolean(marker));
+    setManualMarkersByJob((prev) => ({ ...prev, [activeJob.id]: sanitized }));
+  }, [activeJob?.id]);
+  const handleManualClearAll = useCallback(() => {
+    if (!activeJob?.id) return;
+    setManualMarkersByJob((prev) => ({ ...prev, [activeJob.id]: [] }));
+    setManualSuggestionsByJob((prev) => ({ ...prev, [activeJob.id]: [] }));
+  }, [activeJob?.id]);
+  const handleManualAcceptSuggestion = useCallback((suggestionId: string) => {
+    if (!activeJob?.id) return;
+    const suggestion = (manualSuggestionsByJob[activeJob.id] || []).find((item) => item.id === suggestionId);
+    if (!suggestion) return;
+    setManualMarkersByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: [...(prev[activeJob.id] || []), mapSuggestionToManualMarker(suggestion)],
+    }));
+    setManualSuggestionsByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: (prev[activeJob.id] || []).filter((item) => item.id !== suggestionId),
+    }));
+  }, [activeJob?.id, manualSuggestionsByJob]);
+  const handleManualRejectSuggestion = useCallback((suggestionId: string) => {
+    if (!activeJob?.id) return;
+    setManualSuggestionsByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: (prev[activeJob.id] || []).filter((item) => item.id !== suggestionId),
+    }));
+  }, [activeJob?.id]);
+  const handleManualApplyAllSuggestions = useCallback(() => {
+    if (!activeJob?.id) return;
+    const suggestions = manualSuggestionsByJob[activeJob.id] || [];
+    if (!suggestions.length) return;
+    const markers = suggestions.map((suggestion) => mapSuggestionToManualMarker(suggestion));
+    setManualMarkersByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: [...(prev[activeJob.id] || []), ...markers],
+    }));
+    setManualSuggestionsByJob((prev) => ({ ...prev, [activeJob.id]: [] }));
+  }, [activeJob?.id, manualSuggestionsByJob]);
+  const handleManualAiSuggest = useCallback(async () => {
+    if (!activeJob?.id) return;
+    const durationSec = Number(previewDurationByJob[activeJob.id] || activeJob.inputDurationSeconds || 0);
+    const suggestions = buildAiManualSuggestionsFromAnalysis(activeJob.analysis || {}, durationSec);
+    if (suggestions.length > 0) {
+      setManualSuggestionsByJob((prev) => ({ ...prev, [activeJob.id]: suggestions }));
+      setManualAutoAssist(true);
+      return;
+    }
+    if (!accessToken) return;
+    setManualAiSuggestLoadingJobId(activeJob.id);
+    try {
+      await apiFetch(`/api/jobs/${activeJob.id}/analyze`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          fastMode: true,
+          manualTimestampEditor: true,
+        }),
+      });
+      const refreshed = await fetchJob(activeJob.id);
+      const refreshedDuration = Number(previewDurationByJob[activeJob.id] || refreshed?.inputDurationSeconds || 0);
+      const nextSuggestions = buildAiManualSuggestionsFromAnalysis(refreshed.analysis || {}, refreshedDuration);
+      setManualSuggestionsByJob((prev) => ({ ...prev, [activeJob.id]: nextSuggestions }));
+      setManualAutoAssist(true);
+      if (nextSuggestions.length === 0) {
+        toast({
+          title: "No AI suggestions found",
+          description: "Try placing a few markers manually, then rerun AI Suggest.",
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "AI suggest failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setManualAiSuggestLoadingJobId((current) => (current === activeJob.id ? null : current));
+    }
+  }, [accessToken, activeJob, fetchJob, previewDurationByJob, toast]);
   const handlePreviewLoadedMetadata = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
+    setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(currentTime.toFixed(3)) }));
+    setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: !video.paused }));
     ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
   }, [activeJob, ensurePlaybackTelemetry]);
 
@@ -3921,6 +4640,8 @@ const Editor = () => {
 
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
+    setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(currentTime.toFixed(3)) }));
     const delta = currentTime - telemetry.lastTimeSec;
     if (Number.isFinite(delta)) {
       if (delta >= 0 && delta <= 2.5) {
@@ -3950,8 +4671,20 @@ const Editor = () => {
     }
   }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
 
+  const handlePreviewPlay = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
+      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(clamp(Number(video.currentTime || 0), 0, duration).toFixed(3)) }));
+    }
+    setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: true }));
+  }, [activeJob]);
+
   const handlePreviewPause = useCallback(() => {
     if (!activeJob) return;
+    setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
     const telemetry = playbackTelemetryRef.current[activeJob.id];
     if (!telemetry) return;
     submitPreviewFeedback(activeJob, telemetry, "pause", false);
@@ -3967,7 +4700,10 @@ const Editor = () => {
       telemetry.maxProgress = Math.max(telemetry.maxProgress, 1);
       telemetry.watchedSeconds = Math.max(telemetry.watchedSeconds, duration);
       telemetry.lastDispatchProgress = 1;
+      setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
+      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
     }
+    setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
     submitPreviewFeedback(activeJob, telemetry, "ended", true);
   }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
 
@@ -3981,12 +4717,43 @@ const Editor = () => {
       errorCode: video?.error?.code ?? null,
       errorMessage: video?.error?.message ?? null,
     };
+    if (activeJob?.id) {
+      setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+    }
     console.error("Preview video failed to load", details);
     toast({
       title: "Preview failed",
       description: "Could not load the edited video. Check network/output URL.",
     });
   }, [activeJob?.id, previewOutputUrl, toast]);
+
+  const handleManualPreviewSeek = useCallback((seconds: number) => {
+    if (!activeJob?.id) return;
+    const safeSeconds = Number(Math.max(0, seconds).toFixed(3));
+    setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: safeSeconds }));
+    const video = previewVideoRef.current;
+    if (video && Number.isFinite(video.duration) && video.duration > 0) {
+      video.currentTime = clamp(safeSeconds, 0, Number(video.duration));
+    }
+  }, [activeJob?.id]);
+
+  const handleManualTogglePlay = useCallback(() => {
+    if (!activeJob?.id) return;
+    const video = previewVideoRef.current;
+    if (video) {
+      if (video.paused) {
+        setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: true }));
+        void video.play().catch(() => {
+          setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+        });
+        return;
+      }
+      video.pause();
+      setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+      return;
+    }
+    setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: !prev[activeJob.id] }));
+  }, [activeJob?.id]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -4189,6 +4956,13 @@ const Editor = () => {
     trackEditorEvent,
   ]);
 
+  const handleManualModeSwitch = useCallback((next: boolean) => {
+    setManualMode(next);
+    if (!next) {
+      setManualAutoAssist(false);
+    }
+  }, []);
+
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
       return (
@@ -4361,6 +5135,7 @@ const Editor = () => {
               step={1}
               value={[maxCutsRequested]}
               className="editor-settings-slider"
+              disabled={manualMode}
               onValueChange={(values) => {
                 const candidate = Number(values?.[0] ?? maxCutsRequested);
                 if (!Number.isFinite(candidate)) return;
@@ -4371,6 +5146,11 @@ const Editor = () => {
               <span>{MAX_CUTS_MIN}</span>
               <span>{MAX_CUTS_MAX}</span>
             </div>
+            {manualMode ? (
+              <p className="mt-2 text-[11px] text-violet-200/90">
+                Auto-cuts are disabled while Manual Timestamp Editor is active.
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
@@ -4636,7 +5416,8 @@ const Editor = () => {
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        className={`${sectionPillClass(defaultHookSelectionMode === "auto")} flex items-center gap-2`}
+                        className={`${sectionPillClass(defaultHookSelectionMode === "auto")} flex items-center gap-2 ${manualMode ? "cursor-not-allowed opacity-60" : ""}`}
+                        disabled={manualMode}
                         onClick={() => setDefaultHookSelectionMode("auto")}
                       >
                         <Bot className="h-4 w-4 shrink-0" />
@@ -4644,7 +5425,8 @@ const Editor = () => {
                       </button>
                       <button
                         type="button"
-                        className={`${sectionPillClass(defaultHookSelectionMode === "manual")} flex items-center gap-2`}
+                        className={`${sectionPillClass(defaultHookSelectionMode === "manual")} flex items-center gap-2 ${manualMode ? "cursor-not-allowed opacity-60" : ""}`}
+                        disabled={manualMode}
                         onClick={() => setDefaultHookSelectionMode("manual")}
                       >
                         <MousePointerClick className="h-4 w-4 shrink-0" />
@@ -4652,6 +5434,11 @@ const Editor = () => {
                       </button>
                     </div>
                   </div>
+                  {manualMode ? (
+                    <p className="text-[11px] text-violet-200/90">
+                      Hook selection is locked to manual markers while Manual Timestamp Editor is ON.
+                    </p>
+                  ) : null}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -4827,6 +5614,9 @@ const Editor = () => {
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               {me && (
                 <>
+                  <Badge className="border-cyan-300/40 bg-cyan-500/15 text-cyan-100">
+                    {activeEditorsNow} active editors now
+                  </Badge>
                   {isDevAccount && (
                     <Badge className="bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-orange-500/20 text-amber-200 border border-amber-400/40 uppercase tracking-[0.25em] text-[10px] px-3 py-1">
                       Dev
@@ -4939,6 +5729,22 @@ const Editor = () => {
                             </Button>
                           </div>
                         </div>
+                      ) : null}
+
+                      {!isVerticalMode ? (
+                        <div className="rounded-xl border border-violet-300/30 bg-violet-500/10 p-3 backdrop-blur-xl">
+                          <div className="flex items-center space-x-3">
+                            <Switch id="manual-timestamp" checked={manualMode} onCheckedChange={handleManualModeSwitch} />
+                            <label htmlFor="manual-timestamp" className="text-lg font-medium text-violet-100">
+                              Manual Timestamp Editor (override auto cuts & hook)
+                            </label>
+                          </div>
+                        <p className="mt-2 text-xs text-slate-300">
+                          {manualMode
+                            ? "Manual mode ON: your markers control hook/cuts/removals, override automatic pacing choices, and typically add 10-30% ETA for iteration."
+                            : "Manual mode OFF: full Auto mode is active and the editor controls hook/cuts automatically."}
+                        </p>
+                      </div>
                       ) : null}
 
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
@@ -5617,6 +6423,7 @@ const Editor = () => {
                       controls
                       onLoadedMetadata={handlePreviewLoadedMetadata}
                       onTimeUpdate={handlePreviewTimeUpdate}
+                      onPlay={handlePreviewPlay}
                       onPause={handlePreviewPause}
                       onEnded={handlePreviewEnded}
                       onError={handlePreviewVideoError}
@@ -5649,6 +6456,33 @@ const Editor = () => {
                   )}
                 </div>
               </div>
+
+              {manualMode && activeJob && !isVerticalMode ? (
+                <ManualTimestampEditor
+                  markers={activeManualMarkers}
+                  suggestions={activeManualSuggestions}
+                  durationSec={activeManualDurationSec}
+                  currentTimeSec={activeManualCurrentTimeSec}
+                  isPlaying={activeManualPlaying}
+                  autoAssist={manualAutoAssist}
+                  aiSuggestLoading={manualAiSuggestLoadingJobId === activeJob.id}
+                  retentionDelta={manualRetentionDisplay}
+                  removeRatio={manualRemovalRatio}
+                  microHookSuggestions={manualMicroHookSuggestions}
+                  warning={manualWarnings[0] || null}
+                  editedUrl={previewOutputUrl || activeInputPreviewUrl}
+                  originalUrl={activeInputPreviewUrl}
+                  onTogglePlay={handleManualTogglePlay}
+                  onSeek={handleManualPreviewSeek}
+                  onAutoAssistChange={setManualAutoAssist}
+                  onRequestAiSuggest={() => void handleManualAiSuggest()}
+                  onClearAll={handleManualClearAll}
+                  onMarkersChange={handleManualMarkersChange}
+                  onAcceptSuggestion={handleManualAcceptSuggestion}
+                  onRejectSuggestion={handleManualRejectSuggestion}
+                  onApplyAllSuggestions={handleManualApplyAllSuggestions}
+                />
+              ) : null}
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
@@ -5984,10 +6818,71 @@ const Editor = () => {
                             {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
                           </Badge>
                           <Badge className="border-primary/35 bg-primary/10 text-primary">
-                            {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
+                            {manualMode
+                              ? "Manual hook"
+                              : hookSelectionSource === "fallback"
+                                ? "Fallback hook"
+                                : "Auto hook"}
                           </Badge>
                         </div>
                       </div>
+
+                      {(manualMode || manualOverridePlan) ? (
+                        <div className="space-y-2 rounded-lg border border-violet-300/35 bg-violet-500/10 p-3 text-xs text-violet-100">
+                          <p className="font-semibold uppercase tracking-[0.16em]">Manual Override Plan</p>
+                          <p>
+                            Manual Mode: ON | Hook: {manualOverridePlan?.hook || (activeManualMarkers.some((marker) => marker.type === "hook") ? "user-set" : manualAutoAssist ? "AI-suggested" : "none")}
+                          </p>
+                          <div className="space-y-1 text-violet-100/90">
+                            <p className="font-medium">User Cuts:</p>
+                            {(manualOverridePlan?.userCuts && manualOverridePlan.userCuts.length > 0)
+                              ? manualOverridePlan.userCuts.slice(0, 8).map((line, index) => <p key={`manual-cut-${index}`}>- {line}</p>)
+                              : activeManualMarkers.length > 0
+                                ? activeManualMarkers
+                                    .filter((marker) => marker.type === "keep" || marker.type === "remove")
+                                    .slice(0, 8)
+                                    .map((marker) => (
+                                      <p key={`manual-cut-live-${marker.id}`}>
+                                        - {marker.type === "keep" ? "KEEP" : "REMOVE"} {formatHookRange(marker.start, marker.end)}
+                                      </p>
+                                    ))
+                                : <p>- none</p>}
+                          </div>
+                          <div className="space-y-1 text-violet-100/90">
+                            <p className="font-medium">Removals:</p>
+                            {(manualOverridePlan?.removals && manualOverridePlan.removals.length > 0)
+                              ? manualOverridePlan.removals.slice(0, 8).map((line, index) => <p key={`manual-removal-${index}`}>- {line}</p>)
+                              : activeManualMarkers.filter((marker) => marker.type === "remove").length > 0
+                                ? activeManualMarkers
+                                    .filter((marker) => marker.type === "remove")
+                                    .slice(0, 8)
+                                    .map((marker) => <p key={`manual-removal-live-${marker.id}`}>- {formatHookRange(marker.start, marker.end)}</p>)
+                                : <p>- none</p>}
+                          </div>
+                          <p>
+                            Retention Impact: {manualOverridePlan?.retentionImpact || (manualRetentionDisplay !== null ? `${manualRetentionDisplay >= 0 ? "+" : ""}${manualRetentionDisplay.toFixed(2)} pts` : "n/a")}
+                          </p>
+                          <div className="space-y-1 text-violet-100/90">
+                            <p className="font-medium">AI Suggestions:</p>
+                            {(manualOverridePlan?.aiSuggestions && manualOverridePlan.aiSuggestions.length > 0)
+                              ? manualOverridePlan.aiSuggestions.slice(0, 8).map((line, index) => <p key={`manual-ai-${index}`}>- {line}</p>)
+                              : activeManualSuggestions.length > 0
+                                ? activeManualSuggestions.slice(0, 8).map((item) => (
+                                    <p key={`manual-ai-live-${item.id}`}>
+                                      - {item.type.toUpperCase()} {formatHookRange(item.start, item.end)} :: {item.rationale}
+                                    </p>
+                                  ))
+                                : <p>- none</p>}
+                          </div>
+                          {manualWarnings.length > 0 ? (
+                            <div className="space-y-1 text-amber-200">
+                              {manualWarnings.slice(0, 3).map((warning, index) => (
+                                <p key={`manual-warning-${index}`}>- {warning}</p>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="rounded-lg border border-border/50 bg-background/40 p-3">
