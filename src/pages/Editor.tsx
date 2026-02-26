@@ -2990,6 +2990,8 @@ const Editor = () => {
   const confidenceValue = detectedNicheConfidencePercent !== null
     ? `${detectedNicheConfidencePercent}%`
     : null;
+  const failureMessage = failedGateReason || activeJob?.error || "";
+  const isPacingToRenderingTransitionFailure = /invalid transition from pacing to rendering/i.test(failureMessage);
   const stepMicroCopy: Record<string, string> = {
     queued: "Queued in worker lane",
     uploading:
@@ -4980,11 +4982,38 @@ const Editor = () => {
                     )}
 
                     {normalizeStatus(activeJob.status) === "failed" && (
-                      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
-                        <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
-                        <p className="mt-1 text-xs text-destructive/90">{failedGateReason || activeJob.error || "Retry suggested."}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Retry suggestion: adjust settings and run Redo Renderer.</p>
-                      </div>
+                      isPacingToRenderingTransitionFailure ? (
+                        <div className="rounded-xl border border-red-600 bg-red-950/80 p-5">
+                          <h3 className="text-lg font-bold text-red-300">Rendering Failed</h3>
+                          <p className="mt-2 text-red-200">
+                            Invalid transition from Pacing to Rendering - likely because Subtitles or Story was skipped/disabled.
+                          </p>
+                          <p className="mt-3 font-medium text-red-100">Try this to fix:</p>
+                          <ul className="mt-1 list-disc space-y-1 pl-6 text-red-100">
+                            <li>Enable Captions/Subtitles in Settings</li>
+                            <li>Turn Enhance Effects OFF or to Basic</li>
+                            <li>Lower Cut Count aggressiveness</li>
+                          </ul>
+                          <Button
+                            className="mt-4 min-h-11 w-full gap-2 bg-purple-600 text-white hover:bg-purple-700 sm:w-auto"
+                            disabled={reprocessingJobId === activeJob.id || rerenderLimitReached}
+                            onClick={() => void handleRedoRender(activeJob)}
+                          >
+                            {reprocessingJobId === activeJob.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4" />
+                            )}
+                            Redo Renderer (with suggested fixes)
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
+                          <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
+                          <p className="mt-1 text-xs text-destructive/90">{failureMessage || "Retry suggested."}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Retry suggestion: adjust settings and run Redo Renderer.</p>
+                        </div>
+                      )
                     )}
 
                     {canShowRealtimeHookSelector && (
@@ -5034,7 +5063,7 @@ const Editor = () => {
                         </div>
                       </motion.div>
                     )}
-                    {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
+                    {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && !isPacingToRenderingTransitionFailure && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-muted-foreground">
                           Need another pass? Queue a redo render using your daily re-render allowance.
