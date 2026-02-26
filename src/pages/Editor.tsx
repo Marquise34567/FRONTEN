@@ -6809,11 +6809,12 @@ const Editor = () => {
               </div>
               <div className="editor-settings-shell w-full rounded-[1.35rem] border border-violet-400/20 bg-[linear-gradient(145deg,#0F0F1A_0%,#12121F_100%)] p-3.5 shadow-[0_16px_55px_-34px_rgba(168,85,247,0.65)] md:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-violet-100/95">{t("editor.settings.title")}</span>
-                    {hideEditorControlsPanel ? (
-                      <span className="text-xs text-slate-400">{t("editor.settings.collapsed")}</span>
-                    ) : null}
+                  <div className="flex items-start gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-violet-100/95">{t("editor.creatorStudio")}</p>
+                      <p className="text-xs text-slate-400">{t("editor.shipFaster")}</p>
+                    </div>
+                    {hideEditorControlsPanel ? <span className="text-xs text-slate-400">{t("editor.settings.collapsed")}</span> : null}
                   </div>
                   <button
                     type="button"
@@ -7270,7 +7271,7 @@ const Editor = () => {
 
               <div className={isVerticalMode ? "space-y-6" : ""}>
                 {isVerticalMode && (
-                  <div className="glass-card border border-emerald-400/25 bg-gradient-to-b from-slate-950/90 via-slate-900/75 to-slate-950/90 p-5 space-y-5">
+                  <div className="glass-card border border-emerald-400/25 bg-gradient-to-b from-slate-950/90 via-slate-900/75 to-slate-950/90 p-5 space-y-5 flex flex-col">
                     <div className="space-y-2">
                       <p className="text-sm font-semibold text-emerald-100">Vertical Clip Builder</p>
                       <p className="text-xs text-emerald-100/75">
@@ -7299,7 +7300,7 @@ const Editor = () => {
                       </label>
                     </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
+                  <div className={`grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start ${verticalPreviewUrl ? "order-2" : ""}`}>
                     <div className="w-full" style={{ order: previewCardOrder }}>
                       <video
                         ref={verticalCompositionVideoRef}
@@ -7725,7 +7726,7 @@ const Editor = () => {
                   )}
 
                   {verticalPreviewUrl && (
-                    <div className="space-y-4">
+                    <div className="order-1 space-y-4">
                       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
                         <div className="space-y-3">
                           {!skipManualWebcamCrop ? (
