@@ -3490,6 +3490,11 @@ const Editor = () => {
 
   useEffect(() => {
     if (!isVerticalMode) return;
+    setVerticalCaptionFontId("impact");
+  }, [isVerticalMode]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
     if (verticalClipCountTouched) return;
     setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]);
   }, [isVerticalMode, verticalSelectionMode, verticalClipCountTouched]);
@@ -4407,6 +4412,7 @@ const Editor = () => {
   };
 
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const effectiveVerticalClipCount = verticalClipCountTouched ? verticalClipCount : 20;
   const activeStatusLabel = activeJob
     ? normalizeStatus(activeJob.status) === "failed" && activeJob.error === "queue_canceled_by_user"
       ? "Canceled"
@@ -4860,11 +4866,11 @@ const Editor = () => {
         : "Subtitles disabled",
     rendering:
       activeJob?.renderMode === "vertical"
-        ? `Rendering ${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} vertical clip(s)`
+        ? `Rendering ${Math.max(1, activeOutputUrls.length || effectiveVerticalClipCount || 1)} vertical clip(s)`
         : "Encoding final MP4 output",
     ready:
       activeJob?.renderMode === "vertical"
-        ? `${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} clip(s) ready`
+        ? `${Math.max(1, activeOutputUrls.length || effectiveVerticalClipCount || 1)} clip(s) ready`
         : "Export package is ready",
   };
   const pipelineRows = PIPELINE_STEPS.map((step, idx) => {
@@ -7212,21 +7218,19 @@ const Editor = () => {
                 </div>
               </div>
 
-              <div className={isVerticalMode ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)] xl:items-start" : ""}>
+              <div className={isVerticalMode ? "space-y-6" : ""}>
                 {isVerticalMode && (
-                  <div className="glass-card p-5 space-y-5">
-                  <div className="space-y-3">
-                    <div className="space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
-                      <p className="text-xs text-muted-foreground">
+                  <div className="glass-card border border-emerald-400/25 bg-gradient-to-b from-slate-950/90 via-slate-900/75 to-slate-950/90 p-5 space-y-5">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-emerald-100">Vertical Clip Builder</p>
+                      <p className="text-xs text-emerald-100/75">
                         {skipManualWebcamCrop
-                          ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
-                          : "Manual Webcam Selector (premium mode): drag, resize, and fine-tune the top crop while the bottom panel keeps full-frame context."}
+                          ? "Manual webcam crop is skipped. Vertical clips render directly from source framing."
+                          : "Manual webcam selector is enabled. Drag, resize, and fine-tune the top crop while previewing live output."}
                       </p>
                       <button
                         type="button"
-                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/70 bg-gradient-to-r from-slate-900/70 to-slate-800/45 px-3 py-1 text-[11px] text-slate-200 transition hover:border-primary/40 hover:text-white"
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-300/35 bg-emerald-500/10 px-3 py-1 text-[11px] text-emerald-100 transition hover:border-emerald-300/60 hover:bg-emerald-500/20"
                         onClick={() => {
                           setCropInteraction(null);
                           setSkipManualWebcamCrop((prev) => !prev);
@@ -7234,151 +7238,15 @@ const Editor = () => {
                       >
                         <span
                           className={`inline-block h-2.5 w-2.5 rounded-full ${
-                            skipManualWebcamCrop ? "bg-emerald-400" : "bg-muted-foreground/60"
+                            skipManualWebcamCrop ? "bg-emerald-300" : "bg-violet-300"
                           }`}
                         />
-                        {skipManualWebcamCrop ? "Using source framing (skip manual crop)" : "Use manual webcam crop"}
+                        {skipManualWebcamCrop ? "Using source framing" : "Use manual webcam crop"}
                       </button>
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Vertical Mode</p>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {VERTICAL_SELECTION_MODE_OPTIONS.map((mode) => {
-                          const Icon = mode.icon;
-                          const selected = verticalSelectionMode === mode.id;
-                          return (
-                            <button
-                              key={mode.id}
-                              type="button"
-                              className={`rounded-lg border p-3 text-left transition ${
-                                selected
-                                  ? "border-primary bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(124,58,237,0.35)]"
-                                  : "border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                              }`}
-                              onClick={() => {
-                                setVerticalSelectionMode(mode.id);
-                                setVerticalClipCountTouched(false);
-                                setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[mode.id]);
-                              }}
-                            >
-                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em]">
-                                <Icon className="h-3.5 w-3.5" />
-                                {mode.label}
-                              </div>
-                              <p className="mt-1 text-[11px] leading-relaxed">{mode.description}</p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Target Platform</p>
-                      <div className="flex flex-wrap gap-2">
-                        {([
-                          { value: "tiktok" as RetentionTargetPlatform, label: "TikTok" },
-                          { value: "instagram_reels" as RetentionTargetPlatform, label: "IG Reels" },
-                          { value: "youtube" as RetentionTargetPlatform, label: "YouTube Shorts" },
-                        ]).map((platform) => (
-                          <button
-                            key={platform.value}
-                            type="button"
-                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                              retentionTargetPlatform === platform.value
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border/60 text-muted-foreground hover:border-primary/40"
-                            }`}
-                            onClick={() => setRetentionTargetPlatform(platform.value)}
-                          >
-                            {platform.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                        <span className="uppercase tracking-[0.12em]">Clip Count</span>
-                        <span>
-                          {verticalClipCountTouched
-                            ? `${verticalClipCount} selected`
-                            : `Mode default (${DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]})`}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                            !verticalClipCountTouched
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border/60 text-muted-foreground hover:border-primary/40"
-                          }`}
-                          onClick={() => {
-                            setVerticalClipCountTouched(false);
-                            setVerticalClipCount(DEFAULT_VERTICAL_CLIP_COUNT_BY_MODE[verticalSelectionMode]);
-                          }}
-                        >
-                          Mode Default
-                        </button>
-                        {[2, 3, 4, 5, 6].map((count) => (
-                          <button
-                            key={count}
-                            type="button"
-                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                              verticalClipCountTouched && verticalClipCount === count
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border/60 text-muted-foreground hover:border-primary/40"
-                            }`}
-                            onClick={() => {
-                              setVerticalClipCountTouched(true);
-                              setVerticalClipCount(count);
-                            }}
-                          >
-                            {count} clips
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Zoom Effects</p>
-                      <div className="flex flex-wrap gap-2">
-                        {VERTICAL_ZOOM_PROFILE_OPTIONS.map((zoomMode) => (
-                          <button
-                            key={zoomMode.id}
-                            type="button"
-                            className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                              verticalZoomProfile === zoomMode.id
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border/60 text-muted-foreground hover:border-primary/40"
-                            }`}
-                            onClick={() => setVerticalZoomProfile(zoomMode.id)}
-                            title={zoomMode.description}
-                          >
-                            {zoomMode.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Intensity</span>
-                          <span>{Math.round(verticalZoomIntensity)}%</span>
-                        </div>
-                        <Slider
-                          value={[verticalZoomIntensity]}
-                          min={0}
-                          max={100}
-                          step={1}
-                          disabled={verticalZoomProfile === "none"}
-                          onValueChange={(value) => setVerticalZoomIntensity(clamp(Math.round(value?.[0] ?? 0), 0, 100))}
-                        />
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Best Moments is default and exports 3 strong moments. You can force an exact clip count any time.
-                    </p>
-                    </div>
-                  </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
-                    <div className="w-full xl:max-w-[320px]">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
+                    <div className="w-full">
                       <video
                         ref={verticalCompositionVideoRef}
                         src={verticalPreviewUrl || undefined}
@@ -7387,15 +7255,15 @@ const Editor = () => {
                         playsInline
                         className="hidden"
                       />
-                      <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
-                        <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
-                        <div className="mx-auto w-full max-w-[300px]">
+                      <div className="rounded-2xl border border-emerald-300/30 bg-black/85 p-4 space-y-3">
+                        <p className="text-xs font-medium uppercase tracking-[0.13em] text-emerald-200">Live Preview</p>
+                        <div className="mx-auto w-full max-w-[420px]">
                           <div ref={verticalCompositionFrameRef} className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
                             <canvas
                               ref={verticalCompositionCanvasRef}
-                              className="h-full w-full rounded-lg border border-border/50 bg-black"
+                              className="h-full w-full rounded-xl border border-emerald-300/30 bg-black"
                             />
-                            <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-white/10" />
+                            <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-emerald-200/10" />
                             {verticalCaptionEnabled && verticalCaptionPreviewText && verticalPreviewUrl ? (
                               <button
                                 type="button"
@@ -7411,7 +7279,7 @@ const Editor = () => {
                               </button>
                             ) : null}
                             {!verticalPreviewUrl ? (
-                              <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 px-4 text-center text-[11px] text-muted-foreground">
+                              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black px-6 text-center text-sm text-slate-300">
                                 Upload a video to activate live preview.
                               </div>
                             ) : null}
@@ -7420,25 +7288,29 @@ const Editor = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4">
+                    <div className="space-y-4 rounded-2xl border border-emerald-300/25 bg-slate-950/75 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium text-foreground">Vertical Captions</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Choose manual captions or let the editor auto-generate them from transcript signals.
+                        <p className="text-sm font-semibold text-emerald-100">Vertical Captions</p>
+                        <p className="text-[11px] text-emerald-100/70">
+                          Local transcript-driven overlays with viral style presets.
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`text-[11px] ${verticalCaptionEnabled ? "text-emerald-300" : "text-muted-foreground"}`}>
                           {verticalCaptionEnabled ? "On" : "Off"}
                         </span>
-                        <Switch checked={verticalCaptionEnabled} onCheckedChange={setVerticalCaptionEnabled} />
+                        <Switch
+                          checked={verticalCaptionEnabled}
+                          onCheckedChange={setVerticalCaptionEnabled}
+                          className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
+                        />
                       </div>
                     </div>
 
                     {verticalCaptionEnabled ? (
                       <>
-                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-2">
                           {VERTICAL_CAPTION_PRESET_OPTIONS.map((preset) => {
                             const Icon = preset.icon;
                             const selected = verticalCaptionPreset === preset.id;
@@ -7448,8 +7320,8 @@ const Editor = () => {
                                 type="button"
                                 className={`rounded-lg border p-3 text-left transition ${
                                   selected
-                                    ? "border-primary bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(124,58,237,0.35)]"
-                                    : "border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                                    ? "border-emerald-300/65 bg-emerald-500/15 text-emerald-50 shadow-[0_0_0_1px_rgba(74,222,128,0.35)]"
+                                    : "border-slate-700 bg-slate-900/70 text-slate-300 hover:border-emerald-300/35 hover:text-white"
                                 }`}
                                 onClick={() => applyVerticalCaptionPreset(preset.id)}
                               >
@@ -7463,11 +7335,11 @@ const Editor = () => {
                           })}
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid gap-3">
                           <label className="space-y-1">
-                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Font</span>
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">Font</span>
                             <select
-                              className="w-full rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                              className="w-full rounded-lg border border-emerald-200/20 bg-slate-900/70 px-2.5 py-2 text-xs text-emerald-100"
                               value={verticalCaptionFontId}
                               onChange={(event) => setVerticalCaptionFontId(event.target.value as SubtitleStyleConfig["fontId"])}
                             >
@@ -7479,20 +7351,29 @@ const Editor = () => {
                             </select>
                           </label>
                           <label className="space-y-1">
-                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Text color</span>
-                            <input
-                              type="color"
-                              value={normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor)}
-                              onChange={(event) =>
-                                setVerticalCaptionTextColor(
-                                  normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.textColor),
-                                )
-                              }
-                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
-                            />
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">Text color</span>
+                            <div className="space-y-2 rounded-lg border border-yellow-300/35 bg-yellow-400/5 px-3 py-2">
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={verticalTextColorSliderFromHex(
+                                  normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor),
+                                )}
+                                onChange={(event) =>
+                                  setVerticalCaptionTextColor(verticalTextColorFromSlider(event.currentTarget.valueAsNumber))
+                                }
+                                className="w-full accent-yellow-400"
+                              />
+                              <div className="flex items-center justify-between text-[10px] text-yellow-200/85">
+                                <span>Yellow slider</span>
+                                <span>{normalizeVerticalCaptionHex(verticalCaptionTextColor, activeVerticalCaptionPresetStyle.textColor)}</span>
+                              </div>
+                            </div>
                           </label>
                           <label className="space-y-1">
-                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Accent color</span>
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">Accent color</span>
                             <input
                               type="color"
                               value={normalizeVerticalCaptionHex(verticalCaptionAccentColor, activeVerticalCaptionPresetStyle.accentColor)}
@@ -7501,11 +7382,11 @@ const Editor = () => {
                                   normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.accentColor),
                                 )
                               }
-                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                              className="h-9 w-full cursor-pointer rounded-lg border border-emerald-200/20 bg-slate-900/70 p-1"
                             />
                           </label>
                           <label className="space-y-1">
-                            <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Outline color</span>
+                            <span className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">Outline color</span>
                             <input
                               type="color"
                               value={normalizeVerticalCaptionHex(verticalCaptionOutlineColor, activeVerticalCaptionPresetStyle.outlineColor)}
@@ -7514,7 +7395,7 @@ const Editor = () => {
                                   normalizeVerticalCaptionHex(event.target.value, activeVerticalCaptionPresetStyle.outlineColor),
                                 )
                               }
-                              className="h-9 w-full cursor-pointer rounded-lg border border-border/60 bg-muted/20 p-1"
+                              className="h-9 w-full cursor-pointer rounded-lg border border-emerald-200/20 bg-slate-900/70 p-1"
                             />
                           </label>
                         </div>
@@ -7559,15 +7440,27 @@ const Editor = () => {
                         <div className="grid gap-3 md:grid-cols-3">
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Drop shadow</span>
-                            <Switch checked={verticalCaptionShadowEnabled} onCheckedChange={setVerticalCaptionShadowEnabled} />
+                            <Switch
+                              checked={verticalCaptionShadowEnabled}
+                              onCheckedChange={setVerticalCaptionShadowEnabled}
+                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
+                            />
                           </label>
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Solid caption box</span>
-                            <Switch checked={verticalCaptionBoxEnabled} onCheckedChange={setVerticalCaptionBoxEnabled} />
+                            <Switch
+                              checked={verticalCaptionBoxEnabled}
+                              onCheckedChange={setVerticalCaptionBoxEnabled}
+                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
+                            />
                           </label>
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                             <span className="text-muted-foreground">Animated captions</span>
-                            <Switch checked={verticalCaptionAnimationEnabled} onCheckedChange={setVerticalCaptionAnimationEnabled} />
+                            <Switch
+                              checked={verticalCaptionAnimationEnabled}
+                              onCheckedChange={setVerticalCaptionAnimationEnabled}
+                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
+                            />
                           </label>
                         </div>
 
@@ -7666,7 +7559,11 @@ const Editor = () => {
 
                         <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
                           <span className="text-muted-foreground">Editor auto-generate captions from transcript</span>
-                          <Switch checked={verticalCaptionAutoGenerate} onCheckedChange={setVerticalCaptionAutoGenerate} />
+                          <Switch
+                            checked={verticalCaptionAutoGenerate}
+                            onCheckedChange={setVerticalCaptionAutoGenerate}
+                            className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
+                          />
                         </label>
 
                         <div className="space-y-2">
@@ -7887,12 +7784,42 @@ const Editor = () => {
                           Create Vertical Clips
                         </Button>
                       </div>
+
+                      <div className="grid gap-3 pt-2">
+                        <div className="w-full max-w-sm">
+                          <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-emerald-200/80">Search</p>
+                          <input
+                            type="text"
+                            placeholder="Search clips, captions, presets..."
+                            className="h-9 w-full rounded-full border border-emerald-300/35 bg-slate-950/80 px-3 text-xs text-emerald-50 placeholder:text-emerald-200/45"
+                          />
+                        </div>
+                        <div className="rounded-2xl border border-emerald-300/25 bg-black/60 px-3 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              {[
+                                { label: "Finder", color: "from-sky-300/70 to-blue-500/80" },
+                                { label: "Safari", color: "from-cyan-300/70 to-sky-500/80" },
+                                { label: "Chrome", color: "from-emerald-300/70 to-lime-500/80" },
+                              ].map((app) => (
+                                <div
+                                  key={app.label}
+                                  className={`inline-flex h-9 min-w-[62px] items-center justify-center rounded-xl border border-white/15 bg-gradient-to-b ${app.color} px-2 text-[10px] font-semibold text-slate-950`}
+                                >
+                                  {app.label}
+                                </div>
+                              ))}
+                            </div>
+                            <span className="text-xs font-semibold text-emerald-100/90">11:37 AM</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                   </div>
                 )}
 
-                <div className={isVerticalMode ? "xl:sticky xl:top-24" : ""}>
+                <div className={isVerticalMode ? "" : "xl:sticky xl:top-24"}>
                   <div className="glass-card overflow-hidden">
                     <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
                       {showVideo ? (
@@ -8956,7 +8883,7 @@ const Editor = () => {
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  {Array.from({ length: Math.max(1, activeOutputUrls.length || verticalClipCount) }).map((_, idx) => {
+                  {Array.from({ length: Math.max(1, activeOutputUrls.length || effectiveVerticalClipCount) }).map((_, idx) => {
                     const clipNumber = idx + 1;
                     const prediction = verticalClipPredictions.find((item) => item.clip === clipNumber) || null;
                     return (
