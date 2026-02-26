@@ -26,10 +26,12 @@ import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
 import { LiveStatsProvider } from "@/providers/LiveStatsProvider";
 import GlobalLiveBadge from "@/components/live/GlobalLiveBadge";
+import { useMe } from "@/hooks/use-me";
+import { isPaidTier, PLAN_CONFIG, type PlanTier } from "@/shared/planConfig";
 
 const queryClient = new QueryClient();
 
@@ -88,6 +90,18 @@ const ClientErrorReporter = () => {
   return null;
 };
 
+const RequirePaid = ({ children }: { children: ReactNode }) => {
+  const { data: me, isLoading } = useMe();
+  const rawTier = (me?.subscription?.tier as string | undefined) || "free";
+  const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
+  const isDevAccount = Boolean(me?.flags?.dev);
+  if (isLoading) return null;
+  if (!isDevAccount && !isPaidTier(tier)) {
+    return <Navigate to="/pricing" replace />;
+  }
+  return <>{children}</>;
+};
+
 const App = () => {
   useScreenProfile();
 
@@ -126,7 +140,9 @@ const App = () => {
                 path="/feedback"
                 element={
                   <RequireAuth>
-                    <Feedback />
+                    <RequirePaid>
+                      <Feedback />
+                    </RequirePaid>
                   </RequireAuth>
                 }
               />
