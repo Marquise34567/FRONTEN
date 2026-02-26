@@ -4,17 +4,20 @@ import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
-import { useMe } from "@/hooks/use-me";
 import LanguageDropdown from "@/components/LanguageDropdown";
+import { useLiveStats } from "@/providers/LiveStatsProvider";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
-  const { data: me } = useMe();
+  const { snapshot, pulse, connected } = useLiveStats();
   const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const showControlPanel = Boolean(me?.flags?.dev);
+  const showControlPanel = Boolean(user);
+  const showLiveMiniBadges = Boolean(user && (snapshot || pulse));
+  const activeUsers = pulse?.activeUsers ?? snapshot?.activeUsers ?? 0;
+  const upgradesToday = snapshot?.upgradeSignals?.upgradedToday ?? pulse?.upgradedToday ?? 0;
 
   const handleLogout = async () => {
     await signOut();
@@ -39,6 +42,17 @@ const Navbar = () => {
         </Link>
 
         <div className="hidden items-center gap-2 md:flex">
+          {showLiveMiniBadges ? (
+            <div className="hidden items-center gap-1 rounded-full border border-purple-300/30 bg-[#111325]/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-purple-100 lg:inline-flex" title="Live active users from websocket/SSE feed">
+              <span className={`inline-flex h-2 w-2 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
+              {activeUsers} live
+            </div>
+          ) : null}
+          {showLiveMiniBadges ? (
+            <div className="hidden items-center gap-1 rounded-full border border-cyan-300/25 bg-[#10131f]/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-100 lg:inline-flex" title="Users upgraded today">
+              {upgradesToday} upgrades
+            </div>
+          ) : null}
           <LanguageDropdown className="w-40" />
           <Link to="/pricing">
             <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
@@ -50,8 +64,13 @@ const Navbar = () => {
               {t("nav.editor")}
             </Button>
           </Link>
+          <Link to="/feedback">
+            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
+              Feedback
+            </Button>
+          </Link>
           {showControlPanel ? (
-            <Link to="/dev/control-panel/overview">
+            <Link to="/control-panel">
               <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
                 {t("nav.controlPanel")}
               </Button>
@@ -96,9 +115,12 @@ const Navbar = () => {
               <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
                 <Link to="/editor">{t("nav.editor")}</Link>
               </Button>
+              <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
+                <Link to="/feedback">Feedback</Link>
+              </Button>
               {showControlPanel ? (
                 <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
-                  <Link to="/dev/control-panel">{t("nav.controlPanel")}</Link>
+                  <Link to="/control-panel">{t("nav.controlPanel")}</Link>
                 </Button>
               ) : null}
               {user ? (

@@ -10,6 +10,7 @@ import Editor from "./pages/Editor";
 import JobDetail from "./pages/JobDetail";
 import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
+import Feedback from "./pages/Feedback";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
 import ControlPanel from "./pages/ControlPanel";
@@ -27,6 +28,8 @@ import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
 import { useEffect } from "react";
 import { apiFetch } from "@/lib/api";
+import { LiveStatsProvider } from "@/providers/LiveStatsProvider";
+import GlobalLiveBadge from "@/components/live/GlobalLiveBadge";
 
 const queryClient = new QueryClient();
 
@@ -92,11 +95,12 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ClientErrorReporter />
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
+        <LiveStatsProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
@@ -115,6 +119,14 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <Editor />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/feedback"
+                element={
+                  <RequireAuth>
+                    <Feedback />
                   </RequireAuth>
                 }
               />
@@ -144,16 +156,14 @@ const App = () => {
                   </RequireAuth>
                 }
               />
-              <Route
-                path="/control-panel"
-                element={
-                  <RequireAuth>
-                    <RequireDevAdmin>
-                      <Navigate to="/dev/control-panel/overview" replace />
-                    </RequireDevAdmin>
-                  </RequireAuth>
-                }
-              />
+                <Route
+                  path="/control-panel"
+                  element={
+                    <RequireAuth>
+                      <ControlPanel />
+                    </RequireAuth>
+                  }
+                />
               <Route
                 path="/__control-panel"
                 element={
@@ -264,10 +274,12 @@ const App = () => {
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <GlobalLiveBadge />
+            </BrowserRouter>
+          </TooltipProvider>
+        </LiveStatsProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

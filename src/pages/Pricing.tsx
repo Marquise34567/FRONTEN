@@ -14,6 +14,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { PlanTier } from "@shared/planConfig";
+import { useLiveStats } from "@/providers/LiveStatsProvider";
 
 const TRIAL_WINDOW_MS = 72 * 60 * 60 * 1000;
 
@@ -30,12 +31,14 @@ const Pricing = () => {
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
   const { data: me } = useMe();
+  const { snapshot, pulse } = useLiveStats();
   const { data: founderAvailability } = useFounderAvailability();
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
+  const upgradesToday = pulse?.upgradedToday ?? snapshot?.upgradeSignals?.upgradedToday ?? 0;
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
@@ -132,6 +135,9 @@ const Pricing = () => {
                   : trialActive
                     ? t("pricing.trialLiveBadge", { defaultValue: "Trial live" })
                     : t("pricing.trialNewBadge", { defaultValue: "Trial ready" })}
+              </Badge>
+              <Badge className="border border-cyan-100/35 bg-cyan-400/15 text-cyan-50">
+                {upgradesToday} users upgraded today
               </Badge>
             </div>
           </div>
