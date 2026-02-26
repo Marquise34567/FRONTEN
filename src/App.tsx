@@ -22,6 +22,7 @@ import ControlPanelGrowth from "./pages/ControlPanelGrowth";
 import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
 import ControlPanelOps from "./pages/ControlPanelOps";
 import ControlPanelSecurity from "./pages/ControlPanelSecurity";
+import ControlPanelBlacksite from "./pages/ControlPanelBlacksite";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
@@ -283,11 +284,21 @@ const App = () => {
                 }
               />
               <Route
+                path="/dev/control-panel/blacksite"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelBlacksite />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/x-quantum-control-9"
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <Navigate to="/dev/control-panel/overview" replace />
+                      <ControlPanelBlacksite />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }

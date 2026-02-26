@@ -105,10 +105,32 @@ const uploadParallelismForFile = (size: number) => {
   return 1;
 };
 
+const MAX_VERTICAL_CAPTION_WORDS = 5;
+const normalizeVerticalCaptionHex = (value: string, fallback = "#FFFFFF") => {
+  const normalized = String(value || "").trim().replace(/^#/, "").toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(normalized)) return `#${normalized}`;
+  return normalizeVerticalCaptionHex(fallback, "#FFFFFF");
+};
+const normalizeVerticalCaptionPhrase = (value: string) => {
+  const compact = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 84);
+  if (!compact) return "";
+  return compact
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, MAX_VERTICAL_CAPTION_WORDS)
+    .join(" ");
+};
 const normalizeVerticalCaptionTextForJob = (value: string) =>
   String(value || "")
     .replace(/\r\n?/g, "\n")
-    .trim()
+    .split("\n")
+    .map((line) => normalizeVerticalCaptionPhrase(line))
+    .filter(Boolean)
+    .slice(0, 18)
+    .join("\n")
     .slice(0, 1800);
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -120,6 +142,10 @@ const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const VERTICAL_CAPTION_FONT_SIZE_MIN = 32;
 const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 128;
+const VERTICAL_CAPTION_OUTLINE_WIDTH_MIN = 0;
+const VERTICAL_CAPTION_OUTLINE_WIDTH_MAX = 24;
+const VERTICAL_CAPTION_SHADOW_BLUR_MIN = 0;
+const VERTICAL_CAPTION_SHADOW_BLUR_MAX = 42;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
@@ -130,17 +156,56 @@ const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 const HELP_DEMO_ROTATE_MS = 2600;
 const HELP_DEMO_SAMPLE_VIDEO_SRC = "/editor-help-sample.mp4";
+const DEFAULT_VERTICAL_CAPTION_PRESET: VerticalCaptionPreset = "mrbeast_animated";
 const clampVerticalCaptionFontSize = (value: number) =>
   clamp(Math.round(Number(value) || VERTICAL_CAPTION_FONT_SIZE_DEFAULT), VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX);
+const clampVerticalCaptionOutlineWidth = (value: number) =>
+  clamp(
+    Math.round(Number(value) || 0),
+    VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+    VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+  );
+const clampVerticalCaptionShadowBlur = (value: number) =>
+  clamp(
+    Math.round(Number(value) || 0),
+    VERTICAL_CAPTION_SHADOW_BLUR_MIN,
+    VERTICAL_CAPTION_SHADOW_BLUR_MAX,
+  );
+const clampVerticalCaptionPosition = (value: number) => clamp(Number(value) || 0, 0.02, 0.98);
 
 type VerticalFitMode = "cover" | "contain";
-type VerticalCaptionPreset = "basic_clean" | "mrbeast_animated" | "neon_glow";
+type VerticalCaptionPreset = "basic_clean" | "mrbeast_animated" | "neon_glow" | "bold_clean_box" | "rage_mode" | "ice_pop";
+type VerticalCaptionStyleDefaults = {
+  fontId: SubtitleStyleConfig["fontId"];
+  textColor: string;
+  accentColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowBlur: number;
+  boxEnabled: boolean;
+  boxColor: string;
+  forceUppercase: boolean;
+};
 type VerticalCaptionsPayload = {
   enabled: boolean;
   autoGenerate: boolean;
   preset: VerticalCaptionPreset;
   fontSize: number;
   text: string;
+  fontId: SubtitleStyleConfig["fontId"];
+  textColor: string;
+  accentColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowBlur: number;
+  boxEnabled: boolean;
+  boxColor: string;
+  positionX: number;
+  positionY: number;
 };
 type RenderModeSelection = "horizontal" | "vertical";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
@@ -435,10 +500,107 @@ const VERTICAL_CAPTION_PRESET_OPTIONS: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { id: "basic_clean", label: "Basic Clean", description: "Readable white captions for clean edits.", icon: Gauge },
-  { id: "mrbeast_animated", label: "Viral MrBeast", description: "Huge yellow punch style for Shorts.", icon: Flame },
-  { id: "neon_glow", label: "Neon Glow", description: "Cyan/magenta glow for stylized reels.", icon: Zap },
+  { id: "mrbeast_animated", label: "Viral Beast", description: "High-energy punch text for Shorts and clips.", icon: Flame },
+  { id: "rage_mode", label: "Rage Mode", description: "Aggressive red/yellow callout style.", icon: Rabbit },
+  { id: "neon_glow", label: "Neon Glow", description: "Cyan/magenta nightlife glow.", icon: Zap },
+  { id: "ice_pop", label: "Ice Pop", description: "Cool high-contrast blue style.", icon: Trophy },
+  { id: "bold_clean_box", label: "Solid Box", description: "Strong boxed callout with hard contrast.", icon: Camera },
+  { id: "basic_clean", label: "Basic Clean", description: "Readable clean captions for softer edits.", icon: Gauge },
 ];
+const VERTICAL_CAPTION_STYLE_DEFAULTS: Record<VerticalCaptionPreset, VerticalCaptionStyleDefaults> = {
+  basic_clean: {
+    fontId: "sans_bold",
+    textColor: "#F8FAFC",
+    accentColor: "#F8FAFC",
+    outlineColor: "#0F172A",
+    outlineWidth: 3,
+    shadowEnabled: false,
+    shadowColor: "#020617",
+    shadowBlur: 0,
+    boxEnabled: true,
+    boxColor: "#020617",
+    forceUppercase: false,
+  },
+  mrbeast_animated: {
+    fontId: "impact",
+    textColor: "#FFE500",
+    accentColor: "#FFF173",
+    outlineColor: "#050505",
+    outlineWidth: 18,
+    shadowEnabled: true,
+    shadowColor: "#050505",
+    shadowBlur: 8,
+    boxEnabled: false,
+    boxColor: "#000000",
+    forceUppercase: true,
+  },
+  neon_glow: {
+    fontId: "condensed",
+    textColor: "#2DF6FF",
+    accentColor: "#FF4FD8",
+    outlineColor: "#071E28",
+    outlineWidth: 6,
+    shadowEnabled: true,
+    shadowColor: "#2DF6FF",
+    shadowBlur: 26,
+    boxEnabled: false,
+    boxColor: "#0A0F1E",
+    forceUppercase: true,
+  },
+  bold_clean_box: {
+    fontId: "sans_bold",
+    textColor: "#FFFFFF",
+    accentColor: "#FFE047",
+    outlineColor: "#000000",
+    outlineWidth: 6,
+    shadowEnabled: true,
+    shadowColor: "#000000",
+    shadowBlur: 10,
+    boxEnabled: true,
+    boxColor: "#111827",
+    forceUppercase: false,
+  },
+  rage_mode: {
+    fontId: "impact",
+    textColor: "#FF4D4D",
+    accentColor: "#FFD74A",
+    outlineColor: "#1A0202",
+    outlineWidth: 14,
+    shadowEnabled: true,
+    shadowColor: "#120000",
+    shadowBlur: 18,
+    boxEnabled: false,
+    boxColor: "#240202",
+    forceUppercase: true,
+  },
+  ice_pop: {
+    fontId: "condensed",
+    textColor: "#DDF6FF",
+    accentColor: "#49DEFF",
+    outlineColor: "#041426",
+    outlineWidth: 10,
+    shadowEnabled: true,
+    shadowColor: "#49DEFF",
+    shadowBlur: 18,
+    boxEnabled: false,
+    boxColor: "#041426",
+    forceUppercase: true,
+  },
+};
+const VERTICAL_CAPTION_PREVIEW_FALLBACKS: Record<VerticalCaptionPreset, string> = {
+  basic_clean: "Clean hook moment",
+  mrbeast_animated: "THIS PART GOES CRAZY",
+  neon_glow: "NEON MOMENT HITS HARD",
+  bold_clean_box: "Watch this next part",
+  rage_mode: "NO WAY THIS JUST HAPPENED",
+  ice_pop: "COLD MOMENT RIGHT HERE",
+};
+const resolveVerticalCaptionCanvasFont = (fontId: SubtitleStyleConfig["fontId"]) => {
+  if (fontId === "sans_bold") return '"Arial Black", Arial, sans-serif';
+  if (fontId === "condensed") return '"Roboto Condensed", "Arial Narrow", Arial, sans-serif';
+  if (fontId === "serif_bold") return '"Georgia", "Times New Roman", serif';
+  return 'Impact, "Arial Black", sans-serif';
+};
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -526,6 +688,13 @@ type ManualOverrideStructuredPlan = {
   removals: string[];
   retentionImpact: string;
   aiSuggestions: string[];
+};
+type ManualPreviewSegment = { start: number; end: number };
+type ManualPreviewPlan = {
+  segments: ManualPreviewSegment[];
+  keepRanges: ManualPreviewSegment[];
+  removeRanges: ManualPreviewSegment[];
+  hookRange: ManualPreviewSegment | null;
 };
 
 type VerticalClipPrediction = {
@@ -987,6 +1156,186 @@ const computeManualRetentionDelta = ({
   return Number(clamp(score, -25, 25).toFixed(2));
 };
 
+const normalizeManualPreviewRange = (
+  range: { start: number; end: number },
+  durationSec: number,
+): ManualPreviewSegment | null => {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return null;
+  const start = Number(clamp(Number(range.start || 0), 0, Math.max(0, durationSec - 0.05)).toFixed(3));
+  const end = Number(clamp(Number(range.end || 0), start + 0.05, Math.max(start + 0.05, durationSec)).toFixed(3));
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end - start < 0.05) return null;
+  return { start, end };
+};
+
+const mergeManualPreviewRanges = (ranges: ManualPreviewSegment[]): ManualPreviewSegment[] => {
+  if (!ranges.length) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  return sorted.reduce<ManualPreviewSegment[]>((acc, range) => {
+    const prev = acc[acc.length - 1];
+    if (!prev || range.start > prev.end) {
+      acc.push({ start: range.start, end: range.end });
+      return acc;
+    }
+    prev.end = Math.max(prev.end, range.end);
+    return acc;
+  }, []);
+};
+
+const subtractManualPreviewRangeFromSegments = (
+  segments: ManualPreviewSegment[],
+  cut: ManualPreviewSegment,
+): ManualPreviewSegment[] => {
+  const out: ManualPreviewSegment[] = [];
+  for (const segment of segments) {
+    if (cut.end <= segment.start || cut.start >= segment.end) {
+      out.push(segment);
+      continue;
+    }
+    if (cut.start > segment.start + 0.001) {
+      out.push({
+        start: Number(segment.start.toFixed(3)),
+        end: Number(Math.min(segment.end, cut.start).toFixed(3)),
+      });
+    }
+    if (cut.end < segment.end - 0.001) {
+      out.push({
+        start: Number(Math.max(segment.start, cut.end).toFixed(3)),
+        end: Number(segment.end.toFixed(3)),
+      });
+    }
+  }
+  return out.filter((segment) => segment.end - segment.start >= 0.05);
+};
+
+const subtractManualPreviewRangesFromSegments = (
+  segments: ManualPreviewSegment[],
+  cuts: ManualPreviewSegment[],
+): ManualPreviewSegment[] => {
+  let next = [...segments];
+  for (const cut of cuts) {
+    next = subtractManualPreviewRangeFromSegments(next, cut);
+    if (!next.length) return [];
+  }
+  return next;
+};
+
+const buildManualPreviewPlan = ({
+  enabled,
+  markers,
+  durationSec,
+}: {
+  enabled: boolean;
+  markers: ManualTimestampMarker[];
+  durationSec: number;
+}): ManualPreviewPlan | null => {
+  if (!enabled || !Number.isFinite(durationSec) || durationSec <= 0.1) return null;
+  const keepRanges = mergeManualPreviewRanges(
+    markers
+      .filter((marker) => marker.type === "keep")
+      .map((marker) => normalizeManualPreviewRange({ start: marker.start, end: marker.end }, durationSec))
+      .filter((range: ManualPreviewSegment | null): range is ManualPreviewSegment => Boolean(range)),
+  );
+  const removeRanges = mergeManualPreviewRanges(
+    markers
+      .filter((marker) => marker.type === "remove")
+      .map((marker) => normalizeManualPreviewRange({ start: marker.start, end: marker.end }, durationSec))
+      .filter((range: ManualPreviewSegment | null): range is ManualPreviewSegment => Boolean(range)),
+  );
+  const baseKeepRanges = keepRanges.length
+    ? keepRanges
+    : [{ start: 0, end: Number(durationSec.toFixed(3)) }];
+  let effectiveSegments = baseKeepRanges.map((range) => ({ start: range.start, end: range.end }));
+  if (removeRanges.length > 0) {
+    effectiveSegments = subtractManualPreviewRangesFromSegments(effectiveSegments, removeRanges);
+  }
+  if (!effectiveSegments.length) {
+    const fallbackEnd = Number(clamp(durationSec * 0.35, 0.6, durationSec).toFixed(3));
+    effectiveSegments = [{ start: 0, end: fallbackEnd }];
+  }
+  const hookMarker = markers.find((marker) => marker.type === "hook" && marker.source === "user")
+    || markers.find((marker) => marker.type === "hook")
+    || null;
+  const hookRange = hookMarker
+    ? normalizeManualPreviewRange({ start: hookMarker.start, end: hookMarker.end }, durationSec)
+    : null;
+  const segments = hookRange
+    ? [
+        { start: hookRange.start, end: hookRange.end },
+        ...subtractManualPreviewRangeFromSegments(
+          effectiveSegments.map((segment) => ({ ...segment })),
+          hookRange,
+        ),
+      ]
+    : effectiveSegments.map((segment) => ({ ...segment }));
+  return {
+    segments: segments.filter((segment) => segment.end - segment.start >= 0.05),
+    keepRanges: baseKeepRanges,
+    removeRanges,
+    hookRange,
+  };
+};
+
+const findManualPreviewSegmentIndex = (segments: ManualPreviewSegment[], sourceTime: number) => {
+  const safeTime = Number(sourceTime || 0);
+  return segments.findIndex((segment) => (
+    safeTime >= segment.start - 0.025 && safeTime <= segment.end - 0.01
+  ));
+};
+
+const snapToManualPreviewTime = (segments: ManualPreviewSegment[], sourceTime: number) => {
+  if (!segments.length) return Number(Math.max(0, sourceTime).toFixed(3));
+  const safeTime = Number(Math.max(0, sourceTime).toFixed(3));
+  const insideIndex = findManualPreviewSegmentIndex(segments, safeTime);
+  if (insideIndex >= 0) {
+    const inside = segments[insideIndex];
+    return Number(clamp(safeTime, inside.start, inside.end).toFixed(3));
+  }
+  if (safeTime <= segments[0].start) return Number(segments[0].start.toFixed(3));
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const current = segments[index];
+    const next = segments[index + 1];
+    if (safeTime > current.end && safeTime < next.start) {
+      return Number(next.start.toFixed(3));
+    }
+  }
+  const last = segments[segments.length - 1];
+  return Number(last.end.toFixed(3));
+};
+
+const buildManualConfigSignature = ({
+  enabled,
+  autoAssist,
+  markers,
+  suggestions,
+}: {
+  enabled: boolean;
+  autoAssist: boolean;
+  markers: ManualTimestampMarker[];
+  suggestions: ManualTimestampSuggestion[];
+}) => {
+  const markerSignature = [...markers]
+    .map((marker) => ({
+      type: marker.type,
+      start: Number(marker.start.toFixed(3)),
+      end: Number(marker.end.toFixed(3)),
+      source: marker.source,
+    }))
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.type.localeCompare(b.type));
+  const suggestionSignature = [...suggestions]
+    .map((suggestion) => ({
+      type: suggestion.type,
+      start: Number(suggestion.start.toFixed(3)),
+      end: Number(suggestion.end.toFixed(3)),
+    }))
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.type.localeCompare(b.type));
+  return JSON.stringify({
+    enabled: Boolean(enabled),
+    autoAssist: Boolean(autoAssist),
+    markers: markerSignature,
+    suggestions: suggestionSignature,
+  });
+};
+
 const buildAiManualSuggestionsFromAnalysis = (analysis: any, durationSec: number): ManualTimestampSuggestion[] => {
   const suggestions: ManualTimestampSuggestion[] = [];
   const pushUnique = (candidate: ManualTimestampSuggestion) => {
@@ -1172,11 +1521,24 @@ const Editor = () => {
   const successParam = String(searchParams.get("success") || "").toLowerCase();
   const successTierParam = toPlanTier(searchParams.get("tier"));
   const isVerticalMode = modeParam === "vertical";
+  const defaultVerticalCaptionStyle = VERTICAL_CAPTION_STYLE_DEFAULTS[DEFAULT_VERTICAL_CAPTION_PRESET];
   const [verticalClipCount, setVerticalClipCount] = useState(0);
   const [verticalCaptionEnabled, setVerticalCaptionEnabled] = useState(true);
   const [verticalCaptionAutoGenerate, setVerticalCaptionAutoGenerate] = useState(true);
-  const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>("mrbeast_animated");
+  const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPreset>(DEFAULT_VERTICAL_CAPTION_PRESET);
   const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
+  const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<SubtitleStyleConfig["fontId"]>(defaultVerticalCaptionStyle.fontId);
+  const [verticalCaptionTextColor, setVerticalCaptionTextColor] = useState(defaultVerticalCaptionStyle.textColor);
+  const [verticalCaptionAccentColor, setVerticalCaptionAccentColor] = useState(defaultVerticalCaptionStyle.accentColor);
+  const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState(defaultVerticalCaptionStyle.outlineColor);
+  const [verticalCaptionOutlineWidth, setVerticalCaptionOutlineWidth] = useState(defaultVerticalCaptionStyle.outlineWidth);
+  const [verticalCaptionShadowEnabled, setVerticalCaptionShadowEnabled] = useState(defaultVerticalCaptionStyle.shadowEnabled);
+  const [verticalCaptionShadowColor, setVerticalCaptionShadowColor] = useState(defaultVerticalCaptionStyle.shadowColor);
+  const [verticalCaptionShadowBlur, setVerticalCaptionShadowBlur] = useState(defaultVerticalCaptionStyle.shadowBlur);
+  const [verticalCaptionBoxEnabled, setVerticalCaptionBoxEnabled] = useState(defaultVerticalCaptionStyle.boxEnabled);
+  const [verticalCaptionBoxColor, setVerticalCaptionBoxColor] = useState(defaultVerticalCaptionStyle.boxColor);
+  const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState(0.5);
+  const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState(0.84);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
@@ -1199,6 +1561,12 @@ const Editor = () => {
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
+  const [captionDragInteraction, setCaptionDragInteraction] = useState<{
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
@@ -1241,6 +1609,7 @@ const Editor = () => {
   const [manualAutoAssist, setManualAutoAssist] = useState(false);
   const [manualMarkersByJob, setManualMarkersByJob] = useState<Record<string, ManualTimestampMarker[]>>({});
   const [manualSuggestionsByJob, setManualSuggestionsByJob] = useState<Record<string, ManualTimestampSuggestion[]>>({});
+  const [manualSavedSignatureByJob, setManualSavedSignatureByJob] = useState<Record<string, string>>({});
   const [manualAiSuggestLoadingJobId, setManualAiSuggestLoadingJobId] = useState<string | null>(null);
   const [inputPreviewUrlByJob, setInputPreviewUrlByJob] = useState<Record<string, string>>({});
   const [previewDurationByJob, setPreviewDurationByJob] = useState<Record<string, number>>({});
@@ -1255,6 +1624,7 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalCompositionFrameRef = useRef<HTMLDivElement | null>(null);
   const helpDemoVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -2214,6 +2584,19 @@ const Editor = () => {
     if (!parsed) {
       setManualMode(false);
       setManualAutoAssist(false);
+      setManualSavedSignatureByJob((prev) => (
+        Object.prototype.hasOwnProperty.call(prev, jobId)
+          ? prev
+          : {
+              ...prev,
+              [jobId]: buildManualConfigSignature({
+                enabled: false,
+                autoAssist: false,
+                markers: [],
+                suggestions: [],
+              }),
+            }
+      ));
       setPreviewPlayingByJob((prev) => (prev[jobId] ? { ...prev, [jobId]: false } : prev));
       return;
     }
@@ -2230,6 +2613,15 @@ const Editor = () => {
       });
       setPreviewCurrentTimeByJob((prev) => (Object.prototype.hasOwnProperty.call(prev, jobId) ? prev : { ...prev, [jobId]: 0 }));
       manualHydratedSignatureByJobRef.current[jobId] = signature;
+      setManualSavedSignatureByJob((prev) => ({
+        ...prev,
+        [jobId]: buildManualConfigSignature({
+          enabled: parsed.enabled,
+          autoAssist: parsed.autoAssist,
+          markers: parsed.markers,
+          suggestions: parsed.suggestions,
+        }),
+      }));
     }
     setManualMode(parsed.enabled);
     setManualAutoAssist(parsed.autoAssist);
@@ -2909,6 +3301,21 @@ const Editor = () => {
     }, { replace: false });
   }, [setSearchParams]);
 
+  const applyVerticalCaptionPreset = useCallback((preset: VerticalCaptionPreset) => {
+    const defaults = VERTICAL_CAPTION_STYLE_DEFAULTS[preset];
+    setVerticalCaptionPreset(preset);
+    setVerticalCaptionFontId(defaults.fontId);
+    setVerticalCaptionTextColor(defaults.textColor);
+    setVerticalCaptionAccentColor(defaults.accentColor);
+    setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionOutlineWidth(clampVerticalCaptionOutlineWidth(defaults.outlineWidth));
+    setVerticalCaptionShadowEnabled(defaults.shadowEnabled);
+    setVerticalCaptionShadowColor(defaults.shadowColor);
+    setVerticalCaptionShadowBlur(clampVerticalCaptionShadowBlur(defaults.shadowBlur));
+    setVerticalCaptionBoxEnabled(defaults.boxEnabled);
+    setVerticalCaptionBoxColor(defaults.boxColor);
+  }, []);
+
   const prepareVerticalFile = (file: File) => {
     if (!isAllowedUploadFile(file)) {
       toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
@@ -3414,13 +3821,13 @@ const Editor = () => {
 
   const handleRedoRender = useCallback(
     async (job: JobDetail) => {
-      if (!accessToken || !job?.id) return;
+      if (!accessToken || !job?.id) return false;
       if (!isDevAccount && rerendersRemainingToday !== null && (rerendersRemainingToday ?? 0) <= 0) {
         toast({
           title: "Daily re-render limit reached",
           description: "You reached your re-render limit for today.",
         });
-        return;
+        return false;
       }
       setReprocessingJobId(job.id);
       try {
@@ -3448,6 +3855,12 @@ const Editor = () => {
             (job.analysis as any)?.hookMode,
           );
         const manualTimestampPayload = buildManualTimestampPayload(job.id);
+        const persistedManualSignature = buildManualConfigSignature({
+          enabled: Boolean(manualTimestampPayload?.enabled),
+          autoAssist: Boolean(manualTimestampPayload?.autoAssist),
+          markers: manualTimestampPayload?.markers || [],
+          suggestions: manualTimestampPayload?.suggestions || [],
+        });
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
           retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
@@ -3529,6 +3942,10 @@ const Editor = () => {
             outputUrls: null,
           };
         });
+        setManualSavedSignatureByJob((prev) => ({
+          ...prev,
+          [job.id]: persistedManualSignature,
+        }));
         await Promise.allSettled([fetchJobs(), fetchJob(job.id), refetchMe()]);
         const remaining = Number(result?.rerenderUsage?.rerendersRemaining);
         const limit = Number(result?.rerenderUsage?.rerendersLimit);
@@ -3543,6 +3960,7 @@ const Editor = () => {
             description: "Your job was added back to the queue.",
           });
         }
+        return true;
       } catch (err: any) {
         if (err instanceof ApiError && err.code === "RERENDER_LIMIT_REACHED") {
           const used = Number(err.data?.rerendersUsed ?? 0);
@@ -3569,6 +3987,7 @@ const Editor = () => {
             description: err?.message || "Please try again.",
           });
         }
+        return false;
       } finally {
         setReprocessingJobId((current) => (current === job.id ? null : current));
       }
@@ -4217,6 +4636,16 @@ const Editor = () => {
     ? Boolean(previewPlayingByJob[activeJob.id])
     : false;
   const activeInputPreviewUrl = activeJob ? (inputPreviewUrlByJob[activeJob.id] || "") : "";
+  const activeManualDraftSignature = activeJob
+    ? buildManualConfigSignature({
+        enabled: manualMode,
+        autoAssist: manualAutoAssist,
+        markers: activeManualMarkers,
+        suggestions: activeManualSuggestions,
+      })
+    : "";
+  const activeManualSavedSignature = activeJob ? (manualSavedSignatureByJob[activeJob.id] || "") : "";
+  const manualHasUnsavedChanges = Boolean(activeJob && manualMode && activeManualDraftSignature !== activeManualSavedSignature);
   const manualRemovalRatio = activeManualDurationSec > 0
     ? computeManualRemovalRatio(activeManualMarkers, activeManualDurationSec)
     : 0;
@@ -4266,8 +4695,26 @@ const Editor = () => {
   })();
   const manualStructuredPlanRetentionPoints = parseManualRetentionImpactPoints(manualOverridePlan?.retentionImpact);
   const manualRetentionDisplay = manualStructuredPlanRetentionPoints ?? manualRetentionDeltaEstimate;
+  const manualLivePreviewPlan = buildManualPreviewPlan({
+    enabled: manualMode,
+    markers: activeManualMarkers,
+    durationSec: activeManualDurationSec,
+  });
+  const manualLivePreviewSegments = manualLivePreviewPlan?.segments || [];
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
+  const manualLivePreviewEnabled = Boolean(
+    manualMode &&
+      manualHasUnsavedChanges &&
+      activeJob &&
+      !isVerticalMode &&
+      activeInputPreviewUrl &&
+      manualLivePreviewSegments.length > 0,
+  );
+  const previewVideoUrl = manualLivePreviewEnabled ? activeInputPreviewUrl : previewOutputUrl;
+  const showVideo = Boolean(
+    activeJob &&
+      ((manualLivePreviewEnabled && previewVideoUrl) || (normalizedActiveStatus === "ready" && previewOutputUrl)),
+  );
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -4618,6 +5065,17 @@ const Editor = () => {
       setApplyingHookJobId((current) => (current === jobId ? null : current));
     }
   }, [accessToken, activeJob?.id, fetchJob, toast]);
+  const handleManualSaveAndRender = useCallback(async () => {
+    if (!activeJob) return;
+    if (!isTerminalStatus(activeJob.status)) {
+      toast({
+        title: "Render still in progress",
+        description: "Wait until the current run finishes, then press Save.",
+      });
+      return;
+    }
+    await handleRedoRender(activeJob);
+  }, [activeJob, handleRedoRender, toast]);
   const handleManualMarkersChange = useCallback((nextMarkers: ManualTimestampMarker[]) => {
     if (!activeJob?.id) return;
     const sanitized = nextMarkers
@@ -4774,18 +5232,62 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
-    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    let currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
+      const snapped = snapToManualPreviewTime(manualLivePreviewSegments, currentTime);
+      if (Math.abs(snapped - currentTime) > 0.02) {
+        video.currentTime = snapped;
+      }
+      currentTime = snapped;
+    }
     setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
     setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(currentTime.toFixed(3)) }));
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: !video.paused }));
-    ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
-  }, [activeJob, ensurePlaybackTelemetry]);
+    if (!manualLivePreviewEnabled) {
+      ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
+    }
+  }, [activeJob, ensurePlaybackTelemetry, manualLivePreviewEnabled, manualLivePreviewSegments]);
 
   const handlePreviewTimeUpdate = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
+      let currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+      const segmentIndex = findManualPreviewSegmentIndex(manualLivePreviewSegments, currentTime);
+      if (segmentIndex < 0) {
+        const snapped = snapToManualPreviewTime(manualLivePreviewSegments, currentTime);
+        if (Math.abs(snapped - currentTime) > 0.015) {
+          video.currentTime = snapped;
+        }
+        currentTime = snapped;
+      } else {
+        const segment = manualLivePreviewSegments[segmentIndex];
+        if (currentTime >= segment.end - 0.02) {
+          const next = manualLivePreviewSegments[segmentIndex + 1];
+          if (next) {
+            const overshoot = Math.max(0, currentTime - segment.end);
+            const nextTime = clamp(next.start + overshoot, next.start, next.end);
+            if (Math.abs(nextTime - currentTime) > 0.015) {
+              video.currentTime = nextTime;
+            }
+            currentTime = Number(nextTime.toFixed(3));
+          } else {
+            const endTime = Number(segment.end.toFixed(3));
+            if (Math.abs(endTime - currentTime) > 0.015) {
+              video.currentTime = endTime;
+            }
+            video.pause();
+            currentTime = endTime;
+            setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+          }
+        }
+      }
+      setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
+      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(currentTime.toFixed(3)) }));
+      return;
+    }
 
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
@@ -4818,30 +5320,50 @@ const Editor = () => {
         telemetry.maxProgress >= 0.95,
       );
     }
-  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+  }, [activeJob, ensurePlaybackTelemetry, manualLivePreviewEnabled, manualLivePreviewSegments, submitPreviewFeedback]);
 
   const handlePreviewPlay = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (Number.isFinite(duration) && duration > 0) {
+      let currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+      if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
+        const lastSegment = manualLivePreviewSegments[manualLivePreviewSegments.length - 1];
+        if (currentTime >= lastSegment.end - 0.03) {
+          currentTime = Number(manualLivePreviewSegments[0].start.toFixed(3));
+        } else {
+          currentTime = snapToManualPreviewTime(manualLivePreviewSegments, currentTime);
+        }
+        if (Math.abs(currentTime - Number(video.currentTime || 0)) > 0.02) {
+          video.currentTime = currentTime;
+        }
+      }
       setPreviewDurationByJob((prev) => ({ ...prev, [activeJob.id]: Number(duration.toFixed(3)) }));
-      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(clamp(Number(video.currentTime || 0), 0, duration).toFixed(3)) }));
+      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(currentTime.toFixed(3)) }));
     }
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: true }));
-  }, [activeJob]);
+  }, [activeJob, manualLivePreviewEnabled, manualLivePreviewSegments]);
 
   const handlePreviewPause = useCallback(() => {
     if (!activeJob) return;
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+    if (manualLivePreviewEnabled) return;
     const telemetry = playbackTelemetryRef.current[activeJob.id];
     if (!telemetry) return;
     submitPreviewFeedback(activeJob, telemetry, "pause", false);
-  }, [activeJob, submitPreviewFeedback]);
+  }, [activeJob, manualLivePreviewEnabled, submitPreviewFeedback]);
 
   const handlePreviewEnded = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
+    if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
+      const lastSegment = manualLivePreviewSegments[manualLivePreviewSegments.length - 1];
+      const endTime = Number(lastSegment.end.toFixed(3));
+      setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: endTime }));
+      setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+      return;
+    }
     const duration = Number(video.duration);
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration, duration);
     if (Number.isFinite(duration) && duration > 0) {
@@ -4854,13 +5376,13 @@ const Editor = () => {
     }
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
     submitPreviewFeedback(activeJob, telemetry, "ended", true);
-  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+  }, [activeJob, ensurePlaybackTelemetry, manualLivePreviewEnabled, manualLivePreviewSegments, submitPreviewFeedback]);
 
   const handlePreviewVideoError = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     const details = {
       jobId: activeJob?.id ?? null,
-      outputUrl: previewOutputUrl || null,
+      outputUrl: previewVideoUrl || null,
       networkState: video?.networkState ?? null,
       readyState: video?.readyState ?? null,
       errorCode: video?.error?.code ?? null,
@@ -4874,23 +5396,37 @@ const Editor = () => {
       title: "Preview failed",
       description: "Could not load the edited video. Check network/output URL.",
     });
-  }, [activeJob?.id, previewOutputUrl, toast]);
+  }, [activeJob?.id, previewVideoUrl, toast]);
 
   const handleManualPreviewSeek = useCallback((seconds: number) => {
     if (!activeJob?.id) return;
-    const safeSeconds = Number(Math.max(0, seconds).toFixed(3));
+    const requested = Number(Math.max(0, seconds).toFixed(3));
+    const safeSeconds = manualLivePreviewEnabled && manualLivePreviewSegments.length > 0
+      ? snapToManualPreviewTime(manualLivePreviewSegments, requested)
+      : requested;
     setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: safeSeconds }));
     const video = previewVideoRef.current;
     if (video && Number.isFinite(video.duration) && video.duration > 0) {
       video.currentTime = clamp(safeSeconds, 0, Number(video.duration));
     }
-  }, [activeJob?.id]);
+  }, [activeJob?.id, manualLivePreviewEnabled, manualLivePreviewSegments]);
 
   const handleManualTogglePlay = useCallback(() => {
     if (!activeJob?.id) return;
     const video = previewVideoRef.current;
     if (video) {
       if (video.paused) {
+        if (manualLivePreviewEnabled && manualLivePreviewSegments.length > 0) {
+          const current = Number(video.currentTime || 0);
+          const lastSegment = manualLivePreviewSegments[manualLivePreviewSegments.length - 1];
+          const seekTime = current >= lastSegment.end - 0.03
+            ? manualLivePreviewSegments[0].start
+            : snapToManualPreviewTime(manualLivePreviewSegments, current);
+          if (Math.abs(seekTime - current) > 0.015) {
+            video.currentTime = seekTime;
+          }
+          setPreviewCurrentTimeByJob((prev) => ({ ...prev, [activeJob.id]: Number(seekTime.toFixed(3)) }));
+        }
         setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: true }));
         void video.play().catch(() => {
           setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
@@ -4902,7 +5438,7 @@ const Editor = () => {
       return;
     }
     setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: !prev[activeJob.id] }));
-  }, [activeJob?.id]);
+  }, [activeJob?.id, manualLivePreviewEnabled, manualLivePreviewSegments]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -6568,7 +7104,7 @@ const Editor = () => {
                   {showVideo ? (
                     <video
                       ref={previewVideoRef}
-                      src={previewOutputUrl}
+                      src={previewVideoUrl}
                       controls
                       onLoadedMetadata={handlePreviewLoadedMetadata}
                       onTimeUpdate={handlePreviewTimeUpdate}
@@ -6619,7 +7155,7 @@ const Editor = () => {
                   removeRatio={manualRemovalRatio}
                   microHookSuggestions={manualMicroHookSuggestions}
                   warning={manualWarnings[0] || null}
-                  editedUrl={previewOutputUrl || activeInputPreviewUrl}
+                  editedUrl={previewVideoUrl || activeInputPreviewUrl}
                   originalUrl={activeInputPreviewUrl}
                   onTogglePlay={handleManualTogglePlay}
                   onSeek={handleManualPreviewSeek}
@@ -6630,6 +7166,14 @@ const Editor = () => {
                   onAcceptSuggestion={handleManualAcceptSuggestion}
                   onRejectSuggestion={handleManualRejectSuggestion}
                   onApplyAllSuggestions={handleManualApplyAllSuggestions}
+                  onSave={() => void handleManualSaveAndRender()}
+                  saveDisabled={
+                    reprocessingJobId === activeJob.id ||
+                    !manualHasUnsavedChanges ||
+                    !isTerminalStatus(activeJob.status)
+                  }
+                  saving={reprocessingJobId === activeJob.id}
+                  hasUnsavedChanges={manualHasUnsavedChanges}
                 />
               ) : null}
 

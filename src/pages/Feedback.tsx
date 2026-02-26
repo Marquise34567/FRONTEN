@@ -50,6 +50,99 @@ type FeedbackResponse = {
   feedback: FeedbackAnalysis;
 };
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const asFiniteNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const asStringArray = (value: unknown) =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => String(entry ?? "").trim())
+    .filter(Boolean);
+
+const normalizeTrendInsight = (value: unknown): TrendInsight | null => {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  const title = String(entry.title ?? "").trim();
+  const summary = String(entry.summary ?? "").trim();
+  const howToApply = String(entry.howToApply ?? entry.how_to_apply ?? "").trim();
+  if (!title && !summary && !howToApply) return null;
+  return {
+    title: title || "Trend signal",
+    summary: summary || "Fresh trend signal detected in creator ecosystem coverage.",
+    howToApply: howToApply || "Apply this signal in your opener with a clearer payoff hook.",
+    source: String(entry.source ?? "").trim() || "AutoEditor",
+    url: String(entry.url ?? "").trim(),
+    publishedAt: entry.publishedAt ? String(entry.publishedAt) : entry.published_at ? String(entry.published_at) : null,
+  };
+};
+
+const normalizeRetentionCurve = (value: unknown): Array<{ second: number; score: number }> => {
+  const points = (Array.isArray(value) ? value : [])
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const point = entry as Record<string, unknown>;
+      const second = Math.max(0, Math.round(asFiniteNumber(point.second ?? point.time, Number.NaN)));
+      const score = clamp(asFiniteNumber(point.score ?? point.retention ?? point.value, Number.NaN), 0, 100);
+      if (!Number.isFinite(second) || !Number.isFinite(score)) return null;
+      return { second, score: Math.round(score) };
+    })
+    .filter((entry): entry is { second: number; score: number } => Boolean(entry));
+
+  if (points.length) return points;
+  return [
+    { second: 0, score: 92 },
+    { second: 15, score: 84 },
+    { second: 30, score: 76 },
+    { second: 45, score: 69 },
+    { second: 60, score: 63 },
+  ];
+};
+
+const normalizeSuggestionPins = (value: unknown): Array<{ second: number; label: string }> =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const pin = entry as Record<string, unknown>;
+      const second = Math.max(0, Math.round(asFiniteNumber(pin.second ?? pin.time, Number.NaN)));
+      const label = String(pin.label ?? pin.text ?? "").trim();
+      if (!Number.isFinite(second) || !label) return null;
+      return { second, label };
+    })
+    .filter((entry): entry is { second: number; label: string } => Boolean(entry));
+
+const normalizeFeedbackAnalysis = (value: unknown): FeedbackAnalysis => {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const visualsRaw = source.visuals && typeof source.visuals === "object" ? (source.visuals as Record<string, unknown>) : {};
+  const trendInsightsRaw = Array.isArray(source.trendInsights)
+    ? source.trendInsights
+    : Array.isArray(source.trend_insights)
+    ? source.trend_insights
+    : [];
+
+  return {
+    detectedNiche: String(source.detectedNiche ?? source.detected_niche ?? source.niche ?? "podcast / commentary").trim() || "podcast / commentary",
+    detectedTopics: asStringArray(source.detectedTopics ?? source.detected_topics),
+    trendingTopics: asStringArray(source.trendingTopics ?? source.trending_topics),
+    voicePerformance: asStringArray(source.voicePerformance ?? source.voice_performance),
+    positioningAngle: asStringArray(source.positioningAngle ?? source.positioning_angle),
+    contentTips: asStringArray(source.contentTips ?? source.content_tips),
+    retentionBoosts: asStringArray(source.retentionBoosts ?? source.retention_boosts),
+    trendInsights: trendInsightsRaw.map(normalizeTrendInsight).filter((entry): entry is TrendInsight => Boolean(entry)),
+    retentionBoostEstimatePercent: clamp(
+      Math.round(asFiniteNumber(source.retentionBoostEstimatePercent ?? source.retention_boost_estimate_percent, 12)),
+      0,
+      100,
+    ),
+    visuals: {
+      retentionCurve: normalizeRetentionCurve(visualsRaw.retentionCurve ?? visualsRaw.retention_curve),
+      suggestionPins: normalizeSuggestionPins(visualsRaw.suggestionPins ?? visualsRaw.suggestion_pins),
+    },
+  };
+};
+
 const formatDuration = (seconds: number | null | undefined) => {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "Unknown";
   const safe = Math.max(0, Math.floor(seconds));
@@ -195,7 +288,7 @@ const Feedback = () => {
         body: JSON.stringify(body),
         token: accessToken,
       });
-      setFeedback(result.feedback);
+      setFeedback(normalizeFeedbackAnalysis(result.feedback));
       toast({ title: "Feedback ready", description: "AI trend and retention insights have been generated." });
     } catch (error: any) {
       if (error instanceof ApiError && error.code === "PREMIUM_REQUIRED") {

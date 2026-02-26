@@ -1,5 +1,5 @@
 import { motion } from "framer-motion"
-import { Bot, ChevronDown, Cpu, Flame, Globe2, Landmark, LayoutDashboard, ShieldAlert, TrendingUp, Wrench } from "lucide-react"
+import { Bot, ChevronDown, Cpu, Flame, Globe2, Landmark, LayoutDashboard, ShieldAlert, TrendingUp, Wrench, KeyRound } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
 type ControlPanelPage = {
@@ -47,6 +47,15 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
     >
       <div className="pointer-events-none absolute -left-10 top-6 h-28 w-28 rounded-full bg-sky-500/20 blur-2xl" />
       <div className="pointer-events-none absolute right-8 top-2 h-16 w-16 rounded-full bg-cyan-400/20 blur-2xl" />
+      <button
+        type="button"
+        onClick={() => navigate("/x-quantum-control-9")}
+        className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent bg-transparent text-sky-100/20 transition hover:border-sky-300/30 hover:bg-sky-500/10 hover:text-sky-100 focus-visible:border-sky-300/40 focus-visible:text-sky-100"
+        aria-label="Open operator deck"
+        title="Operator deck"
+      >
+        <KeyRound className="h-3.5 w-3.5" />
+      </button>
 
       <div className="relative flex flex-col gap-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">

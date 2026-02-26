@@ -51,6 +51,10 @@ type ManualTimestampEditorProps = {
   onAcceptSuggestion: (id: string) => void;
   onRejectSuggestion: (id: string) => void;
   onApplyAllSuggestions: () => void;
+  onSave: () => void;
+  saveDisabled: boolean;
+  saving: boolean;
+  hasUnsavedChanges: boolean;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -97,6 +101,10 @@ const ManualTimestampEditor = ({
   onAcceptSuggestion,
   onRejectSuggestion,
   onApplyAllSuggestions,
+  onSave,
+  saveDisabled,
+  saving,
+  hasUnsavedChanges,
 }: ManualTimestampEditorProps) => {
   const [pendingMarker, setPendingMarker] = useState<{ type: ManualMarkerType; start: number } | null>(null);
   const [zoom, setZoom] = useState(1.5);
@@ -202,6 +210,10 @@ const ManualTimestampEditor = ({
           {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           {isPlaying ? "Pause" : "Play"}
         </Button>
+        <Button type="button" size="sm" onClick={onSave} disabled={saveDisabled} className="gap-1">
+          <Check className={`h-3.5 w-3.5 ${saving ? "animate-pulse" : ""}`} />
+          {saving ? "Saving..." : "Save"}
+        </Button>
         <Button type="button" size="sm" variant="outline" onClick={() => createMarker("keep")}>
           Set Cut Here
         </Button>
@@ -219,6 +231,9 @@ const ManualTimestampEditor = ({
           <Trash2 className="mr-1 h-3.5 w-3.5" />
           Clear All
         </Button>
+        <span className={`text-xs ${hasUnsavedChanges ? "text-amber-300" : "text-emerald-300"}`}>
+          {hasUnsavedChanges ? "Unsaved changes" : "Saved"}
+        </span>
       </div>
 
       {pendingMarker ? (
