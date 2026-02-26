@@ -6725,12 +6725,8 @@ const Editor = () => {
       <Navbar />
       <main className="responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
-              <p className="text-muted-foreground mt-1">{t("editor.shipFaster")}</p>
-            </div>
-            <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
+          <div className="mb-6">
+            <div className="w-full space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               {me && (
                 <>
@@ -6809,11 +6805,8 @@ const Editor = () => {
               </div>
               <div className="editor-settings-shell w-full rounded-[1.35rem] border border-violet-400/20 bg-[linear-gradient(145deg,#0F0F1A_0%,#12121F_100%)] p-3.5 shadow-[0_16px_55px_-34px_rgba(168,85,247,0.65)] md:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-violet-100/95">{t("editor.creatorStudio")}</p>
-                      <p className="text-xs text-slate-400">{t("editor.shipFaster")}</p>
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-semibold text-violet-100/95">{t("editor.settings.title")}</p>
                     {hideEditorControlsPanel ? <span className="text-xs text-slate-400">{t("editor.settings.collapsed")}</span> : null}
                   </div>
                   <button

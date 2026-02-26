@@ -334,14 +334,9 @@ const Settings = () => {
       <main className="responsive-main mx-auto min-h-screen max-w-6xl px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.28),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.22),transparent_48%),linear-gradient(145deg,rgba(10,12,24,0.92),rgba(18,20,34,0.9))] p-6 shadow-[0_28px_80px_-48px_rgba(99,102,241,0.9)]">
-            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
               <div>
-                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-300/40 bg-violet-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-100">
-                  <WandSparkles className="h-3.5 w-3.5" />
-                  Creator Studio
-                </div>
-                <h1 className="text-3xl font-bold font-display text-foreground">Creator Studio</h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-300">Ship edits faster with live preview and real-time feedback</p>
+                <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
               </div>
               <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
                 <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
