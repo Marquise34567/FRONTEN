@@ -32,7 +32,8 @@ import { algorithmApi } from "@/features/control-panel/algorithm/api"
 import type {
   AlgorithmConfigParams,
   AnalyzeResponse,
-  ImprovementSuggestion
+  ImprovementSuggestion,
+  PromptApplyChange
 } from "@/features/control-panel/algorithm/types"
 
 const PARAM_LIMITS: Record<
@@ -157,6 +158,15 @@ const toNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(numeric) ? numeric : fallback
 }
 
+const PROMPT_MAX_CHARS = 12_000
+
+const formatParamKey = (key: string) =>
+  key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+
 const ControlPanelAlgorithm = () => {
   const { accessToken } = useAuth()
   const queryClient = useQueryClient()
@@ -186,6 +196,8 @@ const ControlPanelAlgorithm = () => {
   const [analysisRange, setAnalysisRange] = useState("7d")
   const [promptText, setPromptText] = useState("")
   const [promptSummary, setPromptSummary] = useState<string | null>(null)
+  const [promptWarnings, setPromptWarnings] = useState<string[]>([])
+  const [promptAppliedChanges, setPromptAppliedChanges] = useState<PromptApplyChange[]>([])
   const [realtimeSyncEnabled, setRealtimeSyncEnabled] = useState(true)
   const [realtimeNote, setRealtimeNote] = useState("Realtime Control Room sync")
   const autoPushDebounceRef = useRef<number | null>(null)
@@ -366,6 +378,8 @@ const ControlPanelAlgorithm = () => {
       setParamsDirty(false)
       setActionError(null)
       setActionSuccess("Prompt translated and applied to live config.")
+      setPromptWarnings(result.warnings || [])
+      setPromptAppliedChanges(result.applied_changes || [])
       setPromptSummary(
         `${result.strategy} • ${result.applied_changes.length} change${result.applied_changes.length === 1 ? "" : "s"}`
       )
@@ -373,6 +387,8 @@ const ControlPanelAlgorithm = () => {
     },
     onError: (error) => {
       setPromptSummary(null)
+      setPromptWarnings([])
+      setPromptAppliedChanges([])
       setActionSuccess(null)
       setActionError((error as Error).message || "Prompt apply failed.")
     }
@@ -389,6 +405,8 @@ const ControlPanelAlgorithm = () => {
       setDraftParams(result.config.params)
       setParamsDirty(false)
       setPromptSummary(`Auto-optimized from ${result.analyzed_sample_size} renders using "${result.suggestion.title}".`)
+      setPromptWarnings([])
+      setPromptAppliedChanges([])
       setActionError(null)
       setActionSuccess(`Auto-optimized live config: ${result.suggestion.title}`)
       await refreshAlgorithmQueries()
@@ -714,9 +732,16 @@ const ControlPanelAlgorithm = () => {
                   value={promptText}
                   onChange={(event) => setPromptText(event.target.value)}
                   rows={4}
+                  maxLength={PROMPT_MAX_CHARS}
                   className="w-full resize-y rounded-md border border-slate-700 bg-slate-900/75 px-2 py-2 text-xs text-slate-100"
                   placeholder="Example: Make hooks stronger in the first 5 seconds, reduce jank, and keep better story flow."
                 />
+                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <span>Supports detailed long-form prompts.</span>
+                  <span>
+                    {promptText.length}/{PROMPT_MAX_CHARS}
+                  </span>
+                </div>
                 <div className="mt-2 flex items-center gap-2">
                   <Button
                     type="button"
@@ -732,6 +757,25 @@ const ControlPanelAlgorithm = () => {
                 <p className="mt-2 text-[11px] text-slate-400">
                   Prompt is parsed on the server into deterministic param changes, then activated for new renders immediately.
                 </p>
+                {promptWarnings.length ? (
+                  <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-500/10 p-2">
+                    {promptWarnings.map((warning, index) => (
+                      <p key={`prompt-warning-${index}`} className="text-[11px] text-amber-100/90">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+                {promptAppliedChanges.length ? (
+                  <div className="mt-2 space-y-1 rounded-md border border-cyan-400/20 bg-cyan-500/10 p-2">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-100/90">Applied Changes</p>
+                    {promptAppliedChanges.slice(0, 8).map((change, index) => (
+                      <p key={`prompt-change-${index}`} className="text-[11px] text-cyan-50/90">
+                        {formatParamKey(String(change.key))}: {String(change.previous)} → {String(change.next)} ({change.source})
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-slate-700/80 bg-slate-900/55 p-3">
