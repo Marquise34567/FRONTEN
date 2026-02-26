@@ -4,16 +4,17 @@ import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
+import { useMe } from "@/hooks/use-me";
 import LanguageDropdown from "@/components/LanguageDropdown";
-import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
+  const { data: me } = useMe();
   const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const showControlPanel = isControlPanelOwnerEmail(user?.email);
+  const showControlPanel = Boolean(me?.flags?.dev);
 
   const handleLogout = async () => {
     await signOut();
