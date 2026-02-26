@@ -15,7 +15,7 @@ const normalizeApiUrl = (value: string) => {
 };
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
 const PUBLIC_API_PREFIXES = ["/api/public/"];
-const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
+const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping", "/api/audio-assets"]);
 const isControlPanelPath = (path: string) =>
   path.startsWith("/api/admin") || path.startsWith("/api/dev/algorithm");
 let authExpiredNotifiedAt = 0;
@@ -39,6 +39,18 @@ export class ApiError extends Error {
 
 import { supabase } from "@/integrations/supabase/client";
 import { getControlPanelPassword } from "./controlPanelAuth";
+
+export type AudioAsset = {
+  name: string;
+  displayName: string;
+  url: string;
+  type: "sfx" | "bgm";
+};
+
+export type AudioAssetsResponse = {
+  soundEffects: AudioAsset[];
+  backgroundMusic: AudioAsset[];
+};
 
 export async function apiFetch<T>(
   path: string,
@@ -118,3 +130,5 @@ export async function apiFetch<T>(
   }
   return data as T;
 }
+
+export const fetchAudioAssets = () => apiFetch<AudioAssetsResponse>("/api/audio-assets");
