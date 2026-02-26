@@ -34,6 +34,7 @@ export type ManualTimestampSuggestion = {
 };
 
 type DragBoundary = "start" | "end";
+type RetentionAreaLevel = "best" | "weak" | "low";
 
 type ManualTimestampEditorProps = {
   markers: ManualTimestampMarker[];
@@ -97,6 +98,26 @@ const labelByType: Record<ManualMarkerType, string> = {
   hook: "Hook",
 };
 
+type RetentionArea = {
+  id: string;
+  start: number;
+  end: number;
+  score: number;
+  level: RetentionAreaLevel;
+  reason: string;
+};
+
+const retentionAreaBadgeClassByLevel: Record<RetentionAreaLevel, string> = {
+  best: "border-emerald-300/40 bg-emerald-500/14 text-emerald-100",
+  weak: "border-amber-300/45 bg-amber-500/12 text-amber-100",
+  low: "border-rose-300/45 bg-rose-500/12 text-rose-100",
+};
+
+const overlapDuration = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
+  Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+
+const formatRange = (start: number, end: number) => `${formatTimelineTime(start)}-${formatTimelineTime(end)}`;
+
 const ManualTimestampEditor = ({
   markers,
   suggestions,
@@ -130,6 +151,7 @@ const ManualTimestampEditor = ({
   const [previewMode, setPreviewMode] = useState<"edited" | "split">("edited");
   const [dragState, setDragState] = useState<{ id: string; boundary: DragBoundary } | null>(null);
   const timelineInnerRef = useRef<HTMLDivElement | null>(null);
+  const editedVideoRef = useRef<HTMLVideoElement | null>(null);
   const splitOriginalVideoRef = useRef<HTMLVideoElement | null>(null);
   const splitEditedVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -156,8 +178,11 @@ const ManualTimestampEditor = ({
   );
 
   useEffect(() => {
-    if (previewMode !== "split") return;
-    const targets = [splitOriginalVideoRef.current, splitEditedVideoRef.current].filter(Boolean) as HTMLVideoElement[];
+    const targets = [
+      editedVideoRef.current,
+      splitEditedVideoRef.current,
+      previewMode === "split" ? splitOriginalVideoRef.current : null,
+    ].filter((video, index, list): video is HTMLVideoElement => Boolean(video) && list.indexOf(video) === index);
     for (const video of targets) {
       try {
         if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.08) {
@@ -231,6 +256,140 @@ const ManualTimestampEditor = ({
   const retentionLabel =
     retentionDelta === null ? "n/a" : `${retentionDelta >= 0 ? "+" : ""}${retentionDelta.toFixed(1)} pts`;
   const markedPercent = durationSec > 0 ? clamp((markedDuration / durationSec) * 100, 0, 100) : 0;
+  const primaryHookMarker =
+    sortedMarkers.find((marker) => marker.type === "hook" && marker.source === "user")
+    || sortedMarkers.find((marker) => marker.type === "hook")
+    || null;
+
+  const retentionSnapshot = useMemo(() => {
+    if (durationSec <= 0) {
+      return {
+        score: 0,
+        baseline: 0,
+        deltaFromBaseline: 0,
+        hookMessage: "Set a hook in the first 8 seconds to stabilize early retention.",
+        areaMap: [] as RetentionArea[],
+        bestAreas: [] as RetentionArea[],
+        weakAreas: [] as RetentionArea[],
+        lowAreas: [] as RetentionArea[],
+      };
+    }
+
+    const bucketCount = clamp(Math.round(durationSec / 5), 6, 16);
+    const bucketSpan = durationSec / bucketCount;
+    const areaMap: RetentionArea[] = [];
+
+    for (let index = 0; index < bucketCount; index += 1) {
+      const start = Number((index * bucketSpan).toFixed(3));
+      const end = Number((index === bucketCount - 1 ? durationSec : start + bucketSpan).toFixed(3));
+      const span = Math.max(0.1, end - start);
+      const progress = start / Math.max(durationSec, 0.001);
+      let score = 72 - progress * 20;
+
+      let keepInfluence = 0;
+      let removeInfluence = 0;
+      let hookInfluence = 0;
+      let microInfluence = 0;
+
+      for (const marker of sortedMarkers) {
+        const overlap = overlapDuration(start, end, marker.start, marker.end);
+        if (overlap <= 0) continue;
+        const ratio = overlap / span;
+        if (marker.type === "keep") keepInfluence += 18 * ratio;
+        if (marker.type === "remove") removeInfluence -= 22 * ratio;
+        if (marker.type === "hook") hookInfluence += 24 * ratio;
+      }
+
+      for (const suggestion of microHookSuggestions) {
+        const overlap = overlapDuration(start, end, suggestion.start, suggestion.end);
+        if (overlap <= 0) continue;
+        microInfluence += (overlap / span) * 10;
+      }
+
+      score += keepInfluence + removeInfluence + hookInfluence + microInfluence;
+
+      if (primaryHookMarker) {
+        const hookCenter = (primaryHookMarker.start + primaryHookMarker.end) / 2;
+        const areaCenter = start + span / 2;
+        const distance = Math.abs(areaCenter - hookCenter);
+        if (distance <= 6) score += 4;
+        else if (distance <= 12) score += 1.5;
+      }
+
+      score = clamp(score, 8, 99);
+
+      let level: RetentionAreaLevel = "weak";
+      if (score >= 74) level = "best";
+      else if (score < 46) level = "low";
+
+      let reason = "Neutral pacing pressure.";
+      if (removeInfluence <= -10) reason = "Heavy remove windows can trigger drop-off.";
+      else if (hookInfluence >= 9) reason = "Hook pressure is strongest in this stretch.";
+      else if (keepInfluence >= 8) reason = "Keep segment anchors watch-time here.";
+      else if (microInfluence >= 5) reason = "Micro-hook support adds recovery.";
+      else if (progress > 0.72) reason = "Late-section drift; tighten cut density.";
+
+      areaMap.push({
+        id: `retention_area_${index}`,
+        start,
+        end,
+        score: Number(score.toFixed(1)),
+        level,
+        reason,
+      });
+    }
+
+    const averageAreaScore = areaMap.reduce((total, area) => total + area.score, 0) / Math.max(1, areaMap.length);
+    const removalBalanceBonus = 12 - Math.abs(removalPercent - 18) * 0.35;
+    const markerDensityBonus = clamp(sortedMarkers.length * 1.6, 0, 12);
+
+    let hookBonus = -8;
+    let hookMessage = "Set a hook in the first 8 seconds to stabilize early retention.";
+    if (primaryHookMarker) {
+      const hookStart = primaryHookMarker.start;
+      const hookLength = Math.max(0.05, primaryHookMarker.end - primaryHookMarker.start);
+      if (hookStart <= 8) {
+        hookBonus = 10;
+        hookMessage =
+          hookLength >= 3 && hookLength <= 8
+            ? "Hook placement is strong: early and inside the 3-8s window."
+            : "Hook starts early. Try a 3-8 second hook span for stronger hold.";
+      } else if (hookStart <= 14) {
+        hookBonus = 3;
+        hookMessage = "Hook is slightly late. Move it closer to 0-8 seconds.";
+      } else {
+        hookBonus = -6;
+        hookMessage = "Hook is late; viewers can churn before the opener lands.";
+      }
+    }
+
+    const estimateBias = retentionDelta === null ? 0 : retentionDelta * 3.2;
+    const baseline = clamp(60 + estimateBias, 0, 100);
+    const score = clamp(
+      averageAreaScore * 0.72 + baseline * 0.28 + removalBalanceBonus + markerDensityBonus + hookBonus - 10,
+      0,
+      100,
+    );
+    const deltaFromBaseline = Number((score - baseline).toFixed(1));
+
+    const sortedByScoreDesc = [...areaMap].sort((a, b) => b.score - a.score);
+    const sortedByScoreAsc = [...areaMap].sort((a, b) => a.score - b.score);
+    const bestAreas = sortedByScoreDesc.slice(0, 3);
+    const lowAreas = sortedByScoreAsc.filter((area) => area.score < 46).slice(0, 3);
+    let weakAreas = sortedByScoreAsc.filter((area) => area.score >= 46 && area.score < 66).slice(0, 3);
+    if (weakAreas.length === 0) weakAreas = sortedByScoreAsc.slice(0, 3);
+
+    return {
+      score: Number(score.toFixed(1)),
+      baseline: Number(baseline.toFixed(1)),
+      deltaFromBaseline,
+      hookMessage,
+      areaMap,
+      bestAreas,
+      weakAreas,
+      lowAreas,
+    };
+  }, [durationSec, microHookSuggestions, primaryHookMarker, removalPercent, retentionDelta, sortedMarkers]);
 
   return (
     <section className="manual-editor-shell space-y-4 rounded-2xl border border-cyan-200/20 p-4 sm:p-5">
@@ -260,7 +419,7 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Playhead</p>
           <p className="mt-1 text-lg font-semibold text-slate-100">{formatTimelineTime(currentTimeSec)}</p>
@@ -432,7 +591,7 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-medium text-slate-100">Markers</p>
@@ -534,15 +693,37 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-3 md:grid-cols-[0.95fr_1.05fr]">
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-100">
-            <Gauge className="h-4 w-4 text-cyan-200" />
-            Quality Signals
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+              <Gauge className="h-4 w-4 text-cyan-200" />
+              Quality Signals
+            </div>
+            <Badge
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[10px]",
+                retentionSnapshot.deltaFromBaseline >= 0
+                  ? "border-emerald-300/45 bg-emerald-500/12 text-emerald-100"
+                  : "border-rose-300/45 bg-rose-500/12 text-rose-100",
+              )}
+            >
+              Live vs baseline {retentionSnapshot.deltaFromBaseline >= 0 ? "+" : ""}
+              {retentionSnapshot.deltaFromBaseline.toFixed(1)}
+            </Badge>
           </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2 text-xs text-slate-200">
-            <p>Projected retention delta: {retentionLabel}</p>
-            <p className="mt-1">Micro-hook hints: {microHookSuggestions.length}</p>
+          <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Live retention score</p>
+            <div className="mt-1 flex items-end justify-between gap-2">
+              <p className="text-2xl font-semibold text-slate-100">
+                {retentionSnapshot.score.toFixed(1)}
+                <span className="ml-1 text-xs font-medium text-slate-400">/100</span>
+              </p>
+              <p className="text-[11px] text-slate-400">Baseline {retentionSnapshot.baseline.toFixed(1)}</p>
+            </div>
+            <Progress value={retentionSnapshot.score} className="manual-editor-progress mt-2 h-2 bg-white/10" />
+            <p className="mt-2 text-xs text-slate-200">Projected retention delta: {retentionLabel}</p>
+            <p className="mt-1 text-xs text-cyan-100/90">{retentionSnapshot.hookMessage}</p>
           </div>
           <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
             <div className="flex items-center justify-between text-xs text-slate-200">
@@ -550,6 +731,107 @@ const ManualTimestampEditor = ({
               <span>{removalPercent.toFixed(1)}%</span>
             </div>
             <Progress value={removalPercent} className="manual-editor-progress mt-2 h-2 bg-white/10" />
+            <p className="mt-1 text-[11px] text-slate-400">Micro-hook hints: {microHookSuggestions.length}</p>
+          </div>
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Retention map</p>
+            {retentionSnapshot.areaMap.length > 0 ? (
+              <div className="manual-editor-retention-strip mt-1.5">
+                {retentionSnapshot.areaMap.map((area) => (
+                  <button
+                    key={area.id}
+                    type="button"
+                    onClick={() => onSeek(area.start)}
+                    className={cn("manual-editor-retention-chip", `manual-editor-retention-chip--${area.level}`)}
+                    style={{ width: `${100 / retentionSnapshot.areaMap.length}%` }}
+                    aria-label={`Jump to ${formatRange(area.start, area.end)}`}
+                    title={`${formatRange(area.start, area.end)} • ${area.score.toFixed(1)}`}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-500">Add markers to build the retention heatmap.</p>
+            )}
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg border border-emerald-300/20 bg-emerald-500/[0.06] p-2">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-emerald-200">Best parts</p>
+              {retentionSnapshot.bestAreas.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {retentionSnapshot.bestAreas.map((area) => (
+                    <button
+                      key={area.id}
+                      type="button"
+                      onClick={() => onSeek(area.start)}
+                      className={cn(
+                        "manual-editor-retention-row w-full rounded-md border px-2 py-1.5 text-left",
+                        retentionAreaBadgeClassByLevel.best,
+                      )}
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span>{formatRange(area.start, area.end)}</span>
+                        <span>{area.score.toFixed(0)}</span>
+                      </div>
+                      <p className="mt-1 text-[10px] opacity-80">{area.reason}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-emerald-100/70">Add hook/keep markers to find highlights.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-amber-300/20 bg-amber-500/[0.06] p-2">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-amber-100">Weak parts</p>
+              {retentionSnapshot.weakAreas.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {retentionSnapshot.weakAreas.map((area) => (
+                    <button
+                      key={area.id}
+                      type="button"
+                      onClick={() => onSeek(area.start)}
+                      className={cn(
+                        "manual-editor-retention-row w-full rounded-md border px-2 py-1.5 text-left",
+                        retentionAreaBadgeClassByLevel.weak,
+                      )}
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span>{formatRange(area.start, area.end)}</span>
+                        <span>{area.score.toFixed(0)}</span>
+                      </div>
+                      <p className="mt-1 text-[10px] opacity-80">{area.reason}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-amber-100/70">No weak zones detected.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-rose-300/20 bg-rose-500/[0.06] p-2">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-rose-100">Low retention</p>
+              {retentionSnapshot.lowAreas.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {retentionSnapshot.lowAreas.map((area) => (
+                    <button
+                      key={area.id}
+                      type="button"
+                      onClick={() => onSeek(area.start)}
+                      className={cn(
+                        "manual-editor-retention-row w-full rounded-md border px-2 py-1.5 text-left",
+                        retentionAreaBadgeClassByLevel.low,
+                      )}
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span>{formatRange(area.start, area.end)}</span>
+                        <span>{area.score.toFixed(0)}</span>
+                      </div>
+                      <p className="mt-1 text-[10px] opacity-80">{area.reason}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-rose-100/70">No low-retention zones flagged.</p>
+              )}
+            </div>
           </div>
           {warning ? (
             <p className="mt-2 rounded-lg border border-amber-300/35 bg-amber-500/12 px-2.5 py-2 text-xs text-amber-100">
@@ -558,7 +840,7 @@ const ManualTimestampEditor = ({
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+        <div className="rounded-xl border border-white/10 bg-black/25 p-3 md:sticky md:top-2 md:self-start">
           <Tabs value={previewMode} onValueChange={(value) => setPreviewMode(value === "split" ? "split" : "edited")}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <p className="text-sm font-medium text-slate-100">Realtime Preview</p>
@@ -573,7 +855,7 @@ const ManualTimestampEditor = ({
             </div>
             <TabsContent value="edited" className="mt-0">
               <video
-                ref={splitEditedVideoRef}
+                ref={editedVideoRef}
                 src={editedUrl}
                 muted
                 className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
@@ -583,20 +865,26 @@ const ManualTimestampEditor = ({
             <TabsContent value="split" className="mt-0">
               {originalUrl ? (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <video
-                    ref={splitEditedVideoRef}
-                    src={editedUrl}
-                    muted
-                    className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
-                    aria-label="Realtime edited preview"
-                  />
-                  <video
-                    ref={splitOriginalVideoRef}
-                    src={originalUrl}
-                    muted
-                    className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
-                    aria-label="Original preview"
-                  />
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-cyan-200/90">Realtime edited</p>
+                    <video
+                      ref={splitEditedVideoRef}
+                      src={editedUrl}
+                      muted
+                      className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
+                      aria-label="Realtime edited preview"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-300">Original</p>
+                    <video
+                      ref={splitOriginalVideoRef}
+                      src={originalUrl}
+                      muted
+                      className="manual-editor-video aspect-video w-full rounded-lg bg-black object-contain"
+                      aria-label="Original preview"
+                    />
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-slate-400">Original preview unavailable.</p>

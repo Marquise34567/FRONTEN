@@ -160,6 +160,49 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+.manual-editor-retention-strip {
+  display: flex;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.manual-editor-retention-chip {
+  height: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  opacity: 0.92;
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.manual-editor-retention-chip:hover {
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.manual-editor-retention-chip--best {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.75));
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.36);
+}
+
+.manual-editor-retention-chip--weak {
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.92), rgba(245, 158, 11, 0.72));
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
+}
+
+.manual-editor-retention-chip--low {
+  background: linear-gradient(90deg, rgba(251, 113, 133, 0.96), rgba(225, 29, 72, 0.74));
+  box-shadow: 0 0 10px rgba(251, 113, 133, 0.34);
+}
+
+.manual-editor-retention-row {
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.manual-editor-retention-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px -14px rgba(14, 165, 233, 0.65);
+}
+
 @keyframes manual-editor-aurora {
   0%,
   100% {
