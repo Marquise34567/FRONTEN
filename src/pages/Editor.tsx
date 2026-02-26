@@ -3948,6 +3948,7 @@ const Editor = () => {
         const captionsEnabledForJob = autoCaptionsEnabled;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
+        const useFastModeRetry = /ffmpeg_failed_signal_sigkill/i.test(String(job.error || ""));
         const hookSelectionModeForJob =
           hookSelectionModeByJob[job.id] ??
           normalizeHookSelectionMode(
@@ -3989,6 +3990,7 @@ const Editor = () => {
             preset: subtitlePresetForJob,
             style: subtitleStyleForJob,
           },
+          ...(useFastModeRetry ? { fastMode: true } : {}),
           ...(manualTimestampPayload
             ? {
                 manualTimestamp: manualTimestampPayload,
@@ -4122,11 +4124,7 @@ const Editor = () => {
       soundFxEnabled,
       viralMode,
       enhanceMode,
-      verticalCaptionEnabled,
-      verticalCaptionAutoGenerate,
-      verticalCaptionPreset,
-      verticalCaptionFontSize,
-      verticalCaptionText,
+      verticalCaptionsForJob,
       isDevAccount,
       toast,
     ],
@@ -7203,7 +7201,7 @@ const Editor = () => {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-8 text-xs"
+                                className="h-8 border-white/20 bg-white/[0.04] text-xs hover:border-primary/40 hover:bg-primary/10"
                                 onClick={() => {
                                   if (!sourceVideoMeta) return;
                                   setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
@@ -7216,7 +7214,7 @@ const Editor = () => {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-8 text-xs"
+                                className="h-8 border-white/20 bg-white/[0.04] text-xs hover:border-primary/40 hover:bg-primary/10"
                                 onClick={() => {
                                   if (!sourceVideoMeta) return;
                                   setWebcamCrop((prev) =>
@@ -7239,7 +7237,7 @@ const Editor = () => {
 
                           <div
                             ref={sourcePreviewRef}
-                            className="relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
+                            className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/90 shadow-[0_24px_45px_rgba(0,0,0,0.45)] touch-none select-none"
                             style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
                           >
                             <video
@@ -7249,15 +7247,23 @@ const Editor = () => {
                               onLoadedMetadata={handleVerticalSourceMetadata}
                               className="h-full w-full object-contain"
                             />
+                            {!skipManualWebcamCrop ? (
+                              <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/20 bg-black/55 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-white/80">
+                                Manual Webcam Selector
+                              </div>
+                            ) : null}
                             {!skipManualWebcamCrop && webcamCropStyle && (
                               <div
-                                className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
-                                style={webcamCropStyle}
+                                className={`absolute border-2 border-cyan-300/95 bg-cyan-500/8 shadow-[0_0_0_1px_rgba(103,232,249,0.45)] ${cropInteraction ? "ring-2 ring-cyan-300/55" : ""}`}
+                                style={{
+                                  ...webcamCropStyle,
+                                  boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.58)",
+                                }}
                                 onPointerDown={(event) => beginCropInteraction("move", event)}
                               >
                                 {webcamPaddingPx > 0 && webcamCrop && (
                                   <div
-                                    className="absolute border border-white/75 border-dashed pointer-events-none"
+                                    className="absolute border border-cyan-200/80 border-dashed pointer-events-none"
                                     style={{
                                       left: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.w) * 100}%`,
                                       top: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.h) * 100}%`,
@@ -7278,7 +7284,7 @@ const Editor = () => {
                                 ] as { key: CropHandle; className: string }[]).map((handle) => (
                                   <span
                                     key={handle.key}
-                                    className={`absolute h-3.5 w-3.5 rounded-full border border-white/80 bg-primary shadow ${handle.className}`}
+                                    className={`absolute h-3.5 w-3.5 rounded-full border border-white/90 bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.8)] ${handle.className}`}
                                     onPointerDown={(event) => beginCropInteraction(handle.key, event)}
                                   />
                                 ))}
@@ -7307,12 +7313,26 @@ const Editor = () => {
                           <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
                             <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
                             <div className="mx-auto w-full max-w-[300px]">
-                              <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                              <div ref={verticalCompositionFrameRef} className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
                                 <canvas
                                   ref={verticalCompositionCanvasRef}
                                   className="h-full w-full rounded-lg border border-border/50 bg-black"
                                 />
                                 <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-white/10" />
+                                {verticalCaptionEnabled && verticalCaptionPreviewText ? (
+                                  <button
+                                    type="button"
+                                    className={`absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${captionDragInteraction ? "cursor-grabbing" : "cursor-grab"}`}
+                                    style={{
+                                      left: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%`,
+                                      top: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%`,
+                                    }}
+                                    onPointerDown={beginCaptionDrag}
+                                  >
+                                    <MousePointerClick className="h-3 w-3" />
+                                    Caption
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -7381,7 +7401,7 @@ const Editor = () => {
                         <Button
                           type="button"
                           className="w-full gap-2 sm:w-auto"
-                          disabled={!verticalSelectionReady || !!uploadingJobId || !!cropInteraction}
+                          disabled={!verticalSelectionReady || !!uploadingJobId || !!cropInteraction || !!captionDragInteraction}
                           onClick={startVerticalRender}
                         >
                           <ScissorsSquare className="w-4 h-4" />
