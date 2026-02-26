@@ -1,0 +1,96 @@
+.retention-preview-trigger::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 1rem;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(192, 132, 252, 0.22),
+    0 0 30px -16px rgba(168, 85, 247, 0.85);
+}
+
+.retention-preview-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    118deg,
+    transparent 10%,
+    rgba(255, 255, 255, 0.1) 28%,
+    transparent 46%
+  );
+  animation: retentionSheen 4.2s linear infinite;
+}
+
+.retention-lock-overlay {
+  backdrop-filter: blur(4px);
+}
+
+.retention-touch-surface {
+  touch-action: none;
+}
+
+.retention-marker .retention-marker-ring {
+  animation: retentionMarkerRing 1.8s ease-out infinite;
+  transform-origin: center;
+}
+
+.retention-marker--best .retention-marker-ring {
+  animation-duration: 1.5s;
+}
+
+.retention-marker--weak .retention-marker-ring {
+  animation-duration: 1.25s;
+}
+
+.retention-marker--skip .retention-marker-ring {
+  animation-duration: 1.35s;
+}
+
+.retention-action-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.retention-action-btn::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    125deg,
+    rgba(192, 132, 252, 0.05),
+    rgba(192, 132, 252, 0.42),
+    rgba(34, 211, 238, 0.28)
+  );
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+
+.retention-action-btn:hover::after {
+  opacity: 1;
+}
+
+@keyframes retentionSheen {
+  0% {
+    transform: translateX(-60%);
+  }
+  100% {
+    transform: translateX(140%);
+  }
+}
+
+@keyframes retentionMarkerRing {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.9);
+  }
+  75% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}

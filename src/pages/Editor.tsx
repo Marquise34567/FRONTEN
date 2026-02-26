@@ -18,6 +18,7 @@ import ManualTimestampEditor, {
   type ManualTimestampMarker,
   type ManualTimestampSuggestion,
 } from "@/components/editor/ManualTimestampEditor";
+import RetentionGraphModal, { type RetentionCurvePointInput } from "@/components/editor/RetentionGraphModal";
 import {
   Upload,
   Plus,
@@ -3867,6 +3868,51 @@ const Editor = () => {
     : Array.isArray(activeJob?.optimizationNotes)
       ? activeJob.optimizationNotes.filter((line: unknown) => typeof line === "string").slice(0, 8)
       : [];
+  const retentionCurvePreview = useMemo<RetentionCurvePointInput[]>(() => {
+    const curveSource =
+      activeAnalysis?.visuals?.retentionCurve ??
+      activeAnalysis?.visuals?.retention_curve ??
+      metadataRetention?.retentionCurve ??
+      metadataRetention?.retention_curve ??
+      metadataRetention?.curve ??
+      activeAnalysis?.retentionCurve ??
+      activeAnalysis?.retention_curve ??
+      activeAnalysis?.retention_feedback?.retentionCurve ??
+      activeAnalysis?.retention_feedback?.retention_curve;
+
+    if (!Array.isArray(curveSource)) return [];
+    return curveSource
+      .map((entry: any) => {
+        const second = Number(entry?.second ?? entry?.timeSec ?? entry?.time_sec ?? entry?.t ?? entry?.x);
+        const scoreRaw = Number(entry?.score ?? entry?.retention ?? entry?.value ?? entry?.y);
+        if (!Number.isFinite(second) || !Number.isFinite(scoreRaw)) return null;
+        const normalizedScore = Math.abs(scoreRaw) <= 1.0001 ? scoreRaw * 100 : scoreRaw;
+        const reason = typeof entry?.reason === "string"
+          ? entry.reason.trim()
+          : typeof entry?.label === "string"
+            ? entry.label.trim()
+            : "";
+        const categoryRaw = String(entry?.category ?? entry?.type ?? entry?.kind ?? "").trim().toLowerCase();
+        const category =
+          categoryRaw === "best" || categoryRaw === "peak" || categoryRaw === "high"
+            ? "best"
+            : categoryRaw === "weak" || categoryRaw === "dip" || categoryRaw === "drop"
+              ? "weak"
+              : categoryRaw === "keep" || categoryRaw === "hold" || categoryRaw === "sticky"
+                ? "keep"
+                : categoryRaw === "skip" || categoryRaw === "warning" || categoryRaw === "risk"
+                  ? "skip"
+                  : undefined;
+        return {
+          second: clamp(Number(second.toFixed(2)), 0, 24 * 60 * 60),
+          score: clamp(Number(normalizedScore.toFixed(2)), 0, 100),
+          reason: reason.length > 0 ? reason : undefined,
+          category,
+        } satisfies RetentionCurvePointInput;
+      })
+      .filter((entry: RetentionCurvePointInput | null): entry is RetentionCurvePointInput => Boolean(entry))
+      .sort((left, right) => left.second - right.second);
+  }, [activeAnalysis, metadataRetention]);
   const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
     ? Number(activeJob?.retentionScore)
     : Number.isFinite(Number(retentionJudge?.retention_score))
@@ -3980,6 +4026,31 @@ const Editor = () => {
   const confidenceValue = detectedNicheConfidencePercent !== null
     ? `${detectedNicheConfidencePercent}%`
     : null;
+  const retentionTrendSignals = useMemo(() => {
+    const lines: string[] = [];
+    if (detectedNicheRaw) {
+      lines.push(`Detected niche: ${formatNicheLabel(detectedNicheRaw)}`);
+    }
+    if (detectedRetentionTargetPlatform) {
+      lines.push(`Target platform: ${formatPlatformLabel(detectedRetentionTargetPlatform)}`);
+    }
+    if (detectedRetentionStrategyProfile) {
+      lines.push(`Strategy profile: ${formatNicheLabel(detectedRetentionStrategyProfile)}`);
+    }
+    detectedNicheRationale.slice(0, 2).forEach((line) => {
+      if (line && line.trim().length > 0) lines.push(line.trim());
+    });
+    retentionImprovements.slice(0, 2).forEach((line) => {
+      if (line && line.trim().length > 0) lines.push(line.trim());
+    });
+    return lines.slice(0, 6);
+  }, [
+    detectedNicheRaw,
+    detectedRetentionTargetPlatform,
+    detectedRetentionStrategyProfile,
+    detectedNicheRationale,
+    retentionImprovements,
+  ]);
   const stepMicroCopy: Record<string, string> = {
     queued: "Queued in worker lane",
     uploading:
@@ -4620,6 +4691,74 @@ const Editor = () => {
       setManualAiSuggestLoadingJobId((current) => (current === activeJob.id ? null : current));
     }
   }, [accessToken, activeJob, fetchJob, previewDurationByJob, toast]);
+  const handleRetentionFixWeakPartsNow = useCallback(async () => {
+    if (!activeJob?.id) return;
+    setManualMode(true);
+    setManualAutoAssist(true);
+    setSmartZoomEnabled(true);
+    setTransitionsEnabled(true);
+    setSoundFxEnabled(true);
+    await handleManualAiSuggest();
+    handleManualApplyAllSuggestions();
+    toast({
+      title: "Weak parts optimized",
+      description: "Low-retention zones were marked for removal and zoom/SFX boosts were enabled.",
+    });
+  }, [
+    activeJob?.id,
+    handleManualAiSuggest,
+    handleManualApplyAllSuggestions,
+    toast,
+  ]);
+  const handleRetentionBoostBestMoments = useCallback(() => {
+    if (!activeJob?.id) return;
+    setAutoCaptionsEnabled(true);
+    setSmartZoomEnabled(true);
+    setTransitionsEnabled(true);
+    setSoundFxEnabled(true);
+    setViralMode((prev) => (prev === "none" ? "tiktok" : prev));
+    toast({
+      title: "Best moments boosted",
+      description: "Snap zoom, captions, and audio lift are primed for your highest-retention beats.",
+    });
+  }, [activeJob?.id, toast]);
+  const handleRetentionApplyAllSuggestions = useCallback(async () => {
+    if (!activeJob?.id) return;
+    await handleRetentionFixWeakPartsNow();
+    handleRetentionBoostBestMoments();
+    if (isTerminalStatus(activeJob.status)) {
+      await handleRedoRender(activeJob);
+      return;
+    }
+    toast({
+      title: "Suggestions staged",
+      description: "Current render is still running. Re-render after it completes to apply every optimization.",
+    });
+  }, [activeJob, handleRetentionBoostBestMoments, handleRetentionFixWeakPartsNow, handleRedoRender, toast]);
+  const handleRetentionTrendAlignment = useCallback(() => {
+    const strategyLabel = formatNicheLabel(
+      (typeof detectedRetentionStrategyProfile === "string" && detectedRetentionStrategyProfile) || retentionStrategyProfile
+    );
+    const platformLabel = formatPlatformLabel(
+      (typeof detectedRetentionTargetPlatform === "string" && detectedRetentionTargetPlatform) || retentionTargetPlatform
+    );
+    const nicheLabel = detectedNicheRaw ? formatNicheLabel(detectedNicheRaw) : "General";
+    setRetentionDetailsOpen(true);
+    toast({
+      title: "Trend alignment opened",
+      description: `${strategyLabel} pacing on ${platformLabel}; niche signal ${nicheLabel}.`,
+    });
+  }, [
+    detectedNicheRaw,
+    detectedRetentionStrategyProfile,
+    detectedRetentionTargetPlatform,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    toast,
+  ]);
+  const handleRetentionAnalyticsUpgrade = useCallback(() => {
+    navigate("/pricing");
+  }, [navigate]);
   const handlePreviewLoadedMetadata = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     if (!activeJob || !video) return;
@@ -6913,44 +7052,40 @@ const Editor = () => {
                           ) : null}
                         </div>
                         <div className="rounded-lg border border-border/50 bg-background/40 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Deep Dive</p>
+                          <div className="mt-2">
+                            <RetentionGraphModal
+                              canAccessPremium={paidTier || isDevAccount}
+                              curve={retentionCurvePreview}
+                              durationSec={activeManualDurationSec}
+                              beforeScore={retentionScoreBeforeDisplay}
+                              afterScore={retentionScoreAfterDisplay}
+                              deltaScore={retentionScoreDeltaDisplay}
+                              hookStartSec={hookStartSec}
+                              hookEndSec={hookEndSec}
+                              hookText={hookText}
+                              hookReason={hookReason}
+                              keepWatchingReasons={whyKeepWatching}
+                              weakReasons={genericReasons}
+                              improvementTips={retentionImprovements}
+                              trendSignals={retentionTrendSignals}
+                              onUpgrade={handleRetentionAnalyticsUpgrade}
+                              onFixWeakPartsNow={handleRetentionFixWeakPartsNow}
+                              onBoostBestMoments={handleRetentionBoostBestMoments}
+                              onApplyAllSuggestions={handleRetentionApplyAllSuggestions}
+                              onSeeTrendAlignment={handleRetentionTrendAlignment}
+                            />
+                          </div>
                           {retentionBeforeBar !== null && retentionAfterBar !== null ? (
-                            <div className="mt-2 space-y-2">
-                              <div>
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>Before</span>
-                                  <span>{retentionScoreBeforeDisplay?.toFixed(1)}</span>
-                                </div>
-                                <div className="h-2 rounded-full bg-muted/60">
-                                  <motion.div
-                                    className="h-full rounded-full bg-slate-400/80"
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${retentionBeforeBar}%` }}
-                                    transition={{ duration: 0.35, ease: "easeOut" }}
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>After</span>
-                                  <span>{retentionScoreAfterDisplay?.toFixed(1)}</span>
-                                </div>
-                                <div className="h-2 rounded-full bg-muted/60">
-                                  <motion.div
-                                    className="h-full rounded-full bg-gradient-to-r from-primary to-violet-300"
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${retentionAfterBar}%` }}
-                                    transition={{ duration: 0.45, ease: "easeOut" }}
-                                  />
-                                </div>
-                              </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-1 text-muted-foreground">
+                                Before {retentionScoreBeforeDisplay?.toFixed(1)}%
+                              </span>
+                              <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-1 text-primary">
+                                After {retentionScoreAfterDisplay?.toFixed(1)}%
+                              </span>
                             </div>
-                          ) : (
-                            <div className="mt-2 space-y-2">
-                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/45" />
-                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
-                            </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
 
