@@ -37,7 +37,6 @@ type EditorSettings = {
   soundFx: boolean;
   musicDuck: boolean;
   emotionalBoost: boolean;
-  aggressiveMode: boolean;
   onlyCuts: boolean;
 };
 
@@ -202,7 +201,6 @@ const Settings = () => {
     soundFx: true,
     musicDuck: true,
     emotionalBoost: false,
-    aggressiveMode: false,
     onlyCuts: false,
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
@@ -243,7 +241,7 @@ const Settings = () => {
       if (err instanceof ApiError && err.code === "CAPTION_ENGINE_UNAVAILABLE") {
         toast({
           title: "Caption engine unavailable",
-          description: err?.data?.capabilities?.captions?.reason || err?.message || "Whisper is unavailable on backend.",
+          description: err?.data?.capabilities?.captions?.reason || err?.message || "Caption engine is unavailable on backend.",
         });
         return;
       }
@@ -435,7 +433,7 @@ const Settings = () => {
               </div>
                   {captionCapability && captionCapability.available === false && (
                     <p className="mb-3 text-[11px] text-amber-300/90">
-                      Caption engine unavailable: {captionCapability.reason || "Whisper is not installed on backend."}
+                      Caption engine unavailable: {captionCapability.reason || "No caption engine is configured on backend."}
                     </p>
                   )}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -744,21 +742,6 @@ const Settings = () => {
                           }
                           if (onlyCutsEnabled) return;
                           mergeSettings({ emotionalBoost: checked });
-                        }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Aggressive Mode</span>
-                      <Switch
-                        checked={resolvedSettings.aggressiveMode}
-                        disabled={advancedLocked || onlyCutsEnabled}
-                        onCheckedChange={(checked) => {
-                          if (advancedLocked) {
-                            openUpgrade("studio");
-                            return;
-                          }
-                          if (onlyCutsEnabled) return;
-                          mergeSettings({ aggressiveMode: checked });
                         }}
                       />
                     </div>

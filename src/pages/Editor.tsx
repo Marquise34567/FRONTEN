@@ -165,8 +165,6 @@ const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; cl
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
 };
-const LONG_FORM_CONTROL_MIN = 0;
-const LONG_FORM_CONTROL_MAX = 100;
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -739,7 +737,7 @@ const Editor = () => {
           : presetId;
       setSubtitleStyleDraft(nextValue);
       setSubtitleStyleDirty(true);
-      setAutoCaptionsEnabled(captionCapability.available);
+      setAutoCaptionsEnabled(true);
       trackEditorEvent("subtitle_preset_selected", {
         retentionProfile: retentionStrategyProfile,
         targetPlatform: retentionTargetPlatform,
@@ -750,7 +748,7 @@ const Editor = () => {
         },
       });
     },
-    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, captionCapability.available],
+    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
   const updateMrBeastSubtitleStyle = useCallback(
@@ -780,15 +778,11 @@ const Editor = () => {
       if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
         setCaptionCapability(runtimeCaptions);
       }
-      const captionsAvailableNow =
-        typeof runtimeCaptions?.available === "boolean" ? runtimeCaptions.available : captionCapability.available;
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
       const persistedAutoCaptions =
         typeof result?.settings?.autoCaptions === "boolean"
           ? result.settings.autoCaptions
-          : captionsAvailableNow
-            ? autoCaptionsEnabled
-            : false;
+          : autoCaptionsEnabled;
       setSubtitleStyleDraft(persisted);
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
@@ -826,7 +820,7 @@ const Editor = () => {
           description:
             runtimeCaptions?.reason ||
             err?.message ||
-            "Whisper is not available on the backend, so captions are disabled.",
+            "Caption engine is not available on the backend, so captions are disabled.",
         });
         return;
       }
@@ -837,7 +831,7 @@ const Editor = () => {
     } finally {
       setSavingSubtitleStyle(false);
     }
-  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, captionCapability.available]);
+  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -1662,7 +1656,7 @@ const Editor = () => {
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = autoCaptionsEnabled && captionCapability.available;
+    const captionsEnabledForJob = autoCaptionsEnabled;
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
@@ -2408,7 +2402,7 @@ const Editor = () => {
               : retentionStrategyProfile;
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = autoCaptionsEnabled && captionCapability.available;
+        const captionsEnabledForJob = autoCaptionsEnabled;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -2529,7 +2523,6 @@ const Editor = () => {
     [
       accessToken,
       autoCaptionsEnabled,
-      captionCapability.available,
       editorMode,
       fetchJob,
       fetchJobs,
@@ -3510,7 +3503,7 @@ const Editor = () => {
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">Long-Form Efficiency</p>
                     <p className="text-xs text-muted-foreground">
-                      Preset: {activeLongFormPresetMeta.label}. Aggression {longFormAggression}, clarity {longFormClarityVsSpeed}.
+                      Preset: {activeLongFormPresetMeta.label}.
                     </p>
                     <p className="text-[11px] text-muted-foreground/80">
                       {activeLongFormPresetMeta.description}
@@ -3551,42 +3544,6 @@ const Editor = () => {
                       {preset.label}
                     </button>
                   ))}
-                </div>
-                <div className="mt-3 space-y-3">
-                  <div>
-                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground/85">
-                      <span>Aggression</span>
-                      <span>{longFormAggression}</span>
-                    </div>
-                    <Slider
-                      min={LONG_FORM_CONTROL_MIN}
-                      max={LONG_FORM_CONTROL_MAX}
-                      step={1}
-                      value={[longFormAggression]}
-                      onValueChange={(values) => {
-                        const candidate = Number(values?.[0] ?? longFormAggression);
-                        if (!Number.isFinite(candidate)) return;
-                        setLongFormAggression(clamp(Math.round(candidate), LONG_FORM_CONTROL_MIN, LONG_FORM_CONTROL_MAX));
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground/85">
-                      <span>Clarity vs Speed</span>
-                      <span>{longFormClarityVsSpeed}</span>
-                    </div>
-                    <Slider
-                      min={LONG_FORM_CONTROL_MIN}
-                      max={LONG_FORM_CONTROL_MAX}
-                      step={1}
-                      value={[longFormClarityVsSpeed]}
-                      onValueChange={(values) => {
-                        const candidate = Number(values?.[0] ?? longFormClarityVsSpeed);
-                        if (!Number.isFinite(candidate)) return;
-                        setLongFormClarityVsSpeed(clamp(Math.round(candidate), LONG_FORM_CONTROL_MIN, LONG_FORM_CONTROL_MAX));
-                      }}
-                    />
-                  </div>
                 </div>
               </div>
               <div className="w-full rounded-xl border border-border/60 bg-muted/20 p-3">
@@ -3637,7 +3594,7 @@ const Editor = () => {
                     ) : null}
                     {!captionCapability.available ? (
                       <p className="text-[11px] text-amber-300/90">
-                        Caption engine unavailable: {captionCapability.reason || "Whisper is not installed on backend."}
+                        Caption engine unavailable: {captionCapability.reason || "No caption engine is configured on backend."}
                       </p>
                     ) : null}
                   </div>
@@ -3654,17 +3611,6 @@ const Editor = () => {
                       onClick={() => {
                         if (!subtitlesEnabled) return;
                         const nextState = !autoCaptionsEnabled;
-                        if (nextState && !captionCapability.available) {
-                          toast({
-                            title: "Caption engine unavailable",
-                            description:
-                              captionCapability.reason ||
-                              "Whisper is not available on backend, so captions cannot be enabled.",
-                          });
-                          setAutoCaptionsEnabled(false);
-                          setCaptionsPanelOpen(true);
-                          return;
-                        }
                         trackEditorEvent("captions_toggled", {
                           retentionProfile: retentionStrategyProfile,
                           targetPlatform: retentionTargetPlatform,
@@ -3675,7 +3621,7 @@ const Editor = () => {
                         setSubtitleStyleDirty(true);
                         setCaptionsPanelOpen(true);
                       }}
-                      disabled={!subtitlesEnabled || (!captionCapability.available && !autoCaptionsEnabled)}
+                      disabled={!subtitlesEnabled}
                     >
                       {autoCaptionsEnabled ? "Captions on" : "Captions off"}
                     </Button>
