@@ -1,19 +1,36 @@
-import { motion } from "framer-motion";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
-import { Progress } from "@/components/ui/progress";
-import PricingCards from "@/components/PricingCards";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
-import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/providers/AuthProvider";
+import { motion } from "framer-motion";
+import {
+  Brain,
+  Clapperboard,
+  Download,
+  Flame,
+  ScissorsSquare,
+  Sparkles,
+  Target,
+  WandSparkles,
+} from "lucide-react";
+import { useMemo } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
-const UploadCTA = () => {
+const energyTimelineRaw = "16161111161616161618";
+const facialZones = ["Face Zone 1 · 0:55", "Face Zone 2 · 1:30", "Face Zone 3 · 2:04", "Face Zone 4 · 3:07"];
+const bingeModeActions = [
+  "Added Cliffhanger Transition at 1:45",
+  "Emotional Arc Pacing Applied for Binge Flow",
+  "Re-Hook Inserted Every 45s to Prevent Drop-Offs",
+  "Curiosity Loop at End: +20% Viewer Retention Predicted",
+];
+
+const OpenEditorCTA = ({ label }: { label: string }) => {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
   const target = "/editor?autopick=1";
+
   const handleClick = () => {
     if (!accessToken) {
       navigate(`/login?next=${encodeURIComponent(target)}`);
@@ -23,338 +40,172 @@ const UploadCTA = () => {
   };
 
   return (
-    <Button variant="outline" size="lg" onClick={handleClick} className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
-      <Upload className="w-4 h-4" />
-      Upload File
+    <Button onClick={handleClick} size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground hover:bg-primary/90 sm:w-auto">
+      <Download className="h-4 w-4" />
+      {label}
     </Button>
   );
 };
 
-const demoSteps = [
-  {
-    title: "Upload footage",
-    detail: "Drag your raw recording into the editor.",
-    cue: "Raw clip imported",
-    progress: 18,
-    icon: Upload,
-  },
-  {
-    title: "Choose format",
-    detail: "Switch to vertical or landscape output instantly.",
-    cue: "9:16 vertical preset selected",
-    progress: 42,
-    icon: Gauge,
-  },
-  {
-    title: "Run AI auto-cut",
-    detail: "It removes dead air and weak retention moments.",
-    cue: "12 low-retention segments removed",
-    progress: 74,
-    icon: ScissorsSquare,
-  },
-  {
-    title: "Export final",
-    detail: "Render and publish-ready captions are generated.",
-    cue: "Final cut ready to publish",
-    progress: 100,
-    icon: CheckCircle2,
-  },
-] as const;
-
 const Index = () => {
-  const [activeDemoStep, setActiveDemoStep] = useState(0);
-
-  const proofCards = [
-    {
-      icon: Sparkles,
-      title: "Hook-first AI edits",
-      stat: "3x faster rough cuts",
-      detail: "Auto-detects dead air and keeps openings high-retention.",
-    },
-    {
-      icon: ScissorsSquare,
-      title: "Creator-grade templates",
-      stat: "1-click style packs",
-      detail: "Apply pacing, captions, and framing tuned for short-form feeds.",
-    },
-    {
-      icon: Gauge,
-      title: "Scale with your plan",
-      stat: "From free to studio",
-      detail: "Upgrade as your publishing frequency and rendering volume increase.",
-    },
-  ];
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setActiveDemoStep((current) => (current + 1) % demoSteps.length);
-    }, 2200);
-
-    return () => window.clearInterval(interval);
+  const energyTimeline = useMemo(() => {
+    return (energyTimelineRaw.match(/\d{1,2}/g) ?? []).map((value) => Number(value));
   }, []);
 
-  const activeDemo = demoSteps[activeDemoStep];
+  const predictionValue = 50;
+  const goalValue = 70;
 
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
-        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center">
-          {/* Hero */}
-          <motion.div
-            className="mx-auto flex w-full max-w-3xl flex-col items-center text-center"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-          >
-            <motion.div
-              className="pill-badge mb-8"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.2, duration: 0.5 }}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              PREMIUM AI AUTO-EDITOR
-            </motion.div>
-
-            <motion.h1
-              className="mb-6 text-4xl font-bold font-display leading-[1.1] tracking-tight text-foreground sm:text-6xl lg:text-7xl"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.7 }}
-            >
-              Retention Is{" "}
-              <span className="landing-king-word">
-                <span className="landing-king-initial">
-                  <span className="landing-royal-crown landing-royal-crown-inline" aria-hidden="true">
-                    <span className="landing-royal-crown-spike landing-royal-crown-spike-left" />
-                    <span className="landing-royal-crown-spike landing-royal-crown-spike-mid" />
-                    <span className="landing-royal-crown-spike landing-royal-crown-spike-right" />
-                    <span className="landing-royal-crown-gem" />
-                  </span>
-                  K
-                </span>
-                ing
-              </span>{" "}
-              — We Built the Tools to Rule It
-            </motion.h1>
-
-            <motion.p
-              className="mb-10 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.6 }}
-            >
-              Upload your raw footage and let AI detect hooks, cut boring parts, match pacing to your niche, and render a polished final cut automatically.
-            </motion.p>
-
-            <motion.div
-              className="flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.65, duration: 0.6 }}
-            >
-              <Link to="/editor" className="w-full sm:w-auto">
-                <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto">
-                  Get Started Free
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <div className="w-full sm:w-auto">
-                <UploadCTA />
-              </div>
-            </motion.div>
-          </motion.div>
-
-          {/* Demo Card */}
-          <motion.div
-            className="mt-20 w-full max-w-4xl"
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, duration: 0.8, ease: "easeOut" }}
-          >
-            <div className="glass-card p-6 sm:p-7">
-              <div className="mb-5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                  </div>
-                  <span className="font-display font-semibold text-foreground">How It Works</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
-                  <span className="text-xs text-muted-foreground">Live walkthrough</span>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-                <div className="space-y-2">
-                  {demoSteps.map((step, index) => {
-                    const Icon = step.icon;
-                    const isActive = index === activeDemoStep;
-                    const isCompleted = index < activeDemoStep;
-
-                    return (
-                      <motion.div
-                        key={step.title}
-                        initial={false}
-                        animate={{
-                          borderColor: isActive ? "hsl(var(--primary) / 0.55)" : "hsl(var(--border) / 0.5)",
-                          backgroundColor: isActive ? "hsl(var(--primary) / 0.12)" : "hsl(var(--card) / 0.35)",
-                        }}
-                        transition={{ duration: 0.35, ease: "easeOut" }}
-                        className="rounded-xl border p-3"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-background/75 text-xs font-semibold text-muted-foreground">
-                            {isCompleted ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : index + 1}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <Icon className={`h-3.5 w-3.5 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                              <p className={`text-sm font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
-                                {step.title}
-                              </p>
-                            </div>
-                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
-
-                <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-                  <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Editor timeline</span>
-                    <span>{activeDemo.progress}%</span>
-                  </div>
-
-                  <div className="relative mb-3 h-20 overflow-hidden rounded-lg border border-border/50 bg-background/80 p-3">
-                    <div
-                      className="absolute inset-y-0 left-0 bg-primary/8 transition-all duration-700 ease-out"
-                      style={{ width: `${activeDemo.progress}%` }}
-                    />
-                    <div className="relative grid h-full grid-cols-12 gap-1">
-                      {Array.from({ length: 12 }).map((_, index) => {
-                        const threshold = Math.round((activeDemo.progress / 100) * 12);
-                        const isFilled = index < threshold;
-
-                        return (
-                          <div
-                            key={`segment-${index}`}
-                            className={`rounded-sm transition-colors duration-500 ${
-                              isFilled ? "bg-primary/65" : "bg-muted/70"
-                            }`}
-                          />
-                        );
-                      })}
-                    </div>
-                    <motion.div
-                      className="absolute bottom-2 top-2 w-[2px] bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.85)]"
-                      animate={{ left: `calc(${Math.min(activeDemo.progress, 98)}% - 1px)` }}
-                      transition={{ duration: 0.7, ease: "easeInOut" }}
-                    />
-                  </div>
-
-                  <Progress value={activeDemo.progress} className="h-2 bg-muted [&>div]:bg-primary" />
-                  <motion.p
-                    key={activeDemo.cue}
-                    className="mt-3 text-xs text-muted-foreground"
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    {activeDemo.cue}
-                  </motion.p>
-                </div>
-              </div>
-
-              <p className="mt-4 text-xs text-muted-foreground">
-                This loop mirrors the same flow inside the editor, from raw upload to export.
-              </p>
-            </div>
-          </motion.div>
-
-          {/* Pricing Preview */}
+      <main className="responsive-main relative min-h-screen overflow-hidden px-4 pb-24 pt-24">
+        <div className="mx-auto w-full max-w-5xl">
           <motion.section
-            className="mt-24 w-full"
+            className="glass-card overflow-hidden p-6 sm:p-8"
             initial={{ opacity: 0, y: 28 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.2 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.65, ease: "easeOut" }}
           >
-            <motion.div
-              className="mx-auto mb-10 max-w-3xl text-center"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ duration: 0.5 }}
-            >
-              <div className="pill-badge mb-4">
-                <Sparkles className="w-3.5 h-3.5" />
-                SUBSCRIPTION PLANS
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border/40 pb-6">
+              <div>
+                <p className="pill-badge mb-3">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  A-MODE ANALYSIS
+                </p>
+                <h1 className="text-3xl font-bold font-display tracking-tight text-foreground sm:text-4xl">Full Video Scan Progress</h1>
               </div>
-              <h2 className="text-3xl font-bold font-display text-foreground sm:text-4xl">
-                Pricing That Grows With Your Output
-              </h2>
-              <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-                Start free, then move to higher quality, higher volume, and priority queue access as your channel scales.
-              </p>
-            </motion.div>
-
-            <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-              {proofCards.map((item, index) => (
-                <motion.div
-                  key={item.title}
-                  className="glass-card-hover p-4"
-                  initial={{ opacity: 0, y: 14 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.35 }}
-                  transition={{ delay: index * 0.08, duration: 0.45 }}
-                >
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20">
-                      <item.icon className="h-4 w-4 text-primary" />
-                    </span>
-                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                  </div>
-                  <p className="text-sm font-medium text-foreground">{item.stat}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
-                </motion.div>
-              ))}
+              <div className="rounded-xl border border-success/40 bg-success/10 px-5 py-3 text-right">
+                <p className="text-3xl font-bold text-success">100%</p>
+                <p className="text-xs text-success/85">Full scan 100% complete</p>
+              </div>
             </div>
 
-            <PricingCards
-              isAuthenticated={false}
-              loading={false}
-              onCheckout={() => undefined}
-              onPortal={() => undefined}
-              actionTier={null}
-              actionKind={null}
-              billingInterval="monthly"
-              founderSlotsRemaining={0}
-            />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Scan status</span>
+                <span>Ready for export</span>
+              </div>
+              <Progress value={100} className="h-2 bg-muted/70 [&>div]:bg-success" />
+            </div>
 
-            <motion.div
-              className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
-              initial={{ opacity: 0, y: 14 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.5 }}
-              transition={{ duration: 0.45 }}
-            >
-              <Link to="/pricing" className="w-full sm:w-auto">
-                <Button variant="ghost" size="lg" className="w-full rounded-full px-8 text-muted-foreground hover:text-foreground sm:w-auto">
-                  Compare Full Plans
-                </Button>
-              </Link>
-              <Link to="/signup" className="w-full sm:w-auto">
-                <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground hover:bg-primary/90 sm:w-auto">
-                  Start Free
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            </motion.div>
+            <div className="mt-8 grid gap-5 lg:grid-cols-2">
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-border/60 bg-card/50 p-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Flame className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">Energy Timeline</h2>
+                  </div>
+                  <p className="mb-4 text-xs text-muted-foreground">0-100 score</p>
+                  <div className="flex h-24 items-end gap-1.5 rounded-xl border border-border/50 bg-background/70 p-3">
+                    {energyTimeline.map((value, index) => (
+                      <motion.span
+                        key={`${value}-${index}`}
+                        className="flex-1 rounded-sm bg-primary/75"
+                        style={{ height: `${Math.max(22, value * 3)}%` }}
+                        initial={{ height: "0%" }}
+                        animate={{ height: `${Math.max(22, value * 3)}%` }}
+                        transition={{ delay: 0.15 + index * 0.045, duration: 0.35 }}
+                      />
+                    ))}
+                  </div>
+                  <p className="mt-3 font-mono text-xs tracking-[0.22em] text-muted-foreground">{energyTimelineRaw}</p>
+                </div>
+
+                <div className="rounded-2xl border border-primary/35 bg-primary/10 p-5">
+                  <p className="mb-2 text-sm font-semibold text-foreground">Auto-Hook Placed: 8s High-Energy Opener</p>
+                  <p className="text-xs text-muted-foreground">
+                    Highest energy at 6:17 - moved to start for max retention boost
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border/60 bg-card/55 p-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <ScissorsSquare className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">Auto-Cut Boring/Silent/Pauses</h2>
+                  </div>
+                  <p className="text-lg font-semibold text-foreground">Cut 54% low-engagement filler</p>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-border/60 bg-card/50 p-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">A-Mode</h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Advanced retention automation (facial scan + binge logic)</p>
+                </div>
+
+                <div className="rounded-2xl border border-border/60 bg-card/55 p-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Target className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">Facial Scan Overlay</h2>
+                  </div>
+                  <p className="mb-3 text-xs text-muted-foreground">Suggestion</p>
+                  <div className="grid gap-2">
+                    {facialZones.map((zone) => (
+                      <div key={zone} className="rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-sm text-foreground">
+                        {zone}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border/60 bg-card/55 p-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <WandSparkles className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">Binge Mode</h2>
+                  </div>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Curiosity loops, cliffhangers, emotional arcs, dynamic pacing, and re-hooks.
+                  </p>
+                  <div className="space-y-2">
+                    {bingeModeActions.map((action) => (
+                      <div key={action} className="rounded-xl border border-border/60 bg-background/45 px-3 py-2 text-sm text-foreground">
+                        {action}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-border/60 bg-card/55 p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <Clapperboard className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">Retention Prediction Graph</h2>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-background/55 p-4">
+                <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{predictionValue}% predicted</span>
+                  <span>Goal line: {goalValue}%+</span>
+                </div>
+                <div className="relative h-4 rounded-full bg-muted/80">
+                  <div className="h-full rounded-full bg-primary/85 transition-all duration-700" style={{ width: `${predictionValue}%` }} />
+                  <div className="absolute inset-y-[-4px] w-[2px] bg-warning shadow-[0_0_10px_hsl(var(--warning)/0.85)]" style={{ left: `${goalValue}%` }} />
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">Tune with A-Mode suggestions</p>
+              </div>
+            </div>
+
+            <div className="mt-8 flex flex-col items-stretch justify-between gap-3 rounded-2xl border border-success/35 bg-success/10 p-5 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-lg font-semibold text-foreground">Export is ready.</p>
+                <p className="text-sm text-muted-foreground">Download your final cut.</p>
+              </div>
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+                <OpenEditorCTA label="Download Final Cut" />
+                <Link to="/editor" className="w-full sm:w-auto">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full rounded-full border-border/60 px-8 text-foreground hover:bg-background/70 sm:w-auto"
+                  >
+                    Open Editor
+                  </Button>
+                </Link>
+              </div>
+            </div>
           </motion.section>
         </div>
       </main>
