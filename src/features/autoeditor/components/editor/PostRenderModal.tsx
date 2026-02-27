@@ -178,6 +178,15 @@ export default function PostRenderModal({
                       <Button
                         type="button"
                         variant="outline"
+                        className="rounded-xl border-white/20 bg-white/[0.08] text-[#f6ede1] hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
+                        onClick={onOpenInsightsGraph}
+                      >
+                        <BarChart3 className="h-4 w-4" />
+                        Deep Dive
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
                         className="rounded-xl border-emerald-200/35 bg-emerald-500/12 text-emerald-50 hover:border-emerald-200/55 hover:bg-emerald-500/22"
                         onClick={onOpenFeedback}
                       >

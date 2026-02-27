@@ -22,7 +22,8 @@ export default function AppShell({
   contentClassName,
 }: AppShellProps) {
   return (
-    <div className={cn("min-h-screen bg-[#030309] text-slate-100", className)}>
+    <div className={cn("min-h-screen bg-[var(--ae-bg)] text-[var(--ae-text-primary)] transition-colors duration-500", className)}>
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[var(--ae-bg-overlay)]" />
       {showSidebar ? <SidebarNav /> : null}
       <TopHeader title={title} withSidebar={showSidebar} />
 

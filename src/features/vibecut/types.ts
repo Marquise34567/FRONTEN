@@ -107,6 +107,7 @@ export type AutoDetection = {
   bannerMessage: string;
   frameScan: FrameScanSummary;
   editorProfile?: AutoDetectedEditorProfile;
+  coolStats?: VideoInsightStat[];
 };
 
 export type AutoDetectedEditorProfile = {
@@ -157,6 +158,49 @@ export type ThumbnailOption = {
   label: string;
 };
 
+export type VideoInsightStat = {
+  id: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "good" | "watch" | "neutral";
+};
+
+export type RenderEditInsight = {
+  id: string;
+  kind: "good" | "bad" | "choice";
+  headline: string;
+  detail: string;
+  timestamp: number;
+  predictedRetention: number;
+};
+
+export type RenderHookExplanation = {
+  winnerLabel: string;
+  winnerScore: number;
+  runnerUpLabel: string;
+  runnerUpScore: number;
+  reason: string;
+  transcriptSignal: string;
+};
+
+export type RenderTitleOption = {
+  id: string;
+  title: string;
+  explanation: string;
+  confidence: number;
+};
+
+export type RenderInsightsPayload = {
+  predictedAverageRetention: number;
+  targetAverageRetention: number;
+  iterationCount: number;
+  metadataStats: VideoInsightStat[];
+  editInsights: RenderEditInsight[];
+  hookExplanation: RenderHookExplanation;
+  titleOptions: RenderTitleOption[];
+};
+
 export type RenderJobStatus = "queued" | "processing" | "completed" | "failed";
 
 export type RenderJobSummary = {
@@ -181,6 +225,7 @@ export type RenderJobResult = {
     points: RetentionPoint[];
     heatmap: RetentionHeatCell[];
     summary: string;
+    insights?: RenderInsightsPayload;
   };
 };
 

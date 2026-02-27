@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
@@ -13,6 +13,7 @@ import { LiveStatsProvider } from "@/providers/LiveStatsProvider";
 import GlobalLiveBadge from "@/components/live/GlobalLiveBadge";
 import { useMe } from "@/hooks/use-me";
 import { isPaidTier, PLAN_CONFIG, type PlanTier } from "@/shared/planConfig";
+import { useThemeStore } from "@/stores/useThemeStore";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -124,18 +125,44 @@ const RequirePaid = ({ children }: { children: ReactNode }) => {
   return <>{children}</>;
 };
 
+const LIVE_STATS_EXACT_ROUTES = new Set(["/control-panel", "/x-quantum-control-9"]);
+const LIVE_STATS_PREFIX_ROUTES = ["/dev/control-panel", "/__control-panel"];
+
+const shouldEnableLiveStatsForPath = (pathname: string) => {
+  if (LIVE_STATS_EXACT_ROUTES.has(pathname)) return true;
+  return LIVE_STATS_PREFIX_ROUTES.some((prefix) => pathname.startsWith(prefix));
+};
+
+const LiveStatsRouteBoundary = ({ children }: { children: ReactNode }) => {
+  const location = useLocation();
+  if (!shouldEnableLiveStatsForPath(location.pathname)) {
+    return <>{children}</>;
+  }
+  return (
+    <LiveStatsProvider>
+      {children}
+      <GlobalLiveBadge />
+    </LiveStatsProvider>
+  );
+};
+
 const App = () => {
   useScreenProfile();
+  const hydrateTheme = useThemeStore((state) => state.hydrate);
+
+  useEffect(() => {
+    hydrateTheme();
+  }, [hydrateTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ClientErrorReporter />
-        <LiveStatsProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <LiveStatsRouteBoundary>
               <Suspense fallback={<RouteLoader />}>
                 <Routes>
                 <Route path="/" element={<Index />} />
@@ -378,10 +405,9 @@ const App = () => {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
-              <GlobalLiveBadge />
-            </BrowserRouter>
-          </TooltipProvider>
-        </LiveStatsProvider>
+            </LiveStatsRouteBoundary>
+          </BrowserRouter>
+        </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

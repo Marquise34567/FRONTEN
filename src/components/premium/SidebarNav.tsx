@@ -28,14 +28,14 @@ export default function SidebarNav({ className }: SidebarNavProps) {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-white/10 bg-[#05060b]/95 px-3 py-5 backdrop-blur-md lg:flex",
+        "fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-[var(--ae-border)] bg-[color:var(--ae-shell)] px-3 py-5 backdrop-blur-xl lg:flex",
         className,
       )}
     >
       <div className="mb-6 flex justify-center">
         <Link
           to="/"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-purple-500/40 to-fuchsia-500/30 text-sm font-bold text-white"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-purple-500/50 to-fuchsia-500/35 text-sm font-bold text-white"
         >
           AE
         </Link>

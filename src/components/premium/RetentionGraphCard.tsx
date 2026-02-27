@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import { motion } from "framer-motion";
+import { ZoomIn, MoveHorizontal } from "lucide-react";
 
 import PremiumCard from "@/components/premium/PremiumCard";
 import { cn } from "@/lib/utils";
@@ -35,16 +37,25 @@ export default function RetentionGraphCard({
   onSelectPoint,
   className,
 }: RetentionGraphCardProps) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState(0);
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
+
+  const sortedPoints = useMemo(() => points.slice().sort((a, b) => a.timestamp - b.timestamp), [points]);
+  const maxStart = Math.max(0, sortedPoints.length - Math.max(3, Math.floor(sortedPoints.length / zoom)));
+  const startIndex = Math.min(maxStart, Math.round(pan * maxStart));
+  const visibleCount = Math.max(3, Math.floor(sortedPoints.length / zoom));
+  const visiblePoints = useMemo(
+    () => sortedPoints.slice(startIndex, startIndex + visibleCount),
+    [sortedPoints, startIndex, visibleCount],
+  );
   const chartPoints = useMemo(
     () =>
-      points
-        .slice()
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .map((point) => ({
-          ...point,
-          timeLabel: `${Math.round(point.timestamp)}s`,
-        })),
-    [points],
+      visiblePoints.map((point) => ({
+        ...point,
+        timeLabel: `${Math.round(point.timestamp)}s`,
+      })),
+    [visiblePoints],
   );
 
   return (
@@ -66,7 +77,48 @@ export default function RetentionGraphCard({
           </span>
         </div>
       </div>
-      <div className="h-[300px] rounded-2xl border border-white/10 bg-[#08080f]/80 p-2">
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
+        <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+          <ZoomIn className="h-3.5 w-3.5 text-purple-200" />
+          Zoom
+        </span>
+        <input
+          type="range"
+          min={1}
+          max={4}
+          step={0.1}
+          value={zoom}
+          onChange={(event) => setZoom(Number(event.target.value))}
+          className="w-[120px]"
+        />
+        <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+          <MoveHorizontal className="h-3.5 w-3.5 text-purple-200" />
+          Pan
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={pan}
+          onChange={(event) => setPan(Number(event.target.value))}
+          className="w-[120px]"
+          disabled={maxStart <= 0}
+        />
+      </div>
+      <motion.div
+        className="h-[300px] rounded-2xl border border-white/10 bg-[#08080f]/80 p-2"
+        onMouseMove={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          const x = ((event.clientX - box.left) / box.width - 0.5) * 8;
+          const y = ((event.clientY - box.top) / box.height - 0.5) * -8;
+          setTilt({ x, y });
+        }}
+        onMouseLeave={() => setTilt({ x: 0, y: 0 })}
+        animate={{ rotateX: tilt.y, rotateY: tilt.x }}
+        transition={{ type: "spring", stiffness: 180, damping: 20, mass: 0.45 }}
+        style={{ transformStyle: "preserve-3d", perspective: 1100 }}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartPoints}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -117,7 +169,7 @@ export default function RetentionGraphCard({
             />
           </LineChart>
         </ResponsiveContainer>
-      </div>
+      </motion.div>
     </PremiumCard>
   );
 }

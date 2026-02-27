@@ -163,7 +163,7 @@ export default function Pricing() {
                   type="button"
                   onClick={() => setBillingInterval("monthly")}
                   className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "monthly" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
+                    billingInterval === "monthly" ? "bg-purple-500/20 text-purple-100" : "text-slate-300 hover:text-slate-100"
                   }`}
                 >
                   Monthly
@@ -172,7 +172,7 @@ export default function Pricing() {
                   type="button"
                   onClick={() => setBillingInterval("annual")}
                   className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "annual" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
+                    billingInterval === "annual" ? "bg-purple-500/20 text-purple-100" : "text-slate-300 hover:text-slate-100"
                   }`}
                 >
                   Annual
@@ -202,14 +202,14 @@ export default function Pricing() {
               key={tier.id}
               className={`relative flex h-full flex-col p-5 ${
                 tier.popular
-                  ? "border-cyan-300/45 shadow-[0_0_35px_rgba(34,211,238,0.22)]"
+                  ? "border-purple-300/45 shadow-[0_0_35px_rgba(168,85,247,0.28)]"
                   : tier.premium
                     ? "border-amber-300/40 bg-[radial-gradient(110%_130%_at_0%_0%,rgba(245,158,11,0.2),transparent_58%),linear-gradient(180deg,rgba(20,13,5,0.88),rgba(10,8,5,0.92))]"
                     : ""
               }`}
             >
               {tier.popular ? (
-                <span className="absolute right-4 top-4 rounded-full border border-cyan-300/35 bg-cyan-500/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100">
+                <span className="absolute right-4 top-4 rounded-full border border-purple-300/35 bg-purple-500/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-purple-100">
                   Popular
                 </span>
               ) : null}
@@ -290,7 +290,7 @@ export default function Pricing() {
               ].map((line) => (
                 <div key={line} className="rounded-2xl border border-white/10 bg-black/35 p-3">
                   <p className="inline-flex items-center gap-2 text-sm text-slate-200">
-                    <Sparkles className="h-4 w-4 text-cyan-300" />
+                    <Sparkles className="h-4 w-4 text-purple-300" />
                     {line}
                   </p>
                 </div>
@@ -298,6 +298,24 @@ export default function Pricing() {
             </div>
           </PremiumCard>
         </section>
+
+        <PremiumCard className="p-5">
+          <h2 className="text-lg font-semibold text-slate-100">FAQ</h2>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
+              <p className="text-sm font-medium text-slate-100">Is retention optimization always enabled?</p>
+              <p className="mt-1 text-xs text-slate-400">Yes. Every plan uses retention-priority edit decisions by default.</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
+              <p className="text-sm font-medium text-slate-100">Can I simulate fixes before re-rendering?</p>
+              <p className="mt-1 text-xs text-slate-400">Creator and above include full deep-dive simulation and weak-part repair previews.</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
+              <p className="text-sm font-medium text-slate-100">Do themes and analytics sync across pages?</p>
+              <p className="mt-1 text-xs text-slate-400">Yes. Theme and retention dashboards are persisted across the entire app.</p>
+            </div>
+          </div>
+        </PremiumCard>
       </div>
     </AppShell>
   );

@@ -74,7 +74,74 @@
     --ae-control-h: 2.5rem;
     --ae-control-text: 0.875rem;
     --ae-textarea-min-h: 5rem;
+
+    --accent-purple: #c084fc;
+    --accent-pink: #d946ef;
+    --glass-blur: 10px;
+    --ae-bg: radial-gradient(120% 120% at 12% 0%, #161123 0%, #06070c 42%, #020206 100%);
+    --ae-bg-overlay: radial-gradient(80% 90% at 88% 0%, rgba(168, 85, 247, 0.14), transparent 62%);
+    --ae-shell: color-mix(in srgb, #08090f 88%, transparent);
+    --ae-surface: color-mix(in srgb, #0b0d15 74%, transparent);
+    --ae-border: rgba(255, 255, 255, 0.1);
+    --ae-text-primary: #f1f5f9;
+    --ae-text-secondary: #d1d5db;
   }
+}
+
+:root[data-theme='dark-premium'] {
+  --accent-purple: #c084fc;
+  --accent-pink: #d946ef;
+  --glass-blur: 10px;
+  --ae-bg: radial-gradient(120% 120% at 12% 0%, #161123 0%, #06070c 42%, #020206 100%);
+  --ae-bg-overlay: radial-gradient(80% 90% at 88% 0%, rgba(168, 85, 247, 0.14), transparent 62%);
+  --ae-shell: color-mix(in srgb, #08090f 88%, transparent);
+  --ae-surface: color-mix(in srgb, #0b0d15 74%, transparent);
+  --ae-border: rgba(255, 255, 255, 0.1);
+  --ae-text-primary: #f1f5f9;
+  --ae-text-secondary: #d1d5db;
+}
+
+:root[data-theme='light-minimal'] {
+  --accent-purple: #8b5cf6;
+  --accent-pink: #db2777;
+  --glass-blur: 8px;
+  --ae-bg: linear-gradient(165deg, #f3f5fb 0%, #ecf0f8 46%, #e5ebf3 100%);
+  --ae-bg-overlay: radial-gradient(90% 75% at 95% -10%, rgba(139, 92, 246, 0.16), transparent 64%);
+  --ae-shell: color-mix(in srgb, #fdfdff 82%, transparent);
+  --ae-surface: color-mix(in srgb, #f8fafc 78%, transparent);
+  --ae-border: rgba(15, 23, 42, 0.14);
+  --ae-text-primary: #0f172a;
+  --ae-text-secondary: #334155;
+}
+
+:root[data-theme='neon-2026'] {
+  --accent-purple: #b026ff;
+  --accent-pink: #ff33c8;
+  --glass-blur: 12px;
+  --ae-bg: radial-gradient(120% 130% at 8% 0%, #0b1129 0%, #060312 44%, #030105 100%);
+  --ae-bg-overlay:
+    radial-gradient(50% 46% at 84% 8%, rgba(255, 51, 200, 0.22), transparent 76%),
+    radial-gradient(46% 40% at 20% 70%, rgba(96, 165, 250, 0.2), transparent 80%);
+  --ae-shell: color-mix(in srgb, #080b18 86%, transparent);
+  --ae-surface: color-mix(in srgb, #0a0f1d 80%, transparent);
+  --ae-border: rgba(180, 80, 255, 0.3);
+  --ae-text-primary: #ecfeff;
+  --ae-text-secondary: #bfdbfe;
+}
+
+:root[data-theme='holographic-glass'] {
+  --accent-purple: #a78bfa;
+  --accent-pink: #f472b6;
+  --glass-blur: 14px;
+  --ae-bg: radial-gradient(130% 140% at 16% 0%, #16182a 0%, #06070e 46%, #020208 100%);
+  --ae-bg-overlay:
+    radial-gradient(64% 56% at 86% 6%, rgba(244, 114, 182, 0.2), transparent 76%),
+    radial-gradient(56% 50% at 18% 78%, rgba(56, 189, 248, 0.16), transparent 84%);
+  --ae-shell: color-mix(in srgb, #0a0f1c 82%, transparent);
+  --ae-surface: color-mix(in srgb, #0d1222 72%, transparent);
+  --ae-border: rgba(191, 219, 254, 0.24);
+  --ae-text-primary: #f8fafc;
+  --ae-text-secondary: #cbd5e1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -364,6 +431,9 @@
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-size: var(--ae-base-font-size);
+    background-image: var(--ae-bg);
+    color: var(--ae-text-primary);
+    transition: background-image 260ms ease, color 220ms ease;
   }
 
   h1, h2, h3, h4, h5, h6 {

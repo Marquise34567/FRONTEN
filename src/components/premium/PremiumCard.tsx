@@ -11,8 +11,9 @@ export default function PremiumCard({ className, blur = "sm", children, ...props
   return (
     <div
       className={cn(
-        "rounded-3xl border border-white/10 bg-black/60 p-4 shadow-2xl shadow-black/35",
+        "rounded-3xl border border-[var(--ae-border)] bg-[color:var(--ae-surface)] p-4 shadow-[0_24px_54px_-32px_rgba(0,0,0,0.9)]",
         blurClass,
+        "supports-[backdrop-filter:blur(0)]:backdrop-blur-[var(--glass-blur)]",
         className,
       )}
       {...props}

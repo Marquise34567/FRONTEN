@@ -127,7 +127,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de] shadow-[0_12px_26px_-20px_rgba(212,180,131,0.72)]"
+                          ? "border-purple-300/45 bg-purple-500/16 text-purple-50 shadow-[0_12px_26px_-20px_rgba(168,85,247,0.7)]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
@@ -160,7 +160,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                          ? "border-purple-300/45 bg-purple-500/16 text-purple-50"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
@@ -182,12 +182,12 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "rounded-xl border p-2 text-left transition-all",
                         active
-                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/14 shadow-[0_14px_30px_-24px_rgba(212,180,131,0.62)]"
+                          ? "border-purple-300/45 bg-purple-500/14 shadow-[0_14px_30px_-24px_rgba(168,85,247,0.62)]"
                           : "border-white/15 bg-black/22 hover:border-white/25 hover:bg-black/35",
                       )}
                     >
                       <div className={`h-14 rounded-lg bg-gradient-to-br ${preset.preview}`} />
-                      <p className="mt-2 text-sm font-medium text-[#f7efe2]">{preset.label}</p>
+                      <p className="mt-2 text-sm font-medium text-slate-100">{preset.label}</p>
                     </button>
                   );
                 })}
@@ -239,7 +239,7 @@ export default function StaggeredSettingsSections({
 
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Workflow</p>
+                  <p className="mb-1 text-xs text-slate-400">Caption Workflow</p>
                   <div className="flex gap-2">
                     {([
                       { value: "ai", label: "AI Generated" },
@@ -254,7 +254,7 @@ export default function StaggeredSettingsSections({
                           className={cn(
                             "rounded-full border px-3 py-1.5 text-sm transition",
                             active
-                              ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                              ? "border-purple-300/45 bg-purple-500/16 text-purple-50"
                               : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                           )}
                         >
@@ -266,9 +266,9 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Style</p>
+                  <p className="mb-1 text-xs text-slate-400">Caption Style</p>
                   <Select value={captionStyle} onValueChange={(value) => onCaptionStyleChange(value as CaptionStylePreset)}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-purple-300/45">
                       <SelectValue placeholder="Select style" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -282,9 +282,9 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Font Family</p>
+                  <p className="mb-1 text-xs text-slate-400">Caption Font Family</p>
                   <Select value={captionFont} onValueChange={onCaptionFontChange}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-purple-300/45">
                       <SelectValue placeholder="Select font" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -298,9 +298,9 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Motion Effect</p>
+                  <p className="mb-1 text-xs text-slate-400">Motion Effect</p>
                   <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-purple-300/45">
                       <SelectValue placeholder="Select effect" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -336,7 +336,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                          ? "border-purple-300/45 bg-purple-500/16 text-purple-50"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25",
                       )}
                     >
@@ -349,7 +349,7 @@ export default function StaggeredSettingsSections({
 
               <Accordion type="multiple" className="mt-3 space-y-2">
                 <AccordionItem value="ducking" className="rounded-xl border border-white/15 bg-black/22 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Ducking & Sidechain</AccordionTrigger>
+                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Ducking & Sidechain</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioDuckingEnabled}
@@ -361,7 +361,7 @@ export default function StaggeredSettingsSections({
                 </AccordionItem>
 
                 <AccordionItem value="cleanup" className="rounded-xl border border-white/15 bg-black/22 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Noise Cleanup</AccordionTrigger>
+                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Noise Cleanup</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioCleanupEnabled}
@@ -373,7 +373,7 @@ export default function StaggeredSettingsSections({
                 </AccordionItem>
 
                 <AccordionItem value="mastering" className="rounded-xl border border-white/15 bg-black/22 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Mastering</AccordionTrigger>
+                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Mastering</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioMasteringEnabled}

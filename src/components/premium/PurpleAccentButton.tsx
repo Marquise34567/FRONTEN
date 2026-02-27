@@ -12,7 +12,7 @@ export default function PurpleAccentButton({ className, icon, children, ...props
   return (
     <Button
       className={cn(
-        "rounded-2xl border border-purple-300/30 bg-gradient-to-r from-[#a855f7] to-[#d946ef] text-white shadow-lg shadow-fuchsia-900/30 transition-all hover:-translate-y-0.5 hover:from-[#9333ea] hover:to-[#c026d3]",
+        "rounded-2xl border border-purple-300/30 bg-gradient-to-r from-[var(--accent-purple)] via-[#a855f7] to-[var(--accent-pink)] text-white shadow-[0_0_20px_rgba(192,132,252,0.28)] transition-all hover:-translate-y-0.5 hover:brightness-110",
         className,
       )}
       {...props}

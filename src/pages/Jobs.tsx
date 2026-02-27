@@ -11,7 +11,7 @@ const jobs = [
 
 export default function Jobs() {
   return (
-    <AppShell title="AutoEditor Jobs">
+    <AppShell title="AutoEditor Jobs" showSidebar>
       <div className="space-y-4">
         <PremiumCard className="p-5">
           <h1 className="text-2xl font-semibold text-slate-100">Render Jobs</h1>
