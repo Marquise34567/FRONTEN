@@ -19,6 +19,7 @@ import AutoModeBanner from "@/features/autoeditor/components/editor/AutoModeBann
 import InitialSettingsPanel from "@/features/autoeditor/components/editor/InitialSettingsPanel";
 import ManualTimestampModal from "@/features/autoeditor/components/editor/ManualTimestampModal";
 import ModeSelector from "@/features/autoeditor/components/editor/ModeSelector";
+import ModernizedOriginalEditor from "@/features/autoeditor/components/editor/ModernizedOriginalEditor";
 import PostRenderModal from "@/features/autoeditor/components/editor/PostRenderModal";
 import RecentJobsDrawer from "@/features/autoeditor/components/editor/RecentJobsDrawer";
 import RetentionInsights from "@/features/autoeditor/components/editor/RetentionInsights";
@@ -95,6 +96,7 @@ export default function AutoEditorPage() {
   const { toast } = useToast();
 
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [settingsView, setSettingsView] = useState<"modern" | "original">("modern");
 
   const {
     flowStep,
@@ -458,6 +460,7 @@ export default function AutoEditorPage() {
     setRecentDrawerOpen(false);
     resetSession();
     setFileInputKey((value) => value + 1);
+    setSettingsView("modern");
   };
 
   const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
@@ -582,55 +585,124 @@ export default function AutoEditorPage() {
 
             {showExpandedSettings ? (
               <>
-                <StaggeredSettingsSections
-                  revealedSectionCount={revealedSectionCount}
-                  formatPreset={formatPreset}
-                  onFormatPresetChange={setFormatPreset}
-                  vibeChip={vibeChip}
-                  onVibeChipChange={setVibeChip}
-                  stylePreset={stylePreset}
-                  onStylePresetChange={setStylePreset}
-                  pacingValue={pacingValue}
-                  onPacingValueChange={setPacingValue}
-                  autoDetectBestMoments={autoDetectBestMoments}
-                  onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
-                  captionsEnabled={captionsEnabled}
-                  onCaptionsEnabledChange={setCaptionsEnabled}
-                  captionMode={captionMode}
-                  onCaptionModeChange={setCaptionMode}
-                  captionStyle={captionStyle}
-                  onCaptionStyleChange={setCaptionStyle}
-                  captionFont={captionFont}
-                  onCaptionFontChange={setCaptionFont}
-                  captionEffect={captionEffect}
-                  onCaptionEffectChange={setCaptionEffect}
-                  audioOption={audioOption}
-                  onAudioOptionChange={setAudioOption}
-                  audioDuckingEnabled={audioDuckingEnabled}
-                  onAudioDuckingEnabledChange={setAudioDuckingEnabled}
-                  audioCleanupEnabled={audioCleanupEnabled}
-                  onAudioCleanupEnabledChange={setAudioCleanupEnabled}
-                  audioMasteringEnabled={audioMasteringEnabled}
-                  onAudioMasteringEnabledChange={setAudioMasteringEnabled}
-                />
+                <CleanCard className="p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="ae-kicker">Editor Surface</p>
+                      <p className="text-sm text-[#d5cbce]">Switch between the new flow and a modernized original editor layout.</p>
+                    </div>
+                    <div className="inline-flex rounded-xl border border-white/15 bg-black/25 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setSettingsView("modern")}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                          settingsView === "modern"
+                            ? "bg-[#d4b483]/18 text-[#fff3e2] shadow-[0_8px_20px_-16px_rgba(212,180,131,0.9)]"
+                            : "text-[#b9afb2] hover:text-[#f3ece2]"
+                        }`}
+                      >
+                        Modern Flow
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsView("original")}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                          settingsView === "original"
+                            ? "bg-[#d4b483]/18 text-[#fff3e2] shadow-[0_8px_20px_-16px_rgba(212,180,131,0.9)]"
+                            : "text-[#b9afb2] hover:text-[#f3ece2]"
+                        }`}
+                      >
+                        Original Editor
+                      </button>
+                    </div>
+                  </div>
+                </CleanCard>
 
-            <CleanCard>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-[#fbf2e6]">Ready to render</p>
-                  <p className="text-xs text-[#bcaeb2]">
-                    Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  onClick={handleStartRender}
-                  disabled={!renderPayload || isRendering}
-                  className="ae-gold-pulse min-w-[200px] rounded-xl bg-[#d4b483] text-[#1f1812] shadow-[0_18px_38px_-24px_rgba(212,180,131,0.8)] transition-all hover:-translate-y-0.5 hover:bg-[#e4c89d]"
-                >
-                  {isRendering ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Rendering
+                {settingsView === "modern" ? (
+                  <StaggeredSettingsSections
+                    revealedSectionCount={revealedSectionCount}
+                    formatPreset={formatPreset}
+                    onFormatPresetChange={setFormatPreset}
+                    vibeChip={vibeChip}
+                    onVibeChipChange={setVibeChip}
+                    stylePreset={stylePreset}
+                    onStylePresetChange={setStylePreset}
+                    pacingValue={pacingValue}
+                    onPacingValueChange={setPacingValue}
+                    autoDetectBestMoments={autoDetectBestMoments}
+                    onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
+                    captionsEnabled={captionsEnabled}
+                    onCaptionsEnabledChange={setCaptionsEnabled}
+                    captionMode={captionMode}
+                    onCaptionModeChange={setCaptionMode}
+                    captionStyle={captionStyle}
+                    onCaptionStyleChange={setCaptionStyle}
+                    captionFont={captionFont}
+                    onCaptionFontChange={setCaptionFont}
+                    captionEffect={captionEffect}
+                    onCaptionEffectChange={setCaptionEffect}
+                    audioOption={audioOption}
+                    onAudioOptionChange={setAudioOption}
+                    audioDuckingEnabled={audioDuckingEnabled}
+                    onAudioDuckingEnabledChange={setAudioDuckingEnabled}
+                    audioCleanupEnabled={audioCleanupEnabled}
+                    onAudioCleanupEnabledChange={setAudioCleanupEnabled}
+                    audioMasteringEnabled={audioMasteringEnabled}
+                    onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+                  />
+                ) : (
+                  <ModernizedOriginalEditor
+                    mode={mode}
+                    quickControls={quickControls}
+                    onToggleQuickControl={toggleQuickControl}
+                    formatPreset={formatPreset}
+                    onFormatPresetChange={setFormatPreset}
+                    vibeChip={vibeChip}
+                    onVibeChipChange={setVibeChip}
+                    stylePreset={stylePreset}
+                    onStylePresetChange={setStylePreset}
+                    pacingValue={pacingValue}
+                    onPacingValueChange={setPacingValue}
+                    autoDetectBestMoments={autoDetectBestMoments}
+                    onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
+                    captionsEnabled={captionsEnabled}
+                    onCaptionsEnabledChange={setCaptionsEnabled}
+                    captionMode={captionMode}
+                    onCaptionModeChange={setCaptionMode}
+                    captionStyle={captionStyle}
+                    onCaptionStyleChange={setCaptionStyle}
+                    captionFont={captionFont}
+                    onCaptionFontChange={setCaptionFont}
+                    captionEffect={captionEffect}
+                    onCaptionEffectChange={setCaptionEffect}
+                    audioOption={audioOption}
+                    onAudioOptionChange={setAudioOption}
+                    audioDuckingEnabled={audioDuckingEnabled}
+                    onAudioDuckingEnabledChange={setAudioDuckingEnabled}
+                    audioCleanupEnabled={audioCleanupEnabled}
+                    onAudioCleanupEnabledChange={setAudioCleanupEnabled}
+                    audioMasteringEnabled={audioMasteringEnabled}
+                    onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+                  />
+                )}
+
+                <CleanCard>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[#fbf2e6]">Ready to render</p>
+                      <p className="text-xs text-[#bcaeb2]">
+                        Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleStartRender}
+                      disabled={!renderPayload || isRendering}
+                      className="ae-gold-pulse min-w-[200px] rounded-xl bg-[#d4b483] text-[#1f1812] shadow-[0_18px_38px_-24px_rgba(212,180,131,0.8)] transition-all hover:-translate-y-0.5 hover:bg-[#e4c89d]"
+                    >
+                      {isRendering ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Rendering
                         </span>
                       ) : (
                         "Render AutoEditor"
@@ -638,19 +710,19 @@ export default function AutoEditorPage() {
                     </Button>
                   </div>
 
-              {isRendering ? (
-                <div className="mt-4 rounded-xl border border-white/15 bg-black/30 px-3 py-3">
-                  <div className="mb-2 flex items-center justify-between text-xs text-[#b9acb0]">
-                    <span>Pipeline progress</span>
-                    <span>{Math.round(renderProgress)}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-[#1c1b1d]">
-                    <div className="h-full bg-gradient-to-r from-[#e8d7bc] via-[#d4b483] to-[#90aacd]" style={{ width: `${renderProgress}%` }} />
-                  </div>
-                  <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Claude retention scoring in progress.</p>
-                </div>
-              ) : null}
-            </CleanCard>
+                  {isRendering ? (
+                    <div className="mt-4 rounded-xl border border-white/15 bg-black/30 px-3 py-3">
+                      <div className="mb-2 flex items-center justify-between text-xs text-[#b9acb0]">
+                        <span>Pipeline progress</span>
+                        <span>{Math.round(renderProgress)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[#1c1b1d]">
+                        <div className="h-full bg-gradient-to-r from-[#e8d7bc] via-[#d4b483] to-[#90aacd]" style={{ width: `${renderProgress}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Claude retention scoring in progress.</p>
+                    </div>
+                  ) : null}
+                </CleanCard>
               </>
             ) : null}
 
