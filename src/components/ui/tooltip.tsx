@@ -7,7 +7,30 @@ const TooltipProvider = TooltipPrimitive.Provider;
 
 const Tooltip = TooltipPrimitive.Root;
 
-const TooltipTrigger = TooltipPrimitive.Trigger;
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ asChild, children, ...props }, ref) => {
+  const hasSingleElementChild =
+    React.Children.count(children) === 1 &&
+    React.isValidElement(children) &&
+    children.type !== React.Fragment;
+
+  if (!asChild) {
+    return (
+      <TooltipPrimitive.Trigger ref={ref} {...props}>
+        {children}
+      </TooltipPrimitive.Trigger>
+    );
+  }
+
+  return (
+    <TooltipPrimitive.Trigger ref={ref} asChild {...props}>
+      {hasSingleElementChild ? children : <span className="contents">{children}</span>}
+    </TooltipPrimitive.Trigger>
+  );
+});
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName;
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,

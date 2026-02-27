@@ -47,7 +47,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, loadingText, successToast, errorToast, onClick, children, disabled, ...props }, ref) => {
     const [pending, setPending] = React.useState(false);
     const isLoading = Boolean(loading || pending);
-    const Comp = asChild ? Slot : "button";
+    const canUseAsChild =
+      asChild &&
+      React.Children.count(children) === 1 &&
+      React.isValidElement(children) &&
+      children.type !== React.Fragment;
 
     const handleClick = React.useCallback(
       (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -92,9 +96,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       [errorToast, isLoading, onClick, successToast],
     );
 
-    if (asChild) {
+    if (canUseAsChild) {
       return (
-        <Comp
+        <Slot
           className={cn(buttonVariants({ variant, size, className }))}
           ref={ref}
           onClick={handleClick}
@@ -102,12 +106,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           {...props}
         >
           {children}
-        </Comp>
+        </Slot>
       );
     }
 
     return (
-      <Comp
+      <button
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         onClick={handleClick}
@@ -117,7 +121,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {isLoading && loadingText ? loadingText : children}
-      </Comp>
+      </button>
     );
   },
 );
