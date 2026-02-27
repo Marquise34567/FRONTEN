@@ -79,13 +79,6 @@ const Index = () => {
       <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
         <div className="landing-royal-tv-bg" aria-hidden="true">
           <div className="landing-royal-tv-scene">
-            <span className="landing-royal-crown">
-              <span className="landing-royal-crown-spike landing-royal-crown-spike-left" />
-              <span className="landing-royal-crown-spike landing-royal-crown-spike-mid" />
-              <span className="landing-royal-crown-spike landing-royal-crown-spike-right" />
-              <span className="landing-royal-crown-gem" />
-            </span>
-
             <div className="landing-retro-tv">
               <span className="landing-retro-tv-antenna landing-retro-tv-antenna-left" />
               <span className="landing-retro-tv-antenna landing-retro-tv-antenna-right" />

@@ -426,34 +426,34 @@
   }
 
   .landing-royal-crown-inline {
-    left: 0.14em;
-    top: -0.5em;
+    left: 0.06em;
+    top: -0.42em;
     bottom: auto;
-    width: 0.62em;
-    height: 0.42em;
+    width: 0.46em;
+    height: 0.31em;
     transform: none;
     animation: landingCrownFloatInline 2.7s ease-in-out infinite;
-    filter: drop-shadow(0 4px 7px hsl(40 95% 55% / 0.28));
+    filter: drop-shadow(0 3px 6px hsl(40 95% 55% / 0.28));
     overflow: visible;
     pointer-events: none;
   }
 
   .landing-royal-crown-inline .landing-royal-crown-spike {
     bottom: 24%;
-    border-left-width: 0.08em;
-    border-right-width: 0.08em;
-    border-bottom-width: 0.21em;
+    border-left-width: 0.055em;
+    border-right-width: 0.055em;
+    border-bottom-width: 0.15em;
   }
 
   .landing-royal-crown-inline .landing-royal-crown-spike-mid {
-    border-left-width: 0.1em;
-    border-right-width: 0.1em;
-    border-bottom-width: 0.26em;
+    border-left-width: 0.07em;
+    border-right-width: 0.07em;
+    border-bottom-width: 0.19em;
   }
 
   .landing-royal-crown-inline .landing-royal-crown-gem {
-    width: 0.1em;
-    height: 0.1em;
+    width: 0.07em;
+    height: 0.07em;
     bottom: 32%;
   }
 
