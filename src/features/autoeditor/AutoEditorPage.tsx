@@ -51,9 +51,21 @@ const uploadAnalyze = async ({ file, token }: { file: File; token: string | null
       : undefined,
   });
 
-  const data = await response.json().catch(() => ({}));
+  const rawBody = await response.text().catch(() => "");
+  let data: any = {};
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      data = { message: rawBody.slice(0, 500) };
+    }
+  }
+
   if (!response.ok) {
-    throw new ApiError(data?.message || "Upload analysis failed", response.status, data?.error, data);
+    const message =
+      data?.message ||
+      (response.status ? `Upload analysis failed (HTTP ${response.status}).` : "Upload analysis failed.");
+    throw new ApiError(message, response.status, data?.error, data);
   }
   return data as UploadAnalysisResponse;
 };
@@ -430,7 +442,12 @@ export default function AutoEditorPage() {
       toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
       void fetchRecentJobs();
     } catch (error: any) {
-      const message = error instanceof ApiError ? error.message : "Upload analysis failed.";
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error && error.message
+            ? error.message
+            : "Upload analysis failed.";
       setErrorMessage(message);
       toast({ title: "Upload failed", description: message, variant: "destructive" });
     } finally {
@@ -766,7 +783,7 @@ export default function AutoEditorPage() {
                       <div className="h-2 overflow-hidden rounded-full bg-[#1c1b1d]">
                         <div className="h-full bg-gradient-to-r from-[#e8d7bc] via-[#d4b483] to-[#90aacd]" style={{ width: `${renderProgress}%` }} />
                       </div>
-                      <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Hugging Face (free AI) retention scoring in progress.</p>
+                      <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + ruthless retention planner scoring in progress.</p>
                     </div>
                   ) : null}
                 </CleanCard>
