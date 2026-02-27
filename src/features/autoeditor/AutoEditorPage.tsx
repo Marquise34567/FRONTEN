@@ -150,6 +150,10 @@ export default function AutoEditorPage() {
     captionStyle,
     captionFont,
     captionEffect,
+    verticalWebcamEnabled,
+    verticalWebcamLayout,
+    captionOutlineEnabled,
+    captionDropShadowEnabled,
 
     audioOption,
     audioDuckingEnabled,
@@ -232,15 +236,23 @@ export default function AutoEditorPage() {
       captionMode: captionsEnabled ? captionMode : "manual",
       captionStyle,
       captionFont,
+      captionEffect,
       zoomEffect: getZoomEffect(quickControls.speedRamp, mode),
       audioOption,
       suggestedSubMode,
+      verticalWebcamEnabled: mode === "vertical" ? verticalWebcamEnabled : false,
+      verticalWebcamLayout,
+      captionOutlineEnabled,
+      captionDropShadowEnabled,
     };
   }, [
     autoDetectBestMoments,
     audioOption,
+    captionDropShadowEnabled,
+    captionEffect,
     captionFont,
     captionMode,
+    captionOutlineEnabled,
     captionStyle,
     captionsEnabled,
     formatPreset,
@@ -250,6 +262,8 @@ export default function AutoEditorPage() {
     quickControls,
     stylePreset,
     vibeChip,
+    verticalWebcamEnabled,
+    verticalWebcamLayout,
     videoId,
     suggestedSubMode,
   ]);
@@ -402,11 +416,16 @@ export default function AutoEditorPage() {
 
     try {
       const payload = await uploadAnalyze({ file, token: accessToken });
+      const forceStandardSubMode =
+        Number(payload.metadata?.duration || 0) >= 180 &&
+        Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) * 1.08;
       setUploadAnalysis(payload);
       setSuggestedSubMode(
-        payload.autoDetection.editorProfile?.suggestedSubMode ||
-          payload.autoDetection.suggestedSubMode ||
-          (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
+        forceStandardSubMode
+          ? "standard_mode"
+          : payload.autoDetection.editorProfile?.suggestedSubMode ||
+              payload.autoDetection.suggestedSubMode ||
+              (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
       );
       toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
       void fetchRecentJobs();
@@ -474,8 +493,14 @@ export default function AutoEditorPage() {
   const handleAutoModeToggle = (value: boolean) => {
     setAutoModeEnabled(value);
     if (value && autoDetection?.finalMode) {
-      setMode(autoDetection.finalMode, false);
-      setSuggestedSubMode(autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode);
+      const forceHorizontalMode =
+        Number(duration || 0) >= 180 && autoDetection.metadataMode === "horizontal";
+      setMode(forceHorizontalMode ? "horizontal" : autoDetection.finalMode, false);
+      setSuggestedSubMode(
+        forceHorizontalMode
+          ? "standard_mode"
+          : autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode,
+      );
     }
   };
 

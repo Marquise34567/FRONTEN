@@ -20,6 +20,7 @@ import type {
   StylePreset,
   SuggestedSubMode,
   UploadAnalysisResponse,
+  VerticalWebcamLayout,
   VibeChip,
 } from "@/features/autoeditor/types";
 
@@ -66,6 +67,10 @@ type AutoEditorState = {
   captionStyle: CaptionStylePreset;
   captionFont: string;
   captionEffect: CaptionEffect;
+  verticalWebcamEnabled: boolean;
+  verticalWebcamLayout: VerticalWebcamLayout;
+  captionOutlineEnabled: boolean;
+  captionDropShadowEnabled: boolean;
 
   audioOption: AudioOption;
   audioDuckingEnabled: boolean;
@@ -114,6 +119,10 @@ type AutoEditorState = {
   setCaptionStyle: (value: CaptionStylePreset) => void;
   setCaptionFont: (value: string) => void;
   setCaptionEffect: (value: CaptionEffect) => void;
+  setVerticalWebcamEnabled: (value: boolean) => void;
+  setVerticalWebcamLayout: (value: VerticalWebcamLayout) => void;
+  setCaptionOutlineEnabled: (value: boolean) => void;
+  setCaptionDropShadowEnabled: (value: boolean) => void;
 
   setAudioOption: (value: AudioOption) => void;
   setAudioDuckingEnabled: (value: boolean) => void;
@@ -168,9 +177,13 @@ const initialState = {
 
   captionsEnabled: true,
   captionMode: "ai" as CaptionMode,
-  captionStyle: "impact" as CaptionStylePreset,
+  captionStyle: "impact_clean" as CaptionStylePreset,
   captionFont: "Inter",
   captionEffect: "clean_fade" as CaptionEffect,
+  verticalWebcamEnabled: true,
+  verticalWebcamLayout: "top_banner" as VerticalWebcamLayout,
+  captionOutlineEnabled: true,
+  captionDropShadowEnabled: true,
 
   audioOption: "auto_sync_tracks" as AudioOption,
   audioDuckingEnabled: true,
@@ -245,7 +258,12 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setUploadAnalysis: (payload) => {
     const metadataDetectedMode: RenderMode =
       Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) ? "horizontal" : "vertical";
-    const detectedMode = payload.autoDetection?.finalMode || metadataDetectedMode;
+    const longFormLandscapeLock =
+      Number(payload.metadata?.duration || 0) >= 180 &&
+      Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) * 1.08;
+    const detectedMode = longFormLandscapeLock
+      ? "horizontal"
+      : payload.autoDetection?.finalMode || metadataDetectedMode;
     const isVertical = detectedMode === "vertical";
     const profile = payload.autoDetection.editorProfile;
     const inferredPacing =
@@ -286,11 +304,17 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
           : isVertical,
       captionsEnabled: profile ? profile.captionMode !== "manual" : true,
       captionMode: profile?.captionMode || "ai",
-      captionStyle: profile?.captionStyle || (isVertical ? "impact" : "subtle"),
+      captionStyle: profile?.captionStyle || (isVertical ? "impact_clean" : "subtle"),
       captionFont: profile?.captionFont || "Inter",
       captionEffect: profile?.captionEffect || (isVertical ? "kinetic_pop" : "clean_fade"),
+      verticalWebcamEnabled: isVertical,
+      verticalWebcamLayout: "top_banner",
+      captionOutlineEnabled: true,
+      captionDropShadowEnabled: isVertical,
       audioOption: profile?.audioOption || "auto_sync_tracks",
-      suggestedSubMode: profile?.suggestedSubMode || payload.autoDetection.suggestedSubMode || (isVertical ? "highlight_mode" : "standard_mode"),
+      suggestedSubMode: longFormLandscapeLock
+        ? "standard_mode"
+        : profile?.suggestedSubMode || payload.autoDetection.suggestedSubMode || (isVertical ? "highlight_mode" : "standard_mode"),
       retentionExpanded: false,
       successModalOpen: false,
       latestResult: null,
@@ -382,6 +406,10 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setCaptionStyle: (value) => set({ captionStyle: value }),
   setCaptionFont: (value) => set({ captionFont: value }),
   setCaptionEffect: (value) => set({ captionEffect: value }),
+  setVerticalWebcamEnabled: (value) => set({ verticalWebcamEnabled: value }),
+  setVerticalWebcamLayout: (value) => set({ verticalWebcamLayout: value }),
+  setCaptionOutlineEnabled: (value) => set({ captionOutlineEnabled: value }),
+  setCaptionDropShadowEnabled: (value) => set({ captionDropShadowEnabled: value }),
 
   setAudioOption: (value) => set({ audioOption: value }),
   setAudioDuckingEnabled: (value) => set({ audioDuckingEnabled: value }),

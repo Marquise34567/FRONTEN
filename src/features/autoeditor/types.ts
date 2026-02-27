@@ -1,6 +1,7 @@
 import type {
   AudioOption,
   AutoDetection,
+  CaptionEffect,
   CaptionMode,
   CaptionStylePreset,
   FormatPreset,
@@ -12,6 +13,7 @@ import type {
   StylePreset,
   SuggestedSubMode,
   UploadAnalysisResponse,
+  VerticalWebcamLayout,
   VibeChip,
   ZoomEffect,
 } from "@/features/vibecut/types";
@@ -19,6 +21,7 @@ import type {
 export type {
   AudioOption,
   AutoDetection,
+  CaptionEffect,
   CaptionMode,
   CaptionStylePreset,
   FormatPreset,
@@ -30,6 +33,7 @@ export type {
   StylePreset,
   SuggestedSubMode,
   UploadAnalysisResponse,
+  VerticalWebcamLayout,
   VibeChip,
   ZoomEffect,
 };
@@ -46,8 +50,6 @@ export type EditorFlowStep =
   | "rendering"
   | "post_render";
 
-export type CaptionEffect = "clean_fade" | "kinetic_pop" | "underline_sweep" | "none";
-
 export type PacingBand = "slow" | "balanced" | "fast";
 
 export type AutoEditorRenderPayload = {
@@ -63,9 +65,14 @@ export type AutoEditorRenderPayload = {
   captionMode: CaptionMode;
   captionStyle: CaptionStylePreset;
   captionFont: string;
+  captionEffect: CaptionEffect;
   zoomEffect: ZoomEffect;
   audioOption: AudioOption;
   suggestedSubMode: SuggestedSubMode;
+  verticalWebcamEnabled: boolean;
+  verticalWebcamLayout: VerticalWebcamLayout;
+  captionOutlineEnabled: boolean;
+  captionDropShadowEnabled: boolean;
 };
 
 export type InsightTooltip = {

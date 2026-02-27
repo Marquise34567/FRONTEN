@@ -176,6 +176,14 @@ const App = () => {
                   }
                 />
                 <Route
+                  path="/editor/vertical"
+                  element={
+                    <RequireAuth>
+                      <Editor verticalModeExperience />
+                    </RequireAuth>
+                  }
+                />
+                <Route
                   path="/vibecut"
                   element={
                     <RequireAuth>

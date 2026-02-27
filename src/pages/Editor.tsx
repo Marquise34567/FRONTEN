@@ -14,7 +14,7 @@ import {
   Wand2,
   Workflow,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
@@ -34,6 +34,7 @@ import RecentJobsDrawer from "@/features/autoeditor/components/editor/RecentJobs
 import RetentionInsights from "@/features/autoeditor/components/editor/RetentionInsights";
 import PostRenderModal from "@/features/autoeditor/components/editor/PostRenderModal";
 import StaggeredSettingsSections from "@/features/autoeditor/components/editor/StaggeredSettingsSections";
+import VerticalModeToolkit from "@/features/autoeditor/components/editor/VerticalModeToolkit";
 import { QUICK_CONTROL_CONFIG, RECENT_DRAWER_CONFIG, SECTION_REVEAL_ORDER } from "@/features/autoeditor/data/options";
 import { getRetentionScore } from "@/features/autoeditor/lib/retentionQuality";
 import { useAutoEditorStore } from "@/features/autoeditor/store/useAutoEditorStore";
@@ -97,7 +98,7 @@ const getZoomEffect = (speedRampEnabled: boolean, mode: RenderMode): ZoomEffect 
 
 const MODE_OPTIONS: Array<{ value: RenderMode; label: string; subtitle: string }> = [
   { value: "horizontal", label: "Horizontal", subtitle: "16:9" },
-  { value: "vertical", label: "Vertical", subtitle: "9:16" },
+  { value: "vertical", label: "Vertical", subtitle: "9:16 Studio" },
 ];
 
 const PIPELINE_STAGES = [
@@ -194,8 +195,14 @@ const normalizeRenderJobUrls = (job: RenderJobResult): RenderJobResult => {
   };
 };
 
-export default function Editor() {
+type EditorProps = {
+  verticalModeExperience?: boolean;
+};
+
+export default function Editor({ verticalModeExperience = false }: EditorProps) {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const requestedJobId = searchParams.get("jobId");
   const { toast } = useToast();
@@ -237,6 +244,10 @@ export default function Editor() {
     captionStyle,
     captionFont,
     captionEffect,
+    verticalWebcamEnabled,
+    verticalWebcamLayout,
+    captionOutlineEnabled,
+    captionDropShadowEnabled,
     audioOption,
     audioDuckingEnabled,
     audioCleanupEnabled,
@@ -273,6 +284,10 @@ export default function Editor() {
     setCaptionStyle,
     setCaptionFont,
     setCaptionEffect,
+    setVerticalWebcamEnabled,
+    setVerticalWebcamLayout,
+    setCaptionOutlineEnabled,
+    setCaptionDropShadowEnabled,
     setAudioOption,
     setAudioDuckingEnabled,
     setAudioCleanupEnabled,
@@ -332,15 +347,23 @@ export default function Editor() {
       captionMode: captionsEnabled ? captionMode : "manual",
       captionStyle,
       captionFont,
+      captionEffect,
       zoomEffect: getZoomEffect(quickControls.speedRamp, mode),
       audioOption,
       suggestedSubMode,
+      verticalWebcamEnabled: mode === "vertical" ? verticalWebcamEnabled : false,
+      verticalWebcamLayout,
+      captionOutlineEnabled,
+      captionDropShadowEnabled,
     };
   }, [
     audioOption,
     autoDetectBestMoments,
+    captionDropShadowEnabled,
+    captionEffect,
     captionFont,
     captionMode,
+    captionOutlineEnabled,
     captionStyle,
     captionsEnabled,
     formatPreset,
@@ -350,9 +373,40 @@ export default function Editor() {
     quickControls,
     stylePreset,
     suggestedSubMode,
+    verticalWebcamEnabled,
+    verticalWebcamLayout,
     videoId,
     vibeChip,
   ]);
+
+  const routeWithCurrentQuery = useCallback(
+    (basePath: string) => {
+      const query = searchParams.toString();
+      return query ? `${basePath}?${query}` : basePath;
+    },
+    [searchParams],
+  );
+
+  const syncEditorRouteForMode = useCallback(
+    (nextMode: RenderMode) => {
+      const target = nextMode === "vertical" ? "/editor/vertical" : "/editor";
+      if (location.pathname === target) return;
+      navigate(routeWithCurrentQuery(target), { replace: true });
+    },
+    [location.pathname, navigate, routeWithCurrentQuery],
+  );
+
+  useEffect(() => {
+    if (!videoId || !mode) return;
+    if (verticalModeExperience && mode !== "vertical") return;
+    syncEditorRouteForMode(mode);
+  }, [mode, syncEditorRouteForMode, verticalModeExperience, videoId]);
+
+  useEffect(() => {
+    if (!verticalModeExperience || !videoId || mode === "vertical") return;
+    setMode("vertical", true);
+    setSuggestedSubMode("highlight_mode");
+  }, [mode, setMode, setSuggestedSubMode, verticalModeExperience, videoId]);
 
   const fetchDetailedJob = useCallback(
     async (jobId: string) => {
@@ -687,15 +741,20 @@ export default function Editor() {
 
     try {
       const payload = await uploadAnalyze({ file, token: accessToken });
+      const forceStandardSubMode =
+        Number(payload.metadata?.duration || 0) >= 180 &&
+        Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) * 1.08;
       clearUploadStatusTimer();
       setUploadStatus("analyzing");
       await wait(260);
       setUploadStatus("applying");
       setUploadAnalysis(payload);
       setSuggestedSubMode(
-        payload.autoDetection.editorProfile?.suggestedSubMode ||
-          payload.autoDetection.suggestedSubMode ||
-          (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
+        forceStandardSubMode
+          ? "standard_mode"
+          : payload.autoDetection.editorProfile?.suggestedSubMode ||
+              payload.autoDetection.suggestedSubMode ||
+              (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
       );
       await wait(520);
       toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
@@ -748,8 +807,14 @@ export default function Editor() {
   const handleAutoModeToggle = (value: boolean) => {
     setAutoModeEnabled(value);
     if (value && autoDetection?.finalMode) {
-      setMode(autoDetection.finalMode, false);
-      setSuggestedSubMode(autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode);
+      const forceHorizontalMode =
+        Number(duration || 0) >= 180 && autoDetection.metadataMode === "horizontal";
+      setMode(forceHorizontalMode ? "horizontal" : autoDetection.finalMode, false);
+      setSuggestedSubMode(
+        forceHorizontalMode
+          ? "standard_mode"
+          : autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode,
+      );
     }
   };
 
@@ -757,7 +822,10 @@ export default function Editor() {
     setMode(nextMode, true);
     if (nextMode === "vertical") {
       setSuggestedSubMode("highlight_mode");
+    } else {
+      setSuggestedSubMode("standard_mode");
     }
+    syncEditorRouteForMode(nextMode);
   };
 
   const resetEverything = () => {
@@ -1108,6 +1176,34 @@ export default function Editor() {
 
         {videoId ? (
           <>
+            {verticalModeExperience ? (
+              <SettingsCardGroup
+                title="Vertical Mode Studio"
+                description="Dedicated short-form workspace with webcam layering, subtitle controls, and TikTok/Reels-ready styling."
+              >
+                <VerticalModeToolkit
+                  captionsEnabled={captionsEnabled}
+                  onCaptionsEnabledChange={setCaptionsEnabled}
+                  captionMode={captionMode}
+                  onCaptionModeChange={setCaptionMode}
+                  captionStyle={captionStyle}
+                  onCaptionStyleChange={setCaptionStyle}
+                  captionFont={captionFont}
+                  onCaptionFontChange={setCaptionFont}
+                  captionEffect={captionEffect}
+                  onCaptionEffectChange={setCaptionEffect}
+                  webcamEnabled={verticalWebcamEnabled}
+                  onWebcamEnabledChange={setVerticalWebcamEnabled}
+                  webcamLayout={verticalWebcamLayout}
+                  onWebcamLayoutChange={setVerticalWebcamLayout}
+                  captionOutlineEnabled={captionOutlineEnabled}
+                  onCaptionOutlineEnabledChange={setCaptionOutlineEnabled}
+                  captionDropShadowEnabled={captionDropShadowEnabled}
+                  onCaptionDropShadowEnabledChange={setCaptionDropShadowEnabled}
+                />
+              </SettingsCardGroup>
+            ) : null}
+
             <SettingsCardGroup
               title="Quick Tools"
               description="Apply high-level editing tools before detailed tuning."
