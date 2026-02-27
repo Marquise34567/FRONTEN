@@ -39,7 +39,6 @@ export default function RetentionGraphCard({
 }: RetentionGraphCardProps) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState(0);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   const sortedPoints = useMemo(() => points.slice().sort((a, b) => a.timestamp - b.timestamp), [points]);
   const maxStart = Math.max(0, sortedPoints.length - Math.max(3, Math.floor(sortedPoints.length / zoom)));
@@ -107,17 +106,7 @@ export default function RetentionGraphCard({
         />
       </div>
       <motion.div
-        className="h-[300px] rounded-2xl border border-[rgba(52,240,208,0.22)] bg-[linear-gradient(140deg,rgba(8,8,14,0.94),rgba(10,10,18,0.88))] p-2"
-        onMouseMove={(event) => {
-          const box = event.currentTarget.getBoundingClientRect();
-          const x = ((event.clientX - box.left) / box.width - 0.5) * 8;
-          const y = ((event.clientY - box.top) / box.height - 0.5) * -8;
-          setTilt({ x, y });
-        }}
-        onMouseLeave={() => setTilt({ x: 0, y: 0 })}
-        animate={{ rotateX: tilt.y, rotateY: tilt.x }}
-        transition={{ type: "spring", stiffness: 180, damping: 20, mass: 0.45 }}
-        style={{ transformStyle: "preserve-3d", perspective: 1100 }}
+        className="h-[300px] rounded-2xl border border-cyan-200/20 bg-[linear-gradient(140deg,rgba(7,11,18,0.95),rgba(7,9,14,0.95))] p-2"
       >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartPoints}>

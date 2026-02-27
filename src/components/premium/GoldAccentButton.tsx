@@ -13,8 +13,8 @@ export default function GoldAccentButton({ className, icon, children, ...props }
   return (
     <Button
       className={cn(
-        "premium-duotone-action rounded-2xl border border-[rgba(52,240,208,0.42)] text-[#eafffb]",
-        "hover:-translate-y-0.5 hover:brightness-110",
+        "premium-duotone-action rounded-full border border-[rgba(52,240,208,0.42)] text-[#eafffb]",
+        "hover:-translate-y-0.5 hover:brightness-105",
         "focus-visible:ring-[rgba(52,240,208,0.55)]",
         className,
       )}

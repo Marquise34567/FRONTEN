@@ -102,13 +102,10 @@
     --accent-purple: #b477ff;
     --accent-pink: #30d8ff;
     --glass-blur: 18px;
-    --ae-bg:
-      radial-gradient(115% 125% at 8% 0%, rgba(52, 240, 208, 0.12), transparent 58%),
-      radial-gradient(92% 86% at 92% -6%, rgba(180, 119, 255, 0.18), transparent 64%),
-      radial-gradient(130% 120% at 50% 0%, #06090f 0%, #03060a 52%, #010203 100%);
+    --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
     --ae-bg-overlay:
-      radial-gradient(64% 54% at 92% 4%, rgba(180, 119, 255, 0.14), transparent 74%),
-      radial-gradient(52% 48% at 12% 82%, rgba(52, 240, 208, 0.14), transparent 80%);
+      radial-gradient(54% 44% at 12% 0%, rgba(47, 228, 200, 0.09), transparent 72%),
+      radial-gradient(46% 40% at 88% 0%, rgba(180, 119, 255, 0.08), transparent 74%);
     --ae-shell: color-mix(in srgb, #050b10 90%, transparent);
     --ae-surface: color-mix(in srgb, #101722 80%, transparent);
     --ae-border: var(--vip-line-soft);
@@ -121,13 +118,10 @@
   --accent-purple: #b477ff;
   --accent-pink: #30d8ff;
   --glass-blur: 18px;
-  --ae-bg:
-    radial-gradient(115% 125% at 8% 0%, rgba(52, 240, 208, 0.12), transparent 58%),
-    radial-gradient(92% 86% at 92% -6%, rgba(180, 119, 255, 0.18), transparent 64%),
-    radial-gradient(130% 120% at 50% 0%, #06090f 0%, #03060a 52%, #010203 100%);
+  --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
   --ae-bg-overlay:
-    radial-gradient(64% 54% at 92% 4%, rgba(180, 119, 255, 0.14), transparent 74%),
-    radial-gradient(52% 48% at 12% 82%, rgba(52, 240, 208, 0.14), transparent 80%);
+    radial-gradient(54% 44% at 12% 0%, rgba(47, 228, 200, 0.09), transparent 72%),
+    radial-gradient(46% 40% at 88% 0%, rgba(180, 119, 255, 0.08), transparent 74%);
   --ae-shell: color-mix(in srgb, #050b10 90%, transparent);
   --ae-surface: color-mix(in srgb, #101722 80%, transparent);
   --ae-border: var(--vip-line-soft);
@@ -139,10 +133,7 @@
   --accent-purple: #b477ff;
   --accent-pink: #2fe4c8;
   --glass-blur: 22px;
-  --ae-bg:
-    radial-gradient(118% 124% at 12% -6%, rgba(52, 240, 208, 0.2), transparent 62%),
-    radial-gradient(86% 70% at 88% 0%, rgba(180, 119, 255, 0.2), transparent 70%),
-    linear-gradient(180deg, #04070b 0%, #02060a 46%, #010203 100%);
+  --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
   --ae-bg-overlay:
     radial-gradient(48% 44% at 90% 4%, rgba(52, 240, 208, 0.16), transparent 76%),
     radial-gradient(44% 38% at 10% 86%, rgba(180, 119, 255, 0.18), transparent 80%);
@@ -157,20 +148,20 @@
   --accent-purple: #8b5cf6;
   --accent-pink: #db2777;
   --glass-blur: 8px;
-  --ae-bg: linear-gradient(165deg, #f3f5fb 0%, #ecf0f8 46%, #e5ebf3 100%);
+  --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
   --ae-bg-overlay: radial-gradient(90% 75% at 95% -10%, rgba(139, 92, 246, 0.16), transparent 64%);
-  --ae-shell: color-mix(in srgb, #fdfdff 82%, transparent);
-  --ae-surface: color-mix(in srgb, #f8fafc 78%, transparent);
-  --ae-border: rgba(15, 23, 42, 0.14);
-  --ae-text-primary: #0f172a;
-  --ae-text-secondary: #334155;
+  --ae-shell: color-mix(in srgb, #050b10 90%, transparent);
+  --ae-surface: color-mix(in srgb, #101722 80%, transparent);
+  --ae-border: rgba(255, 255, 255, 0.14);
+  --ae-text-primary: #f1f5f9;
+  --ae-text-secondary: #c7d2e5;
 }
 
 :root[data-theme='neon-2026'] {
   --accent-purple: #a35dff;
   --accent-pink: #2ae9cf;
   --glass-blur: 12px;
-  --ae-bg: radial-gradient(120% 130% at 8% 0%, #061421 0%, #040813 44%, #010205 100%);
+  --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
   --ae-bg-overlay:
     radial-gradient(50% 46% at 84% 8%, rgba(180, 119, 255, 0.26), transparent 76%),
     radial-gradient(46% 40% at 20% 70%, rgba(52, 240, 208, 0.22), transparent 80%);
@@ -185,7 +176,7 @@
   --accent-purple: #a78bfa;
   --accent-pink: #2ce8cf;
   --glass-blur: 14px;
-  --ae-bg: radial-gradient(130% 140% at 16% 0%, #16182a 0%, #06070e 46%, #020208 100%);
+  --ae-bg: linear-gradient(180deg, #040607 0%, #030405 100%);
   --ae-bg-overlay:
     radial-gradient(64% 56% at 86% 6%, rgba(180, 119, 255, 0.2), transparent 76%),
     radial-gradient(56% 50% at 18% 78%, rgba(52, 240, 208, 0.18), transparent 84%);
@@ -511,11 +502,11 @@
 
 @layer utilities {
   .exclusive-glass {
-    background: var(--vip-glass-bg);
-    backdrop-filter: blur(22px);
-    -webkit-backdrop-filter: blur(22px);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--ae-border);
-    filter: var(--refraction-filter);
+    filter: none;
   }
 
   .exclusive-shadow {
@@ -531,7 +522,7 @@
 
   .premium-duotone-action {
     background-image: var(--vip-action-gradient);
-    box-shadow: var(--vip-gold-shadow), 0 14px 30px -22px rgba(192, 132, 252, 0.7);
+    box-shadow: 0 12px 26px -18px rgba(42, 176, 255, 0.5);
   }
 
   .vip-badge {
@@ -547,27 +538,22 @@
     font-weight: 700;
     color: #cbfffa;
     background: linear-gradient(125deg, rgba(52, 240, 208, 0.28), rgba(180, 119, 255, 0.16));
-    box-shadow: var(--vip-gold-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  }
-
-  .starfield-bg {
-    background-image:
-      radial-gradient(1px 1px at 10% 20%, rgba(255, 255, 255, 0.34), transparent 66%),
-      radial-gradient(1px 1px at 30% 80%, rgba(255, 255, 255, 0.28), transparent 66%),
-      radial-gradient(1px 1px at 70% 30%, rgba(52, 240, 208, 0.3), transparent 72%),
-      radial-gradient(1px 1px at 84% 72%, rgba(192, 132, 252, 0.28), transparent 70%);
-    background-size: 220px 220px;
-  }
-
-  .metallic-progress-track {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(5, 5, 9, 0.82));
-    border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
+  .starfield-bg {
+    background: transparent;
+  }
+
+  .metallic-progress-track {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
   .metallic-progress-fill {
-    background-image: linear-gradient(94deg, #95fff2 0%, #34f0d0 34%, #c084fc 74%, #a855f7 100%);
-    box-shadow: 0 0 18px rgba(52, 240, 208, 0.44);
+    background-image: linear-gradient(94deg, #2fe4c8 0%, #2ab0ff 60%, #b477ff 100%);
+    box-shadow: 0 0 12px rgba(42, 176, 255, 0.28);
   }
 
   .glass-card {
@@ -667,7 +653,7 @@
   .btn-glow::after {
     content: '';
     @apply absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300;
-    box-shadow: 0 0 20px 4px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 16px 3px hsl(var(--primary) / 0.24);
   }
 
   .btn-glow:hover::after {

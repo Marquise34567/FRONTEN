@@ -20,48 +20,28 @@ const GlowBackdrop = ({ children }: GlowBackdropProps) => {
   const staticMode = prefersReducedMotion || isMobile;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
+    <div className="relative min-h-screen overflow-hidden bg-[#040607]">
       <div className="pointer-events-none absolute inset-0 z-0 [contain:paint]" aria-hidden="true">
-        <div
-          className="absolute inset-0 opacity-90"
-          style={{
-            background:
-              "radial-gradient(65% 48% at 48% 8%, rgba(52,240,208,0.26), transparent 70%), radial-gradient(58% 56% at 82% 24%, rgba(192,132,252,0.18), transparent 74%), hsl(240 15% 5%)",
-          }}
-        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,#040607_0%,#020304_100%)]" />
 
         {staticMode ? (
-          <div
-            className="absolute left-1/2 top-[18%] h-[26rem] w-[26rem] -translate-x-1/2 rounded-full opacity-20 blur-[72px]"
-            style={{
-              background: "radial-gradient(circle, rgba(52,240,208,0.42) 0%, rgba(192,132,252,0.16) 52%, transparent 78%)",
-            }}
-          />
+          <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(50%_55%_at_50%_0%,rgba(47,228,200,0.12),transparent_70%)]" />
         ) : (
           <>
             <motion.div
-              className="absolute left-[14%] top-[16%] h-[28rem] w-[28rem] rounded-full opacity-[0.18] blur-[84px] transform-gpu [backface-visibility:hidden] will-change-transform"
-              style={{
-                background: "radial-gradient(circle, rgba(52,240,208,0.45) 0%, rgba(192,132,252,0.15) 56%, transparent 78%)",
-              }}
-              animate={{ x: [0, 24, 8, 0], y: [0, -20, -8, 0], opacity: [0.15, 0.22, 0.18, 0.15] }}
-              transition={{ duration: 16, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
+              className="absolute left-[10%] top-[10%] h-72 w-72 rounded-full opacity-[0.14] blur-[72px]"
+              style={{ background: "radial-gradient(circle, rgba(47,228,200,0.5) 0%, transparent 72%)" }}
+              animate={{ x: [0, 14, 0], y: [0, -12, 0], opacity: [0.11, 0.16, 0.11] }}
+              transition={{ duration: 14, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
             />
             <motion.div
-              className="absolute right-[12%] top-[32%] h-[24rem] w-[24rem] rounded-full opacity-[0.12] blur-[78px] transform-gpu [backface-visibility:hidden] will-change-transform"
-              style={{
-                background: "radial-gradient(circle, rgba(192,132,252,0.42) 0%, rgba(52,240,208,0.12) 52%, transparent 76%)",
-              }}
-              animate={{ x: [0, -18, -4, 0], y: [0, 14, 4, 0], opacity: [0.1, 0.16, 0.13, 0.1] }}
-              transition={{ duration: 18, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
+              className="absolute right-[14%] top-[20%] h-64 w-64 rounded-full opacity-[0.12] blur-[72px]"
+              style={{ background: "radial-gradient(circle, rgba(180,119,255,0.45) 0%, transparent 72%)" }}
+              animate={{ x: [0, -12, 0], y: [0, 10, 0], opacity: [0.09, 0.14, 0.09] }}
+              transition={{ duration: 16, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
             />
           </>
         )}
-
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(ellipse at center, transparent 54%, hsl(240 15% 5% / 0.76) 100%)" }}
-        />
       </div>
 
       <div className="relative z-10 [contain:layout_paint_style]">{children}</div>
@@ -70,4 +50,3 @@ const GlowBackdrop = ({ children }: GlowBackdropProps) => {
 };
 
 export default GlowBackdrop;
-

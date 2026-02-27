@@ -13,6 +13,15 @@ export default function ThemeSwitcher() {
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
 
+  if (APP_THEME_OPTIONS.length <= 1) {
+    return (
+      <div className="inline-flex h-10 items-center gap-2 rounded-full border border-white/12 bg-white/[0.03] px-3 text-xs text-slate-300">
+        <Palette className="h-3.5 w-3.5 text-cyan-100" />
+        {APP_THEME_OPTIONS[0]?.label || "Dark Premium"}
+      </div>
+    );
+  }
+
   return (
     <Select value={theme} onValueChange={(value) => setTheme(value as typeof theme)}>
       <SelectTrigger className="h-10 w-[188px] rounded-2xl border-[rgba(52,240,208,0.26)] bg-[rgba(8,8,13,0.75)] text-xs text-slate-100 hover:border-[rgba(52,240,208,0.46)]">

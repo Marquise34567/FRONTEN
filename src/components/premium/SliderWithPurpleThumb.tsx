@@ -27,10 +27,10 @@ export default function SliderWithPurpleThumb({
       {(label || helper) && (
         <div className="flex items-center justify-between text-xs">
           <span className="text-slate-200">{label}</span>
-          <span className="rounded-full border border-[rgba(52,240,208,0.34)] bg-[rgba(52,240,208,0.12)] px-2 py-0.5 text-[var(--gold-accent)]">{helper}</span>
+          <span className="rounded-full border border-cyan-200/30 bg-cyan-400/10 px-2 py-0.5 text-cyan-100">{helper}</span>
         </div>
       )}
-      <div className="rounded-2xl border border-[rgba(255,255,255,0.14)] bg-[rgba(10,10,16,0.78)] px-3 py-3">
+      <div className="rounded-2xl border border-white/14 bg-[rgba(255,255,255,0.03)] px-3 py-3">
         <Slider
           min={min}
           max={max}

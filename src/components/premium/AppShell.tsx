@@ -23,8 +23,8 @@ export default function AppShell({
 }: AppShellProps) {
   return (
     <div className={cn("min-h-screen bg-[var(--ae-bg)] text-[var(--ae-text-primary)] transition-colors duration-500", className)}>
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[var(--ae-bg-overlay)] starfield-bg" />
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(120deg,rgba(255,255,255,0.04)_0%,transparent_28%,transparent_72%,rgba(255,255,255,0.04)_100%)]" />
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[var(--ae-bg-overlay)]" />
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(90%_55%_at_50%_0%,rgba(47,228,200,0.08),transparent_70%)]" />
       {showSidebar ? <SidebarNav /> : null}
       <TopHeader title={title} withSidebar={showSidebar} />
 

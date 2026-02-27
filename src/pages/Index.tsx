@@ -9,6 +9,7 @@ import {
   Upload,
   Volume2,
   Waves,
+  Youtube,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -76,12 +77,18 @@ export default function Index() {
           <div className="flex items-center gap-2">
             <Link
               to="/pricing"
-              className="hidden rounded-2xl border border-cyan-200/20 bg-white/[0.02] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-200/40 md:inline-flex"
+              className="hidden rounded-full border border-cyan-200/20 bg-white/[0.02] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-200/40 md:inline-flex"
             >
               Pricing
             </Link>
+            <Link
+              to="/login"
+              className="hidden rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-200/40 md:inline-flex"
+            >
+              Sign In
+            </Link>
             <GoldAccentButton asChild size="sm">
-              <Link to="/signup">Start Free</Link>
+              <Link to="/signup">Sign Up</Link>
             </GoldAccentButton>
           </div>
         </div>
@@ -99,8 +106,8 @@ export default function Index() {
               <Sparkles className="h-3.5 w-3.5" />
               Retention-First Editing
             </p>
-            <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-              AI Editor Built To Keep People Watching
+            <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-7xl">
+              #1 AI Video Editor Built To Keep People Watching
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
               1 Upload -&gt; High-Retention Clips with Perfect Hooks. Tune pacing, captions, reframing, and audio in one
@@ -114,7 +121,7 @@ export default function Index() {
                   <p className="mt-1 text-sm text-slate-300">Drag MP4 / MOV or drop a YouTube URL to run retention scan.</p>
                 </div>
                 <GoldAccentButton className="w-full sm:w-auto" icon={<Upload className="h-4 w-4" />}>
-                  Try BETA
+                  Try BETA Free
                 </GoldAccentButton>
               </div>
 
@@ -185,10 +192,25 @@ export default function Index() {
             </GoldAccentButton>
             <Link
               to="/pricing"
-              className="inline-flex items-center justify-center rounded-2xl border border-cyan-200/30 bg-white/[0.02] px-5 py-3 text-sm text-slate-100 transition hover:border-cyan-200/55"
+              className="inline-flex items-center justify-center rounded-full border border-cyan-200/30 bg-white/[0.02] px-5 py-3 text-sm text-slate-100 transition hover:border-cyan-200/55"
             >
               View Plans
             </Link>
+          </div>
+
+          <div className="mt-7 flex items-center justify-center gap-3 text-xs text-slate-400">
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
+              <Youtube className="h-3.5 w-3.5 text-red-300" />
+              YouTube
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
+              <span className="h-3.5 w-3.5 rounded bg-white/20" />
+              TikTok
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
+              <span className="h-3.5 w-3.5 rounded bg-white/20" />
+              Instagram
+            </span>
           </div>
         </section>
       </main>

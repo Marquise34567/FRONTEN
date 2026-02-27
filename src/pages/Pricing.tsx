@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Check, Loader2, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-import AppShell from "@/components/premium/AppShell";
-import PremiumCard from "@/components/premium/PremiumCard";
 import GoldAccentButton from "@/components/premium/GoldAccentButton";
+import PremiumCard from "@/components/premium/PremiumCard";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
@@ -140,16 +139,39 @@ export default function Pricing() {
   };
 
   return (
-    <AppShell title="AutoEditor Pricing" showSidebar>
-      <div className="space-y-5">
+    <div className="min-h-screen bg-[var(--ae-bg)] text-[var(--ae-text-primary)]">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/88 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-[1240px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          <Link to="/" className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
+            <span>AutoEditor</span>
+            <span className="rounded-full border border-cyan-200/30 bg-cyan-400/12 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+              BETA
+            </span>
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/login"
+              className="hidden rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-200/45 md:inline-flex"
+            >
+              Sign In
+            </Link>
+            <GoldAccentButton asChild size="sm">
+              <Link to="/signup">Sign Up</Link>
+            </GoldAccentButton>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-[1240px] space-y-5 px-4 pb-14 pt-8 sm:px-6 lg:px-8">
         <PremiumCard className="relative overflow-hidden p-7 md:p-9">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(52,240,208,0.24),transparent_54%),radial-gradient(90%_120%_at_100%_0%,rgba(180,119,255,0.24),transparent_56%)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(47,228,200,0.2),transparent_54%),radial-gradient(90%_120%_at_100%_0%,rgba(180,119,255,0.2),transparent_56%)]" />
           <div className="relative">
             <h1 className="text-3xl font-semibold tracking-tight text-white md:text-5xl">
-              Transparent Plans For Retention-First Creators
+              Premium Pricing For Retention-First AI Editing
             </h1>
             <p className="mt-3 max-w-2xl text-slate-300">
-              Premium dark-mode pricing with credits, hook AI, studio audio, and high-retention export workflows.
+              Credits, hook AI, studio audio, and high-retention export pipelines in one dark premium workspace.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <div className="inline-flex rounded-full border border-cyan-200/25 bg-black/35 p-1">
@@ -185,16 +207,16 @@ export default function Pricing() {
             const price = billingInterval === "annual" ? plan.annualPrice : plan.monthlyPrice;
             const cardTone =
               plan.tone === "teal"
-                ? "border-cyan-200/45 shadow-[0_0_30px_rgba(52,240,208,0.22)]"
+                ? "border-cyan-200/45 shadow-[0_0_24px_rgba(47,228,200,0.16)]"
                 : plan.tone === "violet"
-                  ? "border-violet-300/35"
+                  ? "border-violet-300/30"
                   : "border-white/10";
 
             return (
               <PremiumCard key={plan.id} className={`relative flex h-full flex-col p-5 ${cardTone}`}>
                 {plan.featured ? (
                   <span className="absolute right-4 top-4 rounded-full border border-cyan-200/40 bg-cyan-400/16 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100">
-                    Best For Creators
+                    Most Popular
                   </span>
                 ) : null}
                 {plan.id === "pro" ? (
@@ -232,7 +254,7 @@ export default function Pricing() {
 
         <PremiumCard className="overflow-hidden p-0">
           <div className="border-b border-white/10 px-5 py-4">
-            <h2 className="text-lg font-semibold text-white">Retention Plan Comparison</h2>
+            <h2 className="text-lg font-semibold text-white">Plan Comparison</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-sm">
@@ -258,7 +280,7 @@ export default function Pricing() {
             </table>
           </div>
         </PremiumCard>
-      </div>
-    </AppShell>
+      </main>
+    </div>
   );
 }

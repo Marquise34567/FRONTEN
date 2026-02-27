@@ -1,26 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
-import LanguageDropdown from "@/components/LanguageDropdown";
-import { useLiveStats } from "@/providers/LiveStatsProvider";
 import { useMe } from "@/hooks/use-me";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
   const { data: me } = useMe();
-  const { snapshot, pulse, connected } = useLiveStats();
-  const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const isDevAccount = Boolean(me?.flags?.dev);
   const showControlPanel = Boolean(user && isDevAccount);
-  const showLiveMiniBadges = Boolean(user && (snapshot || pulse));
-  const activeUsers = pulse?.activeUsers ?? snapshot?.activeUsers ?? 0;
-  const upgradesToday = snapshot?.upgradeSignals?.upgradedToday ?? pulse?.upgradedToday ?? 0;
 
   const handleLogout = async () => {
     await signOut();
@@ -32,62 +25,52 @@ const Navbar = () => {
   }, [location.pathname]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-[var(--ae-border)] bg-[color:color-mix(in_srgb,var(--ae-shell)_82%,black_24%)] px-[max(env(safe-area-inset-left),var(--ae-main-px,1rem))] py-3 backdrop-blur-xl md:py-4">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2">
-        <Link to="/" className="flex items-center gap-2">
-          <span className="text-lg font-bold font-display text-foreground sm:text-xl">AutoEditor</span>
-          <span className="vip-badge text-[10px] py-0.5 px-2">
-            <svg className="sparkle w-3 h-3 mr-1 inline-block" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-              <path d="M12 2l1.902 4.26L18.5 8l-4.598 1.74L12 14l-1.902-4.26L6.5 8l4.598-1.74L12 2z" fill="currentColor" />
-            </svg>
-            {t("brand.beta")}
+    <nav className="fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-black/88 px-[max(env(safe-area-inset-left),var(--ae-main-px,1rem))] py-3 backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
+        <Link to="/" className="inline-flex items-center gap-2 text-base font-semibold tracking-tight text-white sm:text-lg">
+          <span>AutoEditor</span>
+          <span className="rounded-full border border-cyan-200/30 bg-cyan-400/12 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-cyan-100">
+            BETA
           </span>
         </Link>
 
         <div className="hidden items-center gap-2 md:flex">
-          {showLiveMiniBadges ? (
-            <div className="hidden items-center gap-1 rounded-full border border-purple-300/30 bg-[#111325]/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-purple-100 lg:inline-flex" title="Live active users from websocket/SSE feed">
-              <span className={`inline-flex h-2 w-2 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
-              {activeUsers} live
-            </div>
-          ) : null}
-          {showLiveMiniBadges ? (
-            <div className="hidden items-center gap-1 rounded-full border border-cyan-300/25 bg-[#10131f]/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-100 lg:inline-flex" title="Users upgraded today">
-              {upgradesToday} upgrades
-            </div>
-          ) : null}
-          <LanguageDropdown className="w-40" />
-          <Link to="/pricing">
-            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-              {t("nav.pricing")}
-            </Button>
+          <Link to="/pricing" className="rounded-full px-3 py-1.5 text-sm text-slate-300 transition hover:text-white">
+            Pricing
           </Link>
-          <Link to="/editor">
-            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-              {t("nav.editor")}
-            </Button>
+          <Link to="/editor" className="rounded-full px-3 py-1.5 text-sm text-slate-300 transition hover:text-white">
+            Editor
+          </Link>
+          <Link to="/analytics" className="rounded-full px-3 py-1.5 text-sm text-slate-300 transition hover:text-white">
+            Analytics
           </Link>
           {showControlPanel ? (
-            <Link to="/control-panel">
-              <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
-                {t("nav.controlPanel")}
-              </Button>
+            <Link to="/control-panel" className="rounded-full px-3 py-1.5 text-sm text-cyan-100 transition hover:text-cyan-50">
+              Control Panel
             </Link>
           ) : null}
+
           {user ? (
-            <Button onClick={handleLogout} size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
-              {t("nav.logout")}
-            </Button>
+            <>
+              <Link to="/dashboard">
+                <Button variant="outline" size="sm" className="rounded-full">
+                  Dashboard
+                </Button>
+              </Link>
+              <Button onClick={handleLogout} size="sm" className="rounded-full bg-white text-black hover:bg-white/90">
+                Logout
+              </Button>
+            </>
           ) : (
             <>
               <Link to="/login">
-                <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground">
-                  {t("nav.login")}
+                <Button variant="outline" size="sm" className="rounded-full">
+                  Sign In
                 </Button>
               </Link>
               <Link to="/signup">
-                <Button size="sm" className="rounded-full bg-foreground text-background hover:bg-foreground/90">
-                  {t("nav.signup")}
+                <Button size="sm" className="rounded-full bg-white text-black hover:bg-white/90">
+                  Sign Up
                 </Button>
               </Link>
             </>
@@ -97,47 +80,43 @@ const Navbar = () => {
         <div className="relative md:hidden">
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-card/50 text-foreground"
-            aria-label={mobileMenuOpen ? t("menu.close") : t("menu.open")}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/14 bg-white/[0.03] text-slate-100"
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
             onClick={() => setMobileMenuOpen((prev) => !prev)}
           >
             {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
 
           {mobileMenuOpen ? (
-            <div className="absolute right-0 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg">
-              <LanguageDropdown />
-              <Link to="/pricing">
-                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                  {t("nav.pricing")}
-                </Button>
+            <div className="absolute right-0 mt-2 flex w-56 flex-col gap-2 rounded-2xl border border-white/12 bg-[rgba(7,11,18,0.98)] p-3 shadow-[0_18px_44px_-28px_rgba(0,0,0,0.9)]">
+              <Link to="/pricing" className="rounded-full px-3 py-2 text-sm text-slate-200 hover:bg-white/[0.04]">
+                Pricing
               </Link>
-              <Link to="/editor">
-                <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                  {t("nav.editor")}
-                </Button>
+              <Link to="/editor" className="rounded-full px-3 py-2 text-sm text-slate-200 hover:bg-white/[0.04]">
+                Editor
               </Link>
-              {showControlPanel ? (
-                <Link to="/control-panel">
-                  <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
-                    {t("nav.controlPanel")}
-                  </Button>
-                </Link>
-              ) : null}
+              <Link to="/analytics" className="rounded-full px-3 py-2 text-sm text-slate-200 hover:bg-white/[0.04]">
+                Analytics
+              </Link>
               {user ? (
-                <Button onClick={handleLogout} size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                  {t("nav.logout")}
-                </Button>
+                <>
+                  <Link to="/dashboard" className="rounded-full px-3 py-2 text-sm text-slate-200 hover:bg-white/[0.04]">
+                    Dashboard
+                  </Link>
+                  <Button onClick={handleLogout} size="sm" className="w-full rounded-full bg-white text-black hover:bg-white/90">
+                    Logout
+                  </Button>
+                </>
               ) : (
                 <>
                   <Link to="/login">
-                    <Button variant="ghost" size="sm" className="w-full justify-center rounded-full text-muted-foreground hover:text-foreground">
-                      {t("nav.login")}
+                    <Button variant="outline" size="sm" className="w-full rounded-full">
+                      Sign In
                     </Button>
                   </Link>
                   <Link to="/signup">
-                    <Button size="sm" className="w-full justify-center rounded-full bg-foreground text-background hover:bg-foreground/90">
-                      {t("nav.signup")}
+                    <Button size="sm" className="w-full rounded-full bg-white text-black hover:bg-white/90">
+                      Sign Up
                     </Button>
                   </Link>
                 </>

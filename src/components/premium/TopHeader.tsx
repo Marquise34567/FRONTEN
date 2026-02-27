@@ -20,7 +20,7 @@ export default function TopHeader({ title = "AutoEditor", withSidebar = false, c
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--ae-border)] bg-[color:color-mix(in_srgb,var(--ae-shell)_88%,black_22%)] px-4 backdrop-blur-2xl",
+        "sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-black/84 px-4 backdrop-blur-xl",
         withSidebar ? "lg:pl-28 lg:pr-6" : "lg:px-6",
         className,
       )}
@@ -33,7 +33,7 @@ export default function TopHeader({ title = "AutoEditor", withSidebar = false, c
         </Link>
       </div>
 
-      <div className="mx-4 hidden min-w-[220px] max-w-[560px] flex-1 items-center rounded-2xl border border-cyan-200/25 bg-[linear-gradient(120deg,rgba(52,240,208,0.12),rgba(90,100,255,0.08))] px-3 py-2.5 lg:flex">
+      <div className="mx-4 hidden min-w-[220px] max-w-[560px] flex-1 items-center rounded-full border border-white/12 bg-white/[0.03] px-4 py-2.5 lg:flex">
         <Search className="h-4 w-4 text-[var(--gold-accent)]" />
         <input
           type="search"
@@ -47,14 +47,14 @@ export default function TopHeader({ title = "AutoEditor", withSidebar = false, c
         <ThemeSwitcher />
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-200/25 bg-[rgba(10,14,22,0.78)] text-slate-300 hover:border-cyan-200/45 hover:text-cyan-50"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/14 bg-white/[0.03] text-slate-300 hover:border-cyan-200/45 hover:text-cyan-50"
           aria-label="Notifications"
         >
           <Bell className="h-4.5 w-4.5" />
         </button>
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-cyan-200/35 bg-[linear-gradient(130deg,rgba(52,240,208,0.3),rgba(180,119,255,0.3))] text-xs font-semibold text-cyan-50 shadow-[0_0_18px_rgba(52,240,208,0.22)]"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.04] text-xs font-semibold text-cyan-50"
           aria-label="User profile"
         >
           <Crown className="h-4 w-4" />

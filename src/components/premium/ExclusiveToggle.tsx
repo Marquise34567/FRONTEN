@@ -20,9 +20,9 @@ export default function ExclusiveToggle({
   const control = (
     <Switch
       className={cn(
-        "border-[rgba(255,255,255,0.24)] bg-[#0b0b11]/90",
+        "border-white/24 bg-[#0b0f14]/90",
         "data-[state=checked]:border-[rgba(52,240,208,0.62)]",
-        "data-[state=checked]:bg-[linear-gradient(128deg,#95fff2_0%,#34f0d0_32%,#c084fc_72%,#a855f7_100%)]",
+        "data-[state=checked]:bg-[linear-gradient(128deg,#2fe4c8_0%,#2ab0ff_62%,#b477ff_100%)]",
         className,
       )}
       {...props}
@@ -34,7 +34,7 @@ export default function ExclusiveToggle({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.14)] bg-[rgba(12,12,19,0.72)] px-3 py-2.5",
+        "flex items-center justify-between gap-3 rounded-2xl border border-white/14 bg-[rgba(255,255,255,0.03)] px-3 py-2.5",
         wrapperClassName,
       )}
     >
