@@ -8,6 +8,7 @@ type PurpleAccentButtonProps = ButtonProps & {
 };
 
 export default function PurpleAccentButton({ className, icon, children, ...props }: PurpleAccentButtonProps) {
+  const isAsChild = Boolean(props.asChild);
   return (
     <Button
       className={cn(
@@ -16,8 +17,12 @@ export default function PurpleAccentButton({ className, icon, children, ...props
       )}
       {...props}
     >
-      {icon}
-      {children}
+      {isAsChild ? children : (
+        <>
+          {icon}
+          {children}
+        </>
+      )}
     </Button>
   );
 }
