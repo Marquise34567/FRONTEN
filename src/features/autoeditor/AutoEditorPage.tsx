@@ -96,7 +96,6 @@ export default function AutoEditorPage() {
   const { toast } = useToast();
 
   const [fileInputKey, setFileInputKey] = useState(0);
-  const [settingsView, setSettingsView] = useState<"modern" | "original">("modern");
 
   const {
     flowStep,
@@ -460,7 +459,6 @@ export default function AutoEditorPage() {
     setRecentDrawerOpen(false);
     resetSession();
     setFileInputKey((value) => value + 1);
-    setSettingsView("modern");
   };
 
   const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
@@ -585,106 +583,71 @@ export default function AutoEditorPage() {
 
             {showExpandedSettings ? (
               <>
-                <CleanCard className="p-3 sm:p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="ae-kicker">Editor Surface</p>
-                      <p className="text-sm text-[#d5cbce]">Switch between the new flow and a modernized original editor layout.</p>
-                    </div>
-                    <div className="inline-flex rounded-xl border border-white/15 bg-black/25 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setSettingsView("modern")}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                          settingsView === "modern"
-                            ? "bg-[#d4b483]/18 text-[#fff3e2] shadow-[0_8px_20px_-16px_rgba(212,180,131,0.9)]"
-                            : "text-[#b9afb2] hover:text-[#f3ece2]"
-                        }`}
-                      >
-                        Modern Flow
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSettingsView("original")}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                          settingsView === "original"
-                            ? "bg-[#d4b483]/18 text-[#fff3e2] shadow-[0_8px_20px_-16px_rgba(212,180,131,0.9)]"
-                            : "text-[#b9afb2] hover:text-[#f3ece2]"
-                        }`}
-                      >
-                        Original Editor
-                      </button>
-                    </div>
-                  </div>
-                </CleanCard>
+                <StaggeredSettingsSections
+                  revealedSectionCount={revealedSectionCount}
+                  formatPreset={formatPreset}
+                  onFormatPresetChange={setFormatPreset}
+                  vibeChip={vibeChip}
+                  onVibeChipChange={setVibeChip}
+                  stylePreset={stylePreset}
+                  onStylePresetChange={setStylePreset}
+                  pacingValue={pacingValue}
+                  onPacingValueChange={setPacingValue}
+                  autoDetectBestMoments={autoDetectBestMoments}
+                  onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
+                  captionsEnabled={captionsEnabled}
+                  onCaptionsEnabledChange={setCaptionsEnabled}
+                  captionMode={captionMode}
+                  onCaptionModeChange={setCaptionMode}
+                  captionStyle={captionStyle}
+                  onCaptionStyleChange={setCaptionStyle}
+                  captionFont={captionFont}
+                  onCaptionFontChange={setCaptionFont}
+                  captionEffect={captionEffect}
+                  onCaptionEffectChange={setCaptionEffect}
+                  audioOption={audioOption}
+                  onAudioOptionChange={setAudioOption}
+                  audioDuckingEnabled={audioDuckingEnabled}
+                  onAudioDuckingEnabledChange={setAudioDuckingEnabled}
+                  audioCleanupEnabled={audioCleanupEnabled}
+                  onAudioCleanupEnabledChange={setAudioCleanupEnabled}
+                  audioMasteringEnabled={audioMasteringEnabled}
+                  onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+                />
 
-                {settingsView === "modern" ? (
-                  <StaggeredSettingsSections
-                    revealedSectionCount={revealedSectionCount}
-                    formatPreset={formatPreset}
-                    onFormatPresetChange={setFormatPreset}
-                    vibeChip={vibeChip}
-                    onVibeChipChange={setVibeChip}
-                    stylePreset={stylePreset}
-                    onStylePresetChange={setStylePreset}
-                    pacingValue={pacingValue}
-                    onPacingValueChange={setPacingValue}
-                    autoDetectBestMoments={autoDetectBestMoments}
-                    onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
-                    captionsEnabled={captionsEnabled}
-                    onCaptionsEnabledChange={setCaptionsEnabled}
-                    captionMode={captionMode}
-                    onCaptionModeChange={setCaptionMode}
-                    captionStyle={captionStyle}
-                    onCaptionStyleChange={setCaptionStyle}
-                    captionFont={captionFont}
-                    onCaptionFontChange={setCaptionFont}
-                    captionEffect={captionEffect}
-                    onCaptionEffectChange={setCaptionEffect}
-                    audioOption={audioOption}
-                    onAudioOptionChange={setAudioOption}
-                    audioDuckingEnabled={audioDuckingEnabled}
-                    onAudioDuckingEnabledChange={setAudioDuckingEnabled}
-                    audioCleanupEnabled={audioCleanupEnabled}
-                    onAudioCleanupEnabledChange={setAudioCleanupEnabled}
-                    audioMasteringEnabled={audioMasteringEnabled}
-                    onAudioMasteringEnabledChange={setAudioMasteringEnabled}
-                  />
-                ) : (
-                  <ModernizedOriginalEditor
-                    mode={mode}
-                    quickControls={quickControls}
-                    onToggleQuickControl={toggleQuickControl}
-                    formatPreset={formatPreset}
-                    onFormatPresetChange={setFormatPreset}
-                    vibeChip={vibeChip}
-                    onVibeChipChange={setVibeChip}
-                    stylePreset={stylePreset}
-                    onStylePresetChange={setStylePreset}
-                    pacingValue={pacingValue}
-                    onPacingValueChange={setPacingValue}
-                    autoDetectBestMoments={autoDetectBestMoments}
-                    onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
-                    captionsEnabled={captionsEnabled}
-                    onCaptionsEnabledChange={setCaptionsEnabled}
-                    captionMode={captionMode}
-                    onCaptionModeChange={setCaptionMode}
-                    captionStyle={captionStyle}
-                    onCaptionStyleChange={setCaptionStyle}
-                    captionFont={captionFont}
-                    onCaptionFontChange={setCaptionFont}
-                    captionEffect={captionEffect}
-                    onCaptionEffectChange={setCaptionEffect}
-                    audioOption={audioOption}
-                    onAudioOptionChange={setAudioOption}
-                    audioDuckingEnabled={audioDuckingEnabled}
-                    onAudioDuckingEnabledChange={setAudioDuckingEnabled}
-                    audioCleanupEnabled={audioCleanupEnabled}
-                    onAudioCleanupEnabledChange={setAudioCleanupEnabled}
-                    audioMasteringEnabled={audioMasteringEnabled}
-                    onAudioMasteringEnabledChange={setAudioMasteringEnabled}
-                  />
-                )}
+                <ModernizedOriginalEditor
+                  mode={mode}
+                  quickControls={quickControls}
+                  onToggleQuickControl={toggleQuickControl}
+                  formatPreset={formatPreset}
+                  onFormatPresetChange={setFormatPreset}
+                  vibeChip={vibeChip}
+                  onVibeChipChange={setVibeChip}
+                  stylePreset={stylePreset}
+                  onStylePresetChange={setStylePreset}
+                  pacingValue={pacingValue}
+                  onPacingValueChange={setPacingValue}
+                  autoDetectBestMoments={autoDetectBestMoments}
+                  onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
+                  captionsEnabled={captionsEnabled}
+                  onCaptionsEnabledChange={setCaptionsEnabled}
+                  captionMode={captionMode}
+                  onCaptionModeChange={setCaptionMode}
+                  captionStyle={captionStyle}
+                  onCaptionStyleChange={setCaptionStyle}
+                  captionFont={captionFont}
+                  onCaptionFontChange={setCaptionFont}
+                  captionEffect={captionEffect}
+                  onCaptionEffectChange={setCaptionEffect}
+                  audioOption={audioOption}
+                  onAudioOptionChange={setAudioOption}
+                  audioDuckingEnabled={audioDuckingEnabled}
+                  onAudioDuckingEnabledChange={setAudioDuckingEnabled}
+                  audioCleanupEnabled={audioCleanupEnabled}
+                  onAudioCleanupEnabledChange={setAudioCleanupEnabled}
+                  audioMasteringEnabled={audioMasteringEnabled}
+                  onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+                />
 
                 <CleanCard>
                   <div className="flex flex-wrap items-center justify-between gap-3">
