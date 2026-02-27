@@ -4,11 +4,11 @@ import { cn } from "@/lib/utils";
 import type { RetentionHeatCell, RetentionPoint } from "@/features/autoeditor/types";
 
 const pointColor: Record<RetentionPoint["type"], string> = {
-  best: "#22c55e",
-  worst: "#ef4444",
-  skip_zone: "#f59e0b",
-  hook: "#94a3b8",
-  emotional_peak: "#38bdf8",
+  best: "#4ade80",
+  worst: "#f87171",
+  skip_zone: "#fbbf24",
+  hook: "#cbd5e1",
+  emotional_peak: "#67e8f9",
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -51,16 +51,16 @@ export default function RetentionLineGraph({
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/35 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="overflow-hidden rounded-2xl border border-white/15 bg-black/32 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-[290px] w-full">
           <defs>
             <linearGradient id="autoeditor-retention-line" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#cbd5e1" />
-              <stop offset="45%" stopColor="#93c5fd" />
-              <stop offset="100%" stopColor="#64748b" />
+              <stop offset="0%" stopColor="#ecd7b4" />
+              <stop offset="45%" stopColor="#d8ba8f" />
+              <stop offset="100%" stopColor="#8fa9cd" />
             </linearGradient>
             <linearGradient id="autoeditor-heat" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgba(96,165,250,0.18)" />
+              <stop offset="0%" stopColor="rgba(212,180,131,0.24)" />
               <stop offset="100%" stopColor="rgba(15,17,23,0)" />
             </linearGradient>
           </defs>
@@ -76,10 +76,10 @@ export default function RetentionLineGraph({
                   x2={width - padding.right}
                   y1={y}
                   y2={y}
-                  stroke="rgba(148,163,184,0.16)"
+                  stroke="rgba(255,255,255,0.15)"
                   strokeDasharray="4 6"
                 />
-                <text x={6} y={y + 3} fill="rgba(148,163,184,0.84)" fontSize="10">
+                <text x={6} y={y + 3} fill="rgba(220,210,206,0.84)" fontSize="10">
                   {tick}%
                 </text>
               </g>
@@ -126,32 +126,32 @@ export default function RetentionLineGraph({
       </div>
 
       {heatmap.length > 0 ? (
-        <div className="grid grid-cols-12 gap-1 rounded-xl border border-white/10 bg-black/30 p-2">
+        <div className="grid grid-cols-12 gap-1 rounded-xl border border-white/15 bg-black/26 p-2">
           {heatmap.map((cell, index) => (
             <div
               key={`${cell.timestamp}-${index}`}
               title={`${cell.timestamp.toFixed(1)}s`}
               className="h-2 rounded-sm"
               style={{
-                backgroundColor: `rgba(148,163,184,${clamp(cell.intensity, 0.14, 1)})`,
+                backgroundColor: `rgba(212,180,131,${clamp(cell.intensity, 0.14, 1)})`,
               }}
             />
           ))}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1">
+      <div className="flex flex-wrap gap-2 text-[11px] text-[#d5c9cc]">
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-1">
           <span className="h-2 w-2 rounded-full bg-green-500" /> Peak
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1">
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-1">
           <span className="h-2 w-2 rounded-full bg-red-500" /> Drop-off
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1">
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-1">
           <span className="h-2 w-2 rounded-full bg-amber-400" /> Skip zone
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1">
-          <span className="h-2 w-2 rounded-full bg-violet-500" /> Emotional peak
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-1">
+          <span className="h-2 w-2 rounded-full bg-cyan-300" /> Emotional peak
         </span>
       </div>
     </div>

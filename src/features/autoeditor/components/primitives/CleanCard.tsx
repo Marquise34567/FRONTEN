@@ -17,23 +17,23 @@ export default function CleanCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-2xl border border-white/10",
-        "bg-[linear-gradient(180deg,rgba(26,31,46,0.78)_0%,rgba(15,17,23,0.78)_100%)] backdrop-blur-[10px]",
-        "shadow-[0_24px_58px_-34px_rgba(2,6,23,0.94),0_8px_18px_-14px_rgba(15,23,42,0.86),inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "group relative overflow-hidden rounded-[1.4rem] border border-white/15",
+        "bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.05)_40%,rgba(255,255,255,0.02)_100%)] backdrop-blur-[14px]",
+        "shadow-[0_34px_64px_-44px_rgba(0,0,0,0.9),0_14px_24px_-18px_rgba(0,0,0,0.74),inset_0_1px_0_rgba(255,255,255,0.1)]",
         padded && "p-4 sm:p-5",
         hoverable &&
-          "transition-all duration-300 ease-out hover:scale-[1.02] hover:border-white/15 hover:shadow-[0_30px_64px_-40px_rgba(96,165,250,0.46)]",
+          "transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:shadow-[0_42px_72px_-48px_rgba(212,180,131,0.45)]",
         className,
       )}
       {...props}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-white/10 via-white/0 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-white/20 via-white/0 to-transparent"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-24 right-6 h-40 w-40 rounded-full bg-blue-300/8 blur-3xl"
+        className="pointer-events-none absolute -top-28 right-6 h-44 w-44 rounded-full bg-[#d4b483]/12 blur-3xl"
       />
       <div className="relative">{children}</div>
     </div>

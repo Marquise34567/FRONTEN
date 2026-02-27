@@ -1,30 +1,61 @@
 .autoeditor-root {
-  --ae-bg: #0f1117;
-  --ae-bg-soft: #111621;
-  --ae-surface: #1a1f2e;
-  --ae-surface-soft: rgba(15, 17, 23, 0.56);
-  --ae-surface-strong: rgba(26, 31, 46, 0.8);
-  --ae-text: #f1f5f9;
-  --ae-subtext: #94a3b8;
-  --ae-border: rgba(255, 255, 255, 0.08);
-  --ae-accent: #60a5fa;
-  --ae-accent-soft: rgba(96, 165, 250, 0.2);
+  --ae-bg: #111216;
+  --ae-bg-soft: #171a21;
+  --ae-surface: rgba(255, 255, 255, 0.045);
+  --ae-surface-soft: rgba(255, 255, 255, 0.03);
+  --ae-surface-strong: rgba(255, 255, 255, 0.08);
+  --ae-text: #f6f3ec;
+  --ae-subtext: #c5bec2;
+  --ae-border: rgba(255, 255, 255, 0.14);
+  --ae-accent: #d4b483;
+  --ae-accent-soft: rgba(212, 180, 131, 0.24);
   --ae-shadow:
-    0 24px 58px -34px rgba(2, 6, 23, 0.92),
-    0 8px 18px -14px rgba(15, 23, 42, 0.86),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  font-family: "Inter Variable", "Inter", "SF Pro Text", "SF Pro Display", "Geist", system-ui, -apple-system, sans-serif;
+    0 40px 84px -46px rgba(0, 0, 0, 0.88),
+    0 14px 26px -18px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-family: "Sora", "Manrope", "Avenir Next", "SF Pro Text", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1100px 560px at 16% -8%, rgba(212, 180, 131, 0.2), transparent 65%),
+    radial-gradient(900px 460px at 88% -12%, rgba(149, 177, 219, 0.18), transparent 68%),
+    linear-gradient(165deg, #111216 0%, #141821 42%, #101114 100%);
+  color: var(--ae-text);
+  isolation: isolate;
+}
+
+.autoeditor-root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(circle at 50% 40%, rgba(0, 0, 0, 0.75), transparent 90%);
+  z-index: -1;
 }
 
 .autoeditor-root h1,
 .autoeditor-root h2,
 .autoeditor-root h3 {
-  letter-spacing: -0.022em;
+  letter-spacing: -0.028em;
+}
+
+.autoeditor-root .ae-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.69rem;
+  color: #d2c1a7;
+}
+
+.autoeditor-root .ae-muted {
+  color: #b0a9ad;
 }
 
 .autoeditor-root * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.5) rgba(15, 17, 23, 0.6);
+  scrollbar-color: rgba(212, 180, 131, 0.45) rgba(16, 18, 24, 0.68);
 }
 
 .autoeditor-root *::-webkit-scrollbar {
@@ -33,45 +64,84 @@
 }
 
 .autoeditor-root *::-webkit-scrollbar-track {
-  background: rgba(15, 17, 23, 0.6);
+  background: rgba(15, 17, 23, 0.62);
   border-radius: 999px;
 }
 
 .autoeditor-root *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(148, 163, 184, 0.65), rgba(100, 116, 139, 0.62));
+  background: linear-gradient(180deg, rgba(212, 180, 131, 0.8), rgba(142, 168, 201, 0.65));
   border-radius: 999px;
+}
+
+.autoeditor-root .ae-chip {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.03));
+  color: #efe6d9;
+  border-radius: 999px;
+  padding: 0.36rem 0.75rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.autoeditor-root .ae-chip-accent {
+  border-color: rgba(212, 180, 131, 0.5);
+  background: linear-gradient(180deg, rgba(212, 180, 131, 0.32), rgba(212, 180, 131, 0.12));
+  color: #fff8ec;
 }
 
 .autoeditor-root .ae-skeleton {
   position: relative;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .autoeditor-root .ae-skeleton::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(108deg, transparent 20%, rgba(241, 245, 249, 0.12) 48%, transparent 78%);
+  background: linear-gradient(108deg, transparent 20%, rgba(255, 245, 229, 0.25) 48%, transparent 78%);
   transform: translateX(-120%);
   animation: ae-shimmer 1.4s ease-in-out infinite;
 }
 
 .autoeditor-root .ae-slider-shell [data-slot="slider-track"] {
   height: 0.62rem;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(17, 23, 37, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(13, 14, 18, 0.84);
 }
 
 .autoeditor-root .ae-slider-shell [data-slot="slider-range"] {
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.84), rgba(96, 165, 250, 0.86));
+  background: linear-gradient(90deg, rgba(212, 180, 131, 0.95), rgba(143, 169, 205, 0.85));
 }
 
 .autoeditor-root .ae-slider-shell [data-slot="slider-thumb"] {
   width: 1.02rem;
   height: 1.02rem;
-  border-color: rgba(191, 219, 254, 0.84);
-  background: #0f172a;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  border-color: rgba(248, 233, 206, 0.94);
+  background: #1b1e25;
+  box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.24);
+}
+
+.autoeditor-root [role="switch"] {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  background: rgba(16, 17, 22, 0.9) !important;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.12),
+    0 10px 24px -20px rgba(0, 0, 0, 0.86) !important;
+}
+
+.autoeditor-root [role="switch"][data-state="checked"] {
+  border-color: rgba(230, 207, 169, 0.68) !important;
+  background: linear-gradient(135deg, #e6cfa9 0%, #d4b483 55%, #90aacd 100%) !important;
+}
+
+.autoeditor-root [role="switch"] span[data-state] {
+  background: #fcf3e7 !important;
+  box-shadow:
+    0 8px 18px -10px rgba(0, 0, 0, 0.84),
+    0 0 0 1px rgba(255, 255, 255, 0.42) !important;
 }
 
 .autoeditor-root .ae-modal-scrubber {
@@ -82,19 +152,19 @@
 .autoeditor-root .ae-modal-scrubber::-webkit-slider-runnable-track {
   height: 0.6rem;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   background:
-    linear-gradient(90deg, rgba(96, 165, 250, 0.45), rgba(148, 163, 184, 0.34)),
-    rgba(15, 17, 23, 0.72);
+    linear-gradient(90deg, rgba(212, 180, 131, 0.5), rgba(143, 169, 205, 0.35)),
+    rgba(15, 17, 23, 0.74);
 }
 
 .autoeditor-root .ae-modal-scrubber::-moz-range-track {
   height: 0.6rem;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   background:
-    linear-gradient(90deg, rgba(96, 165, 250, 0.45), rgba(148, 163, 184, 0.34)),
-    rgba(15, 17, 23, 0.72);
+    linear-gradient(90deg, rgba(212, 180, 131, 0.5), rgba(143, 169, 205, 0.35)),
+    rgba(15, 17, 23, 0.74);
 }
 
 .autoeditor-root .ae-modal-scrubber::-webkit-slider-thumb {
@@ -104,38 +174,54 @@
   height: 1.15rem;
   width: 1.15rem;
   border-radius: 999px;
-  border: 1.6px solid rgba(224, 242, 254, 0.9);
-  background: #dbeafe;
+  border: 1.6px solid rgba(255, 241, 220, 0.9);
+  background: #f7e3c4;
   box-shadow:
-    0 10px 25px -12px rgba(96, 165, 250, 0.92),
-    0 0 0 5px rgba(96, 165, 250, 0.18);
+    0 10px 25px -12px rgba(212, 180, 131, 0.86),
+    0 0 0 5px rgba(212, 180, 131, 0.22);
 }
 
 .autoeditor-root .ae-modal-scrubber::-moz-range-thumb {
   height: 1.15rem;
   width: 1.15rem;
   border-radius: 999px;
-  border: 1.6px solid rgba(224, 242, 254, 0.9);
-  background: #dbeafe;
+  border: 1.6px solid rgba(255, 241, 220, 0.9);
+  background: #f7e3c4;
   box-shadow:
-    0 10px 25px -12px rgba(96, 165, 250, 0.92),
-    0 0 0 5px rgba(96, 165, 250, 0.18);
+    0 10px 25px -12px rgba(212, 180, 131, 0.86),
+    0 0 0 5px rgba(212, 180, 131, 0.22);
 }
 
 .ae-modal-content > button[aria-label="Close"] {
   right: 1rem;
   top: 1rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(15, 17, 23, 0.52);
-  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(17, 18, 23, 0.66);
+  color: #e8dfd1;
   opacity: 1;
   backdrop-filter: blur(8px);
 }
 
 .ae-modal-content > button[aria-label="Close"]:hover {
-  background: rgba(15, 17, 23, 0.76);
-  color: #f8fafc;
+  background: rgba(17, 18, 23, 0.9);
+  color: #fff8ec;
+}
+
+.autoeditor-root .ae-gold-pulse {
+  animation: ae-gold-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes ae-gold-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(212, 180, 131, 0.28);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(212, 180, 131, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 180, 131, 0);
+  }
 }
 
 @keyframes ae-shimmer {

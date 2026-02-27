@@ -98,14 +98,14 @@ export default function RetentionInsights({
 
   return (
     <CleanCard id="retention-insights" className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/15 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium tracking-tight text-slate-100">Retention Details</p>
+          <p className="text-sm font-medium tracking-tight text-[#f9f1e4]">Retention Details</p>
           <span
             className={`rounded-full border px-2 py-0.5 text-[11px] ${
               goodRetention
-                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
-                : "border-amber-300/40 bg-amber-500/15 text-amber-100"
+                ? "border-emerald-300/45 bg-emerald-500/16 text-emerald-100"
+                : "border-amber-300/45 bg-amber-500/16 text-amber-100"
             }`}
           >
             Score {retentionScore.toFixed(1)}
@@ -120,7 +120,7 @@ export default function RetentionInsights({
               if (!expanded) onExpandedChange(true);
               setProcessingLogExpanded((value) => !value);
             }}
-            className="rounded-xl border-white/15 bg-white/[0.06] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.12]"
+            className="rounded-xl border-white/20 bg-white/[0.06] text-[#f4ebe0] transition hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
           >
             {processingLogExpanded ? (
               <span className="inline-flex items-center gap-1">
@@ -138,7 +138,7 @@ export default function RetentionInsights({
             type="button"
             variant="outline"
             onClick={() => onExpandedChange(!expanded)}
-            className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.14]"
+            className="rounded-xl border-white/20 bg-white/[0.08] text-[#f4ebe0] transition hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
           >
             {expanded ? "Collapse Retention Insights" : "Expand Retention Insights"}
           </Button>
@@ -167,23 +167,23 @@ export default function RetentionInsights({
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="relative mt-3 overflow-hidden rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3"
+                    className="relative mt-3 overflow-hidden rounded-xl border border-emerald-300/35 bg-emerald-500/12 p-3"
                   >
                     <motion.div
                       className="absolute inset-0 pointer-events-none"
                       animate={{ opacity: [0.15, 0.35, 0.15] }}
                       transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                     />
-                    <p className="relative text-sm font-medium text-emerald-100">
+                    <p className="relative text-sm font-medium text-emerald-50">
                       Amazing retention: {retentionScore.toFixed(1)} / 100
                     </p>
-                    <p className="relative mt-1 text-xs text-emerald-200/90">
+                    <p className="relative mt-1 text-xs text-emerald-100/90">
                       50+ is strong. This cut is in a healthy watch-through zone.
                     </p>
                   </motion.div>
                 ) : (
-                  <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3">
-                    <p className="text-sm font-medium text-amber-100">
+                  <div className="mt-3 rounded-xl border border-amber-300/35 bg-amber-500/12 p-3">
+                    <p className="text-sm font-medium text-amber-50">
                       Retention is {retentionScore.toFixed(1)} / 100, below the 50 target.
                     </p>
                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-50/95">
@@ -193,12 +193,12 @@ export default function RetentionInsights({
                     </ul>
                   </div>
                 )}
-                <p className="mt-3 text-sm text-slate-300">{result.retention.summary}</p>
+                <p className="mt-3 text-sm text-[#d1c6ca]">{result.retention.summary}</p>
               </div>
 
-              <aside className="rounded-2xl border border-white/10 bg-black/35 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                <p className="mb-2 text-xs uppercase tracking-[0.14em] text-slate-400">Preview</p>
-                <div className="overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_22px_50px_-34px_rgba(2,6,23,0.95)]">
+              <aside className="rounded-2xl border border-white/15 bg-black/35 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[#bcafb2]">Preview</p>
+                <div className="overflow-hidden rounded-xl border border-white/15 bg-black shadow-[0_22px_50px_-34px_rgba(0,0,0,0.95)]">
                   <video
                     ref={previewRef}
                     src={result.outputVideoUrl}
@@ -207,11 +207,11 @@ export default function RetentionInsights({
                     className="aspect-[9/16] w-full object-cover"
                   />
                 </div>
-                <div className="mt-2 rounded-xl border border-white/10 bg-black/30 p-3">
-                  <p className="text-sm font-medium text-slate-100">{selectedPoint?.label || "Insight"}</p>
-                  <p className="mt-1 text-xs text-slate-400">{selectedPoint?.description || "Select a graph point for context."}</p>
+                <div className="mt-2 rounded-xl border border-white/15 bg-black/30 p-3">
+                  <p className="text-sm font-medium text-[#f8efe3]">{selectedPoint?.label || "Insight"}</p>
+                  <p className="mt-1 text-xs text-[#bcaeb2]">{selectedPoint?.description || "Select a graph point for context."}</p>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-[#9f9497]">
                   {result.ffmpegCommands.length} FFmpeg command{result.ffmpegCommands.length === 1 ? "" : "s"} logged
                 </p>
               </aside>
@@ -224,22 +224,22 @@ export default function RetentionInsights({
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.22, ease: "easeInOut" }}
-                  className="overflow-hidden border-t border-white/10"
+                  className="overflow-hidden border-t border-white/15"
                 >
                   <div className="p-4 sm:px-5">
-                    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
-                      <p className="text-xs uppercase tracking-[0.13em] text-slate-400">Processing Log</p>
+                    <div className="rounded-2xl border border-white/15 bg-black/35 p-3">
+                      <p className="text-xs uppercase tracking-[0.13em] text-[#bcaeb2]">Processing Log</p>
                       {result.ffmpegCommands.length > 0 ? (
-                        <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-white/10 bg-black/45 p-2 font-mono text-[11px] text-slate-300">
+                        <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-white/15 bg-black/45 p-2 font-mono text-[11px] text-[#ddd3d6]">
                           {result.ffmpegCommands.map((command, index) => (
                             <p key={`${index}-${command.slice(0, 32)}`} className="break-all py-1">
-                              <span className="mr-2 text-slate-500">{String(index + 1).padStart(2, "0")}.</span>
+                              <span className="mr-2 text-[#9f9497]">{String(index + 1).padStart(2, "0")}.</span>
                               {command}
                             </p>
                           ))}
                         </div>
                       ) : (
-                        <p className="mt-2 text-xs text-slate-500">No processing commands were logged for this render.</p>
+                        <p className="mt-2 text-xs text-[#9f9497]">No processing commands were logged for this render.</p>
                       )}
                     </div>
                   </div>
@@ -257,14 +257,14 @@ export default function RetentionInsights({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
-            className="pointer-events-none fixed bottom-6 left-1/2 z-40 w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border border-white/15 bg-black/70 px-4 py-3 shadow-[0_28px_56px_-34px_rgba(2,6,23,0.98)] backdrop-blur-lg"
+            className="pointer-events-none fixed bottom-6 left-1/2 z-40 w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border border-white/20 bg-black/72 px-4 py-3 shadow-[0_28px_56px_-34px_rgba(0,0,0,0.96)] backdrop-blur-lg"
           >
-            <p className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.12em] text-slate-300">
+            <p className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.12em] text-[#d8ced1]">
               <PlayCircle className="h-3.5 w-3.5" />
               {tooltip.title}
             </p>
-            <p className="mt-1 text-sm text-slate-100">{tooltip.description}</p>
-            <p className="mt-1 text-xs text-slate-400">Seeked preview to {tooltip.timestamp.toFixed(1)}s</p>
+            <p className="mt-1 text-sm text-[#f9f1e5]">{tooltip.description}</p>
+            <p className="mt-1 text-xs text-[#bcaeb2]">Seeked preview to {tooltip.timestamp.toFixed(1)}s</p>
           </motion.div>
         ) : null}
       </AnimatePresence>

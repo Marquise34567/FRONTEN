@@ -29,25 +29,25 @@ export default function AutoModeBanner({
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: "easeInOut" }}
-      className="rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(26,31,46,0.76)_0%,rgba(15,17,23,0.72)_100%)] p-3.5 shadow-[0_24px_54px_-34px_rgba(15,23,42,0.86),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md"
+      className="rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.06)_48%,rgba(255,255,255,0.03)_100%)] p-3.5 shadow-[0_28px_56px_-38px_rgba(0,0,0,0.92),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-medium tracking-tight text-slate-100">
-            <Sparkles className="h-4 w-4 text-blue-200" />
-            Auto-Detected: {modeText(mode)} • {optimizationCopy(mode)} • Edit?
+          <p className="flex items-center gap-2 text-sm font-medium tracking-tight text-[#f8efe0]">
+            <Sparkles className="h-4 w-4 text-[#e4c48f]" />
+            Auto-detected: {modeText(mode)} • {optimizationCopy(mode)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{autoDetection.bannerMessage || autoDetection.reason}</p>
+          <p className="mt-1 text-xs text-[#bcaeb0]">{autoDetection.bannerMessage || autoDetection.reason}</p>
         </div>
 
-        <div className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/35 p-1">
+        <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-[#111319]/80 p-1">
           <button
             type="button"
             onClick={() => onModeChange("horizontal")}
             className={`rounded-full border px-3 py-1.5 text-xs transition ${
               mode === "horizontal"
-                ? "border-blue-300/40 bg-blue-400/18 text-blue-100 shadow-[0_10px_24px_-20px_rgba(96,165,250,0.9)]"
-                : "border-transparent bg-transparent text-slate-300 hover:border-white/10 hover:bg-white/5"
+                ? "border-[#e6cfa9]/45 bg-[#d4b483]/20 text-[#fef2df] shadow-[0_10px_22px_-18px_rgba(212,180,131,0.86)]"
+                : "border-transparent bg-transparent text-[#cdc4c7] hover:border-white/15 hover:bg-white/[0.08]"
             }`}
           >
             Horizontal 16:9
@@ -57,8 +57,8 @@ export default function AutoModeBanner({
             onClick={() => onModeChange("vertical")}
             className={`rounded-full border px-3 py-1.5 text-xs transition ${
               mode === "vertical"
-                ? "border-blue-300/40 bg-blue-400/18 text-blue-100 shadow-[0_10px_24px_-20px_rgba(96,165,250,0.9)]"
-                : "border-transparent bg-transparent text-slate-300 hover:border-white/10 hover:bg-white/5"
+                ? "border-[#e6cfa9]/45 bg-[#d4b483]/20 text-[#fef2df] shadow-[0_10px_22px_-18px_rgba(212,180,131,0.86)]"
+                : "border-transparent bg-transparent text-[#cdc4c7] hover:border-white/15 hover:bg-white/[0.08]"
             }`}
           >
             Vertical 9:16

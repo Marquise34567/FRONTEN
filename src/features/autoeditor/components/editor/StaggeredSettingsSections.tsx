@@ -111,7 +111,7 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 1 ? (
           <motion.section key="section-format" {...sectionMotion}>
             <CleanCard>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">A. Format & Platform</p>
+              <p className="ae-kicker">A. Format & Platform</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {PLATFORM_OPTIONS.map((platform) => {
                   const active = formatPreset === platform.value;
@@ -123,8 +123,8 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-blue-300/40 bg-blue-500/15 text-blue-100 shadow-[0_12px_26px_-20px_rgba(96,165,250,0.78)]"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
+                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de] shadow-[0_12px_26px_-20px_rgba(212,180,131,0.72)]"
+                          : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
                       <platform.icon className="h-3.5 w-3.5" />
@@ -140,7 +140,7 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 2 ? (
           <motion.section key="section-vibe" {...sectionMotion}>
             <CleanCard>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">B. Vibe & Style</p>
+              <p className="ae-kicker">B. Vibe & Style</p>
 
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {VIBE_CHIPS.map((chip) => {
@@ -153,8 +153,8 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "shrink-0 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
+                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                          : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
                       {chip.label}
@@ -174,12 +174,12 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "rounded-xl border p-2 text-left transition-all",
                         active
-                          ? "border-blue-300/35 bg-blue-500/12 shadow-[0_14px_30px_-24px_rgba(96,165,250,0.7)]"
-                          : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-black/35",
+                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/14 shadow-[0_14px_30px_-24px_rgba(212,180,131,0.62)]"
+                          : "border-white/15 bg-black/22 hover:border-white/25 hover:bg-black/35",
                       )}
                     >
                       <div className={`h-14 rounded-lg bg-gradient-to-br ${preset.preview}`} />
-                      <p className="mt-2 text-sm font-medium text-slate-100">{preset.label}</p>
+                      <p className="mt-2 text-sm font-medium text-[#f7efe2]">{preset.label}</p>
                     </button>
                   );
                 })}
@@ -191,7 +191,7 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 3 ? (
           <motion.section key="section-cuts" {...sectionMotion}>
             <CleanCard>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">C. Cuts & Pacing</p>
+              <p className="ae-kicker">C. Cuts & Pacing</p>
               <MinimalSlider
                 className="mt-3"
                 value={pacingValue}
@@ -213,7 +213,7 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 4 ? (
           <motion.section key="section-captions" {...sectionMotion}>
             <CleanCard>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">D. Captions</p>
+              <p className="ae-kicker">D. Captions</p>
 
               <SubtleToggle
                 className="mt-3"
@@ -225,7 +225,7 @@ export default function StaggeredSettingsSections({
 
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs text-slate-400">Mode</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Mode</p>
                   <div className="flex gap-2">
                     {([
                       { value: "ai", label: "AI" },
@@ -240,8 +240,8 @@ export default function StaggeredSettingsSections({
                           className={cn(
                             "rounded-full border px-3 py-1.5 text-sm transition",
                             active
-                              ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                              : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
+                              ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                              : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                           )}
                         >
                           {modeOption.label}
@@ -252,12 +252,12 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-slate-400">Caption Style</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Style</p>
                   <Select value={captionStyle} onValueChange={(value) => onCaptionStyleChange(value as CaptionStylePreset)}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
                       <SelectValue placeholder="Select style" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
                       {CAPTION_STYLE_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
@@ -268,12 +268,12 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-slate-400">Font</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Font</p>
                   <Select value={captionFont} onValueChange={onCaptionFontChange}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
                       <SelectValue placeholder="Select font" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
                       {CAPTION_FONT_OPTIONS.map((font) => (
                         <SelectItem key={font} value={font}>
                           <span style={{ fontFamily: `'${font}', Inter, sans-serif` }}>{font}</span>
@@ -284,12 +284,12 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-slate-400">Effect</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Effect</p>
                   <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
                       <SelectValue placeholder="Select effect" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
                       {CAPTION_EFFECT_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
@@ -306,7 +306,7 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 5 ? (
           <motion.section key="section-audio" {...sectionMotion}>
             <CleanCard>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">E. Audio</p>
+              <p className="ae-kicker">E. Audio</p>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {AUDIO_OPTIONS.map((option) => {
@@ -319,8 +319,8 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20",
+                          ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
+                          : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25",
                       )}
                     >
                       {option.label}
@@ -330,8 +330,8 @@ export default function StaggeredSettingsSections({
               </div>
 
               <Accordion type="multiple" className="mt-3 space-y-2">
-                <AccordionItem value="ducking" className="rounded-xl border border-white/10 bg-black/20 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Ducking & Sidechain</AccordionTrigger>
+                <AccordionItem value="ducking" className="rounded-xl border border-white/15 bg-black/22 px-3">
+                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Ducking & Sidechain</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioDuckingEnabled}
@@ -342,8 +342,8 @@ export default function StaggeredSettingsSections({
                   </AccordionContent>
                 </AccordionItem>
 
-                <AccordionItem value="cleanup" className="rounded-xl border border-white/10 bg-black/20 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Noise Cleanup</AccordionTrigger>
+                <AccordionItem value="cleanup" className="rounded-xl border border-white/15 bg-black/22 px-3">
+                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Noise Cleanup</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioCleanupEnabled}
@@ -354,8 +354,8 @@ export default function StaggeredSettingsSections({
                   </AccordionContent>
                 </AccordionItem>
 
-                <AccordionItem value="mastering" className="rounded-xl border border-white/10 bg-black/20 px-3">
-                  <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">Mastering</AccordionTrigger>
+                <AccordionItem value="mastering" className="rounded-xl border border-white/15 bg-black/22 px-3">
+                  <AccordionTrigger className="py-3 text-sm text-[#f5eee0] hover:no-underline">Mastering</AccordionTrigger>
                   <AccordionContent>
                     <SubtleToggle
                       checked={audioMasteringEnabled}

@@ -186,23 +186,23 @@ export default function ManualTimestampModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="ae-modal-content h-[96vh] w-[98vw] max-w-none overflow-hidden border-white/10 bg-[#0f1117]/96 p-0 text-slate-100 shadow-[0_40px_110px_-42px_rgba(2,6,23,0.98)] backdrop-blur-xl">
+      <DialogContent className="ae-modal-content h-[96vh] w-[98vw] max-w-none overflow-hidden border-white/15 bg-[#12131a]/95 p-0 text-[#f6eee2] shadow-[0_48px_112px_-44px_rgba(0,0,0,0.96)] backdrop-blur-xl">
         <div className="flex h-full flex-col">
-          <DialogHeader className="border-b border-white/10 bg-black/20 px-5 py-4 text-left">
+          <DialogHeader className="border-b border-white/15 bg-black/25 px-5 py-4 text-left">
             <div className="flex flex-wrap items-start justify-between gap-3 pr-10">
               <div>
-                <DialogTitle className="text-xl font-semibold tracking-tight text-slate-100">
+                <DialogTitle className="text-xl font-semibold tracking-tight text-[#fbf3e8]">
                   Manual Timestamp Editor
                 </DialogTitle>
-                <DialogDescription className="mt-1 text-slate-400">
+                <DialogDescription className="mt-1 text-[#bcafb2]">
                   Frame-accurate split review. Build precise keep/remove/hook segments with timeline-grade controls.
                 </DialogDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-slate-300">
+                <span className="rounded-full border border-white/20 bg-white/[0.06] px-3 py-1 text-xs text-[#d8ced1]">
                   {segments.length} segments
                 </span>
-                <span className="rounded-full border border-blue-300/35 bg-blue-500/14 px-3 py-1 text-xs text-blue-100">
+                <span className="rounded-full border border-[#e6cfa9]/45 bg-[#d4b483]/16 px-3 py-1 text-xs text-[#fcefd9]">
                   {formatTime(scrubberTime)} / {formatTime(safeDuration)}
                 </span>
               </div>
@@ -212,35 +212,35 @@ export default function ManualTimestampModal({
           <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1.35fr)_320px]">
             <div className="grid min-h-0 gap-4 overflow-hidden">
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Before</p>
-                    <Film className="h-4 w-4 text-slate-500" />
+                <div className="overflow-hidden rounded-2xl border border-white/15 bg-black/42 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
+                  <div className="flex items-center justify-between border-b border-white/15 px-3 py-2">
+                    <p className="text-xs uppercase tracking-[0.14em] text-[#bfaeb1]">Before</p>
+                    <Film className="h-4 w-4 text-[#a39a9d]" />
                   </div>
                   <div className={cn("relative", getPreviewAspectClass)}>
                     {videoUrl ? (
                       <video ref={beforeRef} src={videoUrl} muted controls className="h-full w-full object-cover" />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      <div className="flex h-full items-center justify-center text-sm text-[#9c9296]">
                         Upload video to preview
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.14em] text-slate-400">After</p>
-                    <Scissors className="h-4 w-4 text-blue-300" />
+                <div className="overflow-hidden rounded-2xl border border-white/15 bg-black/42 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
+                  <div className="flex items-center justify-between border-b border-white/15 px-3 py-2">
+                    <p className="text-xs uppercase tracking-[0.14em] text-[#bfaeb1]">After</p>
+                    <Scissors className="h-4 w-4 text-[#e3c391]" />
                   </div>
                   <div className={cn("relative", getPreviewAspectClass)}>
                     {videoUrl ? (
                       <>
                         <video ref={afterRef} src={videoUrl} muted controls className="h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-blue-500/12 via-transparent to-slate-300/5" />
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-[#d4b483]/18 via-transparent to-white/[0.08]" />
                       </>
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      <div className="flex h-full items-center justify-center text-sm text-[#9c9296]">
                         No processed preview yet
                       </div>
                     )}
@@ -248,10 +248,10 @@ export default function ManualTimestampModal({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <div className="rounded-2xl border border-white/15 bg-black/30 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Timeline Toolbar</p>
-                  <div className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/35 p-1">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#bfaeb1]">Timeline Toolbar</p>
+                  <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/35 p-1">
                     {SEGMENT_TOOL_OPTIONS.map((tool) => {
                       const selected = activeTool === tool.value;
                       return (
@@ -263,7 +263,7 @@ export default function ManualTimestampModal({
                             "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition",
                             selected
                               ? TOOL_BADGE_CLASS[tool.value]
-                              : "border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.06]",
+                              : "border-transparent text-[#d5cbce] hover:border-white/15 hover:bg-white/[0.07]",
                           )}
                         >
                           <tool.icon className="h-3.5 w-3.5" />
@@ -274,14 +274,14 @@ export default function ManualTimestampModal({
                   </div>
                 </div>
 
-                <p className="mt-2 text-xs text-slate-400">{activeToolMeta.description}</p>
+                <p className="mt-2 text-xs text-[#bcaeb2]">{activeToolMeta.description}</p>
 
                 <div className="relative mt-3">
-                  <div className="pointer-events-none absolute inset-x-0 top-3 h-[0.6rem] rounded-full border border-white/10 bg-black/55" />
+                  <div className="pointer-events-none absolute inset-x-0 top-3 h-[0.6rem] rounded-full border border-white/15 bg-black/55" />
                   {timelineTicks.map((tick) => (
                     <div
                       key={tick}
-                      className="pointer-events-none absolute top-[0.32rem] h-[0.35rem] w-px bg-white/20"
+                      className="pointer-events-none absolute top-[0.32rem] h-[0.35rem] w-px bg-white/26"
                       style={{ left: `${tick * 100}%` }}
                     />
                   ))}
@@ -306,7 +306,7 @@ export default function ManualTimestampModal({
                     );
                   })}
                   <div
-                    className="pointer-events-none absolute top-0 h-6 w-6 rounded-full border border-white/70 bg-blue-200/95 shadow-[0_14px_30px_-18px_rgba(96,165,250,0.98),0_0_0_5px_rgba(96,165,250,0.18)]"
+                    className="pointer-events-none absolute top-0 h-6 w-6 rounded-full border border-white/70 bg-[#f0d9b8]/95 shadow-[0_14px_30px_-18px_rgba(212,180,131,0.9),0_0_0_5px_rgba(212,180,131,0.22)]"
                     style={{ left: `calc(${scrubberPct}% - 0.7rem)` }}
                   />
                   <input
@@ -320,24 +320,24 @@ export default function ManualTimestampModal({
                   />
                 </div>
 
-                <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                <div className="mt-1 flex items-center justify-between text-[10px] text-[#9f9497]">
                   <span>00:00.0</span>
                   <span>{formatTime(safeDuration)}</span>
                 </div>
               </div>
 
-              <div className="grid max-h-[32vh] gap-2 overflow-y-auto rounded-2xl border border-white/10 bg-black/35 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <div className="grid max-h-[32vh] gap-2 overflow-y-auto rounded-2xl border border-white/15 bg-black/34 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 {segments.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-xs text-slate-500">
+                  <p className="px-2 py-8 text-center text-xs text-[#9f9497]">
                     No segments yet. Scrub timeline and add your first timestamp window.
                   </p>
                 ) : (
                   segments.map((segment, index) => (
                     <div
                       key={segment.id}
-                      className="grid grid-cols-[44px_1fr_1fr_98px_76px] items-center gap-2 rounded-xl border border-white/10 bg-[#121827]/80 px-2.5 py-2"
+                      className="grid grid-cols-[44px_1fr_1fr_98px_76px] items-center gap-2 rounded-xl border border-white/15 bg-[#171923]/82 px-2.5 py-2"
                     >
-                      <span className="text-xs text-slate-400">#{index + 1}</span>
+                      <span className="text-xs text-[#bcaeb2]">#{index + 1}</span>
                       <Input
                         type="number"
                         min={0}
@@ -345,7 +345,7 @@ export default function ManualTimestampModal({
                         step={0.1}
                         value={Number(segment.start.toFixed(1))}
                         onChange={(event) => onUpdateSegment(segment.id, { start: Number(event.currentTarget.value) })}
-                        className="h-8 border-white/10 bg-black/35 text-xs text-slate-100"
+                        className="h-8 border-white/15 bg-black/35 text-xs text-[#f6eee2]"
                       />
                       <Input
                         type="number"
@@ -354,7 +354,7 @@ export default function ManualTimestampModal({
                         step={0.1}
                         value={Number(segment.end.toFixed(1))}
                         onChange={(event) => onUpdateSegment(segment.id, { end: Number(event.currentTarget.value) })}
-                        className="h-8 border-white/10 bg-black/35 text-xs text-slate-100"
+                        className="h-8 border-white/15 bg-black/35 text-xs text-[#f6eee2]"
                       />
                       <button
                         type="button"
@@ -370,7 +370,7 @@ export default function ManualTimestampModal({
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 border border-white/10 text-xs text-rose-200 hover:bg-rose-500/12"
+                        className="h-8 border border-white/15 text-xs text-rose-200 hover:bg-rose-500/12"
                         onClick={() => handleRemoveSegment(segment.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -382,13 +382,13 @@ export default function ManualTimestampModal({
               </div>
             </div>
 
-            <aside className="min-h-0 rounded-2xl border border-white/10 bg-black/35 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-              <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Actions</p>
+            <aside className="min-h-0 rounded-2xl border border-white/15 bg-black/35 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+              <p className="text-xs uppercase tracking-[0.12em] text-[#bfaeb1]">Actions</p>
               <div className="mt-3 space-y-2">
                 <Button
                   type="button"
                   onClick={handleAddSegment}
-                  className="w-full rounded-xl bg-blue-500 text-slate-100 shadow-[0_16px_32px_-22px_rgba(96,165,250,0.88)] transition-all hover:-translate-y-0.5 hover:bg-blue-400"
+                  className="w-full rounded-xl bg-[#d4b483] text-[#181312] shadow-[0_16px_32px_-22px_rgba(212,180,131,0.8)] transition-all hover:-translate-y-0.5 hover:bg-[#e2c89f]"
                 >
                   <Plus className="h-4 w-4" />
                   Add {activeToolMeta.label} Segment
@@ -397,23 +397,23 @@ export default function ManualTimestampModal({
                   type="button"
                   variant="outline"
                   onClick={() => onOpenChange(false)}
-                  className="w-full rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition-all hover:-translate-y-0.5 hover:bg-white/[0.14]"
+                  className="w-full rounded-xl border-white/20 bg-white/[0.07] text-[#f6ede0] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
                 >
                   <Target className="h-4 w-4" />
                   Apply Timestamps
                 </Button>
               </div>
 
-              <div className="mt-4 rounded-xl border border-white/10 bg-black/35 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Current Focus</p>
-                <p className="mt-1 text-sm font-medium text-slate-100">{activeToolMeta.label} Mode</p>
-                <p className="mt-1 text-xs text-slate-400">{activeToolMeta.description}</p>
+              <div className="mt-4 rounded-xl border border-white/15 bg-black/35 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-[#bfaeb1]">Current Focus</p>
+                <p className="mt-1 text-sm font-medium text-[#f8efe2]">{activeToolMeta.label} Mode</p>
+                <p className="mt-1 text-xs text-[#bcaeb2]">{activeToolMeta.description}</p>
               </div>
 
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Precision</p>
-                <p className="mt-1 text-sm text-slate-200">Scrubber: {formatTime(scrubberTime)}</p>
-                <p className="mt-1 text-xs text-slate-400">Use decimal inputs for frame-near cut alignment.</p>
+              <div className="mt-3 rounded-xl border border-white/15 bg-black/35 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-[#bfaeb1]">Precision</p>
+                <p className="mt-1 text-sm text-[#f5eddf]">Scrubber: {formatTime(scrubberTime)}</p>
+                <p className="mt-1 text-xs text-[#bcaeb2]">Use decimal inputs for frame-near cut alignment.</p>
               </div>
             </aside>
           </div>

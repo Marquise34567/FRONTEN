@@ -27,11 +27,11 @@ export default function MinimalSlider({
   return (
     <div className={cn("space-y-2", className)}>
       {(leftLabel || rightLabel) && (
-        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-slate-400">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-[#c5bec2]">
           <span>{leftLabel}</span>
           <span className="inline-flex items-center gap-2">
             <span
-              className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-medium tracking-[0.12em] text-slate-300"
+              className="rounded-full border border-[#e6cfa9]/35 bg-[#d4b483]/14 px-2 py-0.5 font-medium tracking-[0.12em] text-[#f8ecd8]"
               aria-label={`Current value ${normalizedValue}`}
             >
               {normalizedValue}
@@ -40,7 +40,7 @@ export default function MinimalSlider({
           </span>
         </div>
       )}
-      <div className="ae-slider-shell rounded-2xl border border-white/10 bg-[#111623]/68 px-3 py-3">
+      <div className="ae-slider-shell rounded-2xl border border-white/15 bg-black/35 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
         <Slider
           min={min}
           max={max}

@@ -13,12 +13,12 @@ type ModeSelectorProps = {
 
 export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onSelectMode }: ModeSelectorProps) {
   return (
-    <section className="mx-auto w-full max-w-3xl">
+    <section className="mx-auto w-full max-w-[960px]">
       <CleanCard>
         <div className="mb-4 text-center">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Mode Selection</p>
-          <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-50">Choose Edit Layout</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="ae-kicker">Mode Selection</p>
+          <h3 className="mt-1 text-xl font-semibold tracking-tight text-[#f8efe3]">Choose Edit Layout</h3>
+          <p className="mt-1 text-sm text-[#baafb1]">
             {autoModeEnabled
               ? "Detected mode is preselected. Confirm orientation to unlock Format & Platform."
               : modeConfirmed
@@ -40,18 +40,18 @@ export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onS
                 onClick={() => onSelectMode(option.value)}
                 className={`rounded-2xl border p-4 text-left transition-all ${
                   active
-                    ? "border-blue-300/40 bg-blue-500/12 shadow-[0_18px_40px_-28px_rgba(96,165,250,0.72)]"
-                    : "border-white/10 bg-black/26 hover:border-white/20 hover:bg-black/40"
+                    ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 shadow-[0_18px_40px_-28px_rgba(212,180,131,0.64)]"
+                    : "border-white/15 bg-black/24 hover:border-white/25 hover:bg-black/40"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <option.icon className={`h-5 w-5 ${active ? "text-blue-200" : "text-slate-400"}`} />
-                  <span className="rounded-full border border-white/10 bg-black/25 px-2.5 py-0.5 text-xs text-slate-300">
+                  <option.icon className={`h-5 w-5 ${active ? "text-[#f4d7a6]" : "text-[#a29a9e]"}`} />
+                  <span className="rounded-full border border-white/15 bg-black/25 px-2.5 py-0.5 text-xs text-[#d6cbce]">
                     {option.ratio}
                   </span>
                 </div>
-                <p className="mt-3 text-lg font-medium tracking-tight text-slate-100">{option.label}</p>
-                <p className="text-sm text-slate-400">{option.description}</p>
+                <p className="mt-3 text-lg font-medium tracking-tight text-[#f5eee1]">{option.label}</p>
+                <p className="text-sm text-[#b8adb0]">{option.description}</p>
               </motion.button>
             );
           })}

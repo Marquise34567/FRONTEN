@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { History, Loader2, RefreshCcw, Upload } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, ApiError, apiFetch } from "@/lib/api";
@@ -89,6 +90,7 @@ const getZoomEffect = (speedRampEnabled: boolean, mode: RenderMode): ZoomEffect 
 };
 
 export default function AutoEditorPage() {
+  const navigate = useNavigate();
   const { accessToken } = useAuth();
   const { toast } = useToast();
 
@@ -435,6 +437,12 @@ export default function AutoEditorPage() {
     }, 120);
   };
 
+  const handleOpenFeedbackFromModal = () => {
+    if (!latestResult?.jobId) return;
+    setSuccessModalOpen(false);
+    navigate(`/feedback?jobId=${encodeURIComponent(latestResult.jobId)}&source=vibecut`);
+  };
+
   const handleModeSelect = (nextMode: RenderMode) => {
     setMode(nextMode, true);
     setModeConfirmed(true);
@@ -457,15 +465,20 @@ export default function AutoEditorPage() {
   const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
 
   return (
-    <div className="autoeditor-root min-h-screen bg-[#0f1117] text-slate-100">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(70%_65%_at_10%_0%,rgba(59,130,246,0.14),transparent_68%),radial-gradient(58%_46%_at_95%_0%,rgba(148,163,184,0.1),transparent_74%),radial-gradient(90%_70%_at_50%_110%,rgba(15,23,42,0.52),transparent_75%)]" />
+    <div className="autoeditor-root min-h-screen text-slate-100">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(70%_65%_at_8%_0%,rgba(212,180,131,0.16),transparent_68%),radial-gradient(62%_48%_at_98%_-2%,rgba(142,168,201,0.18),transparent_74%),radial-gradient(90%_70%_at_50%_110%,rgba(9,10,13,0.72),transparent_80%)]" />
 
-      <main className="relative mx-auto w-full max-w-[1300px] px-4 pb-16 pt-6 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <main className="relative mx-auto w-full max-w-[1380px] px-4 pb-16 pt-6 sm:px-6 lg:px-10">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">AutoEditor</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-50">AI Video Editor</h1>
-            <p className="text-sm text-slate-400">Premium creator workflow tuned for clarity, pacing, and retention.</p>
+            <p className="ae-kicker">AutoEditor Studio</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#fbf2e6] sm:text-4xl">Modern Creator Editor</h1>
+            <p className="mt-1 text-sm text-[#beb2b5]">Premium workflow for narrative clarity, retention, and polished export output.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="ae-chip ae-chip-accent">AI Assist</span>
+              <span className="ae-chip">Adaptive Cuts</span>
+              <span className="ae-chip">Retention Insights</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -473,7 +486,7 @@ export default function AutoEditorPage() {
               type="button"
               variant="outline"
               onClick={() => setRecentDrawerOpen(true)}
-              className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition-all hover:-translate-y-0.5 hover:bg-white/[0.14]"
+              className="rounded-xl border-white/20 bg-white/[0.08] text-[#f7efe3] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
             >
               <History className="h-4 w-4" />
               Recent Jobs
@@ -482,7 +495,7 @@ export default function AutoEditorPage() {
               type="button"
               variant="ghost"
               onClick={resetEverything}
-              className="rounded-xl text-slate-300 hover:bg-white/[0.08]"
+              className="rounded-xl text-[#d5cbce] hover:bg-white/[0.1]"
             >
               <RefreshCcw className="h-4 w-4" />
               Reset
@@ -493,15 +506,15 @@ export default function AutoEditorPage() {
         <CleanCard className="mb-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Upload</p>
-              <p className="mt-1 text-sm text-slate-300">Drop source footage to start AutoEditor analysis.</p>
+              <p className="ae-kicker">Upload</p>
+              <p className="mt-1 text-sm text-[#d6cbce]">Drop source footage to start analysis and auto-profile generation.</p>
             </div>
             <Input
               key={fileInputKey}
               type="file"
               accept="video/mp4,video/quicktime,video/x-matroska"
               onChange={handleUploadChange}
-              className="max-w-[360px] border-white/10 bg-black/35 text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-500 file:px-3.5 file:py-1.5 file:text-xs file:font-medium file:text-slate-100"
+              className="max-w-[380px] border-white/20 bg-black/35 text-[#f2eadf] file:mr-3 file:rounded-lg file:border-0 file:bg-[#d4b483] file:px-3.5 file:py-1.5 file:text-xs file:font-semibold file:text-[#221a15]"
             />
           </div>
 
@@ -524,10 +537,10 @@ export default function AutoEditorPage() {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
-                className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3"
+                className="mt-4 rounded-xl border border-white/15 bg-black/26 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
               >
-                <p className="text-sm text-slate-200">
-                  <span className="font-medium text-slate-50">{fileName || "Uploaded clip"}</span>
+                <p className="text-sm text-[#eadfd1]">
+                  <span className="font-medium text-[#fff5e8]">{fileName || "Uploaded clip"}</span>
                   {duration ? ` • ${Math.round(duration)}s` : ""}
                 </p>
               </motion.div>
@@ -601,23 +614,23 @@ export default function AutoEditorPage() {
                   onAudioMasteringEnabledChange={setAudioMasteringEnabled}
                 />
 
-                <CleanCard>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-100">Ready to render</p>
-                      <p className="text-xs text-slate-400">
-                        Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      onClick={handleStartRender}
-                      disabled={!renderPayload || isRendering}
-                      className="min-w-[190px] rounded-xl bg-blue-500 text-slate-100 shadow-[0_16px_36px_-24px_rgba(96,165,250,0.86)] transition-all hover:-translate-y-0.5 hover:bg-blue-400"
-                    >
-                      {isRendering ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Rendering
+            <CleanCard>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-[#fbf2e6]">Ready to render</p>
+                  <p className="text-xs text-[#bcaeb2]">
+                    Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={handleStartRender}
+                  disabled={!renderPayload || isRendering}
+                  className="ae-gold-pulse min-w-[200px] rounded-xl bg-[#d4b483] text-[#1f1812] shadow-[0_18px_38px_-24px_rgba(212,180,131,0.8)] transition-all hover:-translate-y-0.5 hover:bg-[#e4c89d]"
+                >
+                  {isRendering ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Rendering
                         </span>
                       ) : (
                         "Render AutoEditor"
@@ -625,19 +638,19 @@ export default function AutoEditorPage() {
                     </Button>
                   </div>
 
-                  {isRendering ? (
-                    <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                      <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                        <span>Pipeline progress</span>
-                        <span>{Math.round(renderProgress)}%</span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-[#1b2233]">
-                        <div className="h-full bg-gradient-to-r from-slate-400 via-blue-400 to-slate-300" style={{ width: `${renderProgress}%` }} />
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">Whisper + OpenCV + Claude retention scoring in progress.</p>
-                    </div>
-                  ) : null}
-                </CleanCard>
+              {isRendering ? (
+                <div className="mt-4 rounded-xl border border-white/15 bg-black/30 px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between text-xs text-[#b9acb0]">
+                    <span>Pipeline progress</span>
+                    <span>{Math.round(renderProgress)}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[#1c1b1d]">
+                    <div className="h-full bg-gradient-to-r from-[#e8d7bc] via-[#d4b483] to-[#90aacd]" style={{ width: `${renderProgress}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Claude retention scoring in progress.</p>
+                </div>
+              ) : null}
+            </CleanCard>
               </>
             ) : null}
 
@@ -685,6 +698,7 @@ export default function AutoEditorPage() {
         onSelectedThumbnailIdChange={setSelectedThumbnailId}
         onRerender={handleRerenderFromModal}
         onOpenInsightsGraph={handleOpenInsightsFromModal}
+        onOpenFeedback={handleOpenFeedbackFromModal}
       />
     </div>
   );
