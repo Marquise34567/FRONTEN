@@ -193,12 +193,51 @@ export type RenderTitleOption = {
 
 export type RenderInsightsPayload = {
   predictedAverageRetention: number;
+  predictionConfidence?: number;
   targetAverageRetention: number;
   iterationCount: number;
   metadataStats: VideoInsightStat[];
   editInsights: RenderEditInsight[];
   hookExplanation: RenderHookExplanation;
   titleOptions: RenderTitleOption[];
+  ruthlessAudit?: {
+    selectedOpener: {
+      start: number;
+      end: number;
+      reason: string;
+    } | null;
+    hookComparison: Array<{
+      start: number;
+      end: number;
+      predictedRetentionLift: number;
+      reason: string;
+    }>;
+    cutsAndSpeed: Array<{
+      start: number;
+      end: number;
+      action: "trim" | "speed_up" | "transition_boost";
+      intensity: number;
+      speedMultiplier?: number;
+      reason: string;
+    }>;
+    weakSegments: Array<{
+      start: number;
+      end: number;
+      predictedRetention: number;
+      reason: string;
+      fix?: string;
+    }>;
+    strongSegments: Array<{
+      start: number;
+      end: number;
+      predictedRetention: number;
+      reason: string;
+    }>;
+    prediction: {
+      score: number;
+      confidence: number;
+    };
+  };
 };
 
 export type RenderJobStatus = "queued" | "processing" | "completed" | "failed";

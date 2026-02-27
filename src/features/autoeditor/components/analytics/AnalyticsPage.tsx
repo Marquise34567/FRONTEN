@@ -13,6 +13,7 @@ import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
 import PurpleAccentButton from "@/components/premium/PurpleAccentButton";
 import RetentionGraphCard, { type RetentionGraphPoint } from "@/components/premium/RetentionGraphCard";
+import VIPBadge from "@/components/premium/VIPBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ApiError, apiFetch, resolveApiMediaUrl } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
@@ -141,6 +142,7 @@ export default function AnalyticsPage() {
 
   const {
     predictedAverageRetention,
+    predictionConfidence,
     metadataStats,
     editInsights,
     hookExplanation,
@@ -166,19 +168,22 @@ export default function AnalyticsPage() {
   const rightRail = (
     <>
       <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
           <Target className="h-3.5 w-3.5" />
-          Predicted Retention
+          Elite Retention
         </p>
-        <p className="mt-2 text-3xl font-semibold text-emerald-300">{predictedAverageRetention.toFixed(1)}%</p>
-        <p className="mt-1 text-xs text-slate-400">Target: 70%+ average retention</p>
+        <p className="mt-2 text-3xl font-semibold text-[#f6da8a]">{predictedAverageRetention.toFixed(1)}%</p>
+        <p className="mt-1 text-xs text-slate-400">
+          Target: 70%+ average retention{predictionConfidence > 0 ? ` • Confidence ${predictionConfidence.toFixed(1)}%` : ""}
+        </p>
         <p className="mt-2 text-xs text-slate-300">{summary}</p>
+        <VIPBadge label="Used by Top 1% Creators" className="mt-3" />
       </PremiumCard>
 
       <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
           <Sparkles className="h-3.5 w-3.5" />
-          Hook Explanation
+          VIP Hook Intelligence
         </p>
         <p className="mt-2 text-sm text-slate-100">
           Why This Hook? {hookExplanation.reason}
@@ -195,16 +200,16 @@ export default function AnalyticsPage() {
         <button
           type="button"
           onClick={() => setFixSimulationEnabled(false)}
-          className="w-full rounded-2xl border border-white/15 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-white/25"
+          className="w-full rounded-2xl border border-white/15 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-[rgba(212,175,55,0.36)]"
         >
           Reset Simulation
         </button>
         <button
           type="button"
           onClick={() => setDeepDiveOpen(true)}
-          className="w-full rounded-2xl border border-purple-300/25 bg-purple-500/10 px-4 py-2 text-sm text-purple-100 hover:border-purple-300/45"
+          className="w-full rounded-2xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.12)] px-4 py-2 text-sm text-[#f6da8a] hover:border-[rgba(212,175,55,0.55)]"
         >
-          Deep Dive
+          VIP Deep Dive Unlocked
         </button>
       </PremiumCard>
     </>
@@ -212,11 +217,14 @@ export default function AnalyticsPage() {
 
   return (
     <AppShell title="AutoEditor Analytics" showSidebar rightRail={rightRail}>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <PremiumCard className="p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-100">Retention Details</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-semibold text-slate-100">Retention Details</h1>
+                <VIPBadge label="Exclusive Insight Deck" />
+              </div>
               <p className="mt-1 text-sm text-slate-400">
                 Interactive graph, unique per-video insights, and re-edit simulation focused on watch-time.
               </p>
@@ -226,7 +234,7 @@ export default function AnalyticsPage() {
               <select
                 value={selectedJobId || ""}
                 onChange={(event) => setSelectedJobId(event.target.value || null)}
-                className="min-w-[250px] rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-slate-100"
+                className="min-w-[250px] rounded-xl border border-[rgba(212,175,55,0.24)] bg-[rgba(8,8,14,0.7)] px-3 py-2 text-sm text-slate-100"
               >
                 {!jobs.length ? <option value="">No jobs</option> : null}
                 {jobs.map((job) => (
@@ -277,7 +285,7 @@ export default function AnalyticsPage() {
                         if (!matchingPoint || !previewVideoRef.current) return;
                         previewVideoRef.current.currentTime = matchingPoint.timestamp;
                       }}
-                      className="shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/30"
+                      className="shrink-0 overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.34)] bg-[rgba(6,6,10,0.82)] shadow-[0_6px_24px_rgba(212,175,55,0.14)]"
                     >
                       <img
                         src={resolveApiMediaUrl(thumbnail.url)}
@@ -286,7 +294,7 @@ export default function AnalyticsPage() {
                       />
                       <div className="px-2 py-1.5 text-left">
                         <p className="text-xs text-slate-200">{thumbnail.label}</p>
-                        <p className="text-[11px] text-purple-200">Retention option</p>
+                        <p className="text-[11px] text-[#f6da8a]">Retention option</p>
                       </div>
                     </motion.button>
                   );
@@ -301,10 +309,10 @@ export default function AnalyticsPage() {
 
           <PremiumCard className="p-4">
             <div className="mb-2 flex items-center gap-2">
-              <Clapperboard className="h-4 w-4 text-purple-200" />
+              <Clapperboard className="h-4 w-4 text-[var(--gold-accent)]" />
               <h2 className="text-base font-semibold text-slate-100">Preview</h2>
             </div>
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-black">
+            <div className="overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.28)] bg-black">
               <video
                 ref={previewVideoRef}
                 src={resolveApiMediaUrl(activeResult?.outputVideoUrl || "") || "/editor-help-sample.mp4"}
@@ -324,10 +332,10 @@ export default function AnalyticsPage() {
             <h2 className="text-base font-semibold text-slate-100">Edit Insights</h2>
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               {editInsights.map((insight) => (
-                <div key={insight.id} className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                <div key={insight.id} className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.72)] px-3 py-3">
                   <p className="text-sm font-medium text-slate-100">{insight.headline}</p>
                   <p className="mt-1 text-xs text-slate-400">{insight.detail}</p>
-                  <p className="mt-1 text-[11px] text-purple-200">
+                  <p className="mt-1 text-[11px] text-[#f6da8a]">
                     {insight.timestamp.toFixed(1)}s • {insight.predictedRetention}%
                   </p>
                 </div>
@@ -337,9 +345,9 @@ export default function AnalyticsPage() {
 
           <PremiumCard className="p-4">
             <h2 className="text-base font-semibold text-slate-100">Video Metadata</h2>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 grid grid-cols-1 gap-2">
               {metadataStats.map((stat) => (
-                <div key={stat.id} className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                <div key={stat.id} className="rounded-full border border-[rgba(212,175,55,0.26)] bg-[rgba(212,175,55,0.08)] px-3 py-2">
                   <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
                   <p className="text-sm font-semibold text-slate-100">{stat.value}</p>
                   <p className="text-xs text-slate-400">{stat.detail}</p>
@@ -355,8 +363,8 @@ export default function AnalyticsPage() {
             <p className="mt-2 text-sm text-slate-200">{hookExplanation.reason}</p>
             <p className="mt-1 text-xs text-slate-400">{hookExplanation.transcriptSignal}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-purple-300/30 bg-purple-500/10 px-2.5 py-2">
-                <p className="text-[11px] uppercase tracking-[0.11em] text-purple-200">{hookExplanation.winnerLabel}</p>
+              <div className="rounded-xl border border-[rgba(212,175,55,0.42)] bg-[rgba(212,175,55,0.14)] px-2.5 py-2">
+                <p className="text-[11px] uppercase tracking-[0.11em] text-[#f6da8a]">{hookExplanation.winnerLabel}</p>
                 <p className="text-lg font-semibold text-slate-100">{hookExplanation.winnerScore}%</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/35 px-2.5 py-2">
@@ -371,10 +379,10 @@ export default function AnalyticsPage() {
             <p className="mt-1 text-xs text-slate-400">Moved to analytics and generated uniquely per video.</p>
             <div className="mt-3 space-y-2">
               {titleOptions.map((option) => (
-                <div key={option.id} className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                <div key={option.id} className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.7)] px-3 py-2">
                   <p className="text-sm text-slate-100">{option.title}</p>
                   <p className="text-xs text-slate-400">{option.explanation}</p>
-                  <p className="text-[11px] text-purple-200">Confidence {option.confidence}%</p>
+                  <p className="text-[11px] text-[#f6da8a]">Confidence {option.confidence}%</p>
                 </div>
               ))}
             </div>
@@ -383,7 +391,7 @@ export default function AnalyticsPage() {
       </div>
 
       <Dialog open={deepDiveOpen} onOpenChange={setDeepDiveOpen}>
-        <DialogContent className="max-w-6xl border-white/10 bg-[#05060c] text-slate-100">
+        <DialogContent className="max-w-6xl border-[rgba(212,175,55,0.24)] bg-[#05060c] text-slate-100">
           <DialogHeader>
             <DialogTitle className="text-xl">Retention Deep Dive</DialogTitle>
           </DialogHeader>

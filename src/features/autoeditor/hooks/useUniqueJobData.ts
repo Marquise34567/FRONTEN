@@ -71,6 +71,7 @@ type UniqueJobDataInput = {
 
 type UniqueJobData = {
   predictedAverageRetention: number;
+  predictionConfidence: number;
   metadataStats: VideoInsightStat[];
   editInsights: RenderEditInsight[];
   hookExplanation: RenderHookExplanation;
@@ -84,6 +85,10 @@ export function useUniqueJobData({ result, fileName, trendTopics = [] }: UniqueJ
     if (backendInsights) {
       return {
         predictedAverageRetention: backendInsights.predictedAverageRetention,
+        predictionConfidence:
+          Number.isFinite(Number(backendInsights.predictionConfidence))
+            ? Number(backendInsights.predictionConfidence)
+            : 0,
         metadataStats: backendInsights.metadataStats,
         editInsights: backendInsights.editInsights,
         hookExplanation: backendInsights.hookExplanation,
@@ -206,6 +211,7 @@ export function useUniqueJobData({ result, fileName, trendTopics = [] }: UniqueJ
 
     return {
       predictedAverageRetention,
+      predictionConfidence: Number(clamp(58 + seeded(idSeed, 16) * 30, 18, 96).toFixed(1)),
       metadataStats,
       editInsights,
       hookExplanation,
