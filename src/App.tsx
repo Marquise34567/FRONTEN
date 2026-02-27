@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import Editor from "./pages/Editor";
+import VibeCut from "./pages/VibeCut";
 import JobDetail from "./pages/JobDetail";
 import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
@@ -133,7 +133,7 @@ const App = () => {
                 path="/editor"
                 element={
                   <RequireAuth>
-                    <Editor />
+                    <VibeCut />
                   </RequireAuth>
                 }
               />
