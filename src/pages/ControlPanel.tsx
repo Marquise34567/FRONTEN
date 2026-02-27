@@ -450,7 +450,7 @@ const ControlPanel = () => {
           </motion.section>
         ) : null}
 
-        <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <section className="mt-4 grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {metricCards.map((card, index) => (
             <motion.button
               key={card.key}
@@ -461,9 +461,9 @@ const ControlPanel = () => {
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.99 }}
               onClick={() => setDrillMetric(card.key)}
-              className="text-left"
+              className="self-start text-left"
             >
-              <Card className={cn("glass-card h-full border-border/50 bg-gradient-to-br", card.tone)}>
+              <Card className={cn("glass-card border-border/50 bg-gradient-to-br", card.tone)}>
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center justify-between text-sm">
                     <span className="inline-flex items-center gap-2">
@@ -524,7 +524,7 @@ const ControlPanel = () => {
           </Card>
         </section>
 
-        <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section className="mt-4 grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card className="glass-card border-border/50">
             <CardHeader>
               <CardTitle className="text-sm">Trending Niches</CardTitle>
@@ -645,7 +645,7 @@ const ControlPanel = () => {
         </section>
 
         {access?.isDev ? (
-          <section className="mt-4 grid gap-4 md:grid-cols-3">
+          <section className="mt-4 grid items-start gap-4 md:grid-cols-3">
             <Card className="glass-card border-purple-300/35 bg-purple-500/10">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs uppercase tracking-[0.2em] text-purple-100">Debug</CardTitle>
