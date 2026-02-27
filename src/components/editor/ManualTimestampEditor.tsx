@@ -136,6 +136,10 @@ const isTextEntryTarget = (target: EventTarget | null) => {
 
 const PLAYBACK_RATE_OPTIONS = [1, 1.25, 1.5, 2] as const;
 const FRAME_STEP_SECONDS = 1 / 30;
+const TIMELINE_ZOOM_MIN = 1;
+const TIMELINE_ZOOM_MAX = 20;
+const TIMELINE_ZOOM_STEP = 0.1;
+const TIMELINE_ZOOM_DEFAULT = 1.5;
 
 const ManualTimestampEditor = ({
   markers,
@@ -171,7 +175,7 @@ const ManualTimestampEditor = ({
   const [pendingMarker, setPendingMarker] = useState<{ type: ManualMarkerType; start: number } | null>(null);
   const [activeTool, setActiveTool] = useState<ManualMarkerType>("remove");
   const [timelineMode, setTimelineMode] = useState<TimelineInteractionMode>("select");
-  const [zoom, setZoom] = useState(1.5);
+  const [zoom, setZoom] = useState(TIMELINE_ZOOM_DEFAULT);
   const [liveMonitorMuted, setLiveMonitorMuted] = useState(true);
   const [beforeMonitorReady, setBeforeMonitorReady] = useState(false);
   const [beforeMonitorErrored, setBeforeMonitorErrored] = useState(false);
@@ -480,7 +484,11 @@ const ManualTimestampEditor = ({
   ]);
 
   const timelineCursorPercent = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
-  const timelineWidthPercent = clamp(Math.round(zoom * 100), 100, 800);
+  const timelineWidthPercent = clamp(
+    Math.round(zoom * 100),
+    Math.round(TIMELINE_ZOOM_MIN * 100),
+    Math.round(TIMELINE_ZOOM_MAX * 100),
+  );
   const removalPercent = clamp(removeRatio * 100, 0, 100);
   const manualRetentionLabel =
     manualRetentionDelta === null ? "n/a" : `${manualRetentionDelta >= 0 ? "+" : ""}${manualRetentionDelta.toFixed(1)} pts`;
@@ -1197,12 +1205,36 @@ const ManualTimestampEditor = ({
           <span>Timeline zoom</span>
           <span>{zoom.toFixed(1)}x</span>
         </div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => setZoom(TIMELINE_ZOOM_MIN)}
+            disabled={Math.abs(zoom - TIMELINE_ZOOM_MIN) < 0.001}
+          >
+            All Out
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => setZoom(TIMELINE_ZOOM_MAX)}
+            disabled={Math.abs(zoom - TIMELINE_ZOOM_MAX) < 0.001}
+          >
+            All In
+          </Button>
+        </div>
         <Slider
-          min={1}
-          max={8}
-          step={0.1}
+          min={TIMELINE_ZOOM_MIN}
+          max={TIMELINE_ZOOM_MAX}
+          step={TIMELINE_ZOOM_STEP}
           value={[zoom]}
-          onValueChange={(value) => setZoom(clamp(Number(value?.[0] ?? 1), 1, 8))}
+          onValueChange={(value) =>
+            setZoom(clamp(Number(value?.[0] ?? TIMELINE_ZOOM_DEFAULT), TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_MAX))
+          }
           className="manual-editor-slider mt-1.5"
         />
 
