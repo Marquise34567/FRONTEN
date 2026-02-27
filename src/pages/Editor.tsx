@@ -8157,35 +8157,6 @@ const Editor = () => {
                         </Button>
                       </div>
 
-                      <div className="grid gap-3 pt-2">
-                        <div className="w-full max-w-sm">
-                          <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-emerald-200/80">Search</p>
-                          <input
-                            type="text"
-                            placeholder="Search clips, captions, presets..."
-                            className="h-9 w-full rounded-full border border-emerald-300/35 bg-slate-950/80 px-3 text-xs text-emerald-50 placeholder:text-emerald-200/45"
-                          />
-                        </div>
-                        <div className="rounded-2xl border border-emerald-300/25 bg-black/60 px-3 py-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              {[
-                                { label: "Finder", color: "from-sky-300/70 to-blue-500/80" },
-                                { label: "Safari", color: "from-cyan-300/70 to-sky-500/80" },
-                                { label: "Chrome", color: "from-emerald-300/70 to-lime-500/80" },
-                              ].map((app) => (
-                                <div
-                                  key={app.label}
-                                  className={`inline-flex h-9 min-w-[62px] items-center justify-center rounded-xl border border-white/15 bg-gradient-to-b ${app.color} px-2 text-[10px] font-semibold text-slate-950`}
-                                >
-                                  {app.label}
-                                </div>
-                              ))}
-                            </div>
-                            <span className="text-xs font-semibold text-emerald-100/90">11:37 AM</span>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   )}
                   </div>
