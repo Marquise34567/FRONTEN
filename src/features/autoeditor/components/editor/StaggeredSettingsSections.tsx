@@ -32,14 +32,8 @@ import type {
   VibeChip,
 } from "@/features/autoeditor/types";
 
-const sectionMotion = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.24, ease: "easeInOut" },
-};
-
 type StaggeredSettingsSectionsProps = {
+  disableMotion?: boolean;
   revealedSectionCount: number;
   formatPreset: FormatPreset;
   onFormatPresetChange: (value: FormatPreset) => void;
@@ -76,6 +70,7 @@ type StaggeredSettingsSectionsProps = {
 };
 
 export default function StaggeredSettingsSections({
+  disableMotion = false,
   revealedSectionCount,
   formatPreset,
   onFormatPresetChange,
@@ -106,8 +101,22 @@ export default function StaggeredSettingsSections({
   audioMasteringEnabled,
   onAudioMasteringEnabledChange,
 }: StaggeredSettingsSectionsProps) {
+  const sectionMotion = disableMotion
+    ? {
+        initial: false,
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 1, y: 0 },
+        transition: { duration: 0 },
+      }
+    : {
+        initial: { opacity: 0, y: 10 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: -8 },
+        transition: { duration: 0.24, ease: "easeInOut" as const },
+      };
+
   return (
-    <AnimatePresence mode="popLayout">
+    <AnimatePresence mode="popLayout" initial={!disableMotion}>
       <div className="space-y-4">
         {revealedSectionCount >= 1 ? (
           <motion.section key="section-format" {...sectionMotion}>

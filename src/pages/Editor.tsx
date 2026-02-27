@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   CheckCircle2,
   Clock3,
@@ -36,11 +36,12 @@ import RetentionInsights from "@/features/autoeditor/components/editor/Retention
 import PostRenderModal from "@/features/autoeditor/components/editor/PostRenderModal";
 import StaggeredSettingsSections from "@/features/autoeditor/components/editor/StaggeredSettingsSections";
 import VerticalModeToolkit from "@/features/autoeditor/components/editor/VerticalModeToolkit";
-import { QUICK_CONTROL_CONFIG, RECENT_DRAWER_CONFIG, SECTION_REVEAL_ORDER } from "@/features/autoeditor/data/options";
+import { DEFAULT_PACING_VALUE, QUICK_CONTROL_CONFIG, RECENT_DRAWER_CONFIG, SECTION_REVEAL_ORDER } from "@/features/autoeditor/data/options";
 import { getRetentionScore } from "@/features/autoeditor/lib/retentionQuality";
 import { useAutoEditorStore } from "@/features/autoeditor/store/useAutoEditorStore";
 import type {
   AutoEditorRenderPayload,
+  RetentionStrategyMode,
   RenderJobResult,
   RenderJobSummary,
   RenderMode,
@@ -59,9 +60,21 @@ const uploadAnalyze = async ({ file, token }: { file: File; token: string | null
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
 
-  const data = await response.json().catch(() => ({}));
+  const rawBody = await response.text().catch(() => "");
+  let data: any = {};
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      data = { message: rawBody.slice(0, 500) };
+    }
+  }
+
   if (!response.ok) {
-    throw new ApiError(data?.message || "Upload analysis failed", response.status, data?.error, data);
+    const message =
+      data?.message ||
+      (response.status ? `Upload analysis failed (HTTP ${response.status}).` : "Upload analysis failed.");
+    throw new ApiError(message, response.status, data?.error, data);
   }
   return data as UploadAnalysisResponse;
 };
@@ -101,6 +114,14 @@ const MODE_OPTIONS: Array<{ value: RenderMode; label: string; subtitle: string }
   { value: "horizontal", label: "Horizontal", subtitle: "16:9" },
   { value: "vertical", label: "Vertical", subtitle: "9:16 Studio" },
 ];
+
+const RETENTION_STRATEGY_OPTIONS: Array<{ value: RetentionStrategyMode; label: string; subtitle: string }> = [
+  { value: "balanced", label: "Balanced AI", subtitle: "stable quality" },
+  { value: "ruthless", label: "Ruthless Retention", subtitle: "max watch-through" },
+];
+
+const RENDER_POLL_INTERVAL_FOREGROUND_MS = 2500;
+const RENDER_POLL_INTERVAL_BACKGROUND_MS = 6000;
 
 const PIPELINE_STAGES = [
   { key: "upload", label: "Upload", minProgress: 0, detail: "Source accepted and queued." },
@@ -202,6 +223,7 @@ type EditorProps = {
 
 export default function Editor({ verticalModeExperience = false }: EditorProps) {
   const { accessToken } = useAuth();
+  const shouldReduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -213,7 +235,11 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
   const [jobActionPendingId, setJobActionPendingId] = useState<string | null>(null);
   const [uploadingFileName, setUploadingFileName] = useState("");
   const [uploadStatus, setUploadStatus] = useState<UploadStatusState>("idle");
+  const [isPageVisible, setIsPageVisible] = useState(
+    typeof document === "undefined" ? true : document.visibilityState === "visible",
+  );
   const uploadStatusTimeoutRef = useRef<number | null>(null);
+  const recentDrawerTimeoutRef = useRef<number | null>(null);
   const handledRequestedJobIdRef = useRef<string | null>(null);
 
   const {
@@ -232,6 +258,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     mode,
     revealedSectionCount,
     quickControls,
+    retentionStrategyMode,
     manualTimestampModalOpen,
     scrubberTime,
     manualSegments,
@@ -256,7 +283,6 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     suggestedSubMode,
     recentJobs,
     recentDrawerOpen,
-    lastRecentInteractionAt,
     retentionExpanded,
     successModalOpen,
     latestResult,
@@ -294,6 +320,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     setAudioCleanupEnabled,
     setAudioMasteringEnabled,
     setSuggestedSubMode,
+    setRetentionStrategyMode,
     setRecentJobs,
     setRecentDrawerOpen,
     markRecentInteraction,
@@ -312,7 +339,23 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     }
   }, []);
 
+  const clearRecentDrawerTimer = useCallback(() => {
+    if (recentDrawerTimeoutRef.current !== null) {
+      window.clearTimeout(recentDrawerTimeoutRef.current);
+      recentDrawerTimeoutRef.current = null;
+    }
+  }, []);
+
   useEffect(() => () => clearUploadStatusTimer(), [clearUploadStatusTimer]);
+  useEffect(() => () => clearRecentDrawerTimer(), [clearRecentDrawerTimer]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState === "visible");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   const uploadInputId = `editor-upload-input-${fileInputKey}`;
   const uploadStatusIndex = UPLOAD_STATUS_INDEX[uploadStatus];
@@ -331,6 +374,71 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     if (uploadStatus === "failed") return "Upload process failed.";
     return "";
   }, [uploadStatus, uploadingFileName]);
+
+  const applyRetentionStrategyPreset = useCallback(
+    (nextStrategy: RetentionStrategyMode, targetMode: RenderMode | null | undefined) => {
+      const resolvedMode = targetMode || mode || "horizontal";
+      const isRuthless = nextStrategy === "ruthless";
+      const nextSubMode = isRuthless
+        ? resolvedMode === "vertical"
+          ? "highlight_mode"
+          : "story_mode"
+        : resolvedMode === "vertical"
+          ? "highlight_mode"
+          : "standard_mode";
+      const nextPacingValue = isRuthless ? (resolvedMode === "vertical" ? 86 : 82) : DEFAULT_PACING_VALUE[resolvedMode];
+
+      if (retentionStrategyMode !== nextStrategy) {
+        setRetentionStrategyMode(nextStrategy);
+      }
+      if (!autoDetectBestMoments) {
+        setAutoDetectBestMoments(true);
+      }
+      if (suggestedSubMode !== nextSubMode) {
+        setSuggestedSubMode(nextSubMode);
+      }
+      if (pacingValue !== nextPacingValue) {
+        setPacingValue(nextPacingValue);
+      }
+
+      const desiredQuickControls = {
+        autoEdit: true,
+        highlightReel: true,
+        speedRamp: isRuthless,
+        musicSync: true,
+      } as const;
+
+      (Object.keys(desiredQuickControls) as Array<keyof typeof desiredQuickControls>).forEach((key) => {
+        if (quickControls[key] !== desiredQuickControls[key]) {
+          toggleQuickControl(key);
+        }
+      });
+
+      if (isRuthless && captionMode !== "ai") {
+        setCaptionMode("ai");
+      }
+      if (isRuthless && audioOption !== "auto_sync_tracks") {
+        setAudioOption("auto_sync_tracks");
+      }
+    },
+    [
+      audioOption,
+      autoDetectBestMoments,
+      captionMode,
+      mode,
+      pacingValue,
+      quickControls,
+      retentionStrategyMode,
+      setAudioOption,
+      setAutoDetectBestMoments,
+      setCaptionMode,
+      setPacingValue,
+      setRetentionStrategyMode,
+      setSuggestedSubMode,
+      suggestedSubMode,
+      toggleQuickControl,
+    ],
+  );
 
   const renderPayload = useMemo<AutoEditorRenderPayload | null>(() => {
     if (!videoId || !mode) return null;
@@ -634,7 +742,16 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     const shouldRevealEditorSettings =
       flowStep === "mode_selection" || flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
     if (!shouldRevealEditorSettings) {
-      setRevealedSectionCount(0);
+      if (revealedSectionCount !== 0) {
+        setRevealedSectionCount(0);
+      }
+      return;
+    }
+    if (shouldReduceMotion || isRendering) {
+      const fullyRevealedCount = SECTION_REVEAL_ORDER.length;
+      if (revealedSectionCount !== fullyRevealedCount) {
+        setRevealedSectionCount(fullyRevealedCount);
+      }
       return;
     }
     const timers: number[] = [];
@@ -643,31 +760,49 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
       timers.push(timer);
     });
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [flowStep, setRevealedSectionCount]);
+  }, [flowStep, isRendering, revealedSectionCount, setRevealedSectionCount, shouldReduceMotion]);
 
   useEffect(() => {
-    if (!recentDrawerOpen) return;
-    const onInteraction = () => markRecentInteraction();
-    const events: Array<keyof WindowEventMap> = ["mousemove", "touchstart", "scroll", "keydown"];
-    events.forEach((name) => window.addEventListener(name, onInteraction, { passive: true }));
+    if (!recentDrawerOpen) {
+      clearRecentDrawerTimer();
+      return;
+    }
 
-    const interval = window.setInterval(() => {
-      if (Date.now() - lastRecentInteractionAt > RECENT_DRAWER_CONFIG.timeoutMs) {
+    const bumpRecentDrawerInactivity = () => {
+      markRecentInteraction();
+      clearRecentDrawerTimer();
+      recentDrawerTimeoutRef.current = window.setTimeout(() => {
         setRecentDrawerOpen(false);
-      }
-    }, RECENT_DRAWER_CONFIG.checkIntervalMs);
+      }, RECENT_DRAWER_CONFIG.timeoutMs);
+    };
+
+    bumpRecentDrawerInactivity();
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart", "keydown"];
+    events.forEach((name) => window.addEventListener(name, bumpRecentDrawerInactivity, { passive: true }));
 
     return () => {
-      events.forEach((name) => window.removeEventListener(name, onInteraction));
-      window.clearInterval(interval);
+      events.forEach((name) => window.removeEventListener(name, bumpRecentDrawerInactivity));
+      clearRecentDrawerTimer();
     };
-  }, [recentDrawerOpen, lastRecentInteractionAt, markRecentInteraction, setRecentDrawerOpen]);
+  }, [clearRecentDrawerTimer, markRecentInteraction, recentDrawerOpen, setRecentDrawerOpen]);
 
   useEffect(() => {
     if (!accessToken || !renderJobId || !isRendering) return;
 
     let cancelled = false;
+    let inFlight = false;
+    let pollTimer: number | null = null;
+
+    const scheduleNextPoll = () => {
+      if (cancelled) return;
+      const delayMs = isPageVisible ? RENDER_POLL_INTERVAL_FOREGROUND_MS : RENDER_POLL_INTERVAL_BACKGROUND_MS;
+      pollTimer = window.setTimeout(() => void tick(), delayMs);
+    };
+
     const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      let keepPolling = true;
       try {
         const job = normalizeRenderJobUrls(await fetchJobByIdApi(accessToken, renderJobId));
         if (cancelled) return;
@@ -690,26 +825,35 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                 : `Predicted retention ${score.toFixed(1)}% • below 70%, optimize and re-render.`,
           });
           void fetchRecentJobs();
+          keepPolling = false;
         }
 
         if (job.status === "failed") {
           setRenderState({ rendering: false, progress: 0, jobId: null });
           setErrorMessage(job.errorMessage || "Render failed. Please retry with adjusted settings.");
+          keepPolling = false;
         }
       } catch {
         // ignore
+      } finally {
+        inFlight = false;
+        if (keepPolling) {
+          scheduleNextPoll();
+        }
       }
     };
 
     void tick();
-    const timer = window.setInterval(() => void tick(), 1800);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+      }
     };
   }, [
     accessToken,
     fetchRecentJobs,
+    isPageVisible,
     isRendering,
     renderJobId,
     setErrorMessage,
@@ -736,6 +880,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     setSuccessModalOpen(false);
     setRetentionExpanded(false);
     setLatestResult(null);
+    clearRecentDrawerTimer();
     setRecentDrawerOpen(false);
     setActivePipelineJobId(null);
     setJobResultCache({});
@@ -763,7 +908,12 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     } catch (error: any) {
       clearUploadStatusTimer();
       setUploadStatus("failed");
-      const message = error instanceof ApiError ? error.message : "Upload analysis failed.";
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error && error.message
+            ? error.message
+            : "Upload analysis failed.";
       setErrorMessage(message);
       await wait(320);
     } finally {
@@ -810,27 +960,33 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     if (value && autoDetection?.finalMode) {
       const forceHorizontalMode =
         Number(duration || 0) >= 180 && autoDetection.metadataMode === "horizontal";
-      setMode(forceHorizontalMode ? "horizontal" : autoDetection.finalMode, false);
-      setSuggestedSubMode(
-        forceHorizontalMode
-          ? "standard_mode"
-          : autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode,
-      );
+      const resolvedMode = forceHorizontalMode ? "horizontal" : autoDetection.finalMode;
+      setMode(resolvedMode, false);
+      if (retentionStrategyMode === "ruthless") {
+        applyRetentionStrategyPreset("ruthless", resolvedMode);
+      } else {
+        setSuggestedSubMode(
+          forceHorizontalMode
+            ? "standard_mode"
+            : autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode,
+        );
+      }
     }
   };
 
   const handleModeSelect = (nextMode: RenderMode) => {
     setMode(nextMode, true);
-    if (nextMode === "vertical") {
-      setSuggestedSubMode("highlight_mode");
-    } else {
-      setSuggestedSubMode("standard_mode");
-    }
+    applyRetentionStrategyPreset(retentionStrategyMode, nextMode);
     syncEditorRouteForMode(nextMode);
+  };
+
+  const handleRetentionStrategySelect = (nextStrategy: RetentionStrategyMode) => {
+    applyRetentionStrategyPreset(nextStrategy, mode || autoDetection?.finalMode || "horizontal");
   };
 
   const resetEverything = () => {
     clearUploadStatusTimer();
+    clearRecentDrawerTimer();
     setUploadStatus("idle");
     setRecentDrawerOpen(false);
     setActivePipelineJobId(null);
@@ -1132,9 +1288,9 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
 
           {isAnalyzingUpload ? (
             <motion.div
-              initial={{ opacity: 0, y: 8 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
               className="mt-3 rounded-2xl border border-[rgba(212,175,55,0.34)] bg-gradient-to-b from-[rgba(212,175,55,0.12)] to-slate-900/45 px-3 py-3"
             >
               <div className="flex items-center justify-between gap-3">
@@ -1286,11 +1442,28 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
               />
             </SettingsCardGroup>
 
+            <SettingsCardGroup
+              title="Retention Script Mode"
+              description="Choose how aggressive the ruthless retention script should be when scoring hooks and pacing decisions."
+            >
+              <AccentPillToggle
+                value={retentionStrategyMode}
+                onChange={(value) => handleRetentionStrategySelect(value)}
+                options={RETENTION_STRATEGY_OPTIONS}
+                className="mx-auto"
+              />
+              <p className="mt-2 text-center text-xs text-slate-300">
+                {retentionStrategyMode === "ruthless"
+                  ? "Ruthless mode locks high-impact cuts, stronger opener bias, and aggressive pacing."
+                  : "Balanced mode keeps retention optimizations while preserving smoother narrative flow."}
+              </p>
+            </SettingsCardGroup>
+
             {showExpandedSettings ? (
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.28, ease: "easeInOut" }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.28, ease: "easeInOut" }}
                 className="space-y-4"
               >
                 <SettingsCardGroup
@@ -1299,6 +1472,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                   className="p-4"
                 >
                   <StaggeredSettingsSections
+                    disableMotion={Boolean(shouldReduceMotion)}
                     revealedSectionCount={revealedSectionCount}
                     formatPreset={formatPreset}
                     onFormatPresetChange={setFormatPreset}

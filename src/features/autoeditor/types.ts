@@ -49,6 +49,7 @@ export type {
 };
 
 export type QuickControlKey = "autoEdit" | "highlightReel" | "speedRamp" | "musicSync";
+export type RetentionStrategyMode = "balanced" | "ruthless";
 
 export type EditorSectionKey = "format" | "vibe" | "cuts" | "captions" | "audio";
 

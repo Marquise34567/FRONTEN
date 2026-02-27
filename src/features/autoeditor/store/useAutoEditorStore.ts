@@ -13,6 +13,7 @@ import type {
   EditorFlowStep,
   FormatPreset,
   QuickControlKey,
+  RetentionStrategyMode,
   RenderJobResult,
   RenderJobSummary,
   RenderMode,
@@ -51,6 +52,7 @@ type AutoEditorState = {
   revealedSectionCount: number;
 
   quickControls: Record<QuickControlKey, boolean>;
+  retentionStrategyMode: RetentionStrategyMode;
 
   manualTimestampModalOpen: boolean;
   scrubberTime: number;
@@ -130,6 +132,7 @@ type AutoEditorState = {
   setAudioMasteringEnabled: (value: boolean) => void;
 
   setSuggestedSubMode: (value: SuggestedSubMode) => void;
+  setRetentionStrategyMode: (value: RetentionStrategyMode) => void;
 
   setRecentJobs: (jobs: RenderJobSummary[]) => void;
   setRecentDrawerOpen: (value: boolean) => void;
@@ -164,6 +167,7 @@ const initialState = {
   revealedSectionCount: 0,
 
   quickControls: { ...DEFAULT_QUICK_CONTROLS },
+  retentionStrategyMode: "balanced" as RetentionStrategyMode,
 
   manualTimestampModalOpen: false,
   scrubberTime: 0,
@@ -279,6 +283,8 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       ...(profile?.quickControls || {}),
       highlightReel: typeof profile?.quickControls?.highlightReel === "boolean" ? profile.quickControls.highlightReel : isVertical,
     };
+    const retentionStrategyMode: RetentionStrategyMode =
+      profile?.pacingPreset === "aggressive" || profile?.suggestedSubMode === "story_mode" ? "ruthless" : "balanced";
 
     set({
       videoId: payload.videoId,
@@ -291,6 +297,7 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       modeConfirmed: true,
       revealedSectionCount: 0,
       quickControls: resolvedQuickControls,
+      retentionStrategyMode,
       manualTimestampModalOpen: false,
       scrubberTime: 0,
       manualSegments: [],
@@ -417,6 +424,7 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setAudioMasteringEnabled: (value) => set({ audioMasteringEnabled: value }),
 
   setSuggestedSubMode: (value) => set({ suggestedSubMode: value }),
+  setRetentionStrategyMode: (value) => set({ retentionStrategyMode: value }),
 
   setRecentJobs: (jobs) => set({ recentJobs: jobs.slice(0, 10) }),
   setRecentDrawerOpen: (value) =>
