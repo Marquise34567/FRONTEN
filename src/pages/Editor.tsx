@@ -1818,6 +1818,7 @@ const Editor = () => {
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
+  const [editorModeConfirmed, setEditorModeConfirmed] = useState(false);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
@@ -3638,6 +3639,24 @@ const Editor = () => {
     }, { replace: false });
   }, [setSearchParams]);
 
+  const handleSelectRenderMode = useCallback((mode: RenderModeSelection) => {
+    trackEditorEvent("render_mode_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: { mode },
+    });
+    setRenderMode(mode);
+    setEditorModeConfirmed(true);
+    setEditorSettingsSection("format");
+  }, [
+    activeSubtitlePreset,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    setRenderMode,
+    trackEditorEvent,
+  ]);
+
   const applyVerticalCaptionPreset = useCallback((preset: VerticalCaptionPreset) => {
     const defaults = VERTICAL_CAPTION_STYLE_DEFAULTS[preset];
     setVerticalCaptionPreset(preset);
@@ -4200,6 +4219,7 @@ const Editor = () => {
   };
 
   const handlePickFile = () => {
+    setEditorModeConfirmed(false);
     trackEditorEvent("new_project_clicked", {
       retentionProfile: retentionStrategyProfile,
       targetPlatform: retentionTargetPlatform,
@@ -4214,6 +4234,7 @@ const Editor = () => {
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
+    setEditorModeConfirmed(false);
     if (isVerticalMode) {
       prepareVerticalFile(file);
       return;
@@ -6224,12 +6245,14 @@ const Editor = () => {
   const rerenderLimitReached =
     !isDevAccount && rerendersRemainingToday !== null && rerendersRemainingToday !== undefined && rerendersRemainingToday <= 0;
   const mobileApplyAndRenderDisabled =
-    Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
-  const mobileApplyAndRenderLabel = isVerticalMode
-    ? pendingVerticalFile
-      ? "Apply & Render"
-      : "Pick Clip & Render"
-    : "Apply & Render";
+    !editorModeConfirmed || Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
+  const mobileApplyAndRenderLabel = !editorModeConfirmed
+    ? "Select Horizontal or Vertical"
+    : isVerticalMode
+      ? pendingVerticalFile
+        ? "Apply & Render"
+        : "Pick Clip & Render"
+      : "Apply & Render";
 
   const applyPlatformRecommendation = () => {
     const suggestedCuts = clamp(activePlatformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX);
@@ -6251,6 +6274,10 @@ const Editor = () => {
   };
 
   const runApplyAndRender = () => {
+    if (!editorModeConfirmed) {
+      toast({ title: "Select format", description: "Choose Horizontal or Vertical first to unlock editor settings." });
+      return;
+    }
     if (isVerticalMode && pendingVerticalFile) {
       void startVerticalRender();
       return;
@@ -6367,30 +6394,6 @@ const Editor = () => {
     if (section === "format") {
       return (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {RENDER_MODE_OPTIONS.map((mode) => {
-              const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
-              return (
-                <button
-                  key={mode.value}
-                  type="button"
-                  className={`${sectionPillClass(isActive)} flex items-center gap-2`}
-                  onClick={() => {
-                    trackEditorEvent("render_mode_selected", {
-                      retentionProfile: retentionStrategyProfile,
-                      targetPlatform: retentionTargetPlatform,
-                      captionStyle: activeSubtitlePreset,
-                      metadata: { mode: mode.value },
-                    });
-                    setRenderMode(mode.value);
-                  }}
-                >
-                  <mode.icon className="h-4 w-4 shrink-0" />
-                  <span>{getRenderModeLabel(mode.value)}</span>
-                </button>
-              );
-            })}
-          </div>
           {isVerticalMode ? (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -7210,26 +7213,28 @@ const Editor = () => {
                           <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Quick Controls</p>
                           <Badge className="border-violet-300/35 bg-violet-500/15 text-violet-100">Recommended</Badge>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                          <div className="space-y-2">
-                            <p className="text-xs text-slate-400">Format</p>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                              {RENDER_MODE_OPTIONS.map((mode) => {
-                                const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
-                                return (
-                                  <button
-                                    key={mode.value}
-                                    type="button"
-                                    className={`${sectionPillClass(isActive)} flex min-h-11 items-center gap-1.5 px-2 py-2 text-xs leading-tight md:text-sm`}
-                                    onClick={() => setRenderMode(mode.value)}
-                                  >
-                                    <mode.icon className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
-                                    <span className="min-w-0 whitespace-normal break-words">{getRenderModeLabel(mode.value)}</span>
-                                  </button>
-                                );
-                              })}
+                        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${editorModeConfirmed ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}>
+                          {!editorModeConfirmed ? (
+                            <div className="space-y-2">
+                              <p className="text-xs text-slate-400">Format</p>
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                                {RENDER_MODE_OPTIONS.map((mode) => {
+                                  const isActive = mode.value === "vertical" ? isVerticalMode : !isVerticalMode;
+                                  return (
+                                    <button
+                                      key={mode.value}
+                                      type="button"
+                                      className={`${sectionPillClass(isActive)} flex min-h-11 items-center gap-1.5 px-2 py-2 text-xs leading-tight md:text-sm`}
+                                      onClick={() => handleSelectRenderMode(mode.value)}
+                                    >
+                                      <mode.icon className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
+                                      <span className="min-w-0 whitespace-normal break-words">{getRenderModeLabel(mode.value)}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          </div>
+                          ) : null}
                           <div className="space-y-2">
                             <p className="text-xs text-slate-400">Vibe</p>
                             <Slider
@@ -7297,60 +7302,68 @@ const Editor = () => {
                         </div>
                       </div>
 
-                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
-                        {mobilePipeline ? (
-                          <Accordion
-                            type="single"
-                            collapsible
-                            value={editorSettingsSection}
-                            onValueChange={(value) => {
-                              if (!value) return;
-                              setEditorSettingsSection(value as EditorSettingsSection);
-                            }}
-                            className="space-y-2"
-                          >
-                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
-                              <AccordionItem key={item.key} value={item.key} className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
-                                <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">
-                                  {item.label}
-                                </AccordionTrigger>
-                                <AccordionContent className="pb-2">{renderSettingsSection(item.key)}</AccordionContent>
-                              </AccordionItem>
-                            ))}
-                          </Accordion>
-                        ) : (
-                          <Tabs
-                            value={editorSettingsSection}
-                            onValueChange={(value) => setEditorSettingsSection(value as EditorSettingsSection)}
-                            className="space-y-3"
-                          >
-                            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-1.5 md:grid-cols-4">
-                              {EDITOR_SETTINGS_SECTIONS.map((item) => (
-                                <TabsTrigger
-                                  key={item.key}
-                                  value={item.key}
-                                  className="editor-settings-tab min-h-12 rounded-lg border border-transparent text-xs text-slate-300 data-[state=active]:border-violet-300/60 data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-100 data-[state=active]:shadow-[0_0_18px_rgba(168,85,247,0.3)]"
-                                >
-                                  {item.label}
-                                </TabsTrigger>
-                              ))}
-                            </TabsList>
-                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
-                              <TabsContent key={item.key} value={item.key} className="mt-0">
-                                {renderSettingsSection(item.key)}
-                              </TabsContent>
-                            ))}
-                          </Tabs>
-                        )}
-                      </div>
+                      {editorModeConfirmed ? (
+                        <>
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-xl">
+                            {mobilePipeline ? (
+                              <Accordion
+                                type="single"
+                                collapsible
+                                value={editorSettingsSection}
+                                onValueChange={(value) => {
+                                  if (!value) return;
+                                  setEditorSettingsSection(value as EditorSettingsSection);
+                                }}
+                                className="space-y-2"
+                              >
+                                {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                                  <AccordionItem key={item.key} value={item.key} className="rounded-xl border border-white/10 bg-white/[0.02] px-3">
+                                    <AccordionTrigger className="py-3 text-sm text-slate-100 hover:no-underline">
+                                      {item.label}
+                                    </AccordionTrigger>
+                                    <AccordionContent className="pb-2">{renderSettingsSection(item.key)}</AccordionContent>
+                                  </AccordionItem>
+                                ))}
+                              </Accordion>
+                            ) : (
+                              <Tabs
+                                value={editorSettingsSection}
+                                onValueChange={(value) => setEditorSettingsSection(value as EditorSettingsSection)}
+                                className="space-y-3"
+                              >
+                                <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-1.5 md:grid-cols-4">
+                                  {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                                    <TabsTrigger
+                                      key={item.key}
+                                      value={item.key}
+                                      className="editor-settings-tab min-h-12 rounded-lg border border-transparent text-xs text-slate-300 data-[state=active]:border-violet-300/60 data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-100 data-[state=active]:shadow-[0_0_18px_rgba(168,85,247,0.3)]"
+                                    >
+                                      {item.label}
+                                    </TabsTrigger>
+                                  ))}
+                                </TabsList>
+                                {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                                  <TabsContent key={item.key} value={item.key} className="mt-0">
+                                    {renderSettingsSection(item.key)}
+                                  </TabsContent>
+                                ))}
+                              </Tabs>
+                            )}
+                          </div>
 
-                      {outcomeAutomationProfile ? (
-                        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-slate-400">
-                          Outcome automation: {outcomeAutomationProfile.enabled
-                            ? `${outcomeAutomationProfile.sampleSize} outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
-                            : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
+                          {outcomeAutomationProfile ? (
+                            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-slate-400">
+                              Outcome automation: {outcomeAutomationProfile.enabled
+                                ? `${outcomeAutomationProfile.sampleSize} outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
+                                : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className="rounded-xl border border-violet-300/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-100">
+                          Select Horizontal or Vertical in Quick Controls to unlock Format & Platform and the rest of editor settings.
                         </div>
-                      ) : null}
+                      )}
 
                       {/* Mobile adaptation: persistent bottom CTA for one-thumb apply-and-render flow. */}
                       {mobilePipeline ? (
@@ -7432,6 +7445,7 @@ const Editor = () => {
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) {
+                setEditorModeConfirmed(false);
                 if (isVerticalMode) {
                   prepareVerticalFile(file);
                 } else {
