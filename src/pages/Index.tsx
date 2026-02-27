@@ -34,8 +34,7 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
           >
-            We Built an Editor That Thinks Like{" "}
-            <span className="text-gradient-primary">Top Creators.</span>
+            We Built an Editor That Thinks Like Top Creators.
           </motion.h1>
 
           <motion.p
