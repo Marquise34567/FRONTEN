@@ -59,8 +59,21 @@
 }
 
 .manual-editor-split-pane {
+  position: relative;
   aspect-ratio: 16 / 7.2;
   min-height: 6.75rem;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 150ms ease, outline-color 150ms ease;
+}
+
+.manual-editor-split-pane:hover {
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.3);
+}
+
+.manual-editor-split-pane:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.8);
+  outline-offset: -2px;
 }
 
 .manual-editor-split-label {
@@ -95,14 +108,15 @@
 
 .manual-editor-monitor-btn {
   display: inline-flex;
-  height: 1.75rem;
-  width: 1.75rem;
+  height: 2rem;
+  width: 2rem;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(226, 232, 240, 0.22);
   background: rgba(2, 6, 23, 0.72);
   color: #dbeafe;
+  touch-action: manipulation;
   transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
 }
 

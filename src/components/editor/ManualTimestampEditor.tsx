@@ -212,7 +212,7 @@ const ManualTimestampEditor = ({
   );
 
   useEffect(() => {
-    const syncVideo = (video: HTMLVideoElement | null) => {
+    const syncVideo = (video: HTMLVideoElement | null, muted: boolean) => {
       if (!video) return;
       try {
         if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.05) {
@@ -224,8 +224,8 @@ const ManualTimestampEditor = ({
       if (Math.abs(video.playbackRate - playbackRate) > 0.001) {
         video.playbackRate = playbackRate;
       }
-      if (video.muted !== liveMonitorMuted) {
-        video.muted = liveMonitorMuted;
+      if (video.muted !== muted) {
+        video.muted = muted;
       }
       if (isPlaying) {
         void video.play().catch(() => undefined);
@@ -234,9 +234,9 @@ const ManualTimestampEditor = ({
       video.pause();
     };
 
-    syncVideo(beforeMonitorVideoRef.current);
-    syncVideo(liveMonitorVideoRef.current);
-  }, [currentTimeSec, isPlaying, liveMonitorMuted, playbackRate]);
+    syncVideo(beforeMonitorVideoRef.current, true);
+    syncVideo(liveMonitorVideoRef.current, liveMonitorMuted);
+  }, [beforeMonitorReady, currentTimeSec, isPlaying, liveMonitorMuted, liveMonitorReady, playbackRate]);
 
   useEffect(() => {
     setBeforeMonitorReady(false);
@@ -295,6 +295,14 @@ const ManualTimestampEditor = ({
       scrubDebounceTimerRef.current = null;
       flushScrubSeek();
     }, 18);
+  }, [durationSec, flushScrubSeek]);
+
+  const handleMonitorPaneSeek = useCallback((clientX: number, pane: HTMLDivElement | null) => {
+    if (!pane || durationSec <= 0) return;
+    const rect = pane.getBoundingClientRect();
+    const ratio = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    const targetTime = Number((ratio * durationSec).toFixed(3));
+    flushScrubSeek(targetTime);
   }, [durationSec, flushScrubSeek]);
 
   const addMarker = useCallback((type: ManualMarkerType, startTime: number, endTime: number) => {
@@ -383,6 +391,23 @@ const ManualTimestampEditor = ({
     const next = clamp(currentTimeSec + direction * FRAME_STEP_SECONDS, 0, durationSec);
     flushScrubSeek(next);
   }, [currentTimeSec, durationSec, flushScrubSeek]);
+
+  const handleMonitorPaneKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      handleStepFrame(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      handleStepFrame(1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onTogglePlay();
+    }
+  }, [handleStepFrame, onTogglePlay]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -707,8 +732,10 @@ const ManualTimestampEditor = ({
     const rect = timelineInnerRef.current.getBoundingClientRect();
     const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
     const targetTime = Number((ratio * durationSec).toFixed(3));
-    flushScrubSeek(targetTime);
-    if (timelineMode === "seek") return;
+    if (timelineMode === "seek") {
+      flushScrubSeek(targetTime);
+      return;
+    }
     createMarker(activeTool, targetTime);
   }, [activeTool, createMarker, durationSec, flushScrubSeek, timelineMode]);
 
@@ -872,20 +899,31 @@ const ManualTimestampEditor = ({
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Split Monitor</p>
-            <span className="text-[10px] text-slate-400">Before vs realtime edit</span>
+            <span className="text-[10px] text-slate-400">Tap pane to seek • Enter/Space play</span>
           </div>
           <div
             ref={liveMonitorFrameRef}
             className="manual-editor-live-monitor group relative overflow-hidden rounded-xl border border-cyan-300/30 bg-[#03050c]"
           >
             <div className="manual-editor-split-monitor-grid">
-              <div className="manual-editor-split-pane relative overflow-hidden bg-black/70">
+              <div
+                className="manual-editor-split-pane relative overflow-hidden bg-black/70"
+                role="button"
+                tabIndex={0}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  handleMonitorPaneSeek(event.clientX, event.currentTarget);
+                }}
+                onKeyDown={handleMonitorPaneKeyDown}
+                title="Click to seek timeline. Arrow keys step frames. Enter/Space toggles play."
+                aria-label="Before edit monitor pane"
+              >
                 <div className="manual-editor-split-label">Before Edit</div>
                 {beforeMonitorSrc ? (
                   <video
                     ref={beforeMonitorVideoRef}
                     src={beforeMonitorSrc}
-                    muted={liveMonitorMuted}
+                    muted
                     playsInline
                     preload="metadata"
                     onLoadedData={() => {
@@ -915,7 +953,18 @@ const ManualTimestampEditor = ({
                   </div>
                 ) : null}
               </div>
-              <div className="manual-editor-split-pane relative overflow-hidden bg-black/70">
+              <div
+                className="manual-editor-split-pane relative overflow-hidden bg-black/70"
+                role="button"
+                tabIndex={0}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  handleMonitorPaneSeek(event.clientX, event.currentTarget);
+                }}
+                onKeyDown={handleMonitorPaneKeyDown}
+                title="Click to seek timeline. Arrow keys step frames. Enter/Space toggles play."
+                aria-label="Realtime edit monitor pane"
+              >
                 <div className="manual-editor-split-label">Realtime Edit</div>
                 {liveMonitorSrc ? (
                   <video
@@ -952,8 +1001,8 @@ const ManualTimestampEditor = ({
                 ) : null}
               </div>
             </div>
-            <div className="manual-editor-live-monitor-overlay absolute inset-0 flex items-end justify-between bg-gradient-to-t from-black/70 via-black/10 to-transparent p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-              <div className="flex items-center gap-1">
+            <div className="manual-editor-live-monitor-overlay pointer-events-none absolute inset-0 flex items-end justify-between bg-gradient-to-t from-black/70 via-black/10 to-transparent p-2 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+              <div className="pointer-events-auto flex items-center gap-1">
                 <button
                   type="button"
                   className="manual-editor-monitor-btn"
@@ -982,7 +1031,7 @@ const ManualTimestampEditor = ({
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="pointer-events-auto flex items-center gap-1">
                 <button
                   type="button"
                   className="manual-editor-monitor-btn"
