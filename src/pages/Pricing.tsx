@@ -1,10 +1,9 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { Clock3, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
-import PricingCards from "@/components/PricingCards";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSubscription } from "@/hooks/use-subscription";
@@ -15,6 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { PlanTier } from "@shared/planConfig";
 import { useLiveStats } from "@/providers/LiveStatsProvider";
+
+const PricingCards = lazy(() => import("@/components/PricingCards"));
 
 const TRIAL_WINDOW_MS = 72 * 60 * 60 * 1000;
 
@@ -59,8 +60,6 @@ const Pricing = () => {
   }, [trialActive, trialUsed]);
 
   useEffect(() => {
-    let frameId = 0;
-    let lastCheck = 0;
     let lastSeconds = -1;
 
     const syncCountdown = () => {
@@ -70,20 +69,15 @@ const Pricing = () => {
       setTrialCountdown(formatCountdown(seconds * 1000));
     };
 
-    const loop = (timestamp: number) => {
-      if (!document.hidden && (lastCheck === 0 || timestamp - lastCheck >= 220)) {
-        lastCheck = timestamp;
-        syncCountdown();
-      }
-      frameId = window.requestAnimationFrame(loop);
-    };
-
     syncCountdown();
-    frameId = window.requestAnimationFrame(loop);
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      syncCountdown();
+    }, 1000);
     document.addEventListener("visibilitychange", syncCountdown);
 
     return () => {
-      window.cancelAnimationFrame(frameId);
+      window.clearInterval(timer);
       document.removeEventListener("visibilitychange", syncCountdown);
     };
   }, [trialCountdownTargetMs]);
@@ -172,7 +166,7 @@ const Pricing = () => {
                 type="button"
                 onClick={() => setBillingInterval("monthly")}
                 className={cn(
-                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 [transition-timing-function:cubic-bezier(0.4,0,0.2,1)]",
                   billingInterval === "monthly" ? "scale-[1.01]" : "scale-100",
                   billingInterval === "monthly" ? "bg-white text-[#11111f]" : "text-purple-100/85 hover:text-white",
                 )}
@@ -183,7 +177,7 @@ const Pricing = () => {
                 type="button"
                 onClick={() => setBillingInterval("annual")}
                 className={cn(
-                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                  "h-11 flex-1 rounded-full text-sm font-semibold transform-gpu [backface-visibility:hidden] transition-transform duration-300 [transition-timing-function:cubic-bezier(0.4,0,0.2,1)]",
                   billingInterval === "annual" ? "scale-[1.01]" : "scale-100",
                   billingInterval === "annual" ? "bg-gradient-to-r from-[#A855F7] to-[#C084FC] text-white" : "text-purple-100/85 hover:text-white",
                 )}
@@ -196,17 +190,27 @@ const Pricing = () => {
         </motion.section>
 
         <div className="mx-auto max-w-7xl">
-          <PricingCards
-            currentTier={currentPlan}
-            isAuthenticated={!!user}
-            loading={action !== null}
-            onCheckout={handleCheckout}
-            onPortal={handlePortal}
-            actionTier={action?.tier ?? null}
-            actionKind={action?.kind ?? null}
-            billingInterval={billingInterval}
-            founderSlotsRemaining={founderSlotsRemaining}
-          />
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={`pricing-cards-fallback-${index}`} className="h-72 rounded-2xl border border-border/60 bg-card/40" />
+                ))}
+              </div>
+            }
+          >
+            <PricingCards
+              currentTier={currentPlan}
+              isAuthenticated={!!user}
+              loading={action !== null}
+              onCheckout={handleCheckout}
+              onPortal={handlePortal}
+              actionTier={action?.tier ?? null}
+              actionKind={action?.kind ?? null}
+              billingInterval={billingInterval}
+              founderSlotsRemaining={founderSlotsRemaining}
+            />
+          </Suspense>
         </div>
       </main>
     </GlowBackdrop>

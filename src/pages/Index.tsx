@@ -134,31 +134,12 @@ const Index = () => {
       return;
     }
 
-    let frameId = 0;
-    let lastTimestamp = 0;
-    let elapsed = 0;
     const stepDuration = isMobile ? DEMO_STEP_MS_MOBILE : DEMO_STEP_MS_DESKTOP;
-
-    const loop = (timestamp: number) => {
-      if (lastTimestamp === 0) {
-        lastTimestamp = timestamp;
-      }
-
-      if (!document.hidden) {
-        elapsed += timestamp - lastTimestamp;
-        if (elapsed >= stepDuration) {
-          const advanceBy = Math.floor(elapsed / stepDuration);
-          elapsed -= advanceBy * stepDuration;
-          setActiveDemoStep((current) => (current + advanceBy) % demoSteps.length);
-        }
-      }
-
-      lastTimestamp = timestamp;
-      frameId = window.requestAnimationFrame(loop);
-    };
-
-    frameId = window.requestAnimationFrame(loop);
-    return () => window.cancelAnimationFrame(frameId);
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      setActiveDemoStep((current) => (current + 1) % demoSteps.length);
+    }, stepDuration);
+    return () => window.clearInterval(timer);
   }, [isDemoInView, isMobile, prefersReducedMotion]);
 
   const activeDemo = demoSteps[activeDemoStep];

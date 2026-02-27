@@ -119,14 +119,14 @@ const clearScreenProfileFromDocument = () => {
 };
 
 export const useScreenProfile = () => {
-  const [profile, setProfile] = React.useState<ScreenProfile>(() => buildScreenProfile());
+  const profileRef = React.useRef<ScreenProfile>(buildScreenProfile());
 
   React.useEffect(() => {
     let frame = 0;
     const sync = () => {
       const next = buildScreenProfile();
+      profileRef.current = next;
       applyScreenProfileToDocument(next);
-      setProfile(next);
     };
 
     const onResize = () => {
@@ -151,5 +151,5 @@ export const useScreenProfile = () => {
     };
   }, []);
 
-  return profile;
+  return profileRef.current;
 };

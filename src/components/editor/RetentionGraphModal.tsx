@@ -22,6 +22,7 @@ type RetentionPoint = {
 };
 
 type RetentionInsight = {
+  id: string;
   category: RetentionGraphCategory;
   second: number;
   score: number;
@@ -250,15 +251,27 @@ const buildInsights = (
   improvementTips?: string[],
 ): RetentionInsight[] => {
   const picked: RetentionInsight[] = [];
-  HIGHLIGHT_ORDER.forEach((category) => {
+  HIGHLIGHT_ORDER.forEach((category, index) => {
     const first = points.find((point) => point.category === category);
     if (first) {
-      picked.push({ category, second: first.second, score: first.score, tip: first.reason });
+      picked.push({
+        id: `${category}-${Math.round(first.second * 10)}-${index}`,
+        category,
+        second: first.second,
+        score: first.score,
+        tip: first.reason,
+      });
       return;
     }
     const fallback =
       category === "keep" ? keepWatchingReasons?.[0] : category === "weak" ? weakReasons?.[0] : improvementTips?.[0];
-    picked.push({ category, second: 0, score: 0, tip: fallback || defaultReason(category) });
+    picked.push({
+      id: `${category}-fallback-${index}`,
+      category,
+      second: 0,
+      score: 0,
+      tip: fallback || defaultReason(category),
+    });
   });
   return picked.slice(0, 6);
 };
@@ -287,6 +300,7 @@ const RetentionGraphModal = ({
 }: RetentionGraphModalProps) => {
   const [open, setOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null);
   const chartIdRef = useRef(`retention-${Math.random().toString(36).slice(2, 10)}`);
   const dragRef = useRef<{ x: number; width: number; start: number; end: number } | null>(null);
   const pinchRef = useRef<{ distance: number; width: number; left: number; start: number; end: number } | null>(null);
@@ -327,11 +341,26 @@ const RetentionGraphModal = ({
     () => buildInsights(points, keepWatchingReasons, weakReasons, improvementTips),
     [points, keepWatchingReasons, weakReasons, improvementTips],
   );
+  const visibleInsights = useMemo(
+    () => (canAccessPremium ? insights : insights.slice(0, 2)),
+    [canAccessPremium, insights],
+  );
+  const selectedInsight = useMemo(
+    () => visibleInsights.find((item) => item.id === selectedInsightId) || visibleInsights[0] || null,
+    [selectedInsightId, visibleInsights],
+  );
 
   const [range, setRange] = useState({ startIndex: 0, endIndex: Math.max(0, points.length - 1) });
   useEffect(() => {
     setRange({ startIndex: 0, endIndex: Math.max(0, points.length - 1) });
   }, [points.length, open]);
+  useEffect(() => {
+    setSelectedInsightId((current) => {
+      if (!visibleInsights.length) return null;
+      if (current && visibleInsights.some((item) => item.id === current)) return current;
+      return visibleInsights[0].id;
+    });
+  }, [visibleInsights]);
 
   const applyRange = useCallback((startIndex: number, endIndex: number) => {
     const max = Math.max(0, points.length - 1);
@@ -445,6 +474,17 @@ const RetentionGraphModal = ({
       setBusyAction(null);
     }
   }, []);
+  const handleInsightSelect = useCallback((insight: RetentionInsight) => {
+    setSelectedInsightId(insight.id);
+    if (!canAccessPremium || points.length === 0) return;
+    const targetIndex = findNearestIndex(points, insight.second);
+    if (targetIndex < 0) return;
+
+    const minSpan = Math.max(1, Math.min(MIN_VISIBLE_POINTS, points.length));
+    const currentSpan = clamp(range.endIndex - range.startIndex + 1, minSpan, points.length);
+    const start = clamp(targetIndex - Math.floor(currentSpan / 2), 0, Math.max(0, points.length - currentSpan));
+    applyRange(start, start + currentSpan - 1);
+  }, [applyRange, canAccessPremium, points, range.endIndex, range.startIndex]);
 
   const renderDot = useCallback((props: any) => {
     const point = props?.payload as RetentionPoint | undefined;
@@ -628,15 +668,49 @@ const RetentionGraphModal = ({
               <div className="space-y-3">
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-3 backdrop-blur-md">
                   <p className="text-xs uppercase tracking-[0.18em] text-purple-200/80">Insights Panel</p>
+                  {selectedInsight ? (
+                    <div className="mt-2 rounded-xl border border-purple-300/25 bg-black/35 p-2.5">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Preview Focus</p>
+                      <p className="mt-1 text-sm font-medium text-slate-100">
+                        {CATEGORY_META[selectedInsight.category].label} at {formatTimeLabel(selectedInsight.second)}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-300">
+                        {selectedInsight.score > 0 ? `${selectedInsight.score.toFixed(1)}% retention estimate` : "No score yet"}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                    {(canAccessPremium ? insights : insights.slice(0, 2)).map((insight, index) => {
+                    {visibleInsights.map((insight, index) => {
                       const meta = CATEGORY_META[insight.category];
+                      const isSelected = selectedInsight?.id === insight.id;
                       return (
-                        <motion.div key={`${insight.category}-${index}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className="rounded-xl border p-3" style={{ borderColor: `${meta.color}66`, background: "linear-gradient(145deg,rgba(14,16,34,0.86),rgba(10,12,24,0.84))" }}>
+                        <motion.button
+                          key={insight.id}
+                          type="button"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.04 }}
+                          onClick={() => handleInsightSelect(insight)}
+                          className={cn(
+                            "rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300/50",
+                            isSelected ? "ring-1 ring-white/35" : "hover:border-white/35",
+                          )}
+                          style={{
+                            borderColor: isSelected ? `${meta.color}CC` : `${meta.color}66`,
+                            background: isSelected
+                              ? "linear-gradient(145deg,rgba(20,23,44,0.95),rgba(10,12,24,0.9))"
+                              : "linear-gradient(145deg,rgba(14,16,34,0.86),rgba(10,12,24,0.84))",
+                            boxShadow: isSelected ? `inset 0 0 0 1px ${meta.color}55` : undefined,
+                          }}
+                          aria-pressed={isSelected}
+                        >
                           <p className="text-[11px] uppercase tracking-[0.14em]" style={{ color: meta.color }}>{meta.label}</p>
                           <p className="mt-1 text-sm font-semibold text-slate-100">{formatTimeLabel(insight.second)} - {insight.score > 0 ? `${insight.score.toFixed(1)}%` : "n/a"}</p>
                           <p className="mt-1 text-xs text-slate-300">{insight.tip}</p>
-                        </motion.div>
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            {isSelected ? "Preview target selected" : "Click to preview this timestamp"}
+                          </p>
+                        </motion.button>
                       );
                     })}
                   </div>

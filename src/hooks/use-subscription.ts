@@ -62,7 +62,8 @@ export const useSubscription = () => {
     queryKey: ["subscription", user?.id],
     queryFn: () => apiFetch<SubscriptionResponse>("/api/me/subscription", { token: accessToken || "" }),
     enabled: !!accessToken,
-    refetchInterval: 15000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const rawPlan = query.data?.plan;

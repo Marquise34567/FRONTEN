@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
@@ -11,7 +11,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Progress } from "@/components/ui/progress";
 import { CreditCard, Flame, Gauge, Shield, Sparkles, WandSparkles, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import PricingCards from "@/components/PricingCards";
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
 import { useMe } from "@/hooks/use-me";
@@ -28,6 +27,8 @@ import {
   serializeSubtitleStyleConfig,
   type SubtitleStyleConfig,
 } from "@shared/subtitlePresets";
+
+const PricingCards = lazy(() => import("@/components/PricingCards"));
 
 type EditorSettings = {
   exportQuality: string;
@@ -948,17 +949,27 @@ const Settings = () => {
                 </label>
               )}
             </div>
-            <PricingCards
-              currentTier={currentPlan}
-              isAuthenticated={true}
-              loading={action !== null}
-              onCheckout={handleCheckout}
-              onPortal={handlePortal}
-              actionTier={action?.tier ?? null}
-              actionKind={action?.kind ?? null}
-              billingInterval={billingInterval}
-              founderSlotsRemaining={founderSlotsRemaining}
-            />
+            <Suspense
+              fallback={
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={`settings-pricing-cards-fallback-${index}`} className="h-72 rounded-2xl border border-border/60 bg-card/40" />
+                  ))}
+                </div>
+              }
+            >
+              <PricingCards
+                currentTier={currentPlan}
+                isAuthenticated={true}
+                loading={action !== null}
+                onCheckout={handleCheckout}
+                onPortal={handlePortal}
+                actionTier={action?.tier ?? null}
+                actionKind={action?.kind ?? null}
+                billingInterval={billingInterval}
+                founderSlotsRemaining={founderSlotsRemaining}
+              />
+            </Suspense>
           </div>
         </motion.div>
       </main>
