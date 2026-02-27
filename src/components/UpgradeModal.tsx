@@ -36,7 +36,7 @@ const UpgradeModal = ({
             Compare plans and upgrade instantly. Your current plan is highlighted.
           </p>
         </DialogHeader>
-        <div className={cn("mt-4 grid grid-cols-1 items-start gap-4 md:grid-cols-2", showFounder ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
+        <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-4 mt-4", showFounder ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
           {visibleTiers.map((tier) => {
             const plan = PLAN_CONFIG[tier];
             const isCurrent = tier === currentPlan;
@@ -46,7 +46,7 @@ const UpgradeModal = ({
               <div
                 key={tier}
                 className={cn(
-                  "self-start rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c111f] to-[#11172a] p-4",
+                  "rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c111f] to-[#11172a] p-4",
                   isTarget && "ring-2 ring-primary/50",
                   isCurrent && "border-primary/40"
                 )}

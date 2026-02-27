@@ -34,7 +34,6 @@ export type SubscriptionResponse = {
   currentPeriodEnd: string | null;
   features: SubscriptionFeatures;
   subtitlePresets?: SubtitlePresetDefinition[];
-  devOverride?: boolean;
 };
 
 const defaultFeatures: SubscriptionFeatures = {
@@ -62,8 +61,7 @@ export const useSubscription = () => {
     queryKey: ["subscription", user?.id],
     queryFn: () => apiFetch<SubscriptionResponse>("/api/me/subscription", { token: accessToken || "" }),
     enabled: !!accessToken,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: false,
+    refetchInterval: 15000,
   });
 
   const rawPlan = query.data?.plan;
@@ -76,7 +74,6 @@ export const useSubscription = () => {
     features: query.data?.features ?? defaultFeatures,
     status: query.data?.status ?? "free",
     subtitlePresets: query.data?.subtitlePresets ?? [],
-    devOverride: Boolean(query.data?.devOverride),
     loading: query.isLoading,
     refetch: query.refetch,
   };

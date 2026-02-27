@@ -1,18 +1,16 @@
 import { motion } from "framer-motion";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import ExclusiveToggle from "@/components/premium/ExclusiveToggle";
-import GoldAccentButton from "@/components/premium/GoldAccentButton";
-import VIPBadge from "@/components/premium/VIPBadge";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import MetallicProgress from "@/components/premium/MetallicProgress";
-import { CreditCard, Flame, Gauge, Shield, Sparkles, WandSparkles, Zap } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { CreditCard, Shield, Sparkles } from "lucide-react";
+import PricingCards from "@/components/PricingCards";
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
 import { useMe } from "@/hooks/use-me";
@@ -21,7 +19,7 @@ import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, normalizeQuality, type PlanTier } from "@shared/planConfig";
+import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import {
   MRBEAST_ANIMATION_OPTIONS,
   MRBEAST_FONT_OPTIONS,
@@ -30,10 +28,7 @@ import {
   type SubtitleStyleConfig,
 } from "@shared/subtitlePresets";
 
-const PricingCards = lazy(() => import("@/components/PricingCards"));
-
 type EditorSettings = {
-  exportQuality: string;
   subtitleStyle: string;
   autoZoomMax: number;
   smartZoom: boolean;
@@ -66,13 +61,6 @@ const getRequiredPlanForAutoZoom = (value: number): PlanTier => {
   return "studio";
 };
 
-const getRequiredPlanForQuality = (quality: string): PlanTier => {
-  const normalized = normalizeQuality(quality);
-  if (normalized === "720p") return "free";
-  if (normalized === "1080p") return "starter";
-  return "creator";
-};
-
 const getRequiredPlanForPreset = (presetId: string): PlanTier => {
   const resolvedPreset = parseSubtitleStyleConfig(presetId).preset;
   for (const tier of PLAN_TIERS) {
@@ -80,16 +68,6 @@ const getRequiredPlanForPreset = (presetId: string): PlanTier => {
     if (allowed === "ALL" || allowed.includes(resolvedPreset)) return tier;
   }
   return "studio";
-};
-
-const SUBTITLE_PRESET_ICONS: Record<string, LucideIcon> = {
-  basic_clean: Gauge,
-  bold_pop: Sparkles,
-  mrbeast_animated: Flame,
-  outline_heavy: Shield,
-  caption_box: CreditCard,
-  neon_glow: Zap,
-  karaoke_highlight: WandSparkles,
 };
 
 const Settings = () => {
@@ -100,10 +78,9 @@ const Settings = () => {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
-  const { plan: currentPlan, features, subtitlePresets, devOverride: subscriptionDevOverride } = useSubscription();
+  const { plan: currentPlan, features, subtitlePresets } = useSubscription();
   const { data: founderAvailability } = useFounderAvailability();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
-  const isDevAccount = Boolean(data?.flags?.dev || subscriptionDevOverride);
   const trialInfo = data?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
@@ -216,7 +193,6 @@ const Settings = () => {
   };
 
   const defaultSettings: EditorSettings = {
-    exportQuality: features.maxResolution ?? "720p",
     subtitleStyle: "basic_clean",
     autoZoomMax: features.autoZoomMax,
     smartZoom: true,
@@ -240,14 +216,6 @@ const Settings = () => {
 
   const handleSaveSettings = async () => {
     if (!accessToken || !editorSettings) return;
-    const requestedQuality = normalizeQuality(editorSettings.exportQuality || "720p");
-    const maxQuality = isDevAccount ? "4k" : normalizeQuality(features.maxResolution || "720p");
-    if (QUALITY_ORDER.indexOf(requestedQuality) > QUALITY_ORDER.indexOf(maxQuality)) {
-      const required = getRequiredPlanForQuality(requestedQuality);
-      openUpgrade(required);
-      toast({ title: "Upgrade required", description: `Upgrade to ${required} to unlock ${requestedQuality}.` });
-      return;
-    }
     if (!isPresetAllowed(editorSettings.subtitleStyle)) {
       const required = getRequiredPlanForPreset(editorSettings.subtitleStyle);
       openUpgrade(required);
@@ -258,10 +226,7 @@ const Settings = () => {
       setSavingSettings(true);
       const result = await apiFetch<SettingsResponse>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({
-          ...editorSettings,
-          exportQuality: requestedQuality,
-        }),
+        body: JSON.stringify(editorSettings),
         token: accessToken,
       });
       setEditorSettings(result.settings);
@@ -289,7 +254,6 @@ const Settings = () => {
   const rawTier = data?.subscription?.tier as PlanTier | undefined;
   const tier = rawTier && PLAN_TIERS.includes(rawTier) ? rawTier : "free";
   const plan = PLAN_CONFIG[tier] ?? PLAN_CONFIG.free;
-  const effectiveCurrentPlan: PlanTier = isDevAccount ? "studio" : ((currentPlan as PlanTier) || "free");
   const subtitleStyleConfig = parseSubtitleStyleConfig(resolvedSettings.subtitleStyle);
   const activeSubtitlePreset = subtitleStyleConfig.preset;
   const updateMrBeastSubtitleStyle = (updates: Partial<SubtitleStyleConfig>) => {
@@ -322,182 +286,49 @@ const Settings = () => {
       ? Math.min(100, (rendersUsed / maxRendersPerMonth) * 100)
       : 0;
   const isFounderPlan = tier === "founder";
-  const currentTierIndex = tierIndex(effectiveCurrentPlan);
-  const advancedLocked = !isDevAccount && !features.advancedEffects;
-  const captionEngineStateLabel =
-    captionCapability && captionCapability.available === false
-      ? "Offline"
-      : captionCapability?.provider
-      ? `${captionCapability.provider}${captionCapability.mode ? ` · ${captionCapability.mode}` : ""}`
-      : "Ready";
+  const currentTierIndex = tierIndex(currentPlan || "free");
+  const advancedLocked = !features.advancedEffects;
 
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main mx-auto min-h-screen max-w-6xl px-4 pt-24 pb-12">
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-[rgba(52,240,208,0.24)] bg-[radial-gradient(circle_at_top_left,rgba(52,240,208,0.22),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(192,132,252,0.2),transparent_48%),linear-gradient(145deg,rgba(7,8,16,0.94),rgba(14,16,28,0.92))] p-6 shadow-[0_28px_80px_-48px_rgba(52,240,208,0.42)]">
-            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
-                  <VIPBadge label="Elite Mode" />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
-                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
-                  <p className="uppercase tracking-[0.14em] text-slate-400">Plan</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">
-                    {isDevAccount ? "Dev Mode" : isFounderPlan ? "Founder Lifetime" : tier.toUpperCase()}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
-                  <p className="uppercase tracking-[0.14em] text-slate-400">Subtitle Styles</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{subtitleBadge}</p>
-                </div>
-                <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
-                  <p className="uppercase tracking-[0.14em] text-slate-400">Caption Engine</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-100">{captionEngineStateLabel}</p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <h1 className="text-3xl font-bold font-display text-foreground mb-8">Settings</h1>
 
-          <div className="mb-6 rounded-2xl border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(12,26,30,0.56),rgba(22,13,35,0.46))] p-6 shadow-[0_24px_70px_-46px_rgba(52,240,208,0.62)] backdrop-blur-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-cyan-100">Brand Template Studio</p>
-                <h2 className="mt-1 text-xl font-semibold text-white">Clip styles, captions, and retention voice controls</h2>
-              </div>
-              <span className="rounded-full border border-cyan-200/35 bg-cyan-400/14 px-3 py-1 text-[11px] uppercase tracking-[0.13em] text-cyan-100">
-                Live retention preview
-              </span>
-            </div>
-
-            <div className="mt-4 inline-flex w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-xs">
-              {["Clip Styles", "Captions & Overlays", "Brand Voice AI", "Audio Enhancement", "Intro/Outro"].map((tab, index) => (
-                <span
-                  key={tab}
-                  className={`rounded-full px-3 py-1.5 ${
-                    index === 0
-                      ? "border border-cyan-200/35 bg-cyan-400/14 text-cyan-100"
-                      : "border border-white/10 bg-white/[0.02] text-slate-300"
-                  }`}
-                >
-                  {tab}
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-              <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Vertical style preset</p>
-                    <p className="mt-1 text-sm text-slate-100">Retention Overlay - Punch Zoom Focus</p>
-                  </div>
-                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Logo / Watermark position</p>
-                    <p className="mt-1 text-sm text-slate-100">Top-right safe zone</p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Color palette</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    {["#2fe4c8", "#2ab0ff", "#b477ff", "#0b131c", "#f3fffd"].map((swatch) => (
-                      <span
-                        key={swatch}
-                        className="h-6 w-6 rounded-full border border-white/20"
-                        style={{ backgroundColor: swatch }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Brand voice hooks and pacing</p>
-                  <textarea
-                    value="Use energetic urgency in first 3 seconds, reinforce payoff by second 9, and keep sentence cadence punchy."
-                    readOnly
-                    className="mt-2 h-20 w-full resize-none rounded-lg border border-white/10 bg-[rgba(7,10,16,0.9)] px-3 py-2 text-sm text-slate-200"
-                  />
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                    <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-cyan-100">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Caption keyword highlighter
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">Animated emphasis on high-retention words.</p>
-                  </div>
-                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
-                    <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-cyan-100">
-                      <WandSparkles className="h-3.5 w-3.5" />
-                      Studio audio preset
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">Voice isolate + auto level + noise cleanup.</p>
-                  </div>
-                </div>
-
-                <GoldAccentButton className="rounded-xl">
-                  <CreditCard className="h-4 w-4" />
-                  Save Template
-                </GoldAccentButton>
-              </div>
-
-              <div className="rounded-2xl border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(6,13,21,0.94),rgba(13,10,23,0.92))] p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Live branded retention preview</p>
-                <div className="mt-3 aspect-[9/16] overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(9,18,28,0.95),rgba(10,8,18,0.9))] p-3">
-                  <div className="h-full rounded-lg border border-cyan-200/25 bg-black/35 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-cyan-100">Hook zone 0-5s</p>
-                    <div className="mt-2 h-1.5 rounded-full bg-slate-800/80">
-                      <div className="h-full w-[78%] rounded-full bg-[linear-gradient(90deg,#2fe4c8,#b477ff)]" />
-                    </div>
-                    <p className="mt-3 text-xs text-slate-300">Retention score preview</p>
-                    <p className="text-lg font-semibold text-cyan-100">Virality 92/100</p>
-                    <p className="mt-3 text-xs text-slate-300">Hook Win Rate projected</p>
-                    <p className="text-sm font-semibold text-cyan-100">+31%</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
+          <div className="glass-card p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[rgba(52,240,208,0.12)] flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-[var(--gold-accent)]" />
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-primary" />
                 </div>
                 <div>
                   <h2 className="font-semibold text-foreground">Current Plan</h2>
                   <p className="text-sm text-muted-foreground">Manage your subscription</p>
                 </div>
               </div>
-              <Badge variant="secondary" className="bg-[rgba(52,240,208,0.12)] text-[#95fff2] border-[rgba(52,240,208,0.35)]">
-                {isDevAccount ? "dev" : isFounderPlan ? "Founder (Lifetime)" : tier}
+              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                {isFounderPlan ? "Founder (Lifetime)" : tier}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
-              <GoldAccentButton onClick={() => handleCheckout("starter")} className="rounded-lg gap-2">
+              <Button onClick={() => handleCheckout("starter")} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg gap-2">
                 <CreditCard className="w-4 h-4" /> Upgrade plan
-              </GoldAccentButton>
+              </Button>
               <Button onClick={handlePortal} variant="ghost" className="text-muted-foreground hover:text-foreground rounded-lg">
                 Manage Billing
               </Button>
             </div>
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
+          <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
-              <Shield className="w-5 h-5 text-[var(--gold-accent)]" />
+              <Shield className="w-5 h-5 text-muted-foreground" />
               <h2 className="font-semibold text-foreground">{dailyLimited ? "Daily Usage" : "Monthly Usage"}</h2>
             </div>
             {isFounderPlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Plan</p>
                   <p className="text-lg font-semibold text-foreground">Founder (Lifetime)</p>
                   <div className="mt-3 space-y-1 text-xs text-muted-foreground">
@@ -511,10 +342,10 @@ const Settings = () => {
                         {rendersUsed} / {maxRendersPerMonth} this month
                       </span>
                     </div>
-                    <MetallicProgress value={rendersUsagePercent} className="mt-2" />
+                    <Progress value={rendersUsagePercent} className="mt-2" />
                   </div>
                 </div>
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {usage?.minutesUsed ?? 0}{" "}
@@ -526,7 +357,7 @@ const Settings = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Renders Remaining</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {dailyLimited ? (rendersRemainingToday ?? 0) : rendersRemaining}{" "}
@@ -539,9 +370,9 @@ const Settings = () => {
                       ? `Used ${rendersUsedToday} / ${maxRendersPerDay} today`
                       : `Used ${rendersUsed} / ${maxRendersPerMonth} this month`}
                   </p>
-                  <MetallicProgress value={rendersUsagePercent} className="mt-2" />
+                  <Progress value={rendersUsagePercent} className="mt-2" />
                 </div>
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>
                   <p className="text-2xl font-bold font-display text-foreground">
                     {usage?.minutesUsed ?? 0}{" "}
@@ -554,9 +385,9 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
+          <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
-              <Gauge className="w-5 h-5 text-[var(--gold-accent)]" />
+              <Sparkles className="w-5 h-5 text-primary" />
               <div>
                 <h2 className="font-semibold text-foreground">Editor Features</h2>
                 <p className="text-sm text-muted-foreground">Customize subtitles, auto zoom, and effects.</p>
@@ -569,7 +400,7 @@ const Settings = () => {
 
             {!settingsQuery.isLoading && (
               <div className="space-y-6">
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Only Cuts Mode</h3>
@@ -577,7 +408,7 @@ const Settings = () => {
                         Remove boring sections only. No hook move, pacing, zoom, transitions, jump cuts, or effects.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.onlyCuts}
                       onCheckedChange={(checked) => {
                         mergeSettings({ onlyCuts: checked });
@@ -610,7 +441,6 @@ const Settings = () => {
                       const required = getRequiredPlanForPreset(preset.id);
                       const locked = !isPresetAllowed(preset.id);
                       const active = activeSubtitlePreset === preset.id;
-                      const PresetIcon = SUBTITLE_PRESET_ICONS[preset.id] || Sparkles;
                       const card = (
                         <button
                           key={preset.id}
@@ -636,10 +466,7 @@ const Settings = () => {
                           } ${locked ? "cursor-not-allowed opacity-70" : "hover:border-primary/40"}`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="inline-flex items-center gap-2 text-sm text-foreground">
-                              <PresetIcon className="h-3.5 w-3.5 text-primary/80" />
-                              {preset.label}
-                            </span>
+                            <span className="text-sm text-foreground">{preset.label}</span>
                           </div>
                           <p className="mt-1 text-[11px] text-muted-foreground">{preset.description}</p>
                           {locked && <LockedOverlay label={`Upgrade to ${required}`} />}
@@ -735,27 +562,12 @@ const Settings = () => {
                         </label>
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>Font Size</span>
-                            <span>{subtitleStyleConfig.fontSize}px</span>
-                          </div>
-                          <Slider
-                            min={32}
-                            max={220}
-                            step={2}
-                            value={[subtitleStyleConfig.fontSize]}
-                            onValueChange={(values) =>
-                              updateMrBeastSubtitleStyle({ fontSize: Number(values?.[0] ?? subtitleStyleConfig.fontSize) })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
                             <span>Outline Width</span>
                             <span>{subtitleStyleConfig.outlineWidth}px</span>
                           </div>
                           <Slider
                             min={1}
-                            max={24}
+                            max={12}
                             step={1}
                             value={[subtitleStyleConfig.outlineWidth]}
                             onValueChange={(values) =>
@@ -768,43 +580,7 @@ const Settings = () => {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="text-sm font-medium text-foreground">Export Resolution</h3>
-                      <p className="text-xs text-muted-foreground">Set your default render quality.</p>
-                    </div>
-                    <span className="text-sm font-semibold text-foreground uppercase">
-                      {normalizeQuality(resolvedSettings.exportQuality || "720p")}
-                    </span>
-                  </div>
-                  <select
-                    className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
-                    value={normalizeQuality(resolvedSettings.exportQuality || "720p")}
-                    onChange={(event) => {
-                      const nextQuality = normalizeQuality(event.target.value);
-                      const requiredPlan = getRequiredPlanForQuality(nextQuality);
-                      if (!isDevAccount && tierIndex(requiredPlan) > currentTierIndex) {
-                        openUpgrade(requiredPlan);
-                        return;
-                      }
-                      mergeSettings({ exportQuality: nextQuality });
-                    }}
-                  >
-                    <option value="720p">720p (Free)</option>
-                    <option value="1080p" disabled={!isDevAccount && currentTierIndex < tierIndex("starter")}>
-                      1080p (Starter+)
-                    </option>
-                    <option value="4k" disabled={!isDevAccount && currentTierIndex < tierIndex("creator")}>
-                      4K (Creator+)
-                    </option>
-                  </select>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Max for your account: {(isDevAccount ? "4k" : features.maxResolution || plan.exportQuality).toUpperCase()}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Auto Zoom Max</h3>
@@ -841,7 +617,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Transitions</h3>
@@ -849,7 +625,7 @@ const Settings = () => {
                         Blend neighboring clips with smooth transition fades.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.transitions}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -860,7 +636,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Jump Cuts</h3>
@@ -868,7 +644,7 @@ const Settings = () => {
                         Use tighter, high-energy cut boundaries on active moments.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.jumpCuts}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -879,7 +655,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Smart Face Zoom</h3>
@@ -887,7 +663,7 @@ const Settings = () => {
                         Track faces and keep subjects centered during zoom moments.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.smartZoom}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -898,7 +674,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Dynamic Sound FX</h3>
@@ -906,7 +682,7 @@ const Settings = () => {
                         Add punch/whoosh accents on energetic cuts.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.soundFx}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -917,7 +693,7 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
+                <div className="glass-card p-4">
                   <div className="flex items-center justify-between text-sm">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Music Ducking</h3>
@@ -925,7 +701,7 @@ const Settings = () => {
                         Lower music bed under low-energy speech to keep voice clear.
                       </p>
                     </div>
-                    <ExclusiveToggle
+                    <Switch
                       checked={resolvedSettings.musicDuck}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -937,7 +713,7 @@ const Settings = () => {
                 </div>
 
                 <div
-                  className="relative rounded-xl border border-white/12 bg-white/[0.04] p-4"
+                  className="relative glass-card p-4"
                   onClick={() => {
                     if (advancedLocked) openUpgrade("studio");
                   }}
@@ -956,7 +732,7 @@ const Settings = () => {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Emotional Boost</span>
-                      <ExclusiveToggle
+                      <Switch
                         checked={resolvedSettings.emotionalBoost}
                         disabled={advancedLocked || onlyCutsEnabled}
                         onCheckedChange={(checked) => {
@@ -974,19 +750,19 @@ const Settings = () => {
                 </div>
 
                 <div className="flex justify-end">
-                  <GoldAccentButton
+                  <Button
                     onClick={handleSaveSettings}
                     disabled={savingSettings || !editorSettings}
-                    className="rounded-lg"
+                    className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
                     {savingSettings ? "Saving..." : "Save changes"}
-                  </GoldAccentButton>
+                  </Button>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
+          <div className="glass-card p-6">
             <h2 className="font-semibold text-foreground mb-4">Account</h2>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
@@ -1043,7 +819,7 @@ const Settings = () => {
                 </div>
               ) : (
                 <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-                  <ExclusiveToggle
+                  <Switch
                     checked={trialActive ? true : useStarterTrial}
                     onCheckedChange={setUseStarterTrial}
                     disabled={trialActive}
@@ -1056,27 +832,17 @@ const Settings = () => {
                 </label>
               )}
             </div>
-            <Suspense
-              fallback={
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div key={`settings-pricing-cards-fallback-${index}`} className="h-72 rounded-2xl border border-border/60 bg-card/40" />
-                  ))}
-                </div>
-              }
-            >
-              <PricingCards
-                currentTier={currentPlan}
-                isAuthenticated={true}
-                loading={action !== null}
-                onCheckout={handleCheckout}
-                onPortal={handlePortal}
-                actionTier={action?.tier ?? null}
-                actionKind={action?.kind ?? null}
-                billingInterval={billingInterval}
-                founderSlotsRemaining={founderSlotsRemaining}
-              />
-            </Suspense>
+            <PricingCards
+              currentTier={currentPlan}
+              isAuthenticated={true}
+              loading={action !== null}
+              onCheckout={handleCheckout}
+              onPortal={handlePortal}
+              actionTier={action?.tier ?? null}
+              actionKind={action?.kind ?? null}
+              billingInterval={billingInterval}
+              founderSlotsRemaining={founderSlotsRemaining}
+            />
           </div>
         </motion.div>
       </main>
@@ -1093,5 +859,3 @@ const Settings = () => {
 };
 
 export default Settings;
-
-

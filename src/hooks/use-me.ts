@@ -23,15 +23,6 @@ export type MeResponse = {
     isAdmin?: boolean;
   };
   usage: { month: string; rendersUsed: number; minutesUsed: number };
-  usageWarnings?: {
-    freeMinutes?: {
-      threshold: number;
-      limit: number;
-      used: number;
-      reached: boolean;
-      blocked: boolean;
-    } | null;
-  };
   usageByMode?: {
     month: string;
     horizontalRendersUsed?: number;

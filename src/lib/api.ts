@@ -14,9 +14,8 @@ const normalizeApiUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
-const DEV_PROXY_TARGET = normalizeApiUrl(import.meta.env.VITE_API_PROXY_TARGET || "").replace(/\/$/, "");
 const PUBLIC_API_PREFIXES = ["/api/public/"];
-const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping", "/api/audio-assets"]);
+const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
 const isControlPanelPath = (path: string) =>
   path.startsWith("/api/admin") || path.startsWith("/api/dev/algorithm");
 let authExpiredNotifiedAt = 0;
@@ -25,25 +24,6 @@ let lastSeenAccessToken: string | null = null;
 
 const isPublicApiPath = (path: string) =>
   PUBLIC_API_EXACT.has(path) || PUBLIC_API_PREFIXES.some((prefix) => path.startsWith(prefix));
-
-export const resolveApiMediaUrl = (value?: string | null) => {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
-
-  const inBrowser = typeof window !== "undefined";
-  const isLocalHost =
-    inBrowser && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-  const localDevFallback = isLocalHost
-    ? DEV_PROXY_TARGET || `${window.location.protocol}//${window.location.hostname}:4000`
-    : "";
-  const browserOrigin = inBrowser ? window.location.origin : "";
-  const base = API_URL || localDevFallback || browserOrigin;
-  if (!base) return raw;
-
-  if (raw.startsWith("/")) return `${base}${raw}`;
-  return `${base}/${raw.replace(/^\.?\//, "")}`;
-};
 
 export class ApiError extends Error {
   status: number;
@@ -59,18 +39,6 @@ export class ApiError extends Error {
 
 import { supabase } from "@/integrations/supabase/client";
 import { getControlPanelPassword } from "./controlPanelAuth";
-
-export type AudioAsset = {
-  name: string;
-  displayName: string;
-  url: string;
-  type: "sfx" | "bgm";
-};
-
-export type AudioAssetsResponse = {
-  soundEffects: AudioAsset[];
-  backgroundMusic: AudioAsset[];
-};
 
 export async function apiFetch<T>(
   path: string,
@@ -150,5 +118,3 @@ export async function apiFetch<T>(
   }
   return data as T;
 }
-
-export const fetchAudioAssets = () => apiFetch<AudioAssetsResponse>("/api/audio-assets");

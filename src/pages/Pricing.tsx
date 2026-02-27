@@ -1,286 +1,176 @@
-import { useMemo, useState } from "react";
-import { Check, Loader2, Sparkles } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
-
-import GoldAccentButton from "@/components/premium/GoldAccentButton";
-import PremiumCard from "@/components/premium/PremiumCard";
-import { apiFetch, ApiError } from "@/lib/api";
+import { motion } from "framer-motion";
+import GlowBackdrop from "@/components/GlowBackdrop";
+import Navbar from "@/components/Navbar";
+import PricingCards from "@/components/PricingCards";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/providers/AuthProvider";
+import { useSubscription } from "@/hooks/use-subscription";
+import { useFounderAvailability } from "@/hooks/use-founder-availability";
+import { useMe } from "@/hooks/use-me";
+import { ApiError, apiFetch } from "@/lib/api";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import type { PlanTier } from "@/shared/planConfig";
+import type { PlanTier } from "@shared/planConfig";
+import { ZoomIn } from "lucide-react";
 
-type BillingInterval = "monthly" | "annual";
-
-type PricingPlan = {
-  id: "free" | "pro" | "enterprise";
-  title: string;
-  subtitle: string;
-  monthlyPrice: number;
-  annualPrice: number;
-  mappedTier: PlanTier;
-  featured?: boolean;
-  tone: "neutral" | "teal" | "violet";
-  features: string[];
-  scans: string;
-  exports: string;
-};
-
-const plans: PricingPlan[] = [
-  {
-    id: "free",
-    title: "Free",
-    subtitle: "Starter clips and basic hook scoring",
-    monthlyPrice: 0,
-    annualPrice: 0,
-    mappedTier: "free",
-    tone: "neutral",
-    scans: "20 retention scans / month",
-    exports: "720p exports",
-    features: [
-      "Credits: 20 clips/month",
-      "Hook AI (basic)",
-      "Caption automation",
-      "Single-platform export",
-      "Community support",
-    ],
-  },
-  {
-    id: "pro",
-    title: "Pro",
-    subtitle: "Best for creators scaling short-form output",
-    monthlyPrice: 19,
-    annualPrice: 15,
-    mappedTier: "creator",
-    featured: true,
-    tone: "teal",
-    scans: "200 retention scans / month",
-    exports: "4K multi-platform exports",
-    features: [
-      "Credits: 500 clips/month",
-      "Advanced Hook AI + pacing controls",
-      "Studio audio enhancement",
-      "Animated caption styles + keyword highlighter",
-      "TikTok / Reels / Shorts / YouTube exports",
-    ],
-  },
-  {
-    id: "enterprise",
-    title: "Enterprise",
-    subtitle: "Custom automation for teams and agencies",
-    monthlyPrice: 49,
-    annualPrice: 39,
-    mappedTier: "studio",
-    tone: "violet",
-    scans: "Unlimited retention scans",
-    exports: "Priority queue + team workspaces",
-    features: [
-      "Unlimited processing credits",
-      "Custom hook/pacing models",
-      "Shared brand templates",
-      "SLA support + onboarding",
-      "Advanced reporting API",
-    ],
-  },
-];
-
-const comparisonRows = [
-  ["Retention scans", "20/mo", "200/mo", "Unlimited"],
-  ["Hook AI", "Basic", "Advanced", "Custom"],
-  ["Studio Audio", "-", "Included", "Included + presets"],
-  ["Exports", "Single platform", "Multi-platform", "Multi-platform + team queues"],
-  ["Analytics depth", "Core", "Retention + virality", "Cross-team attribution"],
-];
-
-export default function Pricing() {
-  const navigate = useNavigate();
-  const { accessToken } = useAuth();
+const Pricing = () => {
+  const { accessToken, user } = useAuth();
+  const { plan: currentPlan } = useSubscription();
+  const { data: me } = useMe();
+  const { data: founderAvailability } = useFounderAvailability();
+  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
+  const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
-  const [loadingTier, setLoadingTier] = useState<PricingPlan["id"] | null>(null);
+  const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
+  const trialInfo = me?.subscription?.trial;
+  const trialActive = Boolean(trialInfo?.active);
+  const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
+  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
 
-  const intervalSuffix = billingInterval === "annual" ? "/mo billed yearly" : "/mo";
+  useEffect(() => {
+    if (trialActive) setUseStarterTrial(true);
+    if (trialUsed) setUseStarterTrial(false);
+  }, [trialActive, trialUsed]);
 
-  const planCopy = useMemo(
-    () => ({
-      monthly: "Switch to yearly for ~20% savings.",
-      annual: "Annual active: Save tag unlocked.",
-    }),
-    [],
-  );
-
-  const handleCheckout = async (plan: PricingPlan) => {
-    if (plan.mappedTier === "free") {
-      navigate("/signup");
-      return;
-    }
-
-    if (!accessToken) {
-      navigate("/signup");
-      return;
-    }
-
+  const handleCheckout = async (tier: PlanTier) => {
+    if (!accessToken) return;
     try {
-      setLoadingTier(plan.id);
+      setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
+        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
         token: accessToken,
-        body: JSON.stringify({
-          tier: plan.mappedTier,
-          interval: billingInterval === "annual" ? "annual" : "monthly",
-        }),
       });
       window.location.href = result.url;
-    } catch (error: any) {
-      const message = error instanceof ApiError ? error.message : "Checkout unavailable right now.";
-      toast({ title: "Checkout failed", description: message, variant: "destructive" });
+    } catch (err: any) {
+      const code = err instanceof ApiError ? err.code : err?.code;
+      if (code === "trial_already_used") {
+        setUseStarterTrial(false);
+        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
+        return;
+      }
+      toast({ title: "Checkout failed", description: err?.message || "Please try again." });
     } finally {
-      setLoadingTier(null);
+      setAction(null);
+    }
+  };
+
+  const handlePortal = async () => {
+    if (!accessToken) return;
+    try {
+      const result = await apiFetch<{ url: string }>("/api/billing/portal", {
+        method: "POST",
+        token: accessToken,
+      });
+      window.location.href = result.url;
+    } catch (err: any) {
+      toast({ title: "Unable to open portal", description: err?.message || "Please try again." });
     }
   };
 
   return (
-    <div className="min-h-screen bg-[var(--ae-bg)] text-[var(--ae-text-primary)]">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/88 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-[1240px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          <Link to="/" className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
-            <span>AutoEditor</span>
-            <span className="rounded-full border border-cyan-200/30 bg-cyan-400/12 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
-              BETA
-            </span>
-          </Link>
+    <GlowBackdrop>
+      <Navbar />
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-20">
+        <motion.div
+          className="text-center max-w-2xl mx-auto mb-14"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <h1 className="text-4xl font-bold font-display text-foreground mb-4">Simple, Transparent Pricing</h1>
+          <p className="text-muted-foreground">Pick a plan that matches your output volume and upgrade anytime.</p>
+        </motion.div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              to="/login"
-              className="hidden rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-200/45 md:inline-flex"
-            >
-              Sign In
-            </Link>
-            <GoldAccentButton asChild size="sm">
-              <Link to="/signup">Sign Up</Link>
-            </GoldAccentButton>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-[1240px] space-y-5 px-4 pb-14 pt-8 sm:px-6 lg:px-8">
-        <PremiumCard className="relative overflow-hidden p-7 md:p-9">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(47,228,200,0.2),transparent_54%),radial-gradient(90%_120%_at_100%_0%,rgba(180,119,255,0.2),transparent_56%)]" />
-          <div className="relative">
-            <h1 className="text-3xl font-semibold tracking-tight text-white md:text-5xl">
-              Premium Pricing For Retention-First AI Editing
-            </h1>
-            <p className="mt-3 max-w-2xl text-slate-300">
-              Credits, hook AI, studio audio, and high-retention export pipelines in one dark premium workspace.
-            </p>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-cyan-200/25 bg-black/35 p-1">
-                <button
-                  type="button"
-                  onClick={() => setBillingInterval("monthly")}
-                  className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "monthly" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBillingInterval("annual")}
-                  className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "annual" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
-                  }`}
-                >
-                  Yearly
-                </button>
-              </div>
-              <span className="rounded-full border border-emerald-300/35 bg-emerald-500/12 px-3 py-1 text-xs text-emerald-100">
-                Annual Save Tag: 20%
+        <motion.div
+          className="max-w-2xl mx-auto mb-8"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.45 }}
+        >
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="h-8 w-8 rounded-xl bg-emerald-400/15 flex items-center justify-center shrink-0">
+                <ZoomIn className="w-4 h-4 text-emerald-300" />
               </span>
-              <span className="text-xs text-slate-400">{planCopy[billingInterval]}</span>
+              <p className="text-sm text-emerald-100 truncate">Zoom-In Smart Reframing</p>
             </div>
+            <Badge variant="secondary" className="bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">
+              Coming soon
+            </Badge>
           </div>
-        </PremiumCard>
+        </motion.div>
 
-        <section className="grid gap-4 lg:grid-cols-3">
-          {plans.map((plan) => {
-            const price = billingInterval === "annual" ? plan.annualPrice : plan.monthlyPrice;
-            const cardTone =
-              plan.tone === "teal"
-                ? "border-cyan-200/45 shadow-[0_0_24px_rgba(47,228,200,0.16)]"
-                : plan.tone === "violet"
-                  ? "border-violet-300/30"
-                  : "border-white/10";
-
-            return (
-              <PremiumCard key={plan.id} className={`relative flex h-full flex-col p-5 ${cardTone}`}>
-                {plan.featured ? (
-                  <span className="absolute right-4 top-4 rounded-full border border-cyan-200/40 bg-cyan-400/16 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100">
-                    Most Popular
-                  </span>
-                ) : null}
-                {plan.id === "pro" ? (
-                  <span className="absolute left-4 top-4 rounded-full border border-emerald-300/35 bg-emerald-500/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-emerald-100">
-                    BETA Access
-                  </span>
-                ) : null}
-
-                <p className="mt-6 text-sm uppercase tracking-[0.14em] text-cyan-100">{plan.title}</p>
-                <p className="mt-3 text-4xl font-semibold text-white">
-                  ${price}
-                  <span className="text-sm text-slate-400"> {intervalSuffix}</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-300">{plan.subtitle}</p>
-                <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-300">
-                  <p>{plan.scans}</p>
-                  <p className="mt-1">{plan.exports}</p>
-                </div>
-                <ul className="mt-4 flex-1 space-y-2">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-200">
-                      <Check className="mt-0.5 h-4 w-4 text-cyan-300" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <GoldAccentButton className="mt-4 w-full" onClick={() => handleCheckout(plan)} disabled={loadingTier !== null}>
-                  {loadingTier === plan.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {plan.id === "free" ? "Start Free" : plan.id === "pro" ? "Choose Pro" : "Contact Enterprise"}
-                </GoldAccentButton>
-              </PremiumCard>
-            );
-          })}
-        </section>
-
-        <PremiumCard className="overflow-hidden p-0">
-          <div className="border-b border-white/10 px-5 py-4">
-            <h2 className="text-lg font-semibold text-white">Plan Comparison</h2>
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => setBillingInterval("monthly")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
+                billingInterval === "monthly"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingInterval("annual")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
+                billingInterval === "annual"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Annual
+            </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-sm">
-              <thead className="bg-black/35 text-slate-300">
-                <tr>
-                  <th className="px-5 py-3 text-left">Metric</th>
-                  <th className="px-5 py-3 text-left">Free</th>
-                  <th className="px-5 py-3 text-left">Pro</th>
-                  <th className="px-5 py-3 text-left">Enterprise</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparisonRows.map((row) => (
-                  <tr key={row[0]} className="border-t border-white/10">
-                    {row.map((cell, index) => (
-                      <td key={`${row[0]}-${index}`} className="px-5 py-3 text-slate-200">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </PremiumCard>
+          <span className="text-xs text-muted-foreground">Switch to annual billing</span>
+        </div>
+        <div className="flex items-center justify-center mb-10">
+          {trialUsed ? (
+            <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+              <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
+                Trial used
+              </Badge>
+              <span className="text-xs text-muted-foreground">Starter free trial has already been used on this account.</span>
+            </div>
+          ) : (
+            <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+              <Switch
+                checked={trialActive ? true : useStarterTrial}
+                onCheckedChange={setUseStarterTrial}
+                disabled={trialActive}
+              />
+              <span className="text-xs text-muted-foreground">
+                {trialActive
+                  ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
+                  : "Use 3-day free trial (full unlock) when choosing Starter"}
+              </span>
+            </label>
+          )}
+        </div>
+
+        <div className="max-w-6xl mx-auto">
+          <PricingCards
+            currentTier={currentPlan}
+            isAuthenticated={!!user}
+            loading={action !== null}
+            onCheckout={handleCheckout}
+            onPortal={handlePortal}
+            actionTier={action?.tier ?? null}
+            actionKind={action?.kind ?? null}
+            billingInterval={billingInterval}
+            founderSlotsRemaining={founderSlotsRemaining}
+          />
+        </div>
       </main>
-    </div>
+    </GlowBackdrop>
   );
-}
+};
+
+export default Pricing;

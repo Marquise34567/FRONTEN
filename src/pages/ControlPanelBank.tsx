@@ -21,7 +21,6 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
-import { CONTROL_PANEL_QUERY_KEYS, controlPanelLiveQueryOptions } from "./control-panel/shared"
 
 type PaymentsResponse = {
   revenueTotal: number
@@ -105,24 +104,24 @@ const ControlPanelBank = () => {
   const canLoad = Boolean(accessToken)
 
   const paymentsQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.payments,
+    queryKey: ["control-panel-bank-payments"],
     queryFn: () => apiFetch<PaymentsResponse>("/api/admin/payments?range=30d", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(30000)
+    refetchInterval: 30000
   })
 
   const subscriptionsQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.subscriptions,
+    queryKey: ["control-panel-bank-subscriptions"],
     queryFn: () => apiFetch<SubscriptionsResponse>("/api/admin/subscriptions?range=30d", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(30000)
+    refetchInterval: 30000
   })
 
   const takeoutStatusQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.bankTakeoutStatus,
+    queryKey: ["control-panel-bank-takeout-status"],
     queryFn: () => apiFetch<TakeoutStatusResponse>("/api/admin/bank/takeout/status", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(10000)
+    refetchInterval: 10000
   })
 
   const planDistribution = subscriptionsQuery.data?.distribution
@@ -168,7 +167,7 @@ const ControlPanelBank = () => {
   }
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(130%_120%_at_75%_-20%,hsl(45_96%_56%/0.16),transparent_40%),radial-gradient(140%_120%_at_20%_110%,hsl(162_72%_45%/0.18),transparent_44%),linear-gradient(180deg,hsl(195_28%_8%)_0%,hsl(207_30%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

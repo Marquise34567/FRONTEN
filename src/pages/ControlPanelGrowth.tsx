@@ -19,15 +19,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
-import {
-  chartTick,
-  CommandCenterResponse,
-  CONTROL_PANEL_QUERY_KEYS,
-  controlPanelLiveQueryOptions,
-  EmptyStateNote,
-  formatCompactNumber,
-  formatShortTime
-} from "./control-panel/shared"
+import { chartTick, CommandCenterResponse, EmptyStateNote, formatCompactNumber, formatShortTime } from "./control-panel/shared"
 
 const pct = (value: number) => `${(Number.isFinite(value) ? value : 0).toFixed(1)}%`
 
@@ -36,10 +28,10 @@ const ControlPanelGrowth = () => {
   const canLoad = Boolean(accessToken)
 
   const commandCenterQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.commandCenter,
+    queryKey: ["control-panel-growth-command-center"],
     queryFn: () => apiFetch<CommandCenterResponse>("/api/admin/command-center", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(15000)
+    refetchInterval: 20000
   })
 
   const growth = commandCenterQuery.data?.growth
@@ -63,7 +55,7 @@ const ControlPanelGrowth = () => {
   )
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_22%_5%,hsl(155_84%_52%/0.16),transparent_42%),radial-gradient(135%_110%_at_82%_16%,hsl(194_98%_60%/0.14),transparent_42%),linear-gradient(180deg,hsl(171_34%_9%)_0%,hsl(216_35%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

@@ -1,28 +1,5 @@
 import type { LiveGeoHeatmapPoint } from "@/components/control-panel/LiveUsersGlobe"
 
-export const CONTROL_PANEL_QUERY_KEYS = {
-  overview: ["admin-overview"],
-  commandCenter: ["admin-command-center"],
-  siteLive: ["admin-site-live"],
-  liveGeo: ["admin-live-geo"],
-  security: ["admin-security-score"],
-  ipBans: ["admin-ip-bans"],
-  healthStatus: ["admin-health-status"],
-  payments: ["admin-payments"],
-  subscriptions: ["admin-subscriptions"],
-  bankTakeoutStatus: ["admin-bank-takeout-status"],
-  featureLab: ["admin-feature-lab"],
-  weeklyReports: ["admin-weekly-reports"]
-} as const
-
-export const controlPanelLiveQueryOptions = (intervalMs: number) => ({
-  refetchInterval: intervalMs,
-  refetchIntervalInBackground: true,
-  refetchOnReconnect: true,
-  refetchOnWindowFocus: true,
-  staleTime: Math.max(1500, Math.min(8000, Math.floor(intervalMs * 0.5)))
-})
-
 export type SiteLiveResponse = {
   activeUsers: number
   impressionsLast5m: number

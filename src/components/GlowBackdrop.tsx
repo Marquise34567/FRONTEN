@@ -1,50 +1,28 @@
-import { motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState } from "react";
-
-type GlowBackdropProps = {
-  children: React.ReactNode;
-};
-
-const GlowBackdrop = ({ children }: GlowBackdropProps) => {
-  const prefersReducedMotion = useReducedMotion();
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
-
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const update = () => setIsMobile(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  const staticMode = prefersReducedMotion || isMobile;
-
+const GlowBackdrop = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#040607]">
-      <div className="pointer-events-none absolute inset-0 z-0 [contain:paint]" aria-hidden="true">
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,#040607_0%,#020304_100%)]" />
-
-        {staticMode ? (
-          <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(50%_55%_at_50%_0%,rgba(47,228,200,0.12),transparent_70%)]" />
-        ) : (
-          <>
-            <motion.div
-              className="absolute left-[10%] top-[10%] h-72 w-72 rounded-full opacity-[0.14] blur-[72px]"
-              style={{ background: "radial-gradient(circle, rgba(47,228,200,0.5) 0%, transparent 72%)" }}
-              animate={{ x: [0, 14, 0], y: [0, -12, 0], opacity: [0.11, 0.16, 0.11] }}
-              transition={{ duration: 14, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
-            />
-            <motion.div
-              className="absolute right-[14%] top-[20%] h-64 w-64 rounded-full opacity-[0.12] blur-[72px]"
-              style={{ background: "radial-gradient(circle, rgba(180,119,255,0.45) 0%, transparent 72%)" }}
-              animate={{ x: [0, -12, 0], y: [0, 10, 0], opacity: [0.09, 0.14, 0.09] }}
-              transition={{ duration: 16, ease: [0.4, 0, 0.2, 1], repeat: Infinity }}
-            />
-          </>
-        )}
+    <div className="relative min-h-screen bg-background overflow-hidden">
+      {/* Primary glow */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        aria-hidden="true"
+      >
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] rounded-full opacity-20 blur-[120px] animate-pulse-glow"
+          style={{ background: 'radial-gradient(circle, hsl(258 80% 60% / 0.6) 0%, hsl(220 90% 56% / 0.3) 50%, transparent 70%)' }}
+        />
+        <div className="absolute top-2/3 left-1/3 w-[400px] h-[400px] rounded-full opacity-10 blur-[100px]"
+          style={{ background: 'radial-gradient(circle, hsl(258 60% 50% / 0.5) 0%, transparent 70%)' }}
+        />
+        <div className="absolute top-1/4 right-1/4 w-[300px] h-[300px] rounded-full opacity-10 blur-[80px]"
+          style={{ background: 'radial-gradient(circle, hsl(220 90% 56% / 0.4) 0%, transparent 70%)' }}
+        />
       </div>
-
-      <div className="relative z-10 [contain:layout_paint_style]">{children}</div>
+      {/* Vignette */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{ background: 'radial-gradient(ellipse at center, transparent 50%, hsl(240 15% 5% / 0.8) 100%)' }}
+        aria-hidden="true"
+      />
+      <div className="relative z-10">{children}</div>
     </div>
   );
 };

@@ -2,61 +2,33 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Index from "./pages/Index";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Editor from "./pages/Editor";
+import JobDetail from "./pages/JobDetail";
+import Pricing from "./pages/Pricing";
+import Settings from "./pages/Settings";
+import NotFound from "./pages/NotFound";
+import BillingSuccess from "./pages/BillingSuccess";
+import ControlPanel from "./pages/ControlPanel";
+import ControlPanelAudience from "./pages/ControlPanelAudience";
+import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
+import ControlPanelBank from "./pages/ControlPanelBank";
+import ControlPanelEmotion from "./pages/ControlPanelEmotion";
+import ControlPanelGrowth from "./pages/ControlPanelGrowth";
+import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
+import ControlPanelOps from "./pages/ControlPanelOps";
+import ControlPanelSecurity from "./pages/ControlPanelSecurity";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
-import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 import { apiFetch } from "@/lib/api";
-import { LiveStatsProvider } from "@/providers/LiveStatsProvider";
-import GlobalLiveBadge from "@/components/live/GlobalLiveBadge";
-import { useMe } from "@/hooks/use-me";
-import { isPaidTier, PLAN_CONFIG, type PlanTier } from "@/shared/planConfig";
-import { useThemeStore } from "@/stores/useThemeStore";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
-
-const Index = lazy(() => import("./pages/Index"));
-const Login = lazy(() => import("./pages/Login"));
-const Signup = lazy(() => import("./pages/Signup"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Editor = lazy(() => import("./pages/Editor"));
-const Analytics = lazy(() => import("./pages/Analytics"));
-const Jobs = lazy(() => import("./pages/Jobs"));
-const JobDetail = lazy(() => import("./pages/JobDetail"));
-const Pricing = lazy(() => import("./pages/Pricing"));
-const Settings = lazy(() => import("./pages/Settings"));
-const Feedback = lazy(() => import("./pages/Feedback"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const BillingSuccess = lazy(() => import("./pages/BillingSuccess"));
-const ControlPanel = lazy(() => import("./pages/ControlPanel"));
-const ControlPanelAudience = lazy(() => import("./pages/ControlPanelAudience"));
-const ControlPanelAlgorithm = lazy(() => import("./pages/ControlPanelAlgorithm"));
-const ControlPanelBank = lazy(() => import("./pages/ControlPanelBank"));
-const ControlPanelEmotion = lazy(() => import("./pages/ControlPanelEmotion"));
-const ControlPanelGrowth = lazy(() => import("./pages/ControlPanelGrowth"));
-const ControlPanelInfrastructure = lazy(() => import("./pages/ControlPanelInfrastructure"));
-const ControlPanelOps = lazy(() => import("./pages/ControlPanelOps"));
-const ControlPanelSecurity = lazy(() => import("./pages/ControlPanelSecurity"));
-const ControlPanelBlacksite = lazy(() => import("./pages/ControlPanelBlacksite"));
-
-const RouteLoader = () => (
-  <div className="min-h-screen bg-[#0f1117] text-slate-100">
-    <div className="mx-auto flex min-h-screen w-full max-w-[1200px] items-center justify-center px-4">
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-500/35 border-t-slate-100" />
-    </div>
-  </div>
-);
+const queryClient = new QueryClient();
 
 const ClientErrorReporter = () => {
   const { accessToken } = useAuth();
@@ -113,46 +85,8 @@ const ClientErrorReporter = () => {
   return null;
 };
 
-const RequirePaid = ({ children }: { children: ReactNode }) => {
-  const { data: me, isLoading } = useMe();
-  const rawTier = (me?.subscription?.tier as string | undefined) || "free";
-  const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
-  const isDevAccount = Boolean(me?.flags?.dev);
-  if (isLoading) return null;
-  if (!isDevAccount && !isPaidTier(tier)) {
-    return <Navigate to="/pricing" replace />;
-  }
-  return <>{children}</>;
-};
-
-const LIVE_STATS_EXACT_ROUTES = new Set(["/control-panel", "/x-quantum-control-9"]);
-const LIVE_STATS_PREFIX_ROUTES = ["/dev/control-panel", "/__control-panel"];
-
-const shouldEnableLiveStatsForPath = (pathname: string) => {
-  if (LIVE_STATS_EXACT_ROUTES.has(pathname)) return true;
-  return LIVE_STATS_PREFIX_ROUTES.some((prefix) => pathname.startsWith(prefix));
-};
-
-const LiveStatsRouteBoundary = ({ children }: { children: ReactNode }) => {
-  const location = useLocation();
-  if (!shouldEnableLiveStatsForPath(location.pathname)) {
-    return <>{children}</>;
-  }
-  return (
-    <LiveStatsProvider>
-      {children}
-      <GlobalLiveBadge />
-    </LiveStatsProvider>
-  );
-};
-
 const App = () => {
   useScreenProfile();
-  const hydrateTheme = useThemeStore((state) => state.hydrate);
-
-  useEffect(() => {
-    hydrateTheme();
-  }, [hydrateTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -162,250 +96,176 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <LiveStatsRouteBoundary>
-              <Suspense fallback={<RouteLoader />}>
-                <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                <Route path="/pricing" element={<Pricing />} />
-                <Route path="/billing/success" element={<BillingSuccess />} />
-                <Route
-                  path="/app"
-                  element={
-                    <RequireAuth>
-                      <Navigate to="/dashboard" replace />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <RequireAuth>
-                      <Dashboard />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dashed-board"
-                  element={
-                    <RequireAuth>
-                      <Navigate to="/dashboard" replace />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/editor"
-                  element={
-                    <RequireAuth>
-                      <Editor />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/editor/vertical"
-                  element={
-                    <RequireAuth>
-                      <Editor verticalModeExperience />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/vibecut"
-                  element={
-                    <RequireAuth>
-                      <Navigate to="/editor" replace />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/analytics"
-                  element={
-                    <RequireAuth>
-                      <RequirePaid>
-                        <Analytics />
-                      </RequirePaid>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/feedback"
-                  element={
-                    <RequireAuth>
-                      <RequirePaid>
-                        <Feedback />
-                      </RequirePaid>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/app/job/:id"
-                  element={
-                    <RequireAuth>
-                      <JobDetail />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/settings"
-                  element={
-                    <RequireAuth>
-                      <Settings />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/jobs"
-                  element={
-                    <RequireAuth>
-                      <Jobs />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <Navigate to="/dev/control-panel/overview" replace />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                  <Route
-                    path="/control-panel"
-                    element={
-                      <RequireAuth>
-                        <RequireDevAdmin>
-                          <ControlPanel />
-                        </RequireDevAdmin>
-                      </RequireAuth>
-                    }
-                  />
-                <Route
-                  path="/__control-panel"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <Navigate to="/dev/control-panel/overview" replace />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/overview"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanel />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/emotion"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelEmotion />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/audience"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelAudience />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/growth"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelGrowth />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/infrastructure"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelInfrastructure />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/security"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelSecurity />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/algorithm"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelAlgorithm />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/bank"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelBank />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/ops"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelOps />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dev/control-panel/blacksite"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelBlacksite />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/x-quantum-control-9"
-                  element={
-                    <RequireAuth>
-                      <RequireDevAdmin>
-                        <ControlPanelBlacksite />
-                      </RequireDevAdmin>
-                    </RequireAuth>
-                  }
-                />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
-            </LiveStatsRouteBoundary>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/billing/success" element={<BillingSuccess />} />
+              <Route
+                path="/app"
+                element={
+                  <RequireAuth>
+                    <Navigate to="/editor" replace />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/editor"
+                element={
+                  <RequireAuth>
+                    <Editor />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/job/:id"
+                element={
+                  <RequireAuth>
+                    <JobDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <Settings />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/__control-panel"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/overview"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanel />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/emotion"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelEmotion />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/audience"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelAudience />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/growth"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelGrowth />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/infrastructure"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelInfrastructure />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/security"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelSecurity />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/algorithm"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelAlgorithm />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/bank"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelBank />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/ops"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelOps />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/x-quantum-control-9"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <Navigate to="/dev/control-panel/overview" replace />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

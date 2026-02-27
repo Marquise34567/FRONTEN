@@ -21,8 +21,6 @@ import { apiFetch } from "@/lib/api"
 import {
   chartTick,
   CommandCenterResponse,
-  CONTROL_PANEL_QUERY_KEYS,
-  controlPanelLiveQueryOptions,
   EmptyStateNote,
   formatMoney,
   formatShortTime,
@@ -34,17 +32,17 @@ const ControlPanelInfrastructure = () => {
   const canLoad = Boolean(accessToken)
 
   const commandCenterQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.commandCenter,
+    queryKey: ["control-panel-infrastructure-command-center"],
     queryFn: () => apiFetch<CommandCenterResponse>("/api/admin/command-center", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(15000)
+    refetchInterval: 20000
   })
 
   const healthQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.healthStatus,
+    queryKey: ["control-panel-infrastructure-health-status"],
     queryFn: () => apiFetch<HealthStatusResponse>("/api/admin/health-status", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(20000)
+    refetchInterval: 25000
   })
 
   const renderInfra = commandCenterQuery.data?.renderInfrastructureMonitor
@@ -54,7 +52,7 @@ const ControlPanelInfrastructure = () => {
   const health = healthQuery.data
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_80%_-10%,hsl(36_100%_55%/0.13),transparent_42%),radial-gradient(120%_120%_at_16%_14%,hsl(201_95%_58%/0.14),transparent_46%),linear-gradient(180deg,hsl(210_30%_9%)_0%,hsl(223_34%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

@@ -1,219 +1,338 @@
 import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  BrainCircuit,
-  Captions,
-  CheckCircle2,
-  Gauge,
-  Sparkles,
-  Upload,
-  Volume2,
-  Waves,
-  Youtube,
-} from "lucide-react";
+import GlowBackdrop from "@/components/GlowBackdrop";
+import Navbar from "@/components/Navbar";
+import { Progress } from "@/components/ui/progress";
+import PricingCards from "@/components/PricingCards";
 import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload } from "lucide-react";
 
-import LandingDemoVideo from "@/components/landing/LandingDemoVideo";
-import GoldAccentButton from "@/components/premium/GoldAccentButton";
-
-const keyMetrics = [
-  { label: "Hook Win Rate", value: "+31%" },
-  { label: "Edit Throughput", value: "4.3x" },
-  { label: "Revision Cycles", value: "-52%" },
-];
-
-const workflowSignals = [
+const demoSteps = [
   {
-    title: "Retention Scan",
-    detail: "Frame-level drop risk mapping with AI hook confidence overlays.",
-    icon: Waves,
+    title: "Upload footage",
+    detail: "Drag your raw recording into the editor.",
+    cue: "Raw clip imported",
+    progress: 18,
+    icon: Upload,
   },
   {
-    title: "Pacing Engine",
-    detail: "Auto cadence shaping to remove passive segments before they hurt watch-time.",
+    title: "Choose format",
+    detail: "Switch to vertical or landscape output instantly.",
+    cue: "9:16 vertical preset selected",
+    progress: 42,
     icon: Gauge,
   },
   {
-    title: "Caption Intelligence",
-    detail: "Keyword-highlighted animated captions tuned for short-form retention.",
-    icon: Captions,
+    title: "Run AI auto-cut",
+    detail: "It removes dead air and weak retention moments.",
+    cue: "12 low-retention segments removed",
+    progress: 74,
+    icon: ScissorsSquare,
   },
   {
-    title: "Studio Audio",
-    detail: "Voice cleanup, leveling, and enhancement with one-click presets.",
-    icon: Volume2,
+    title: "Export final",
+    detail: "Render and publish-ready captions are generated.",
+    cue: "Final cut ready to publish",
+    progress: 100,
+    icon: CheckCircle2,
   },
-];
+] as const;
 
-const testimonials = [
-  {
-    quote: "We now ship three times faster and retention lifts are visible in every export.",
-    source: "Creator Team, Viral Shorts Network",
-  },
-  {
-    quote: "The hook scanner catches weak intros before we publish.",
-    source: "Solo Creator, 2.4M followers",
-  },
-  {
-    quote: "Our team finally edits with one retention language across TikTok, Reels, and Shorts.",
-    source: "Studio Lead, ClipScale",
-  },
-];
+const Index = () => {
+  const [activeDemoStep, setActiveDemoStep] = useState(0);
 
-export default function Index() {
+  const proofCards = [
+    {
+      icon: Sparkles,
+      title: "Hook-first AI edits",
+      stat: "3x faster rough cuts",
+      detail: "Auto-detects dead air and keeps openings high-retention.",
+    },
+    {
+      icon: ScissorsSquare,
+      title: "Creator-grade templates",
+      stat: "1-click style packs",
+      detail: "Apply pacing, captions, and framing tuned for short-form feeds.",
+    },
+    {
+      icon: Gauge,
+      title: "Scale with your plan",
+      stat: "From free to studio",
+      detail: "Upgrade as your publishing frequency and rendering volume increase.",
+    },
+  ];
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setActiveDemoStep((current) => (current + 1) % demoSteps.length);
+    }, 2200);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const activeDemo = demoSteps[activeDemoStep];
+
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-[var(--ae-bg)] text-[var(--ae-text-primary)]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_55%_at_8%_0%,rgba(52,240,208,0.18),transparent_68%),radial-gradient(55%_45%_at_88%_10%,rgba(180,119,255,0.2),transparent_72%)]" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.03)_0%,transparent_24%,transparent_76%,rgba(255,255,255,0.03)_100%)]" />
-
-      <header className="sticky top-0 z-40 border-b border-cyan-200/10 bg-[color:color-mix(in_srgb,var(--ae-shell)_84%,black_36%)] backdrop-blur-2xl">
-        <div className="mx-auto flex w-full max-w-[1240px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          <Link to="/" className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
-            <span>AutoEditor</span>
-            <span className="rounded-full border border-cyan-200/30 bg-cyan-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
-              BETA
-            </span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/pricing"
-              className="hidden rounded-full border border-cyan-200/20 bg-white/[0.02] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-200/40 md:inline-flex"
-            >
-              Pricing
-            </Link>
-            <Link
-              to="/login"
-              className="hidden rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-200/40 md:inline-flex"
-            >
-              Sign In
-            </Link>
-            <GoldAccentButton asChild size="sm">
-              <Link to="/signup">Sign Up</Link>
-            </GoldAccentButton>
-          </div>
-        </div>
-      </header>
-
-      <main className="relative mx-auto w-full max-w-[1240px] px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-        <section className="landing-premium-hero rounded-[2rem] border border-cyan-200/20 px-5 py-10 md:px-8 md:py-12">
+    <GlowBackdrop>
+      <Navbar />
+      <main className="responsive-main min-h-screen px-4 pt-24 pb-24">
+        <div className="mx-auto flex w-full max-w-6xl flex-col items-center">
+          {/* Hero */}
           <motion.div
-            initial={{ opacity: 0, y: 18 }}
+            className="mx-auto flex w-full max-w-3xl flex-col items-center text-center"
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="mx-auto max-w-4xl text-center"
+            transition={{ duration: 0.7, ease: "easeOut" }}
           >
-            <p className="inline-flex items-center gap-2 rounded-full border border-cyan-200/30 bg-cyan-400/10 px-4 py-1 text-[11px] uppercase tracking-[0.18em] text-cyan-100">
-              <Sparkles className="h-3.5 w-3.5" />
-              Retention-First Editing
-            </p>
-            <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-7xl">
-              #1 AI Video Editor Built To Keep People Watching
-            </h1>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
-              1 Upload -&gt; High-Retention Clips with Perfect Hooks. Tune pacing, captions, reframing, and audio in one
-              automation-first workspace.
-            </p>
+            <motion.div
+              className="pill-badge mb-8"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              PREMIUM AI AUTO-EDITOR
+            </motion.div>
 
-            <div className="landing-premium-panel mx-auto mt-8 max-w-3xl rounded-[1.6rem] p-5">
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <div className="rounded-2xl border border-cyan-200/20 bg-black/35 px-4 py-3 text-left">
-                  <p className="text-xs uppercase tracking-[0.16em] text-cyan-100">Upload footage or paste link</p>
-                  <p className="mt-1 text-sm text-slate-300">Drag MP4 / MOV or drop a YouTube URL to run retention scan.</p>
-                </div>
-                <GoldAccentButton className="w-full sm:w-auto" icon={<Upload className="h-4 w-4" />}>
-                  Try BETA Free
-                </GoldAccentButton>
-              </div>
+            <motion.h1
+              className="mb-6 text-4xl font-bold font-display leading-[1.1] tracking-tight text-foreground sm:text-6xl lg:text-7xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.7 }}
+            >
+              Retention Is King — We Built the Tools to Rule It
+            </motion.h1>
 
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                {keyMetrics.map((metric) => (
-                  <div key={metric.label} className="landing-signal-tile rounded-xl px-3 py-2 text-left">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{metric.label}</p>
-                    <p className="mt-1 text-lg font-semibold text-cyan-100">{metric.value}</p>
+            <motion.p
+              className="mb-10 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 0.6 }}
+            >
+              Upload your raw footage and let AI detect hooks, cut boring parts, match pacing to your niche, and render a polished final cut automatically.
+            </motion.p>
+
+            <motion.div
+              className="flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row sm:gap-4"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.65, duration: 0.6 }}
+            >
+              <Link to="/editor" className="w-full sm:w-auto">
+                <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto">
+                  Get Started Free
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+              <Link to="/pricing" className="w-full sm:w-auto">
+                <Button variant="ghost" size="lg" className="w-full rounded-full px-8 text-muted-foreground hover:text-foreground sm:w-auto">
+                  View Pricing
+                </Button>
+              </Link>
+              <Link to="/editor?mode=vertical" className="w-full sm:w-auto">
+                <Button variant="outline" size="lg" className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
+                  <ScissorsSquare className="w-4 h-4" />
+                  Vertical Mode
+                </Button>
+              </Link>
+            </motion.div>
+          </motion.div>
+
+          {/* Demo Card */}
+          <motion.div
+            className="mt-20 w-full max-w-4xl"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.8, duration: 0.8, ease: "easeOut" }}
+          >
+            <div className="glass-card p-6 sm:p-7">
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20">
+                    <Sparkles className="w-4 h-4 text-primary" />
                   </div>
-                ))}
+                  <span className="font-display font-semibold text-foreground">How It Works</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                  <span className="text-xs text-muted-foreground">Live walkthrough</span>
+                </div>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-2">
+                  {demoSteps.map((step, index) => {
+                    const Icon = step.icon;
+                    const isActive = index === activeDemoStep;
+                    const isCompleted = index < activeDemoStep;
+
+                    return (
+                      <motion.div
+                        key={step.title}
+                        initial={false}
+                        animate={{
+                          borderColor: isActive ? "hsl(var(--primary) / 0.55)" : "hsl(var(--border) / 0.5)",
+                          backgroundColor: isActive ? "hsl(var(--primary) / 0.12)" : "hsl(var(--card) / 0.35)",
+                        }}
+                        transition={{ duration: 0.35, ease: "easeOut" }}
+                        className="rounded-xl border p-3"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-background/75 text-xs font-semibold text-muted-foreground">
+                            {isCompleted ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : index + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Icon className={`h-3.5 w-3.5 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                              <p className={`text-sm font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                                {step.title}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl border border-border/60 bg-background/50 p-4">
+                  <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Editor timeline</span>
+                    <span>{activeDemo.progress}%</span>
+                  </div>
+
+                  <div className="relative mb-3 h-20 overflow-hidden rounded-lg border border-border/50 bg-background/80 p-3">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-primary/8 transition-all duration-700 ease-out"
+                      style={{ width: `${activeDemo.progress}%` }}
+                    />
+                    <div className="relative grid h-full grid-cols-12 gap-1">
+                      {Array.from({ length: 12 }).map((_, index) => {
+                        const threshold = Math.round((activeDemo.progress / 100) * 12);
+                        const isFilled = index < threshold;
+
+                        return (
+                          <div
+                            key={`segment-${index}`}
+                            className={`rounded-sm transition-colors duration-500 ${
+                              isFilled ? "bg-primary/65" : "bg-muted/70"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <motion.div
+                      className="absolute bottom-2 top-2 w-[2px] bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.85)]"
+                      animate={{ left: `calc(${Math.min(activeDemo.progress, 98)}% - 1px)` }}
+                      transition={{ duration: 0.7, ease: "easeInOut" }}
+                    />
+                  </div>
+
+                  <Progress value={activeDemo.progress} className="h-2 bg-muted [&>div]:bg-primary" />
+                  <motion.p
+                    key={activeDemo.cue}
+                    className="mt-3 text-xs text-muted-foreground"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    {activeDemo.cue}
+                  </motion.p>
+                </div>
+              </div>
+
+              <p className="mt-4 text-xs text-muted-foreground">
+                This loop mirrors the same flow inside the editor, from raw upload to export.
+              </p>
             </div>
           </motion.div>
-        </section>
 
-        <section className="mt-10 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="landing-premium-panel rounded-[1.6rem] p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xl font-semibold text-white">Live Retention Scan Demo</h2>
-              <span className="rounded-full border border-cyan-200/30 bg-cyan-400/10 px-3 py-1 text-[11px] uppercase tracking-[0.14em] text-cyan-100">
-                Hook Win Rate +31%
-              </span>
-            </div>
-            <p className="mt-2 text-sm text-slate-300">
-              Keep People Watching with AI decisions explained in real-time. Watch hook candidates, waveform pacing,
-              and retention hotspots update live.
-            </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {workflowSignals.map((signal) => (
-                <div key={signal.title} className="rounded-2xl border border-cyan-200/14 bg-black/35 px-3 py-3">
-                  <p className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-100">
-                    <signal.icon className="h-4 w-4" />
-                    {signal.title}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">{signal.detail}</p>
-                </div>
+          {/* Pricing Preview */}
+          <motion.section
+            className="mt-24 w-full"
+            initial={{ opacity: 0, y: 28 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          >
+            <motion.div
+              className="mx-auto mb-10 max-w-3xl text-center"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="pill-badge mb-4">
+                <Sparkles className="w-3.5 h-3.5" />
+                SUBSCRIPTION PLANS
+              </div>
+              <h2 className="text-3xl font-bold font-display text-foreground sm:text-4xl">
+                Pricing That Grows With Your Output
+              </h2>
+              <p className="mt-3 text-sm text-muted-foreground sm:text-base">
+                Start free, then move to higher quality, higher volume, and priority queue access as your channel scales.
+              </p>
+            </motion.div>
+
+            <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+              {proofCards.map((item, index) => (
+                <motion.div
+                  key={item.title}
+                  className="glass-card-hover p-4"
+                  initial={{ opacity: 0, y: 14 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.35 }}
+                  transition={{ delay: index * 0.08, duration: 0.45 }}
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20">
+                      <item.icon className="h-4 w-4 text-primary" />
+                    </span>
+                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{item.stat}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
+                </motion.div>
               ))}
             </div>
-          </div>
-          <LandingDemoVideo />
-        </section>
 
-        <section className="mt-10 grid gap-3 md:grid-cols-3">
-          {testimonials.map((item) => (
-            <article key={item.source} className="landing-premium-panel rounded-3xl p-5">
-              <p className="text-sm text-slate-100">"{item.quote}"</p>
-              <p className="mt-3 inline-flex items-center gap-2 text-xs text-cyan-100">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {item.source}
-              </p>
-            </article>
-          ))}
-        </section>
+            <PricingCards
+              isAuthenticated={false}
+              loading={false}
+              onCheckout={() => undefined}
+              onPortal={() => undefined}
+              actionTier={null}
+              actionKind={null}
+              billingInterval="monthly"
+              founderSlotsRemaining={0}
+            />
 
-        <section className="mt-10 rounded-[1.8rem] border border-cyan-200/20 bg-[linear-gradient(130deg,rgba(8,16,24,0.92),rgba(14,12,29,0.86))] p-7 text-center">
-          <p className="inline-flex items-center gap-2 rounded-full border border-cyan-200/30 bg-cyan-400/10 px-3 py-1 text-[11px] uppercase tracking-[0.14em] text-cyan-100">
-            <BrainCircuit className="h-3.5 w-3.5" />
-            Used by creators for viral shorts
-          </p>
-          <h3 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">Keep People Watching, Automatically</h3>
-          <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-300">
-            Build high-retention clips faster with one-click AI editing for hooks, pacing, captions, and studio-quality
-            audio enhancement.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <GoldAccentButton asChild size="lg" icon={<ArrowRight className="h-4 w-4" />}>
-              <Link to="/editor">Open Retention Studio</Link>
-            </GoldAccentButton>
-            <Link
-              to="/pricing"
-              className="inline-flex items-center justify-center rounded-full border border-cyan-200/30 bg-white/[0.02] px-5 py-3 text-sm text-slate-100 transition hover:border-cyan-200/55"
+            <motion.div
+              className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.5 }}
+              transition={{ duration: 0.45 }}
             >
-              View Plans
-            </Link>
-          </div>
-
-          <div className="mt-7 flex items-center justify-center gap-3 text-xs text-slate-400">
-            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
-              <Youtube className="h-3.5 w-3.5 text-red-300" />
-              YouTube
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
-              <span className="h-3.5 w-3.5 rounded bg-white/20" />
-              TikTok
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5">
-              <span className="h-3.5 w-3.5 rounded bg-white/20" />
-              Instagram
-            </span>
-          </div>
-        </section>
+              <Link to="/pricing" className="w-full sm:w-auto">
+                <Button variant="ghost" size="lg" className="w-full rounded-full px-8 text-muted-foreground hover:text-foreground sm:w-auto">
+                  Compare Full Plans
+                </Button>
+              </Link>
+              <Link to="/signup" className="w-full sm:w-auto">
+                <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground hover:bg-primary/90 sm:w-auto">
+                  Start Free
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </motion.div>
+          </motion.section>
+        </div>
       </main>
-    </div>
+    </GlowBackdrop>
   );
-}
+};
+
+export default Index;

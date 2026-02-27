@@ -9,12 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
-import {
-  CONTROL_PANEL_QUERY_KEYS,
-  controlPanelLiveQueryOptions,
-  EmptyStateNote,
-  formatShortTime
-} from "./control-panel/shared"
+import { EmptyStateNote, formatShortTime } from "./control-panel/shared"
 
 type FeatureLabControls = {
   hookLogicMode: "stable" | "experimental"
@@ -90,10 +85,10 @@ const ControlPanelEmotion = () => {
   const lastPushedFingerprint = useRef<string>("")
 
   const controlsQuery = useQuery({
-    queryKey: CONTROL_PANEL_QUERY_KEYS.featureLab,
+    queryKey: ["control-panel-emotion-controls"],
     queryFn: () => apiFetch<FeatureLabResponse>("/api/admin/feature-lab", { token: accessToken || "" }),
     enabled: canLoad,
-    ...controlPanelLiveQueryOptions(8000)
+    refetchInterval: 8000
   })
 
   useEffect(() => {
@@ -177,7 +172,7 @@ const ControlPanelEmotion = () => {
     emotionPower >= 75 ? "hsl(351 98% 63%)" : emotionPower >= 50 ? "hsl(34 96% 58%)" : "hsl(193 92% 58%)"
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(125%_120%_at_12%_8%,hsl(344_92%_60%/0.2),transparent_44%),radial-gradient(120%_120%_at_84%_20%,hsl(25_98%_58%/0.18),transparent_40%),linear-gradient(180deg,hsl(234_40%_8%)_0%,hsl(238_46%_5%)_100%)]">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

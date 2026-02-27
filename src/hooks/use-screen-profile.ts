@@ -74,8 +74,7 @@ const buildScreenProfile = (): ScreenProfile => {
   const ratio = width / Math.max(1, height);
   const coarsePointer = hasCoarsePointer();
   const touchSignal = coarsePointer || hasTouchPoints();
-  // Only treat the layout as mobile at mobile viewport widths.
-  const mobileSignal = innerWidth <= MOBILE_MAX_WIDTH;
+  const mobileSignal = innerWidth <= MOBILE_MAX_WIDTH || touchSignal;
   const orientation: ScreenOrientation = width >= height ? "landscape" : "portrait";
   return {
     width,
@@ -119,14 +118,14 @@ const clearScreenProfileFromDocument = () => {
 };
 
 export const useScreenProfile = () => {
-  const profileRef = React.useRef<ScreenProfile>(buildScreenProfile());
+  const [profile, setProfile] = React.useState<ScreenProfile>(() => buildScreenProfile());
 
   React.useEffect(() => {
     let frame = 0;
     const sync = () => {
       const next = buildScreenProfile();
-      profileRef.current = next;
       applyScreenProfileToDocument(next);
+      setProfile(next);
     };
 
     const onResize = () => {
@@ -151,5 +150,5 @@ export const useScreenProfile = () => {
     };
   }, []);
 
-  return profileRef.current;
+  return profile;
 };

@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -95,7 +95,7 @@ type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
-type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
+type EditorSettingsSection = "format" | "vibe" | "cuts";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
 type OutcomeAutomationProfile = {
@@ -173,10 +173,9 @@ const RETENTION_PROFILE_HINTS: Record<RetentionStrategyProfile, string> = {
 };
 const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
 const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
-  { key: "format", label: "Format & Platform" },
-  { key: "vibe", label: "Vibe & Style" },
-  { key: "cuts", label: "Cuts & Pacing" },
-  { key: "captions", label: "Captions & Audio" },
+  { key: "format", label: "Format" },
+  { key: "vibe", label: "Style" },
+  { key: "cuts", label: "Cuts" },
 ];
 const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
   { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
@@ -652,7 +651,7 @@ const Editor = () => {
   const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
   const [tangentKiller, setTangentKiller] = useState(false);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
-  const [hideJobsPanel, setHideJobsPanel] = useState(false);
+  const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
@@ -670,6 +669,8 @@ const Editor = () => {
   const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
+  const [showSavedAnimation, setShowSavedAnimation] = useState(false);
+  const prevSavingSubtitleRef = useRef<boolean>(savingSubtitleStyle);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [analyzeUnlockedByJob, setAnalyzeUnlockedByJob] = useState<Record<string, boolean>>({});
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
@@ -944,6 +945,16 @@ const Editor = () => {
       setSavingSubtitleStyle(false);
     }
   }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform]);
+
+  useEffect(() => {
+    // Show a brief green check animation when a save completes
+    if (prevSavingSubtitleRef.current && !savingSubtitleStyle && !subtitleStyleDirty) {
+      setShowSavedAnimation(true);
+      const id = window.setTimeout(() => setShowSavedAnimation(false), 1400);
+      return () => window.clearTimeout(id);
+    }
+    prevSavingSubtitleRef.current = savingSubtitleStyle;
+  }, [savingSubtitleStyle, subtitleStyleDirty]);
 
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
@@ -3855,6 +3866,46 @@ const Editor = () => {
     handlePickFile();
   };
 
+  const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
+    menuTouchedRef.current.strategy = true;
+    menuTouchedRef.current.targetPlatform = true;
+    menuTouchedRef.current.editorMode = true;
+
+    if (preset === "simple") {
+      setRenderMode("horizontal");
+      setRetentionStrategyProfile("safe");
+      setRetentionTargetPlatform("youtube");
+      setEditorMode("auto");
+      setMaxCutsRequested(6);
+    } else if (preset === "balanced") {
+      setRenderMode("horizontal");
+      setRetentionStrategyProfile("balanced");
+      setRetentionTargetPlatform("instagram_reels");
+      setEditorMode("auto");
+      setMaxCutsRequested(8);
+    } else {
+      setRenderMode("vertical");
+      setRetentionStrategyProfile("viral");
+      setRetentionTargetPlatform("tiktok");
+      setEditorMode("reaction");
+      setMaxCutsRequested(12);
+    }
+
+    if (!autoCaptionsEnabled) {
+      setAutoCaptionsEnabled(true);
+      setSubtitleStyleDirty(true);
+    }
+
+    trackEditorEvent("quick_setup_preset_applied", {
+      retentionProfile: preset === "simple" ? "safe" : preset === "balanced" ? "balanced" : "viral",
+      targetPlatform: preset === "simple" ? "youtube" : preset === "balanced" ? "instagram_reels" : "tiktok",
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        preset,
+      },
+    });
+  };
+
   const sectionPillClass = (active: boolean) =>
     `editor-settings-pill min-h-12 rounded-xl border px-3 py-2 text-left text-sm font-medium transition-all md:min-h-[46px] ${
       active
@@ -3880,7 +3931,10 @@ const Editor = () => {
                 setRenderMode("horizontal");
               }}
             >
-              Horizontal
+              <div className="flex flex-col items-center">
+                <Monitor className="h-5 w-5" aria-hidden />
+                <span className="text-[11px] mt-1">Horizontal</span>
+              </div>
             </button>
             <button
               type="button"
@@ -3895,7 +3949,10 @@ const Editor = () => {
                 setRenderMode("vertical");
               }}
             >
-              Vertical
+              <div className="flex flex-col items-center">
+                <Smartphone className="h-5 w-5" aria-hidden />
+                <span className="text-[11px] mt-1">Vertical</span>
+              </div>
             </button>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -3919,7 +3976,16 @@ const Editor = () => {
                     }}
                     aria-label={`Target platform ${platform.label}`}
                   >
-                    {platform.label}
+                    <div className="flex flex-col items-center">
+                      {platform.value === "youtube" ? (
+                        <Monitor className="h-5 w-5" aria-hidden />
+                      ) : platform.value === "instagram_reels" ? (
+                        <Camera className="h-5 w-5" aria-hidden />
+                      ) : (
+                        <Music className="h-5 w-5" aria-hidden />
+                      )}
+                      <span className="text-[11px] mt-1">{platform.label}</span>
+                    </div>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{PLATFORM_HELP_TEXT[platform.value]}</TooltipContent>
@@ -3966,12 +4032,12 @@ const Editor = () => {
               }}
             />
             <div className="mt-2 grid grid-cols-3 gap-2">
-              {RETENTION_PROFILE_OPTIONS.map((profile) => (
+                      {RETENTION_PROFILE_OPTIONS.map((profile) => (
                 <Tooltip key={profile.value}>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className={sectionPillClass(retentionStrategyProfile === profile.value)}
+                              className={sectionPillClass(retentionStrategyProfile === profile.value)}
                       onClick={() => {
                         menuTouchedRef.current.strategy = true;
                         trackEditorEvent("retention_profile_selected", {
@@ -3984,8 +4050,18 @@ const Editor = () => {
                         });
                         setRetentionStrategyProfile(profile.value);
                       }}
+                              aria-label={profile.label}
                     >
-                      {profile.label}
+                              <div className="flex flex-col items-center">
+                                {profile.value === "safe" ? (
+                                  <ShieldCheck className="h-5 w-5" aria-hidden />
+                                ) : profile.value === "balanced" ? (
+                                  <Gauge className="h-5 w-5" aria-hidden />
+                                ) : (
+                                  <Zap className="h-5 w-5" aria-hidden />
+                                )}
+                                <span className="text-[11px] mt-1">{profile.label}</span>
+                              </div>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>{RETENTION_PROFILE_HINTS[profile.value]}</TooltipContent>
@@ -4013,8 +4089,16 @@ const Editor = () => {
                         });
                         setEditorMode(mode.value);
                       }}
+                      aria-label={mode.label}
                     >
-                      {mode.label}
+                      <div className="flex flex-col items-center">
+                        {mode.value === "auto" ? (
+                          <Wand2 className="h-5 w-5" aria-hidden />
+                        ) : (
+                          <MousePointerClick className="h-5 w-5" aria-hidden />
+                        )}
+                        <span className="text-[11px] mt-1">{mode.label}</span>
+                      </div>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>{mode.description}</TooltipContent>
@@ -4056,7 +4140,7 @@ const Editor = () => {
           <Accordion type="single" collapsible className="rounded-xl border border-border/50 bg-muted/15 px-3">
             <AccordionItem value="more-options" className="border-0">
               <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
-                More Options
+                Advanced
               </AccordionTrigger>
               <AccordionContent className="pb-3">
                 <div className="space-y-4">
@@ -4075,8 +4159,18 @@ const Editor = () => {
                             setLongFormClarityVsSpeed(defaults.clarityVsSpeed);
                             setTangentKiller(defaults.tangentKiller);
                           }}
+                          aria-label={preset.label}
                         >
-                          {preset.label}
+                          <div className="flex flex-col items-center">
+                            {preset.value === "short" ? (
+                              <Clock className="h-5 w-5" aria-hidden />
+                            ) : preset.value === "balanced" ? (
+                              <Gauge className="h-5 w-5" aria-hidden />
+                            ) : (
+                              <Zap className="h-5 w-5" aria-hidden />
+                            )}
+                            <span className="text-[11px] mt-1">{preset.label}</span>
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -4122,23 +4216,36 @@ const Editor = () => {
                       type="button"
                       className={sectionPillClass(tangentKiller)}
                       onClick={() => setTangentKiller((prev) => !prev)}
+                      aria-pressed={tangentKiller}
+                      aria-label={`Tangent Killer ${tangentKiller ? "On" : "Off"}`}
                     >
-                      Tangent Killer {tangentKiller ? "On" : "Off"}
+                      <div className="flex flex-col items-center">
+                        <Zap className="h-5 w-5" aria-hidden />
+                        <span className="text-[11px] mt-1">Tangent Killer</span>
+                      </div>
                     </button>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
                         className={sectionPillClass(defaultHookSelectionMode === "auto")}
                         onClick={() => setDefaultHookSelectionMode("auto")}
+                        aria-label="Hook auto"
                       >
-                        Hook Auto
+                        <div className="flex flex-col items-center">
+                          <Wand2 className="h-5 w-5" aria-hidden />
+                          <span className="text-[11px] mt-1">Hook Auto</span>
+                        </div>
                       </button>
                       <button
                         type="button"
                         className={sectionPillClass(defaultHookSelectionMode === "manual")}
                         onClick={() => setDefaultHookSelectionMode("manual")}
+                        aria-label="Hook manual"
                       >
-                        Hook Manual
+                        <div className="flex flex-col items-center">
+                          <MousePointerClick className="h-5 w-5" aria-hidden />
+                          <span className="text-[11px] mt-1">Hook Manual</span>
+                        </div>
                       </button>
                     </div>
                   </div>
@@ -4199,7 +4306,7 @@ const Editor = () => {
         <Accordion type="single" collapsible className="rounded-xl border border-border/50 bg-muted/15 px-3">
           <AccordionItem value="caption-options" className="border-0">
             <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
-              More Options
+              Advanced
             </AccordionTrigger>
             <AccordionContent className="pb-3">
               <div className="space-y-3">
@@ -4287,14 +4394,22 @@ const Editor = () => {
 
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {subtitleStyleDirty ? <span className="text-xs text-amber-300">Unsaved caption changes</span> : <span />}
-                  <Button
-                    type="button"
-                    className="min-h-12 rounded-xl bg-primary text-white hover:bg-primary/90 md:min-h-10"
-                    onClick={() => void saveSubtitleStyle()}
-                    disabled={!subtitleStyleDirty || savingSubtitleStyle}
-                  >
-                    {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save Captions" : "Captions Saved"}
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      className="min-h-12 rounded-xl bg-primary text-white hover:bg-primary/90 md:min-h-10"
+                      onClick={() => void saveSubtitleStyle()}
+                      disabled={!subtitleStyleDirty || savingSubtitleStyle}
+                    >
+                      {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save Captions" : "Captions Saved"}
+                    </Button>
+                    {showSavedAnimation ? (
+                      <div className="relative flex items-center justify-center w-8 h-8">
+                        <span className="absolute inline-flex w-6 h-6 rounded-full bg-emerald-400/30 animate-ping" />
+                        <CheckCircle2 className="relative text-emerald-400 w-5 h-5" />
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </AccordionContent>
@@ -4472,20 +4587,51 @@ const Editor = () => {
                             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 1</p>
                             <p className="text-sm font-semibold text-foreground">Quick Setup</p>
                           </div>
-                          <Badge className="border-primary/35 bg-primary/10 text-primary">Fast Flow</Badge>
+                          <Badge className="border-primary/35 bg-primary/10 text-primary">Simple Mode</Badge>
                         </div>
                         <p className="mb-3 text-xs text-muted-foreground">
                           Choose format, vibe, cuts, and captions. Most creators can render from this section alone.
                         </p>
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
-                            <p className="text-xs text-muted-foreground">Format</p>
-                            <div className="grid grid-cols-2 gap-2">
-                              <button type="button" className={sectionPillClass(!isVerticalMode)} onClick={() => setRenderMode("horizontal")}>Horizontal</button>
-                              <button type="button" className={sectionPillClass(isVerticalMode)} onClick={() => setRenderMode("vertical")}>Vertical</button>
-                            </div>
+                        <div className="mb-3 space-y-1.5">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">One-tap presets</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <button
+                              type="button"
+                              className={sectionPillClass(!isVerticalMode && retentionStrategyProfile === "safe" && maxCutsRequested <= 6)}
+                              onClick={() => applyQuickSetupPreset("simple")}
+                              aria-label="Simple preset"
+                            >
+                              <div className="flex flex-col items-center">
+                                <CheckCircle2 className="h-5 w-5" aria-hidden />
+                                <span className="text-[11px] mt-1">Simple</span>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              className={sectionPillClass(!isVerticalMode && retentionStrategyProfile === "balanced" && maxCutsRequested >= 7 && maxCutsRequested <= 9)}
+                              onClick={() => applyQuickSetupPreset("balanced")}
+                              aria-label="Balanced preset"
+                            >
+                              <div className="flex flex-col items-center">
+                                <Gauge className="h-5 w-5" aria-hidden />
+                                <span className="text-[11px] mt-1">Balanced</span>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              className={sectionPillClass(isVerticalMode && retentionStrategyProfile === "viral" && maxCutsRequested >= 10)}
+                              onClick={() => applyQuickSetupPreset("viral")}
+                              aria-label="Viral preset"
+                            >
+                              <div className="flex flex-col items-center">
+                                <Flame className="h-5 w-5" aria-hidden />
+                                <span className="text-[11px] mt-1">Viral</span>
+                              </div>
+                            </button>
                           </div>
-                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 items-stretch">
+                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
                             <p className="text-xs text-muted-foreground">Vibe · {activeRetentionLabel}</p>
                             <Slider
                               min={0}
@@ -4500,7 +4646,7 @@ const Editor = () => {
                               }}
                             />
                           </div>
-                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
                             <p className="text-xs text-muted-foreground">Cuts · {maxCutsRequested}</p>
                             <Slider
                               min={MAX_CUTS_MIN}
@@ -4515,7 +4661,7 @@ const Editor = () => {
                               }}
                             />
                           </div>
-                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
                             <p className="text-xs text-muted-foreground">Captions · {autoCaptionsEnabled ? "On" : "Off"}</p>
                             <Button
                               type="button"
@@ -4531,8 +4677,13 @@ const Editor = () => {
                                 setSubtitleStyleDirty(true);
                               }}
                               disabled={captionsToggleDisabled}
+                              aria-pressed={autoCaptionsEnabled}
+                              aria-label={autoCaptionsEnabled ? "Captions enabled" : "Captions disabled"}
                             >
-                              {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                              <div className="flex items-center justify-center gap-2">
+                                {autoCaptionsEnabled ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : <X className="h-4 w-4" aria-hidden />}
+                                <span className="text-sm">{autoCaptionsEnabled ? "Captions On" : "Captions Off"}</span>
+                              </div>
                             </Button>
                           </div>
                         </div>
@@ -4557,7 +4708,7 @@ const Editor = () => {
                             className="min-h-12 rounded-xl bg-primary px-4 text-white hover:bg-primary/90 md:min-h-10"
                             onClick={applyPlatformRecommendation}
                           >
-                            Use Recommended Preset
+                            Auto Recommend
                           </Button>
                         </div>
                       </div>
@@ -4568,7 +4719,7 @@ const Editor = () => {
                             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
                             <p className="text-sm font-semibold text-foreground">Fine Tune (Optional)</p>
                           </div>
-                          <span className="text-[11px] text-muted-foreground">Advanced controls</span>
+                          <span className="text-[11px] text-muted-foreground">Optional details</span>
                         </div>
                         {mobilePipeline ? (
                           <Accordion

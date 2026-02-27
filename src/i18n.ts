@@ -29,8 +29,6 @@ void i18n
     defaultNS: "common",
     interpolation: { escapeValue: false },
     returnNull: false,
-    keySeparator: false,
-    nsSeparator: false,
     load: "languageOnly",
     detection: {
       order: ["localStorage", "navigator"],
@@ -49,3 +47,4 @@ i18n.on("languageChanged", (language) => {
 syncDocumentDirection(i18n.resolvedLanguage || i18n.language || DEFAULT_LANGUAGE);
 
 export default i18n;
+
