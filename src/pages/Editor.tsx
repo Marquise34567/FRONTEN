@@ -99,6 +99,7 @@ export default function Editor() {
   const { accessToken } = useAuth();
   const { toast } = useToast();
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [uploadingFileName, setUploadingFileName] = useState("");
 
   const {
     flowStep,
@@ -326,6 +327,7 @@ export default function Editor() {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
+    setUploadingFileName(file.name || "video");
     setUploadAnalyzing(true);
     setErrorMessage(null);
     setSuccessModalOpen(false);
@@ -476,10 +478,19 @@ export default function Editor() {
           </div>
 
           {isAnalyzingUpload ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <Skeleton className="h-16 rounded-2xl bg-white/5" />
-              <Skeleton className="h-16 rounded-2xl bg-white/5" />
-              <Skeleton className="h-16 rounded-2xl bg-white/5" />
+            <div className="mt-3 space-y-2">
+              <div className="rounded-2xl border border-purple-300/30 bg-purple-500/12 px-3 py-2">
+                <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-100">
+                  <Loader2 className="h-4 w-4 animate-spin text-purple-200" />
+                  Uploading {uploadingFileName}...
+                </p>
+                <p className="mt-1 text-xs text-slate-300">Auto mode detection will start as soon as upload completes.</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Skeleton className="h-16 rounded-2xl bg-white/5" />
+                <Skeleton className="h-16 rounded-2xl bg-white/5" />
+                <Skeleton className="h-16 rounded-2xl bg-white/5" />
+              </div>
             </div>
           ) : null}
 

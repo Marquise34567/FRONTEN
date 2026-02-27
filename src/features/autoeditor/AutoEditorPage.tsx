@@ -96,6 +96,7 @@ export default function AutoEditorPage() {
   const { toast } = useToast();
 
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [uploadingFileName, setUploadingFileName] = useState("");
 
   const {
     flowStep,
@@ -369,6 +370,7 @@ export default function AutoEditorPage() {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
+    setUploadingFileName(file.name || "video");
     setUploadAnalyzing(true);
     setErrorMessage(null);
     setSuccessModalOpen(false);
@@ -528,11 +530,20 @@ export default function AutoEditorPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="mt-4 grid gap-3 sm:grid-cols-3"
+                className="mt-4 space-y-3"
               >
-                <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
-                <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
-                <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
+                <div className="rounded-xl border border-[#d4b483]/35 bg-[#d4b483]/12 px-3 py-2">
+                  <p className="inline-flex items-center gap-2 text-sm font-medium text-[#fff4e7]">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#f6d8ac]" />
+                    Uploading {uploadingFileName}...
+                  </p>
+                  <p className="mt-1 text-xs text-[#d8c7b8]">Auto mode detection will start as soon as upload completes.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
+                  <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
+                  <Skeleton className="ae-skeleton h-20 rounded-xl bg-white/5" />
+                </div>
               </motion.div>
             ) : videoId ? (
               <motion.div
