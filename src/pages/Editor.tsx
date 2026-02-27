@@ -1,1609 +1,6061 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
-import {
-  CheckCircle2,
-  Clock3,
-  Download,
-  Eye,
-  History,
-  Loader2,
-  RefreshCcw,
-  ScissorsLineDashed,
-  Sparkles,
-  Upload,
-  Wand2,
-  Workflow,
-} from "lucide-react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-
-import AppShell from "@/components/premium/AppShell";
-import ExclusiveToggle from "@/components/premium/ExclusiveToggle";
-import MetallicProgress from "@/components/premium/MetallicProgress";
-import PremiumCard from "@/components/premium/PremiumCard";
-import PurpleAccentButton from "@/components/premium/PurpleAccentButton";
-import AccentPillToggle from "@/components/premium/AccentPillToggle";
-import SettingsCardGroup from "@/components/premium/SettingsCardGroup";
-import SliderWithPurpleThumb from "@/components/premium/SliderWithPurpleThumb";
-import VIPBadge from "@/components/premium/VIPBadge";
-import { Input } from "@/components/ui/input";
+import { motion } from "framer-motion";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import GlowBackdrop from "@/components/GlowBackdrop";
+import Navbar from "@/components/Navbar";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { API_URL, ApiError, apiFetch, resolveApiMediaUrl } from "@/lib/api";
+import { API_URL, apiFetch, ApiError } from "@/lib/api";
+import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
-import AutoModeBanner from "@/features/autoeditor/components/editor/AutoModeBanner";
-import ManualTimestampModal from "@/features/autoeditor/components/editor/ManualTimestampModal";
-import RecentJobsDrawer from "@/features/autoeditor/components/editor/RecentJobsDrawer";
-import RetentionInsights from "@/features/autoeditor/components/editor/RetentionInsights";
-import PostRenderModal from "@/features/autoeditor/components/editor/PostRenderModal";
-import StaggeredSettingsSections from "@/features/autoeditor/components/editor/StaggeredSettingsSections";
-import VerticalModeToolkit from "@/features/autoeditor/components/editor/VerticalModeToolkit";
-import { DEFAULT_PACING_VALUE, QUICK_CONTROL_CONFIG, RECENT_DRAWER_CONFIG, SECTION_REVEAL_ORDER } from "@/features/autoeditor/data/options";
-import { getRetentionScore } from "@/features/autoeditor/lib/retentionQuality";
-import { useAutoEditorStore } from "@/features/autoeditor/store/useAutoEditorStore";
-import type {
-  AutoEditorRenderPayload,
-  RetentionStrategyMode,
-  RenderJobResult,
-  RenderJobSummary,
-  RenderMode,
-  UploadAnalysisResponse,
-  ZoomEffect,
-} from "@/features/autoeditor/types";
+import { useMe } from "@/hooks/use-me";
+import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
+import {
+  MRBEAST_ANIMATION_OPTIONS,
+  MRBEAST_FONT_OPTIONS,
+  parseSubtitleStyleConfig,
+  serializeSubtitleStyleConfig,
+  type SubtitlePresetId,
+  type SubtitleStyleConfig,
+} from "@shared/subtitlePresets";
 
-const uploadAnalyze = async ({ file, token }: { file: File; token: string | null }): Promise<UploadAnalysisResponse> => {
-  const formData = new FormData();
-  formData.append("video", file);
-
-  const response = await fetch(`${API_URL || ""}/api/vibecut/upload/analyze`, {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-
-  const rawBody = await response.text().catch(() => "");
-  let data: any = {};
-  if (rawBody) {
-    try {
-      data = JSON.parse(rawBody);
-    } catch {
-      data = { message: rawBody.slice(0, 500) };
-    }
-  }
-
-  if (!response.ok) {
-    const message =
-      data?.message ||
-      (response.status ? `Upload analysis failed (HTTP ${response.status}).` : "Upload analysis failed.");
-    throw new ApiError(message, response.status, data?.error, data);
-  }
-  return data as UploadAnalysisResponse;
+const MB = 1024 * 1024;
+const LARGE_UPLOAD_THRESHOLD = 64 * MB;
+// Supabase storage removed — use R2 via backend pre-signed multipart URLs only
+const ALLOWED_UPLOAD_EXTENSIONS = [".mp4", ".m4v", ".mkv"];
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  "video/mp4",
+  "application/mp4",
+  "video/m4v",
+  "video/x-m4v",
+  "video/x-matroska",
+]);
+const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
+const isAllowedUploadFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  if (ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) return true;
+  const normalizedType = String(file.type || "").toLowerCase();
+  return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
 };
 
-const fetchRecentJobsApi = async (token: string): Promise<RenderJobSummary[]> => {
-  try {
-    const withJobsPath = await apiFetch<{ jobs: RenderJobSummary[] }>("/api/vibecut/jobs", { token });
-    if (Array.isArray(withJobsPath.jobs)) return withJobsPath.jobs;
-  } catch {
-    // fallback path below
-  }
-  const fallback = await apiFetch<{ jobs: RenderJobSummary[] }>("/api/vibecut", { token });
-  return Array.isArray(fallback.jobs) ? fallback.jobs : [];
+const chunkSizeForFile = (size: number) => {
+  if (size >= 2 * 1024 * MB) return 32 * MB;
+  if (size >= 1024 * MB) return 24 * MB;
+  if (size >= 512 * MB) return 16 * MB;
+  if (size >= 256 * MB) return 12 * MB;
+  return 8 * MB;
 };
 
-const fetchJobByIdApi = async (token: string, jobId: string): Promise<RenderJobResult> => {
-  try {
-    return await apiFetch<RenderJobResult>(`/api/vibecut/jobs/${jobId}`, { token });
-  } catch {
-    return await apiFetch<RenderJobResult>(`/api/vibecut/${jobId}`, { token });
-  }
+const uploadParallelismForFile = (size: number) => {
+  if (size >= 1024 * MB) return 4;
+  if (size >= 512 * MB) return 3;
+  if (size >= 256 * MB) return 2;
+  return 1;
 };
 
-const mapPacingPreset = (value: number) => {
-  if (value >= 72) return "aggressive";
-  if (value <= 30) return "chill";
-  if (value <= 45) return "cinematic";
-  return "balanced";
+const normalizeVerticalCaptionTextForJob = (value: string) =>
+  String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, 1800);
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const MAX_CUTS_MIN = 1;
+const MAX_CUTS_MAX = 15;
+const DEFAULT_MAX_CUTS = 8;
+const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
+const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
+const DEFAULT_WEBCAM_PADDING_PX = 0;
+const MIN_WEBCAM_CROP_SIZE_PX = 48;
+const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
+const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
+const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
+const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
+const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
+const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v1";
+const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
+
+type VerticalFitMode = "cover" | "contain";
+type RetentionStrategyProfile = "safe" | "balanced" | "viral";
+type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
+type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
+type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
+type HookSelectionMode = "manual" | "auto";
+type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
+type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
+type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
+type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
+type OutcomeAutomationProfile = {
+  enabled: boolean;
+  source: "real_distribution_analytics";
+  sampleSize: number;
+  baselineOutcome: number | null;
+  confidence: number;
+  expectedOutcome: number | null;
+  expectedLift: number;
+  qualityGateOffset: number;
+  hookThresholdOffset: number;
+  recommendedStrategyProfile: RetentionStrategyProfile;
+  recommendedTargetPlatform: OutcomeAutomationPlatform;
+  recommendedEditorMode: OutcomeAutomationEditorMode;
+  reasons: string[];
+  generatedAt: string;
+};
+type OutcomeAutomationPreview = {
+  strategyApplied: boolean;
+  targetPlatformApplied: boolean;
+  editorModeApplied: boolean;
+  strategy: RetentionStrategyProfile;
+  targetPlatform: OutcomeAutomationPlatform;
+  editorMode: OutcomeAutomationEditorMode;
+};
+type OutcomeAutomationResponse = {
+  profile?: OutcomeAutomationProfile;
+  preview?: OutcomeAutomationPreview;
+};
+const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
+  safe: "low",
+  balanced: "medium",
+  viral: "viral",
+};
+const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
+  {
+    value: "safe",
+    label: "Safe",
+    description: "Context-first pacing with regular cuts, clean flow, and a strong best-moment hook in the first 8 seconds.",
+  },
+  {
+    value: "balanced",
+    label: "Balanced",
+    description: "Adaptive commentary/lifestyle blend with conversational pacing, strategic zooms, and moderate interrupt density.",
+  },
+  {
+    value: "viral",
+    label: "Viral",
+    description: "High-stakes challenge and energetic vlog blend with faster cuts, stronger interrupts, and aggressive escalation.",
+  },
+];
+const PLATFORM_OPTIONS: Array<{ value: RetentionTargetPlatform; label: string }> = [
+  { value: "tiktok", label: "TikTok" },
+  { value: "instagram_reels", label: "IG Reels" },
+  { value: "youtube", label: "YouTube" },
+];
+const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
+  tiktok: "Fastest pacing, denser pattern interrupts, and short-form hook pressure.",
+  instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
+  youtube: "Context-first pacing for stronger narrative clarity and lower overcut risk.",
+};
+const PLATFORM_RECOMMENDATION_MAP: Record<
+  RetentionTargetPlatform,
+  { profile: RetentionStrategyProfile; suggestedCuts: number; label: string }
+> = {
+  tiktok: { profile: "viral", suggestedCuts: 12, label: "TikTok -> Viral + 10-14 cuts suggested" },
+  instagram_reels: { profile: "balanced", suggestedCuts: 10, label: "Reels -> Balanced + 8-12 cuts suggested" },
+  youtube: { profile: "safe", suggestedCuts: 8, label: "YouTube -> Safe + 6-10 cuts suggested" },
+};
+const RETENTION_PROFILE_HINTS: Record<RetentionStrategyProfile, string> = {
+  safe: "Safe = clean pacing + context protection",
+  balanced: "Balanced = adaptive cuts + smooth flow",
+  viral: "Viral = faster cuts + shock hooks",
+};
+const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
+const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
+  { key: "format", label: "Format & Platform" },
+  { key: "vibe", label: "Vibe & Style" },
+  { key: "cuts", label: "Cuts & Pacing" },
+  { key: "captions", label: "Captions & Audio" },
+];
+const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
+  { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions." },
+  { value: "commentary", label: "Commentary", description: "Speech-first pacing with cleaner flow." },
+  { value: "vlog", label: "Vlog", description: "Conversational lifestyle pacing." },
+  { value: "gaming", label: "Gaming", description: "Fast action-driven pacing for gameplay footage." },
+  { value: "sports", label: "Sports", description: "High-intensity pacing for highlights and plays." },
+  { value: "education", label: "Education", description: "Clarity-first pacing for tutorials and explainers." },
+  { value: "podcast", label: "Podcast", description: "Multi-speaker cleanup with breathing room and chapter-friendly pacing." },
+];
+const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "Auto-tunes long-form pacing profile by runtime and retention settings." },
+  { value: "balanced", label: "Balanced", description: "10-18 cuts/min, lighter compression, 0.28s silence target." },
+  { value: "aggressive", label: "Aggressive", description: "18-28 cuts/min, tighter pacing, 0.18s silence target." },
+  { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
+];
+const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
+  auto: { aggression: 62, clarityVsSpeed: 58, tangentKiller: true },
+  balanced: { aggression: 45, clarityVsSpeed: 68, tangentKiller: false },
+  aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
+  ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
+};
+const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
+  { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
+  { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
+  { id: "mrbeast_animated", label: "High-Energy Animated", description: "High-energy animated captions with punchy styling." },
+  { id: "outline_heavy", label: "Cinematic Serif", description: "Film-style serif captions with strong outline." },
+  { id: "caption_box", label: "Black Box", description: "Boxed captions for maximum readability." },
+  { id: "neon_glow", label: "Neon Glow", description: "Bright glow treatment for stylized edits." },
+  { id: "karaoke_highlight", label: "Karaoke Highlight", description: "Word-by-word highlight styling." },
+];
+type WebcamCrop = { x: number; y: number; w: number; h: number };
+type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+type CropInteraction = {
+  handle: CropHandle;
+  startClientX: number;
+  startClientY: number;
+  startCrop: WebcamCrop;
+};
+type VerticalLayoutMode = "stacked" | "single";
+type VerticalModePayload = {
+  enabled: true;
+  output: { width: number; height: number };
+  source?: { width: number; height: number };
+  layout?: VerticalLayoutMode;
+  webcamCrop?: WebcamCrop | null;
+  webcamPlacement?: { heightPct: number };
+  topHeightPx?: number | null;
+  bottomFit?: VerticalFitMode;
+  webcamFit?: VerticalFitMode;
+  paddingPx?: number;
 };
 
-const getZoomEffect = (speedRampEnabled: boolean, mode: RenderMode): ZoomEffect => {
-  if (speedRampEnabled) return "beat_zoom";
-  return mode === "vertical" ? "punch_zoom" : "slow_push_in";
+type JobStatus =
+  | "queued"
+  | "uploading"
+  | "analyzing"
+  | "hooking"
+  | "cutting"
+  | "pacing"
+  | "story"
+  | "subtitling"
+  | "audio"
+  | "retention"
+  | "rendering"
+  | "completed"
+  | "failed"
+  | "ready";
+
+interface JobSummary {
+  id: string;
+  status: JobStatus;
+  createdAt: string;
+  inputPath?: string;
+  progress?: number;
+  requestedQuality?: string | null;
+  watermark?: boolean;
+  renderMode?: "horizontal" | "vertical" | "standard" | string;
+}
+
+interface JobDetail extends JobSummary {
+  outputUrl?: string | null;
+  outputUrls?: string[] | null;
+  finalQuality?: string | null;
+  retentionScore?: number | null;
+  analysis?: any;
+  optimizationNotes?: string[] | null;
+  error?: string | null;
+}
+
+type HookCandidate = {
+  start: number;
+  duration: number;
+  score: number;
+  auditScore: number;
+  auditPassed: boolean;
+  text: string;
+  reason: string;
+  synthetic: boolean;
 };
 
-const MODE_OPTIONS: Array<{ value: RenderMode; label: string; subtitle: string }> = [
-  { value: "horizontal", label: "Horizontal", subtitle: "16:9" },
-  { value: "vertical", label: "Vertical", subtitle: "9:16 Studio" },
+type VerticalClipPrediction = {
+  clip: number;
+  start: number;
+  end: number;
+  duration: number;
+  predictedCompletion: number;
+  reason: string;
+};
+type EnergyMoment = {
+  timestampSec: number;
+  energy: number;
+  motion: number;
+  audio: number;
+  visual: number;
+  facial: number;
+};
+type RetentionPoint = {
+  atSec: number;
+  predicted: number;
+};
+
+type PreviewPlaybackTelemetry = {
+  durationSec: number;
+  maxTimeSec: number;
+  maxProgress: number;
+  watchedSeconds: number;
+  rewatchSeconds: number;
+  loopCount: number;
+  lastTimeSec: number;
+  lastDispatchProgress: number;
+};
+type CreatorFeedbackCategory = "bad_hook" | "too_fast" | "too_generic" | "great_edit";
+
+const CREATOR_FEEDBACK_ACTIONS: Array<{ category: CreatorFeedbackCategory; label: string }> = [
+  { category: "bad_hook", label: "Hook weak" },
+  { category: "too_fast", label: "Too fast" },
+  { category: "too_generic", label: "Generic" },
+  { category: "great_edit", label: "Great edit" },
 ];
 
-const RETENTION_STRATEGY_OPTIONS: Array<{ value: RetentionStrategyMode; label: string; subtitle: string }> = [
-  { value: "balanced", label: "Balanced AI", subtitle: "stable quality" },
-  { value: "ruthless", label: "Ruthless Retention", subtitle: "max watch-through" },
-];
-
-const RENDER_POLL_INTERVAL_FOREGROUND_MS = 2500;
-const RENDER_POLL_INTERVAL_BACKGROUND_MS = 6000;
-
-const PIPELINE_STAGES = [
-  { key: "upload", label: "Upload", minProgress: 0, detail: "Source accepted and queued." },
-  { key: "analyze", label: "Analyze", minProgress: 12, detail: "Scene and retention profiling running." },
-  { key: "hook", label: "Hook", minProgress: 26, detail: "Hook candidate ranking and selection." },
-  { key: "cut", label: "Cut", minProgress: 42, detail: "Timeline trims and pacing edits applied." },
-  { key: "caption", label: "Caption", minProgress: 58, detail: "Caption and audio pass in progress." },
-  { key: "render", label: "Render", minProgress: 76, detail: "Final encode and quality checks." },
-  { key: "ready", label: "Ready", minProgress: 100, detail: "Export package is complete." },
+const PIPELINE_STEPS = [
+  { key: "uploading", label: "Upload" },
+  { key: "analyzing", label: "Analyze" },
+  { key: "hooking", label: "Hook" },
+  { key: "cutting", label: "Cut" },
+  { key: "pacing", label: "Binge Optimize" },
+  { key: "subtitling", label: "Caption" },
+  { key: "rendering", label: "Render" },
+  { key: "ready", label: "Ready" },
 ] as const;
+const RETENTION_GOAL_PERCENT = 70;
+const DEFAULT_AUTO_HOOK_DURATION_SEC = 8;
+const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
+  "queued",
+  "uploading",
+  "analyzing",
+  "hooking",
+  "cutting",
+  "pacing",
+  "story",
+]);
 
-const UPLOAD_STATUS_STEPS = [
-  {
-    id: "uploading",
-    title: "Uploading video",
-    detail: "Sending footage into the processing pipeline.",
-  },
-  {
-    id: "analyzing",
-    title: "Getting analyzed",
-    detail: "Scanning scenes, motion, and retention signals.",
-  },
-  {
-    id: "applying",
-    title: "Edits being applied",
-    detail: "Applying smart mode and pacing defaults.",
-  },
-] as const;
-
-type UploadStatusStep = (typeof UPLOAD_STATUS_STEPS)[number]["id"];
-type UploadStatusState = UploadStatusStep | "idle" | "failed";
-
-const UPLOAD_STATUS_INDEX: Record<UploadStatusState, number> = {
-  idle: -1,
-  uploading: 0,
-  analyzing: 1,
-  applying: 2,
-  failed: 2,
+const STATUS_LABELS: Record<string, string> = {
+  queued: "Queued",
+  uploading: "Uploading",
+  analyzing: "Analyzing",
+  hooking: "Hook",
+  cutting: "Cut",
+  pacing: "Binge Optimize",
+  story: "Binge Optimize",
+  subtitling: "Caption",
+  audio: "Audio",
+  retention: "Retention",
+  rendering: "Rendering",
+  completed: "Ready",
+  ready: "Ready",
+  failed: "Failed",
 };
 
-const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-
-const toProgressPercent = (value: number) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
-
-const modeLabel = (value: RenderMode | null | undefined) => (value === "vertical" ? "Vertical" : "Horizontal");
-
-const statusLabel = (status: string) => {
-  if (status === "completed") return "Completed";
-  if (status === "processing") return "Processing";
-  if (status === "queued") return "Queued";
-  if (status === "failed") return "Failed";
-  return "Unknown";
+const STAGE_ETA_BASE_SECONDS: Record<string, number> = {
+  queued: 35,
+  uploading: 60,
+  analyzing: 45,
+  hooking: 30,
+  cutting: 40,
+  pacing: 35,
+  story: 45,
+  subtitling: 60,
+  audio: 35,
+  retention: 30,
+  rendering: 120,
 };
 
-const statusBadgeClass = (status: string) => {
-  if (status === "completed") return "border-emerald-300/45 bg-emerald-500/15 text-emerald-100";
-  if (status === "processing") return "border-[rgba(52,240,208,0.46)] bg-[rgba(52,240,208,0.16)] text-[#95fff2]";
-  if (status === "failed") return "border-rose-300/45 bg-rose-500/15 text-rose-100";
-  return "border-purple-300/45 bg-purple-500/15 text-purple-100";
-};
+const computeStageEtaBaseline = ({
+  status,
+  fileSizeBytes,
+  quality,
+}: {
+  status: string;
+  fileSizeBytes?: number | null;
+  quality?: ExportQuality | null;
+}) => {
+  const fileMB = fileSizeBytes ? Math.max(1, fileSizeBytes / MB) : 256;
+  const qualityMultiplier = quality === "4k" ? 1.45 : quality === "1080p" ? 1.2 : 1;
+  const base = STAGE_ETA_BASE_SECONDS[status] ?? 75;
 
-const getPipelineStageIndex = (status: string, progress: number) => {
-  const normalizedProgress = toProgressPercent(progress);
-  if (status === "completed") return PIPELINE_STAGES.length - 1;
-  const maxInFlightIndex = PIPELINE_STAGES.length - 2;
-  let stageIndex = 0;
-  for (let index = 0; index < PIPELINE_STAGES.length; index += 1) {
-    if (normalizedProgress >= PIPELINE_STAGES[index].minProgress) {
-      stageIndex = index;
-    }
+  if (status === "uploading") {
+    return Math.max(12, Math.round(fileMB / 8 + 12));
   }
-  if (status === "failed") return Math.min(stageIndex, maxInFlightIndex);
-  if (status === "queued") return 0;
-  return Math.min(stageIndex, maxInFlightIndex);
+  if (status === "rendering") {
+    return Math.max(20, Math.round(base + fileMB * 0.18 * qualityMultiplier));
+  }
+  const variable = Math.round(Math.sqrt(fileMB) * 4 * qualityMultiplier);
+  return Math.max(10, base + variable);
 };
 
-const normalizeRenderJobUrls = (job: RenderJobResult): RenderJobResult => {
-  const normalizedClipUrls = Array.isArray(job.clipUrls)
-    ? job.clipUrls.map((url) => resolveApiMediaUrl(url)).filter(Boolean)
-    : [];
-  const normalizedOutputVideoUrl = resolveApiMediaUrl(job.outputVideoUrl || normalizedClipUrls[0] || "");
+const normalizeStatus = (status?: JobStatus | string | null) => {
+  if (!status) return "queued";
+  const raw = String(status).toLowerCase();
+  if (raw === "completed" || raw === "ready") return "ready";
+  if (raw === "processing") return "rendering";
+  return raw as JobStatus;
+};
 
-  return {
-    ...job,
-    outputVideoUrl: normalizedOutputVideoUrl,
-    clipUrls: normalizedClipUrls,
-    thumbnails: Array.isArray(job.thumbnails)
-      ? job.thumbnails.map((thumbnail) => ({
-          ...thumbnail,
-          url: resolveApiMediaUrl(thumbnail.url),
-        }))
-      : [],
+const isTerminalStatus = (status?: JobStatus | string | null) => {
+  const normalized = normalizeStatus(status);
+  return normalized === "ready" || normalized === "failed";
+};
+
+const stepKeyForStatus = (status?: JobStatus | string | null) => {
+  const normalized = normalizeStatus(status);
+  if (normalized === "queued") return "uploading";
+  if (normalized === "story") return "pacing";
+  if (normalized === "audio" || normalized === "retention") return "rendering";
+  return normalized;
+};
+
+const statusBadgeClass = (status?: JobStatus | string | null) => {
+  const normalized = normalizeStatus(status);
+  if (normalized === "ready") return "bg-success/10 text-success border-success/30";
+  if (normalized === "failed") return "bg-destructive/10 text-destructive border-destructive/30";
+  if (normalized === "uploading") return "bg-warning/10 text-warning border-warning/30";
+  return "bg-muted/40 text-muted-foreground border-border/60";
+};
+
+const toFiniteNumber = (value: unknown): number | null => {
+  const resolved = Number(value);
+  return Number.isFinite(resolved) ? resolved : null;
+};
+
+const firstFiniteNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const resolved = toFiniteNumber(value);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+};
+
+const normalizeHookCandidates = (raw: unknown): HookCandidate[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const start = Number((item as any)?.start);
+      const duration = Number((item as any)?.duration);
+      if (!Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) return null;
+      const score = Number((item as any)?.score);
+      const auditScore = Number((item as any)?.auditScore);
+      return {
+        start,
+        duration,
+        score: Number.isFinite(score) ? score : 0,
+        auditScore: Number.isFinite(auditScore) ? auditScore : Number.isFinite(score) ? score : 0,
+        auditPassed: Boolean((item as any)?.auditPassed),
+        text: typeof (item as any)?.text === "string" ? (item as any).text : "",
+        reason: typeof (item as any)?.reason === "string" ? (item as any).reason : "",
+        synthetic: Boolean((item as any)?.synthetic),
+      } as HookCandidate;
+    })
+    .filter((candidate): candidate is HookCandidate => Boolean(candidate));
+};
+
+const isSameHookCandidate = (left?: HookCandidate | null, right?: HookCandidate | null) => {
+  if (!left || !right) return false;
+  return Math.abs(left.start - right.start) <= 0.01 && Math.abs(left.duration - right.duration) <= 0.01;
+};
+
+const formatNicheLabel = (value?: string | null) => {
+  if (!value) return "Unknown";
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  return normalized
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const formatPlatformLabel = (value?: string | null) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  if (normalized === "instagram_reels" || normalized === "instagram" || normalized === "ig" || normalized === "reels") {
+    return "IG Reels";
+  }
+  if (normalized === "tiktok" || normalized === "tt") return "TikTok";
+  if (normalized === "youtube" || normalized === "yt") return "YouTube";
+  return formatNicheLabel(normalized);
+};
+
+const formatHookTimestamp = (seconds: number) => {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safe / 60);
+  const secondsRemainder = safe - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${secondsRemainder.toFixed(3).padStart(6, "0")}`;
+};
+
+const formatHookRange = (start: number, end: number) => {
+  const safeStart = Math.max(0, Number(start) || 0);
+  const safeEnd = Math.max(safeStart, Number(end) || safeStart);
+  return `${formatHookTimestamp(safeStart)} - ${formatHookTimestamp(safeEnd)}`;
+};
+
+const toPercent = (value: number | null, fallback: number) => {
+  if (value === null || !Number.isFinite(value)) return clamp(Math.round(fallback), 0, 100);
+  const normalized = value <= 1 ? value * 100 : value;
+  return clamp(Math.round(normalized), 0, 100);
+};
+
+const formatTimelineClock = (seconds: number) => {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const mins = Math.floor(safe / 60);
+  const secs = Math.floor(safe % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+};
+
+const normalizeEnergyMoments = (raw: unknown): EnergyMoment[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null;
+      if (!item) return null;
+      const timestampSec = firstFiniteNumber(item.timestampSec, item.timestamp, item.timeSec, item.time, item.start, item.atSec);
+      const energy = firstFiniteNumber(item.energy, item.energyScore, item.score, item.value);
+      if (timestampSec === null || energy === null) return null;
+      const motion = toPercent(firstFiniteNumber(item.motion, item.motionScore, item.motion_energy), energy);
+      const audio = toPercent(firstFiniteNumber(item.audio, item.audioScore, item.audio_energy), energy);
+      const visual = toPercent(firstFiniteNumber(item.visual, item.visualScore, item.visual_energy), energy);
+      const facial = toPercent(firstFiniteNumber(item.facial, item.facialScore, item.facial_engagement), energy);
+      return {
+        timestampSec: Math.max(0, timestampSec),
+        energy: toPercent(energy, energy),
+        motion,
+        audio,
+        visual,
+        facial,
+      } as EnergyMoment;
+    })
+    .filter((item): item is EnergyMoment => Boolean(item))
+    .slice(0, 14)
+    .sort((a, b) => a.timestampSec - b.timestampSec);
+};
+
+const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry, index) => {
+      if (typeof entry === "number") {
+        return { atSec: index * 15, predicted: toPercent(entry, entry) } as RetentionPoint;
+      }
+      const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null;
+      if (!item) return null;
+      const atSec = firstFiniteNumber(item.atSec, item.timeSec, item.t, item.second, item.timestamp, index * 15);
+      const predicted = firstFiniteNumber(item.predicted, item.value, item.retention, item.score, item.y);
+      if (atSec === null || predicted === null) return null;
+      return { atSec: Math.max(0, atSec), predicted: toPercent(predicted, predicted) } as RetentionPoint;
+    })
+    .filter((item): item is RetentionPoint => Boolean(item))
+    .slice(0, 40)
+    .sort((a, b) => a.atSec - b.atSec);
+};
+
+const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelection => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
+  return EDITOR_MODE_OPTIONS.some((option) => option.value === normalized)
+    ? (normalized as EditorModeSelection)
+    : "auto";
+};
+
+const mapEditorModeForBackend = (value: EditorModeSelection): EditorModeSelection => value;
+
+const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "null" || normalized === "undefined") return "auto";
+  if (normalized === "auto" || normalized === "automatic" || normalized === "editor") return "auto";
+  if (normalized === "manual" || normalized === "user" || normalized === "user_selected") return "auto";
+  return "auto";
+};
+
+const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
+  for (const tier of PLAN_TIERS) {
+    const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
+    if (allowed === "ALL" || allowed.includes(presetId)) return tier;
+  }
+  return "studio";
+};
+
+const normalizeSubtitleStyleFromSettings = (value: unknown) => {
+  if (typeof value !== "string") return "basic_clean";
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "basic_clean";
+};
+
+type CaptionCapability = {
+  available: boolean;
+  provider?: string | null;
+  mode?: string | null;
+  reason?: string | null;
+};
+
+type EditorSettingsResponse = {
+  settings?: {
+    autoDownload?: boolean;
+    autoCaptions?: boolean;
+    subtitleStyle?: string;
+  };
+  capabilities?: {
+    captions?: CaptionCapability;
   };
 };
 
-type EditorProps = {
-  verticalModeExperience?: boolean;
-};
+const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
-export default function Editor({ verticalModeExperience = false }: EditorProps) {
-  const { accessToken } = useAuth();
-  const shouldReduceMotion = useReducedMotion();
+const Editor = () => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [activeJob, setActiveJob] = useState<JobDetail | null>(null);
+  const [loadingJob, setLoadingJob] = useState(false);
+  const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
+  const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
+  const pipelineStartRef = useRef<Record<string, number>>({});
+  const uploadStartRef = useRef<Record<string, number>>({});
+  const jobFileSizeRef = useRef<Record<string, number>>({});
+  const statusStartRef = useRef<Record<string, { status: string; startedAt: number; startProgress: number }>>({});
+  const highlightTimeoutRef = useRef<number | null>(null);
+  const [etaTick, setEtaTick] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const requestedJobId = searchParams.get("jobId");
+  const { accessToken, signOut } = useAuth();
+  const { t } = useTranslation("common");
   const { toast } = useToast();
-  const [fileInputKey, setFileInputKey] = useState(0);
-  const [activePipelineJobId, setActivePipelineJobId] = useState<string | null>(null);
-  const [jobResultCache, setJobResultCache] = useState<Record<string, RenderJobResult>>({});
-  const [jobActionPendingId, setJobActionPendingId] = useState<string | null>(null);
-  const [uploadingFileName, setUploadingFileName] = useState("");
-  const [uploadStatus, setUploadStatus] = useState<UploadStatusState>("idle");
-  const [isPageVisible, setIsPageVisible] = useState(
-    typeof document === "undefined" ? true : document.visibilityState === "visible",
+  const modeParam = searchParams.get("mode");
+  const isVerticalMode = modeParam === "vertical";
+  const [verticalClipCount, setVerticalClipCount] = useState(0);
+  const [verticalCaptionText, setVerticalCaptionText] = useState("");
+  const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
+  const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
+  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
+  const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
+  const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
+  const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
+  const [longFormAggression, setLongFormAggression] = useState(45);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
+  const [tangentKiller, setTangentKiller] = useState(false);
+  const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
+  const [hideJobsPanel, setHideJobsPanel] = useState(false);
+  const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
+  const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
+  const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
+  const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
+  const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
+  const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
+  const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
+  const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
+  const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
+    isVerticalMode ? "tiktok" : "youtube",
   );
-  const uploadStatusTimeoutRef = useRef<number | null>(null);
-  const recentDrawerTimeoutRef = useRef<number | null>(null);
-  const handledRequestedJobIdRef = useRef<string | null>(null);
+  const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
+  const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
+  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
+  const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
+  const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
+  const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
+  const [analyzeUnlockedByJob, setAnalyzeUnlockedByJob] = useState<Record<string, boolean>>({});
+  const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
+  const [mobilePipeline, setMobilePipeline] = useState(false);
+  const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
+  const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
+  const [aModeEnabled, setAModeEnabled] = useState(true);
+  const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
+  const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
+  const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
+  const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
+  const [editorGuideOpen, setEditorGuideOpen] = useState(false);
+  const [hookPromptedByJob, setHookPromptedByJob] = useState<Record<string, boolean>>({});
+  const [selectedHookByJob, setSelectedHookByJob] = useState<Record<string, HookCandidate | null>>({});
+  const [hookSelectionModeByJob, setHookSelectionModeByJob] = useState<Record<string, HookSelectionMode>>({});
+  const [hookPreviewCandidateByJob, setHookPreviewCandidateByJob] = useState<Record<string, HookCandidate | null>>({});
+  const [hookPreviewUrlByJob, setHookPreviewUrlByJob] = useState<Record<string, string>>({});
+  const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
+  const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
+  const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
+    strategy: false,
+    targetPlatform: false,
+    editorMode: false,
+  });
+  const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
+  const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
+  const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
+  const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
+  const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
+  const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
+  const pageViewTrackedRef = useRef(false);
+  const editorGuidePromptedRef = useRef(false);
+  const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
 
-  const {
-    flowStep,
-    isAnalyzingUpload,
-    isRendering,
-    renderJobId,
-    renderProgress,
-    errorMessage,
-    videoId,
-    videoUrl,
-    fileName,
-    duration,
-    autoDetection,
-    autoModeEnabled,
-    mode,
-    revealedSectionCount,
-    quickControls,
-    retentionStrategyMode,
-    manualTimestampModalOpen,
-    scrubberTime,
-    manualSegments,
-    formatPreset,
-    vibeChip,
-    stylePreset,
-    pacingValue,
-    autoDetectBestMoments,
-    captionsEnabled,
-    captionMode,
-    captionStyle,
-    captionFont,
-    captionEffect,
-    verticalWebcamEnabled,
-    verticalWebcamLayout,
-    captionOutlineEnabled,
-    captionDropShadowEnabled,
-    audioOption,
-    audioDuckingEnabled,
-    audioCleanupEnabled,
-    audioMasteringEnabled,
-    suggestedSubMode,
-    recentJobs,
-    recentDrawerOpen,
-    retentionExpanded,
-    successModalOpen,
-    latestResult,
-    selectedRetentionPointId,
-    selectedThumbnailId,
-    setUploadAnalyzing,
-    setRenderState,
-    setErrorMessage,
-    setUploadAnalysis,
-    setAutoModeEnabled,
-    setMode,
-    setRevealedSectionCount,
-    toggleQuickControl,
-    setManualTimestampModalOpen,
-    setScrubberTime,
-    addSegmentAtScrubber,
-    removeSegment,
-    updateSegment,
-    setFormatPreset,
-    setVibeChip,
-    setStylePreset,
-    setPacingValue,
-    setAutoDetectBestMoments,
-    setCaptionsEnabled,
-    setCaptionMode,
-    setCaptionStyle,
-    setCaptionFont,
-    setCaptionEffect,
-    setVerticalWebcamEnabled,
-    setVerticalWebcamLayout,
-    setCaptionOutlineEnabled,
-    setCaptionDropShadowEnabled,
-    setAudioOption,
-    setAudioDuckingEnabled,
-    setAudioCleanupEnabled,
-    setAudioMasteringEnabled,
-    setSuggestedSubMode,
-    setRetentionStrategyMode,
-    setRecentJobs,
-    setRecentDrawerOpen,
-    markRecentInteraction,
-    setRetentionExpanded,
-    setSuccessModalOpen,
-    setLatestResult,
-    setSelectedRetentionPointId,
-    setSelectedThumbnailId,
-    resetSession,
-  } = useAutoEditorStore();
-
-  const clearUploadStatusTimer = useCallback(() => {
-    if (uploadStatusTimeoutRef.current !== null) {
-      window.clearTimeout(uploadStatusTimeoutRef.current);
-      uploadStatusTimeoutRef.current = null;
-    }
-  }, []);
-
-  const clearRecentDrawerTimer = useCallback(() => {
-    if (recentDrawerTimeoutRef.current !== null) {
-      window.clearTimeout(recentDrawerTimeoutRef.current);
-      recentDrawerTimeoutRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => () => clearUploadStatusTimer(), [clearUploadStatusTimer]);
-  useEffect(() => () => clearRecentDrawerTimer(), [clearRecentDrawerTimer]);
-
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      setIsPageVisible(document.visibilityState === "visible");
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
-
-  const uploadInputId = `editor-upload-input-${fileInputKey}`;
-  const uploadStatusIndex = UPLOAD_STATUS_INDEX[uploadStatus];
-  const uploadStatusProgress = useMemo(() => {
-    if (uploadStatus === "uploading") return 24;
-    if (uploadStatus === "analyzing") return 58;
-    if (uploadStatus === "applying") return 90;
-    if (uploadStatus === "failed") return 100;
-    return 0;
-  }, [uploadStatus]);
-
-  const currentUploadStatusText = useMemo(() => {
-    if (uploadStatus === "uploading") return `Uploading ${uploadingFileName || "video"}...`;
-    if (uploadStatus === "analyzing") return "Video is being analyzed...";
-    if (uploadStatus === "applying") return "Applying edit defaults...";
-    if (uploadStatus === "failed") return "Upload process failed.";
-    return "";
-  }, [uploadStatus, uploadingFileName]);
-
-  const applyRetentionStrategyPreset = useCallback(
-    (nextStrategy: RetentionStrategyMode, targetMode: RenderMode | null | undefined) => {
-      const resolvedMode = targetMode || mode || "horizontal";
-      const isRuthless = nextStrategy === "ruthless";
-      const nextSubMode = isRuthless
-        ? resolvedMode === "vertical"
-          ? "highlight_mode"
-          : "story_mode"
-        : resolvedMode === "vertical"
-          ? "highlight_mode"
-          : "standard_mode";
-      const nextPacingValue = isRuthless ? (resolvedMode === "vertical" ? 86 : 82) : DEFAULT_PACING_VALUE[resolvedMode];
-
-      if (retentionStrategyMode !== nextStrategy) {
-        setRetentionStrategyMode(nextStrategy);
-      }
-      if (!autoDetectBestMoments) {
-        setAutoDetectBestMoments(true);
-      }
-      if (suggestedSubMode !== nextSubMode) {
-        setSuggestedSubMode(nextSubMode);
-      }
-      if (pacingValue !== nextPacingValue) {
-        setPacingValue(nextPacingValue);
-      }
-
-      const desiredQuickControls = {
-        autoEdit: true,
-        highlightReel: true,
-        speedRamp: isRuthless,
-        musicSync: true,
-      } as const;
-
-      (Object.keys(desiredQuickControls) as Array<keyof typeof desiredQuickControls>).forEach((key) => {
-        if (quickControls[key] !== desiredQuickControls[key]) {
-          toggleQuickControl(key);
-        }
-      });
-
-      if (isRuthless && captionMode !== "ai") {
-        setCaptionMode("ai");
-      }
-      if (isRuthless && audioOption !== "auto_sync_tracks") {
-        setAudioOption("auto_sync_tracks");
-      }
+  const selectedJobId = searchParams.get("jobId");
+  const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
+  const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
+  const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
+  const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
+  const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
+  const rawTier = (me?.subscription?.tier as string | undefined) || "free";
+  const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
+  const paidTier = isPaidTier(tier);
+  const trialInfo = me?.subscription?.trial;
+  const trialActive = Boolean(trialInfo?.active);
+  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const trialUnlockTierRaw = trialInfo?.trialTier as PlanTier | undefined;
+  const trialUnlockTier: PlanTier =
+    trialUnlockTierRaw && PLAN_CONFIG[trialUnlockTierRaw] ? trialUnlockTierRaw : tier;
+  const trialUnlockedFeatures = (PLAN_CONFIG[trialUnlockTier] ?? PLAN_CONFIG[tier]).features;
+  const trialEndsAtMs = trialInfo?.endsAt ? new Date(trialInfo.endsAt).getTime() : null;
+  const trialEndsAtLabel =
+    trialEndsAtMs !== null && Number.isFinite(trialEndsAtMs)
+      ? new Date(trialEndsAtMs).toLocaleString()
+      : null;
+  const hasTrialHistory = Boolean(trialInfo?.trialTier || trialInfo?.startedAt || trialInfo?.endsAt);
+  const trialEnded = Boolean(
+    hasTrialHistory &&
+    !trialActive &&
+    trialEndsAtMs !== null &&
+    Number.isFinite(trialEndsAtMs) &&
+    trialEndsAtMs <= Date.now() &&
+    tier === "free",
+  );
+  const trialUpgradePromptKey =
+    me?.user?.id && trialInfo?.endsAt
+      ? `trial_upgrade_prompt_dismissed_${me.user.id}_${trialInfo.endsAt}`
+      : null;
+  const subscriptionCardHideKey = me?.user?.id ? `editor_subscription_card_hidden_${me.user.id}` : null;
+  const analyzeUnlockStorageKey = me?.user?.id ? `${ANALYZE_UNLOCKED_JOBS_KEY}_${me.user.id}` : null;
+  const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
+  const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
+  const subtitleFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
+  const allowedSubtitlePresets = (PLAN_CONFIG[subtitleFeatureTier] ?? PLAN_CONFIG.free).allowedSubtitlePresets;
+  const subtitlesEnabled = allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.length > 0;
+  const isSubtitlePresetAllowed = useCallback(
+    (presetId: SubtitlePresetId) => {
+      if (!subtitlesEnabled) return false;
+      return allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.includes(presetId);
     },
-    [
-      audioOption,
-      autoDetectBestMoments,
-      captionMode,
-      mode,
-      pacingValue,
-      quickControls,
-      retentionStrategyMode,
-      setAudioOption,
-      setAutoDetectBestMoments,
-      setCaptionMode,
-      setPacingValue,
-      setRetentionStrategyMode,
-      setSuggestedSubMode,
-      suggestedSubMode,
-      toggleQuickControl,
-    ],
+    [allowedSubtitlePresets, subtitlesEnabled],
   );
-
-  const renderPayload = useMemo<AutoEditorRenderPayload | null>(() => {
-    if (!videoId || !mode) return null;
-
-    return {
-      videoId,
-      mode,
-      quickControls,
-      manualSegments,
-      formatPreset,
-      vibeChip,
-      stylePreset,
-      pacing: mapPacingPreset(pacingValue),
-      autoDetectBestMoments,
-      captionMode: captionsEnabled ? captionMode : "manual",
-      captionStyle,
-      captionFont,
-      captionEffect,
-      zoomEffect: getZoomEffect(quickControls.speedRamp, mode),
-      audioOption,
-      suggestedSubMode,
-      verticalWebcamEnabled: mode === "vertical" ? verticalWebcamEnabled : false,
-      verticalWebcamLayout,
-      captionOutlineEnabled,
-      captionDropShadowEnabled,
-    };
+  const subtitleStyleConfig = useMemo(() => parseSubtitleStyleConfig(subtitleStyleDraft), [subtitleStyleDraft]);
+  const activeSubtitlePreset = subtitleStyleConfig.preset;
+  const activeSubtitlePresetMeta = useMemo(
+    () => SUBTITLE_PRESET_OPTIONS.find((preset) => preset.id === activeSubtitlePreset) ?? null,
+    [activeSubtitlePreset],
+  );
+  const outcomeAutomationConfidencePercent = useMemo(
+    () =>
+      outcomeAutomationProfile
+        ? Math.round(clamp01(Number(outcomeAutomationProfile.confidence || 0)) * 100)
+        : 0,
+    [outcomeAutomationProfile],
+  );
+  const outcomeAutomationExpectedLiftPoints = useMemo(
+    () => (outcomeAutomationProfile ? Number(outcomeAutomationProfile.expectedLift || 0) * 100 : 0),
+    [outcomeAutomationProfile],
+  );
+  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
+  const isDevAccount = Boolean(me?.flags?.dev);
+  const rendersUsed = me?.usage?.rendersUsed ?? 0;
+  const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
+  const rendersRemaining = useMemo(() => {
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return null;
+    return Math.max(0, maxRendersPerMonth - rendersUsed);
+  }, [maxRendersPerMonth, rendersUsed]);
+  const maxRerendersPerDay = me?.limits?.maxRerendersPerDay ?? PLAN_CONFIG[tier].maxRerendersPerDay;
+  const rerendersUsedToday = me?.rerenderUsageDaily?.rerendersUsed ?? 0;
+  const rerendersRemainingToday = useMemo(() => {
+    if (maxRerendersPerDay === null || maxRerendersPerDay === undefined) return null;
+    return Math.max(0, maxRerendersPerDay - rerendersUsedToday);
+  }, [maxRerendersPerDay, rerendersUsedToday]);
+  const hasReachedRenderLimitForMode = useCallback((_mode: "horizontal" | "vertical") => {
+    if (isDevAccount) return false;
+    if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
+    return (rendersRemaining ?? 0) <= 0;
   }, [
-    audioOption,
-    autoDetectBestMoments,
-    captionDropShadowEnabled,
-    captionEffect,
-    captionFont,
-    captionMode,
-    captionOutlineEnabled,
-    captionStyle,
-    captionsEnabled,
-    formatPreset,
-    manualSegments,
-    mode,
-    pacingValue,
-    quickControls,
-    stylePreset,
-    suggestedSubMode,
-    verticalWebcamEnabled,
-    verticalWebcamLayout,
-    videoId,
-    vibeChip,
+    isDevAccount,
+    maxRendersPerMonth,
+    rendersRemaining
   ]);
-
-  const routeWithCurrentQuery = useCallback(
-    (basePath: string) => {
-      const query = searchParams.toString();
-      return query ? `${basePath}?${query}` : basePath;
+  const trackEditorEvent = useCallback(
+    (
+      eventName: string,
+      options: {
+        category?: "interaction" | "page_view" | "feedback" | "system";
+        jobId?: string;
+        retentionProfile?: string;
+        targetPlatform?: string;
+        captionStyle?: string;
+        metadata?: Record<string, unknown>;
+      } = {},
+    ) => {
+      if (!accessToken) return;
+      void trackAnalyticsEvent(
+        {
+          eventName,
+          category: options.category ?? "interaction",
+          pagePath: "/editor",
+          sessionId: analyticsSessionId,
+          jobId: options.jobId,
+          retentionProfile: options.retentionProfile,
+          targetPlatform: options.targetPlatform,
+          captionStyle: options.captionStyle,
+          metadata: options.metadata,
+        },
+        accessToken,
+      );
     },
-    [searchParams],
+    [accessToken, analyticsSessionId],
   );
 
-  const syncEditorRouteForMode = useCallback(
-    (nextMode: RenderMode) => {
-      const target = nextMode === "vertical" ? "/editor/vertical" : "/editor";
-      if (location.pathname === target) return;
-      navigate(routeWithCurrentQuery(target), { replace: true });
-    },
-    [location.pathname, navigate, routeWithCurrentQuery],
-  );
-
-  useEffect(() => {
-    if (!videoId || !mode) return;
-    if (verticalModeExperience && mode !== "vertical") return;
-    syncEditorRouteForMode(mode);
-  }, [mode, syncEditorRouteForMode, verticalModeExperience, videoId]);
-
-  useEffect(() => {
-    if (!verticalModeExperience || !videoId || mode === "vertical") return;
-    setMode("vertical", true);
-    setSuggestedSubMode("highlight_mode");
-  }, [mode, setMode, setSuggestedSubMode, verticalModeExperience, videoId]);
-
-  const fetchDetailedJob = useCallback(
-    async (jobId: string) => {
-      if (!accessToken) {
-        throw new ApiError("Sign in required.", 401, "unauthorized");
+  const selectSubtitlePreset = useCallback(
+    (presetId: SubtitlePresetId) => {
+      if (!isSubtitlePresetAllowed(presetId)) {
+        const requiredPlan = getRequiredPlanForSubtitlePreset(presetId);
+        toast({
+          title: "Upgrade required",
+          description: `${PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} plan required for this caption style.`,
+        });
+        return;
       }
-      const result = await fetchJobByIdApi(accessToken, jobId);
-      const normalized = normalizeRenderJobUrls(result);
-      setJobResultCache((prev) => ({ ...prev, [jobId]: normalized }));
-      return normalized;
+      const nextValue =
+        presetId === "mrbeast_animated"
+          ? serializeSubtitleStyleConfig({
+              ...subtitleStyleConfig,
+              preset: "mrbeast_animated",
+            })
+          : presetId;
+      setSubtitleStyleDraft(nextValue);
+      setSubtitleStyleDirty(true);
+      setAutoCaptionsEnabled(true);
+      trackEditorEvent("subtitle_preset_selected", {
+        retentionProfile: retentionStrategyProfile,
+        targetPlatform: retentionTargetPlatform,
+        captionStyle: presetId,
+        metadata: {
+          subtitlePreset: presetId,
+          isAnimated: presetId === "mrbeast_animated",
+        },
+      });
     },
-    [accessToken],
+    [isSubtitlePresetAllowed, subtitleStyleConfig, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
-  const triggerExportDownload = useCallback((url: string) => {
-    const safeUrl = resolveApiMediaUrl(url);
-    if (!safeUrl) return;
-    const anchor = document.createElement("a");
-    anchor.href = safeUrl;
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    anchor.download = "";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+  const updateMrBeastSubtitleStyle = useCallback(
+    (updates: Partial<SubtitleStyleConfig>) => {
+      const nextSerialized = serializeSubtitleStyleConfig({
+        ...subtitleStyleConfig,
+        preset: "mrbeast_animated",
+        ...updates,
+      });
+      setSubtitleStyleDraft(nextSerialized);
+      setSubtitleStyleDirty(true);
+    },
+    [subtitleStyleConfig],
+  );
+
+  const saveSubtitleStyle = useCallback(async () => {
+    if (!accessToken) return;
+    const nextStyle = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+    try {
+      setSavingSubtitleStyle(true);
+      const result = await apiFetch<EditorSettingsResponse>("/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: autoCaptionsEnabled }),
+        token: accessToken,
+      });
+      const runtimeCaptions = result?.capabilities?.captions;
+      if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+        setCaptionCapability(runtimeCaptions);
+      }
+      const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
+      const persistedAutoCaptions =
+        typeof result?.settings?.autoCaptions === "boolean"
+          ? result.settings.autoCaptions
+          : autoCaptionsEnabled;
+      setSubtitleStyleDraft(persisted);
+      setAutoCaptionsEnabled(persistedAutoCaptions);
+      setSubtitleStyleDirty(false);
+      trackEditorEvent("subtitle_preferences_saved", {
+        captionStyle: persisted,
+        retentionProfile: retentionStrategyProfile,
+        targetPlatform: retentionTargetPlatform,
+        metadata: {
+          autoCaptionsEnabled: persistedAutoCaptions,
+        },
+      });
+      toast({
+        title: "Captions updated",
+        description: persistedAutoCaptions
+          ? "Caption style saved and captions are enabled for new renders."
+          : "Caption style saved and captions are disabled for new renders.",
+      });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
+        toast({
+          title: "Upgrade required",
+          description: err?.message || "Your plan cannot use this caption style.",
+        });
+        return;
+      }
+      if (err instanceof ApiError && err.code === "CAPTION_ENGINE_UNAVAILABLE") {
+        const runtimeCaptions = err?.data?.capabilities?.captions;
+        if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+          setCaptionCapability(runtimeCaptions);
+        }
+        setAutoCaptionsEnabled(false);
+        toast({
+          title: "Caption engine unavailable",
+          description:
+            runtimeCaptions?.reason ||
+            err?.message ||
+            "Caption engine is not available on the backend, so captions are disabled.",
+        });
+        return;
+      }
+      toast({
+        title: "Save failed",
+        description: err?.message || "Unable to save caption style right now.",
+      });
+    } finally {
+      setSavingSubtitleStyle(false);
+    }
+  }, [accessToken, autoCaptionsEnabled, subtitleStyleDraft, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform]);
+
+  const dismissTrialUpgradePrompt = useCallback(() => {
+    if (trialUpgradePromptKey) {
+      try {
+        window.localStorage.setItem(trialUpgradePromptKey, String(Date.now()));
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setTrialUpgradeOpen(false);
+  }, [trialUpgradePromptKey]);
+
+  const handleUpgradeFromTrialPrompt = useCallback(() => {
+    dismissTrialUpgradePrompt();
+    navigate("/pricing");
+  }, [dismissTrialUpgradePrompt, navigate]);
+
+  const handleHideSubscriptionCard = useCallback(() => {
+    if (subscriptionCardHideKey) {
+      try {
+        window.localStorage.setItem(subscriptionCardHideKey, "true");
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setHideSubscriptionCard(true);
+  }, [subscriptionCardHideKey]);
+
+  const handleShowSubscriptionCard = useCallback(() => {
+    if (subscriptionCardHideKey) {
+      try {
+        window.localStorage.removeItem(subscriptionCardHideKey);
+      } catch (error) {
+        // ignore storage failures
+      }
+    }
+    setHideSubscriptionCard(false);
+  }, [subscriptionCardHideKey]);
+
+  useEffect(() => {
+    if (!trialEnded || !trialUpgradePromptKey) {
+      setTrialUpgradeOpen(false);
+      return;
+    }
+    try {
+      const dismissed = window.localStorage.getItem(trialUpgradePromptKey);
+      if (dismissed) return;
+    } catch (error) {
+      // ignore storage failures
+    }
+    setTrialUpgradeOpen(true);
+  }, [trialEnded, trialUpgradePromptKey]);
+
+  useEffect(() => {
+    if (!subscriptionCardHideKey) {
+      setHideSubscriptionCard(false);
+      return;
+    }
+    try {
+      setHideSubscriptionCard(window.localStorage.getItem(subscriptionCardHideKey) === "true");
+    } catch (error) {
+      setHideSubscriptionCard(false);
+    }
+  }, [subscriptionCardHideKey]);
+
+  useEffect(() => {
+    try {
+      const persisted = window.localStorage.getItem(EDITOR_SETTINGS_COLLAPSED_KEY);
+      if (persisted === "true") {
+        setHideEditorControlsPanel(true);
+        return;
+      }
+      if (persisted === "false") {
+        setHideEditorControlsPanel(false);
+      }
+    } catch (error) {
+      // ignore storage failures
+    }
   }, []);
 
-  const handleOpenJob = useCallback(
-    async (jobId: string) => {
-      setActivePipelineJobId(jobId);
-      setJobActionPendingId(jobId);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EDITOR_SETTINGS_COLLAPSED_KEY, hideEditorControlsPanel ? "true" : "false");
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, [hideEditorControlsPanel]);
+
+  useEffect(() => {
+    if (!analyzeUnlockStorageKey) {
+      setAnalyzeUnlockedByJob({});
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(analyzeUnlockStorageKey);
+      if (!raw) {
+        setAnalyzeUnlockedByJob({});
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") {
+        setAnalyzeUnlockedByJob({});
+        return;
+      }
+      const normalized = Object.entries(parsed).reduce<Record<string, boolean>>((acc, [jobId, unlocked]) => {
+        if (typeof jobId === "string" && unlocked === true) {
+          acc[jobId] = true;
+        }
+        return acc;
+      }, {});
+      setAnalyzeUnlockedByJob(normalized);
+    } catch (error) {
+      setAnalyzeUnlockedByJob({});
+    }
+  }, [analyzeUnlockStorageKey]);
+
+  useEffect(() => {
+    if (!analyzeUnlockStorageKey) return;
+    try {
+      window.localStorage.setItem(analyzeUnlockStorageKey, JSON.stringify(analyzeUnlockedByJob));
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, [analyzeUnlockStorageKey, analyzeUnlockedByJob]);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
+        editorGuidePromptedRef.current = true;
+        return;
+      }
+    } catch (error) {
+      // ignore storage failures
+    }
+
+    const onScroll = () => {
+      if (editorGuidePromptedRef.current) return;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+      if (scrollTop < 80) return;
+      editorGuidePromptedRef.current = true;
       try {
-        const detail = jobResultCache[jobId] || (await fetchDetailedJob(jobId));
-        if (detail.status === "completed") {
-          setLatestResult(detail);
-          setSuccessModalOpen(true);
-          setRetentionExpanded(false);
-          toast({ title: "Loaded render", description: "Opened the selected completed job." });
+        window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+      } catch (error) {
+        // ignore storage failures
+      }
+      window.setTimeout(() => {
+        setEditorGuideOpen(true);
+      }, 220);
+      window.removeEventListener("scroll", onScroll);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  const [authError, setAuthError] = useState(false);
+
+  const fetchJobs = useCallback(async () => {
+    if (!accessToken) {
+      setJobs([]);
+      setLoadingJobs(false);
+      return;
+    }
+    try {
+      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
+      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAuthError(true);
+        toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
+        try {
+          await signOut();
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+      }
+    } finally {
+      setLoadingJobs(false);
+    }
+  }, [accessToken, toast, signOut]);
+
+  const fetchJob = useCallback(
+    async (jobId: string) => {
+      if (!accessToken || !jobId) return;
+      setLoadingJob(true);
+      try {
+        const data = await apiFetch<{ job: JobDetail }>(`/api/jobs/${jobId}`, { token: accessToken });
+        setActiveJob(data.job);
+        setJobs((prev) => {
+          const index = prev.findIndex((job) => job.id === jobId);
+          if (index === -1) return [data.job, ...prev];
+          const next = [...prev];
+          next[index] = { ...next[index], ...data.job };
+          return next;
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true)
+          toast({ title: "Session expired", description: "Please sign in again." })
+          try { await signOut() } catch (e) {}
+        } else {
+          toast({ title: "Failed to load job", description: "Please refresh and try again." });
+        }
+        setActiveJob(null);
+      } finally {
+        setLoadingJob(false);
+      }
+    },
+    [accessToken, toast, signOut],
+  );
+
+  const getHookWindowSeconds = useCallback((job?: JobDetail | null) => {
+    const analysis = (job?.analysis ?? {}) as any;
+    const hookStart = Number(analysis?.hook_start_time ?? analysis?.hook?.start ?? NaN);
+    const hookEnd = Number(
+      analysis?.hook_end_time ??
+      (Number.isFinite(hookStart) ? hookStart + Number(analysis?.hook?.duration ?? 0) : NaN),
+    );
+    if (Number.isFinite(hookStart) && Number.isFinite(hookEnd) && hookEnd > hookStart) {
+      return clamp(hookEnd - hookStart, 4, 8);
+    }
+    return 8;
+  }, []);
+
+  const ensurePlaybackTelemetry = useCallback((jobId: string, durationSec: number, lastTimeSec = 0) => {
+    const existing = playbackTelemetryRef.current[jobId];
+    if (existing) {
+      existing.durationSec = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : existing.durationSec;
+      if (Number.isFinite(lastTimeSec)) {
+        existing.lastTimeSec = clamp(lastTimeSec, 0, Math.max(lastTimeSec, existing.durationSec || lastTimeSec));
+      }
+      return existing;
+    }
+    const next: PreviewPlaybackTelemetry = {
+      durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0,
+      maxTimeSec: 0,
+      maxProgress: 0,
+      watchedSeconds: 0,
+      rewatchSeconds: 0,
+      loopCount: 0,
+      lastTimeSec: Number.isFinite(lastTimeSec) ? Math.max(0, lastTimeSec) : 0,
+      lastDispatchProgress: 0,
+    };
+    playbackTelemetryRef.current[jobId] = next;
+    return next;
+  }, []);
+
+  const postRetentionFeedback = useCallback(
+    async (
+      jobId: string,
+      payload: Record<string, unknown>,
+      options?: { force?: boolean },
+    ) => {
+      if (!accessToken || !jobId) return;
+      const compactPayload = Object.fromEntries(
+        Object.entries(payload).filter(([, value]) => value !== null && value !== undefined && value !== ""),
+      ) as Record<string, unknown>;
+      const hasSignal = ["watchPercent", "hookHoldPercent", "completionPercent", "rewatchRate", "manualScore"].some(
+        (key) => typeof compactPayload[key] === "number",
+      );
+      if (!hasSignal) return;
+
+      const now = Date.now();
+      const signature = JSON.stringify(
+        Object.entries(compactPayload).sort(([a], [b]) => a.localeCompare(b)),
+      );
+      const previous = retentionFeedbackDispatchRef.current[jobId];
+      const force = Boolean(options?.force);
+      if (!force && previous && now - previous.at < RETENTION_FEEDBACK_INTERVAL_MS) return;
+      if (!force && previous && previous.signature === signature && now - previous.at < RETENTION_FEEDBACK_INTERVAL_MS * 4) return;
+      if (retentionFeedbackInFlightRef.current[jobId]) return;
+
+      retentionFeedbackInFlightRef.current[jobId] = true;
+      try {
+        await apiFetch(`/api/jobs/${jobId}/retention-feedback`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify(compactPayload),
+        });
+        trackEditorEvent("retention_feedback_submitted", {
+          category: "feedback",
+          jobId,
+          retentionProfile: retentionStrategyProfile,
+          targetPlatform: retentionTargetPlatform,
+          captionStyle: activeSubtitlePreset,
+          metadata: {
+            source: String(compactPayload.source ?? "frontend_retention"),
+            hasManualScore: typeof compactPayload.manualScore === "number",
+          },
+        });
+        retentionFeedbackDispatchRef.current[jobId] = { at: now, signature };
+      } catch (error) {
+        // Non-blocking telemetry path.
+        console.warn("retention-feedback submit failed", error);
+      } finally {
+        retentionFeedbackInFlightRef.current[jobId] = false;
+      }
+    },
+    [accessToken, activeSubtitlePreset, retentionStrategyProfile, retentionTargetPlatform, trackEditorEvent],
+  );
+
+  const buildFeedbackPayloadFromTelemetry = useCallback(
+    (
+      job: JobDetail,
+      telemetry: PreviewPlaybackTelemetry | null,
+      source: string,
+      note?: string,
+    ) => {
+      const payload: Record<string, unknown> = { source };
+      if (note) payload.notes = note;
+      if (!telemetry || !Number.isFinite(telemetry.durationSec) || telemetry.durationSec <= 0) {
+        return payload;
+      }
+      const durationSec = Math.max(0.1, telemetry.durationSec);
+      const maxTimeSec = clamp(telemetry.maxTimeSec, 0, durationSec);
+      const maxProgress = clamp01(maxTimeSec / durationSec);
+      const hookWindowSeconds = getHookWindowSeconds(job);
+      const hookHoldPercent = clamp01(maxTimeSec / Math.max(1, hookWindowSeconds));
+      const overwatchSeconds = Math.max(0, telemetry.watchedSeconds - durationSec);
+      const rewatchRate = clamp01(
+        overwatchSeconds / durationSec +
+        (telemetry.rewatchSeconds / durationSec) * 0.5 +
+        telemetry.loopCount * 0.08,
+      );
+
+      payload.watchPercent = Number(maxProgress.toFixed(4));
+      payload.hookHoldPercent = Number(hookHoldPercent.toFixed(4));
+      payload.completionPercent = Number(maxProgress.toFixed(4));
+      payload.rewatchRate = Number(rewatchRate.toFixed(4));
+      return payload;
+    },
+    [getHookWindowSeconds],
+  );
+
+  const submitPreviewFeedback = useCallback(
+    (job: JobDetail | null, telemetry: PreviewPlaybackTelemetry, trigger: string, force = false) => {
+      if (!job) return;
+      if (!force && telemetry.maxProgress < MIN_WATCH_FEEDBACK_PROGRESS) return;
+      const payload = buildFeedbackPayloadFromTelemetry(job, telemetry, "frontend_preview", `trigger:${trigger}`);
+      void postRetentionFeedback(job.id, payload, { force });
+    },
+    [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
+  );
+
+  const submitDownloadFeedback = useCallback(
+    (job: JobDetail | null, clipIndex: number, source: string) => {
+      if (!job) return;
+      const key = `${job.id}:${clipIndex + 1}`;
+      if (downloadFeedbackSentRef.current[key]) return;
+      const telemetry = playbackTelemetryRef.current[job.id] ?? null;
+      const payload = buildFeedbackPayloadFromTelemetry(
+        job,
+        telemetry,
+        source,
+        `download_clip:${clipIndex + 1}`,
+      ) as Record<string, unknown>;
+      if (typeof payload.manualScore !== "number") {
+        payload.manualScore = 78;
+      }
+      downloadFeedbackSentRef.current[key] = true;
+      void postRetentionFeedback(job.id, payload, { force: true });
+    },
+    [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
+  );
+
+  const submitCreatorFeedback = useCallback(
+    async (category: CreatorFeedbackCategory) => {
+      if (!activeJob?.id || !accessToken) return;
+      if (!paidTier) {
+        toast({
+          title: "Paid feature",
+          description: "Creator correction feedback is available on paid plans.",
+        });
+        return;
+      }
+      setCreatorFeedbackSubmitting(category);
+      try {
+        await apiFetch(`/api/jobs/${activeJob.id}/creator-feedback`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify({
+            category,
+            source: "frontend_creator",
+          }),
+        });
+        trackEditorEvent("creator_feedback_submitted", {
+          category: "feedback",
+          jobId: activeJob.id,
+          retentionProfile: retentionStrategyProfile,
+          targetPlatform: retentionTargetPlatform,
+          captionStyle: activeSubtitlePreset,
+          metadata: { category },
+        });
+        setAnalyzeUnlockedByJob((prev) => (prev[activeJob.id] ? prev : { ...prev, [activeJob.id]: true }));
+        await fetchJob(activeJob.id);
+        toast({
+          title: "Feedback saved",
+          description: "Analyze view is now unlocked for this render.",
+        });
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 403) {
+          toast({
+            title: "Upgrade required",
+            description: "This correction control is for paid plans.",
+          });
+        } else {
+          toast({
+            title: "Feedback failed",
+            description: err?.message || "Please try again.",
+          });
+        }
+      } finally {
+        setCreatorFeedbackSubmitting(null);
+      }
+    },
+    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
+  );
+
+  useEffect(() => {
+    if (!accessToken) {
+      setJobs([]);
+      setActiveJob(null);
+      setLoadingJobs(false);
+      return;
+    }
+    if (authError) return;
+    setLoadingJobs(true);
+    fetchJobs();
+  }, [accessToken, authError, fetchJobs]);
+
+  useEffect(() => {
+    if (accessToken) setAuthError(false);
+    if (!accessToken) pageViewTrackedRef.current = false;
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    if (pageViewTrackedRef.current) return;
+    trackEditorEvent("editor_page_view", {
+      category: "page_view",
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        mode: isVerticalMode ? "vertical" : "horizontal",
+      },
+    });
+    pageViewTrackedRef.current = true;
+  }, [accessToken, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform, activeSubtitlePreset, isVerticalMode]);
+
+  useEffect(() => {
+    if (!accessToken || authError) {
+      setOutcomeAutomationProfile(null);
+      return;
+    }
+    const query = new URLSearchParams({
+      strategyProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      editorMode,
+    });
+    let cancelled = false;
+    apiFetch<OutcomeAutomationResponse>(`/api/jobs/automation-profile?${query.toString()}`, { token: accessToken })
+      .then((data) => {
+        if (cancelled) return;
+        const profile = data?.profile ?? null;
+        setOutcomeAutomationProfile(profile);
+        if (!profile?.enabled) return;
+
+        const recommendedStrategy = profile.recommendedStrategyProfile;
+        const recommendedTargetPlatform = profile.recommendedTargetPlatform;
+        const recommendedEditorMode = normalizeOutcomeAutomationEditorMode(profile.recommendedEditorMode);
+        const strategyAllowedForMode = isVerticalMode ? recommendedStrategy === "viral" : recommendedStrategy !== "viral";
+
+        let strategyApplied = false;
+        let targetPlatformApplied = false;
+        let editorModeApplied = false;
+
+        if (
+          strategyAllowedForMode &&
+          !menuTouchedRef.current.strategy &&
+          recommendedStrategy !== retentionStrategyProfile
+        ) {
+          setRetentionStrategyProfile(recommendedStrategy);
+          strategyApplied = true;
+        }
+        if (
+          !menuTouchedRef.current.targetPlatform &&
+          recommendedTargetPlatform !== "auto" &&
+          recommendedTargetPlatform !== retentionTargetPlatform
+        ) {
+          setRetentionTargetPlatform(recommendedTargetPlatform);
+          targetPlatformApplied = true;
+        }
+        if (
+          !menuTouchedRef.current.editorMode &&
+          recommendedEditorMode !== editorMode
+        ) {
+          setEditorMode(recommendedEditorMode);
+          editorModeApplied = true;
+        }
+        if (strategyApplied || targetPlatformApplied || editorModeApplied) {
+          trackEditorEvent("outcome_automation_menu_applied", {
+            retentionProfile: strategyApplied ? recommendedStrategy : retentionStrategyProfile,
+            targetPlatform: targetPlatformApplied && recommendedTargetPlatform !== "auto"
+              ? recommendedTargetPlatform
+              : retentionTargetPlatform,
+            captionStyle: activeSubtitlePreset,
+            metadata: {
+              sampleSize: profile.sampleSize,
+              confidence: profile.confidence,
+              expectedLift: profile.expectedLift,
+              strategyApplied,
+              targetPlatformApplied,
+              editorModeApplied,
+            },
+          });
+        }
+      })
+      .catch(async (err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try {
+            await signOut();
+          } catch (error) {
+            // ignore
+          }
           return;
         }
-        const isStillRunning = detail.status === "queued" || detail.status === "processing";
-        setRenderState({
-          rendering: isStillRunning,
-          jobId: detail.jobId,
-          progress: toProgressPercent(detail.progress),
+        setOutcomeAutomationProfile(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    activeSubtitlePreset,
+    authError,
+    editorMode,
+    isVerticalMode,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    signOut,
+    trackEditorEvent,
+  ]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      const local = typeof window !== "undefined" ? window.localStorage.getItem("autoDownloadEnabled") : null;
+      setAutoDownloadEnabled(local === "true");
+      return;
+    }
+    apiFetch('/api/billing/entitlements', { token: accessToken })
+      .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
+      .catch(async (err) => {
+        setEntitlements(null);
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try { await signOut() } catch (e) {}
+        }
+      });
+    apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
+      .then((d) => {
+        setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
+        setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
+        const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
+        setSubtitleStyleDraft(resolvedSubtitleStyle);
+        setSubtitleStyleDirty(false);
+        const runtimeCaptions = d?.capabilities?.captions;
+        if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+          setCaptionCapability(runtimeCaptions);
+          if (!runtimeCaptions.available) {
+            setAutoCaptionsEnabled(false);
+          }
+        }
+      })
+      .catch(async (err) => {
+        setAutoDownloadEnabled(null);
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try { await signOut() } catch (e) {}
+        }
+      });
+  }, [accessToken, signOut]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pointerQuery = window.matchMedia("(pointer: coarse)");
+    // Mobile signal follows product spec: width <= 767 OR coarse pointer.
+    const syncMobileSignal = () => {
+      const isMobile =
+        window.innerWidth <= 767 ||
+        pointerQuery.matches;
+      setMobilePipeline(isMobile);
+      document.documentElement.classList.toggle("mobile", isMobile);
+    };
+    syncMobileSignal();
+    window.addEventListener("resize", syncMobileSignal, { passive: true });
+    window.addEventListener("orientationchange", syncMobileSignal, { passive: true });
+    if (typeof pointerQuery.addEventListener === "function") {
+      pointerQuery.addEventListener("change", syncMobileSignal);
+    } else if (typeof pointerQuery.addListener === "function") {
+      pointerQuery.addListener(syncMobileSignal);
+    }
+    return () => {
+      window.removeEventListener("resize", syncMobileSignal);
+      window.removeEventListener("orientationchange", syncMobileSignal);
+      if (typeof pointerQuery.removeEventListener === "function") {
+        pointerQuery.removeEventListener("change", syncMobileSignal);
+      } else if (typeof pointerQuery.removeListener === "function") {
+        pointerQuery.removeListener(syncMobileSignal);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mobilePipeline) {
+      setPipelineLogOpen(false);
+      setRetentionDetailsOpen(false);
+      return;
+    }
+    setPipelineLogOpen(true);
+    setRetentionDetailsOpen(true);
+  }, [mobilePipeline, activeJob?.id]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const id = activeJob.id;
+    const normalized = normalizeStatus(activeJob.status);
+    const prev = statusStartRef.current[id];
+    const progress =
+      typeof activeJob.progress === "number" && Number.isFinite(activeJob.progress)
+        ? clamp(activeJob.progress, 0, 100)
+        : 0;
+    if (!prev || prev.status !== normalized) {
+      statusStartRef.current[id] = { status: normalized, startedAt: Date.now(), startProgress: progress };
+    }
+  }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    if (!selectedJobId && jobs.length > 0) {
+      const next = new URLSearchParams(searchParams);
+      next.set("jobId", jobs[0].id);
+      setSearchParams(next, { replace: true });
+    }
+  }, [jobs, searchParams, selectedJobId, setSearchParams]);
+
+  useEffect(() => {
+    if (!selectedJobId || !accessToken || authError) {
+      setActiveJob(null);
+      return;
+    }
+    fetchJob(selectedJobId);
+    setExportOpen(false);
+  }, [selectedJobId, accessToken, authError, fetchJob]);
+
+  useEffect(() => {
+    setHookSelectorOpen(false);
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!accessToken || !hasActiveJobs || authError) return;
+    const timer = setInterval(() => {
+      fetchJobs();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [accessToken, hasActiveJobs, fetchJobs, authError]);
+
+  useEffect(() => {
+    if (!accessToken || authError || !activeJob || !selectedJobId) return;
+    if (isTerminalStatus(activeJob.status)) return;
+    const timer = setInterval(() => {
+      fetchJob(selectedJobId);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [accessToken, authError, activeJob, selectedJobId, fetchJob]);
+
+  useEffect(() => {
+    const prev = prevJobStatusRef.current;
+    const next = new Map<string, JobStatus>();
+    const transitioned: string[] = [];
+    for (const job of jobs) {
+      next.set(job.id, job.status);
+      const prevStatus = prev.get(job.id);
+      const prevNorm = normalizeStatus(prevStatus);
+      const newNorm = normalizeStatus(job.status);
+      if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
+        transitioned.push(job.id);
+      }
+    }
+    prevJobStatusRef.current = next;
+    if (transitioned.length > 0) {
+      refetchMe();
+      for (const id of transitioned) {
+        ;(async () => {
+          try {
+            // ensure entitlements/settings are loaded
+            if (entitlements === null && accessToken) {
+              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
+              setEntitlements(d?.entitlements ?? null);
+            }
+            if (autoDownloadEnabled === null) {
+              if (accessToken) {
+                const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
+                setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+                setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
+                const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
+                setSubtitleStyleDraft(resolvedSubtitleStyle);
+                setSubtitleStyleDirty(false);
+                const runtimeCaptions = s?.capabilities?.captions;
+                if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
+                  setCaptionCapability(runtimeCaptions);
+                  if (!runtimeCaptions.available) {
+                    setAutoCaptionsEnabled(false);
+                  }
+                }
+              } else {
+                const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
+                setAutoDownloadEnabled(local === 'true');
+              }
+            }
+            // decide whether to auto-download
+            const allowed = entitlements?.autoDownloadAllowed ?? false;
+            const enabled = autoDownloadEnabled ?? false;
+            const downloadedKey = `auto_downloaded_${id}`;
+            if (!allowed || !enabled) return;
+            if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
+
+            // fetch job detail to get URL or fileName
+            const j = jobs.find((x) => x.id === id);
+            let fileName: string | undefined;
+            let url: string | undefined;
+            if (j && (j as any).outputUrl) {
+              url = (j as any).outputUrl;
+              fileName = (j as any).fileName ?? undefined;
+            } else {
+              try {
+                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
+                url = resp?.job?.outputUrl ?? undefined;
+                fileName = resp?.job?.fileName ?? undefined;
+              } catch (e) {
+                // fallback to download-url endpoint
+              }
+            }
+            if (!url) {
+              try {
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: 'POST', token: accessToken });
+                url = out.url;
+              } catch (e) {
+                return;
+              }
+            }
+
+            // attempt programmatic download
+            const a = document.createElement('a');
+            a.href = url as string;
+            if (fileName) a.download = fileName;
+            a.target = '_blank';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            try {
+              a.click();
+              const telemetryJob: JobDetail = {
+                ...(j as any),
+                id,
+                status: "ready",
+                analysis: (j as any)?.analysis ?? null,
+              };
+              submitDownloadFeedback(telemetryJob, 0, "frontend_auto_download");
+              // assume success; if browser blocked, user can tap in modal
+              // set a short timeout to mark as downloaded optimistically
+              setTimeout(() => {
+                try {
+                  window.localStorage.setItem(downloadedKey, 'true');
+                } catch (e) {}
+              }, 1200);
+            } catch (e) {
+              // show modal fallback
+              setAutoDownloadModal({ open: true, url, fileName, jobId: id });
+            } finally {
+              document.body.removeChild(a);
+            }
+          } catch (e) {
+            // ignore
+          }
+        })();
+      }
+    }
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, submitDownloadFeedback]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (normalizeStatus(activeJob.status) !== "ready") return;
+    const key = `export_popup_shown_${activeJob.id}`;
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "true");
+    setExportOpen(true);
+  }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    setShowAdvancedDebug(false);
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (!activeJob) return;
+      const telemetry = playbackTelemetryRef.current[activeJob.id];
+      if (!telemetry) return;
+      submitPreviewFeedback(activeJob, telemetry, "job-change", false);
+    };
+  }, [activeJob?.id, submitPreviewFeedback]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
+      } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    setQualityByJob((prev) => {
+      if (prev[activeJob.id]) return prev;
+      const requested = normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality);
+      const clamped = clampQualityForTier(requested, tier);
+      return { ...prev, [activeJob.id]: clamped };
+    });
+  }, [activeJob, maxQuality, tier]);
+
+  const selectedQuality = useMemo(() => {
+    if (!activeJob) return clampQualityForTier(maxQuality, tier);
+    return (
+      qualityByJob[activeJob.id] ??
+      clampQualityForTier(normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality), tier)
+    );
+  }, [activeJob, maxQuality, qualityByJob, tier]);
+
+  const qualityButtons = useMemo(() => {
+    return QUALITY_ORDER.map((quality) => {
+      const locked = QUALITY_ORDER.indexOf(quality) > QUALITY_ORDER.indexOf(maxQuality);
+      return (
+        <Tooltip key={quality}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={`px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                selectedQuality === quality
+                  ? "border-primary text-primary"
+                  : "border-border/50 text-muted-foreground"
+              } ${locked ? "cursor-not-allowed opacity-60" : "hover:border-primary/50"}`}
+              onClick={() => {
+                if (locked || !activeJob) return;
+                setQualityByJob((prev) => ({ ...prev, [activeJob.id]: quality }));
+              }}
+            >
+              <span className="flex items-center gap-1">
+                {quality}
+                {locked && <Lock className="w-3 h-3" />}
+              </span>
+            </button>
+          </TooltipTrigger>
+          {locked && <TooltipContent>Upgrade to unlock {quality.toUpperCase()}</TooltipContent>}
+        </Tooltip>
+      );
+    });
+  }, [activeJob, maxQuality, selectedQuality]);
+
+  const uploadWithProgress = (
+    url: string,
+    file: File,
+    onProgress: (value: number) => void,
+    onProgressBytes?: (loaded: number, total: number) => void,
+  ) => {
+    return new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(percent);
+        if (onProgressBytes) onProgressBytes(event.loaded, event.total);
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Upload failed (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.open("PUT", url, true);
+      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      xhr.send(file);
+    });
+  };
+
+  // Resumable upload logic removed — we use backend-presigned multipart upload to R2
+
+  const handleFile = async (
+    file: File,
+    renderOptions?: {
+      mode?: "horizontal" | "vertical";
+      verticalClipCount?: number;
+      verticalMode?: VerticalModePayload | null;
+    },
+  ) => {
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
+      return false;
+    }
+    if (!accessToken) return false;
+    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
+    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+    const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
+    const editorModeForJob = mapEditorModeForBackend(editorMode);
+    const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+    const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+    const captionsEnabledForJob = autoCaptionsEnabled;
+    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const subtitlesPayload = {
+      enabled: captionsEnabledForJob,
+      preset: subtitlePresetForJob,
+      style: subtitleStyleForJob,
+    };
+    if (hasReachedRenderLimitForMode(requestedMode)) {
+      const detail = tier === "free"
+        ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
+        : `You've used all ${maxRendersPerMonth} renders for this month.`;
+      toast({
+        title: "Render limit reached",
+        description: detail,
+      });
+      return false;
+    }
+    setUploadProgress(0);
+    try {
+      const createPayload =
+        requestedMode === "vertical"
+          ? {
+              filename: file.name,
+              contentType: file.type,
+              renderMode: "vertical" as const,
+              retentionAggressionLevel: effectiveRetentionAggressionLevel,
+              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionTargetPlatform,
+              platformProfile: retentionTargetPlatform,
+              onlyHookAndCut,
+              maxCuts: maxCutsRequested,
+              editorMode: editorModeForJob,
+              hookSelectionMode: defaultHookSelectionMode,
+              longFormPreset,
+              longFormAggression,
+              longFormClarityVsSpeed,
+              tangentKiller,
+              autoCaptions: captionsEnabledForJob,
+              subtitleStyle: subtitleStyleForJob,
+              subtitles: subtitlesPayload,
+              verticalClipCount: renderOptions?.verticalClipCount,
+              verticalMode: renderOptions?.verticalMode ?? null,
+              verticalCaptionText: verticalCaptionTextForJob,
+            }
+          : {
+              filename: file.name,
+              contentType: file.type,
+              renderMode: "horizontal" as const,
+              retentionAggressionLevel: effectiveRetentionAggressionLevel,
+              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionTargetPlatform,
+              platformProfile: retentionTargetPlatform,
+              onlyHookAndCut,
+              maxCuts: maxCutsRequested,
+              editorMode: editorModeForJob,
+              hookSelectionMode: defaultHookSelectionMode,
+              longFormPreset,
+              longFormAggression,
+              longFormClarityVsSpeed,
+              tangentKiller,
+              autoCaptions: captionsEnabledForJob,
+              subtitleStyle: subtitleStyleForJob,
+              subtitles: subtitlesPayload,
+              horizontalMode: {
+                output: "quality" as const,
+                fit: "contain" as const,
+              },
+            };
+      const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
+        "/api/jobs/create",
+        {
+          method: "POST",
+          body: JSON.stringify(createPayload),
+          token: accessToken,
+        },
+      );
+
+      setUploadingJobId(create.job.id);
+      pipelineStartRef.current[create.job.id] = Date.now();
+      statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
+      setJobs((prev) => [{ ...create.job, renderMode: requestedMode, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
+
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("jobId", create.job.id);
+      setSearchParams(nextParams, { replace: false });
+
+      // Attempt R2 multipart first (preferred for large files)
+      const tryR2Multipart = async () => {
+        try {
+          const r2create = await apiFetch<{
+            uploadId: string
+            key: string
+            partSize: number
+            presignedParts: { partNumber: number; url: string }[]
+          }>(`/api/uploads/create`, {
+            method: 'POST',
+            body: JSON.stringify({ jobId: create.job.id, filename: file.name, contentType: file.type, sizeBytes: file.size }),
+            token: accessToken,
+          })
+
+          const { uploadId, key, partSize, presignedParts } = r2create
+          if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error('invalid_r2_create')
+
+          const total = file.size
+          const actualPartSize = partSize || 10 * MB
+          const parts: { ETag: string; PartNumber: number }[] = []
+          let uploaded = 0
+          jobFileSizeRef.current[create.job.id] = total
+          uploadStartRef.current[create.job.id] = Date.now()
+
+          // presignedParts should be ordered by partNumber; iterate and upload corresponding slices
+          for (const p of presignedParts) {
+            const partNumber = p.partNumber
+            const start = (partNumber - 1) * actualPartSize
+            const end = Math.min(total, start + actualPartSize)
+            const chunk = file.slice(start, end)
+            const resp = await fetch(p.url, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk })
+            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
+            const etag = resp.headers.get('ETag') || resp.headers.get('etag')
+            if (!etag) {
+              throw new Error(
+                'missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads'
+              )
+            }
+            parts.push({ ETag: etag, PartNumber: partNumber })
+            uploaded += chunk.size
+            setUploadBytesUploaded(uploaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((uploaded / total) * 100))
+          }
+
+          // Complete multipart upload on backend
+          await apiFetch('/api/uploads/complete', {
+            method: 'POST',
+            body: JSON.stringify({ jobId: create.job.id, key, uploadId, parts }),
+            token: accessToken,
+          })
+
+          setUploadProgress(100)
+          setUploadingJobId(null)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          return true
+        } catch (err) {
+          console.warn('R2 multipart upload failed', err)
+          // best-effort abort if we have uploadId
+          try {
+            const maybe = err as any
+            if (maybe?.uploadId && maybe?.key) {
+              await apiFetch('/api/uploads/abort', { method: 'POST', body: JSON.stringify({ key: maybe.key, uploadId: maybe.uploadId }), token: accessToken })
+            }
+          } catch (e) {}
+          return false
+        }
+      }
+
+      // Try R2 multipart only when backend indicates direct object upload support.
+      if (create.uploadUrl) {
+        const usedR2 = await tryR2Multipart()
+        if (usedR2) return true
+      }
+
+      const uploadViaProxy = async () => {
+        const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
+        const proxyUrl = API_URL ? `${API_URL}${proxyPath}` : proxyPath
+        const proxyResp = await fetch(proxyUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        })
+        if (!proxyResp.ok) throw new Error('Proxy upload failed')
+        setUploadProgress(100)
+      }
+
+      // Fallback: if server provided a single PUT uploadUrl, use it. Otherwise use proxy upload.
+      if (create.uploadUrl) {
+        jobFileSizeRef.current[create.job.id] = file.size
+        uploadStartRef.current[create.job.id] = Date.now()
+        try {
+          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+            setUploadBytesUploaded(loaded)
+            setUploadBytesTotal(total)
+            setUploadProgress(Math.round((loaded / total) * 100))
+          })
+        } catch (err) {
+          console.warn('Direct upload failed, falling back to proxy', err)
+          await uploadViaProxy()
+          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+          setUploadingJobId(null)
+          setUploadProgress(0)
+          setUploadBytesUploaded(null)
+          setUploadBytesTotal(null)
+          fetchJobs()
+          return true
+        }
+
+        // Notify backend of completion for single-PUT flow
+        await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
+          method: 'POST',
+          body: JSON.stringify({
+            key: create.inputPath,
+            onlyHookAndCut,
+            retentionAggressionLevel: effectiveRetentionAggressionLevel,
+            retentionStrategyProfile: effectiveRetentionStrategyProfile,
+            retentionTargetPlatform,
+            platformProfile: retentionTargetPlatform,
+            autoCaptions: captionsEnabledForJob,
+            subtitleStyle: subtitleStyleForJob,
+            subtitles: subtitlesPayload,
+            maxCuts: maxCutsRequested,
+            editorMode: editorModeForJob,
+            hookSelectionMode: defaultHookSelectionMode,
+            longFormPreset,
+            longFormAggression,
+            longFormClarityVsSpeed,
+            tangentKiller,
+            ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+          }),
+          token: accessToken,
+        })
+
+        toast({ title: 'Upload complete', description: 'Your job is now processing.' })
+        setUploadingJobId(null)
+        setUploadProgress(0)
+        setUploadBytesUploaded(null)
+        setUploadBytesTotal(null)
+        fetchJobs()
+        return true
+      }
+
+      // No direct upload URL available; proxy upload will update job and enqueue processing server-side.
+      await uploadViaProxy()
+      toast({ title: "Upload complete", description: "Your job is now processing." })
+      try {
+        if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any)
+      } catch (e) {}
+      setHighlightedJobId(create.job.id)
+      highlightTimeoutRef.current = window.setTimeout(() => setHighlightedJobId(null), 4000)
+      setUploadingJobId(null)
+      setUploadProgress(0)
+      setUploadBytesUploaded(null)
+      setUploadBytesTotal(null)
+      fetchJobs()
+      return true
+    } catch (err: any) {
+      console.error(err);
+      if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
+        const remaining = typeof err.data?.rendersRemaining === "number" ? err.data.rendersRemaining : rendersRemaining;
+        const maxRenders = err.data?.maxRendersPerMonth ?? maxRendersPerMonth;
+        const detail =
+          typeof remaining === "number"
+            ? `You have ${remaining} render${remaining === 1 ? "" : "s"} left this month.`
+            : maxRenders
+              ? `You've used all ${maxRenders} renders for this month.`
+              : "You've reached your monthly render limit.";
+        toast({ title: "Render limit reached", description: detail });
+      } else if (err instanceof ApiError && err.code === "VERTICAL_RENDER_LIMIT_REACHED") {
+        const used = Number(err.data?.verticalRendersUsed ?? 1);
+        const month = err.data?.month ? ` in ${err.data.month}` : "";
+        toast({
+          title: "Vertical render limit reached",
+          description: `You already used ${used} free vertical render${used === 1 ? "" : "s"}${month}.`,
+        });
+      } else {
+        toast({ title: "Upload failed", description: err?.message || "Please try again." });
+      }
+      setUploadingJobId(null);
+      setUploadProgress(0);
+      setUploadBytesUploaded(null);
+      setUploadBytesTotal(null);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (verticalPreviewUrl) URL.revokeObjectURL(verticalPreviewUrl);
+    };
+  }, [verticalPreviewUrl]);
+
+  useEffect(() => {
+    if (isVerticalMode) return;
+    setSkipManualWebcamCrop(false);
+    setPendingVerticalFile(null);
+    setWebcamCrop(null);
+    setSourceVideoMeta(null);
+    setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
+    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+    setBottomFitMode("cover");
+    setCropInteraction(null);
+    setVerticalClipCount(0);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, [isVerticalMode]);
+
+  const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
+    const y = Math.round(sourceHeight * 0.05);
+    const h = Math.round(sourceHeight * 0.4);
+    return {
+      x: 0,
+      y,
+      w: sourceWidth,
+      h: clamp(h, MIN_WEBCAM_CROP_SIZE_PX, sourceHeight - y),
+    };
+  }, []);
+
+  const normalizeWebcamCrop = useCallback((value: WebcamCrop, source: { width: number; height: number }): WebcamCrop => {
+    const minSize = Math.min(
+      Math.max(MIN_WEBCAM_CROP_SIZE_PX, Math.round(Math.min(source.width, source.height) * 0.03)),
+      Math.min(source.width, source.height),
+    );
+    let x = Number.isFinite(value.x) ? value.x : 0;
+    let y = Number.isFinite(value.y) ? value.y : 0;
+    let w = Number.isFinite(value.w) ? value.w : minSize;
+    let h = Number.isFinite(value.h) ? value.h : minSize;
+    if (w < 0) {
+      x += w;
+      w = Math.abs(w);
+    }
+    if (h < 0) {
+      y += h;
+      h = Math.abs(h);
+    }
+    x = clamp(x, 0, source.width - minSize);
+    y = clamp(y, 0, source.height - minSize);
+    w = clamp(w, minSize, source.width - x);
+    h = clamp(h, minSize, source.height - y);
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      w: Math.round(w),
+      h: Math.round(h),
+    };
+  }, []);
+
+  const setRenderMode = useCallback((mode: "horizontal" | "vertical") => {
+    const next = new URLSearchParams(searchParams);
+    if (mode === "vertical") next.set("mode", "vertical");
+    else next.delete("mode");
+    setSearchParams(next, { replace: false });
+  }, [searchParams, setSearchParams]);
+
+  const prepareVerticalFile = (file: File) => {
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
+      return;
+    }
+    setPendingVerticalFile(file);
+    setWebcamCrop(null);
+    setSourceVideoMeta(null);
+    setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
+    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+    setBottomFitMode("cover");
+    setCropInteraction(null);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
+  const handleVerticalSourceMetadata = useCallback(() => {
+    const video = verticalSourceVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+    const nextSource = { width: video.videoWidth, height: video.videoHeight };
+    setSourceVideoMeta(nextSource);
+    setWebcamCrop((prev) => {
+      if (prev) return normalizeWebcamCrop(prev, nextSource);
+      return buildDefaultWebcamCrop(nextSource.width, nextSource.height);
+    });
+  }, [buildDefaultWebcamCrop, normalizeWebcamCrop]);
+
+  const beginCropInteraction = useCallback((handle: CropHandle, event: React.PointerEvent<HTMLElement>) => {
+    if (!webcamCrop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setCropInteraction({
+      handle,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startCrop: webcamCrop,
+    });
+  }, [webcamCrop]);
+
+  useEffect(() => {
+    if (!cropInteraction || !sourceVideoMeta) return;
+    const onMove = (event: PointerEvent) => {
+      const previewRect = sourcePreviewRef.current?.getBoundingClientRect();
+      if (!previewRect || !previewRect.width || !previewRect.height) return;
+      const pxPerClientX = sourceVideoMeta.width / previewRect.width;
+      const pxPerClientY = sourceVideoMeta.height / previewRect.height;
+      const dx = (event.clientX - cropInteraction.startClientX) * pxPerClientX;
+      const dy = (event.clientY - cropInteraction.startClientY) * pxPerClientY;
+      const next = { ...cropInteraction.startCrop };
+      const includeNorth = cropInteraction.handle.includes("n");
+      const includeSouth = cropInteraction.handle.includes("s");
+      const includeEast = cropInteraction.handle.includes("e");
+      const includeWest = cropInteraction.handle.includes("w");
+      if (cropInteraction.handle === "move") {
+        next.x += dx;
+        next.y += dy;
+      } else {
+        if (includeWest) {
+          next.x += dx;
+          next.w -= dx;
+        }
+        if (includeEast) {
+          next.w += dx;
+        }
+        if (includeNorth) {
+          next.y += dy;
+          next.h -= dy;
+        }
+        if (includeSouth) {
+          next.h += dy;
+        }
+      }
+      setWebcamCrop(normalizeWebcamCrop(next, sourceVideoMeta));
+    };
+    const onEnd = () => setCropInteraction(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  }, [cropInteraction, sourceVideoMeta, normalizeWebcamCrop]);
+
+  const webcamPaddingMax = useMemo(() => {
+    if (!webcamCrop) return 0;
+    return Math.max(0, Math.floor(Math.min(webcamCrop.w, webcamCrop.h) / 2) - 1);
+  }, [webcamCrop]);
+
+  useEffect(() => {
+    if (webcamPaddingPx <= webcamPaddingMax) return;
+    setWebcamPaddingPx(webcamPaddingMax);
+  }, [webcamPaddingPx, webcamPaddingMax]);
+
+  const effectiveWebcamCrop = useMemo(() => {
+    if (!webcamCrop || !sourceVideoMeta) return null;
+    const pad = clamp(webcamPaddingPx, 0, webcamPaddingMax);
+    return normalizeWebcamCrop(
+      {
+        x: webcamCrop.x + pad,
+        y: webcamCrop.y + pad,
+        w: webcamCrop.w - pad * 2,
+        h: webcamCrop.h - pad * 2,
+      },
+      sourceVideoMeta,
+    );
+  }, [normalizeWebcamCrop, sourceVideoMeta, webcamCrop, webcamPaddingMax, webcamPaddingPx]);
+
+  const webcamCropStyle = useMemo(() => {
+    if (!webcamCrop || !sourceVideoMeta) return null;
+    return {
+      left: `${(webcamCrop.x / sourceVideoMeta.width) * 100}%`,
+      top: `${(webcamCrop.y / sourceVideoMeta.height) * 100}%`,
+      width: `${(webcamCrop.w / sourceVideoMeta.width) * 100}%`,
+      height: `${(webcamCrop.h / sourceVideoMeta.height) * 100}%`,
+    };
+  }, [sourceVideoMeta, webcamCrop]);
+
+  const topHeightPx = useMemo(() => {
+    const raw = Math.round(DEFAULT_VERTICAL_OUTPUT.height * clamp01(webcamTopHeightPct / 100));
+    return clamp(raw, 200, DEFAULT_VERTICAL_OUTPUT.height - 200);
+  }, [webcamTopHeightPct]);
+
+  const verticalSelectionReady = skipManualWebcamCrop
+    ? Boolean(pendingVerticalFile && sourceVideoMeta)
+    : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
+
+  useEffect(() => {
+    const video = verticalCompositionVideoRef.current;
+    const canvas = verticalCompositionCanvasRef.current;
+    if (!video || !canvas || !verticalPreviewUrl || !sourceVideoMeta) return;
+    const singleLayout = skipManualWebcamCrop || !effectiveWebcamCrop;
+    if (!singleLayout && !effectiveWebcamCrop) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const canvasWidth = 540;
+    const canvasHeight = Math.round((DEFAULT_VERTICAL_OUTPUT.height / DEFAULT_VERTICAL_OUTPUT.width) * canvasWidth);
+    const topHeight = Math.round((topHeightPx / DEFAULT_VERTICAL_OUTPUT.height) * canvasHeight);
+    const bottomHeight = canvasHeight - topHeight;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const drawVideoRegion = (
+      src: WebcamCrop,
+      dst: { x: number; y: number; w: number; h: number },
+      fit: VerticalFitMode,
+    ) => {
+      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return;
+      const srcAspect = src.w / src.h;
+      const dstAspect = dst.w / dst.h;
+      if (fit === "contain") {
+        let drawWidth = dst.w;
+        let drawHeight = dst.h;
+        let drawX = dst.x;
+        let drawY = dst.y;
+        if (srcAspect > dstAspect) {
+          drawHeight = dst.w / srcAspect;
+          drawY += (dst.h - drawHeight) / 2;
+        } else {
+          drawWidth = dst.h * srcAspect;
+          drawX += (dst.w - drawWidth) / 2;
+        }
+        ctx.fillStyle = "#050505";
+        ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
+        ctx.drawImage(video, src.x, src.y, src.w, src.h, drawX, drawY, drawWidth, drawHeight);
+        return;
+      }
+      let sx = src.x;
+      let sy = src.y;
+      let sw = src.w;
+      let sh = src.h;
+      if (srcAspect > dstAspect) {
+        const narrowed = sh * dstAspect;
+        sx += (sw - narrowed) / 2;
+        sw = narrowed;
+      } else {
+        const trimmed = sw / dstAspect;
+        sy += (sh - trimmed) / 2;
+        sh = trimmed;
+      }
+      ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
+    };
+
+    let raf = 0;
+    const render = () => {
+      if (video.readyState >= 2) {
+        ctx.fillStyle = "#040404";
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        if (singleLayout) {
+          drawVideoRegion(
+            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+            bottomFitMode,
+          );
+        } else {
+          drawVideoRegion(
+            effectiveWebcamCrop,
+            { x: 0, y: 0, w: canvasWidth, h: topHeight },
+            "cover",
+          );
+          drawVideoRegion(
+            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+            bottomFitMode,
+          );
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, topHeight + 0.5);
+          ctx.lineTo(canvasWidth, topHeight + 0.5);
+          ctx.stroke();
+        }
+      }
+      raf = window.requestAnimationFrame(render);
+    };
+    const startPlayback = () => {
+      const maybePromise = video.play();
+      if (maybePromise && typeof maybePromise.catch === "function") {
+        maybePromise.catch(() => undefined);
+      }
+    };
+    startPlayback();
+    render();
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop]);
+
+  const startVerticalRender = async () => {
+    if (!pendingVerticalFile) {
+      toast({ title: "Choose a file", description: "Upload an MP4, M4V, or MKV before rendering." });
+      return;
+    }
+    if (!sourceVideoMeta) {
+      toast({ title: "Preparing preview", description: "Wait for video metadata to load, then try again." });
+      return;
+    }
+    if (!skipManualWebcamCrop && !effectiveWebcamCrop) {
+      toast({ title: "Set webcam crop", description: "Adjust the crop box before rendering vertical output." });
+      return;
+    }
+    const verticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
+    const ok = await handleFile(pendingVerticalFile, {
+      mode: "vertical",
+      verticalClipCount,
+      verticalMode: {
+        enabled: true,
+        output: { ...DEFAULT_VERTICAL_OUTPUT },
+        layout: verticalLayout,
+        source: sourceVideoMeta,
+        webcamCrop: verticalLayout === "stacked" ? effectiveWebcamCrop : null,
+        webcamPlacement: verticalLayout === "stacked"
+          ? {
+              heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
+            }
+          : undefined,
+        topHeightPx: verticalLayout === "stacked" ? topHeightPx : null,
+        bottomFit: bottomFitMode,
+        webcamFit: "cover",
+        paddingPx: verticalLayout === "stacked" ? clamp(webcamPaddingPx, 0, webcamPaddingMax) : 0,
+      },
+    });
+    if (!ok) return;
+    setPendingVerticalFile(null);
+    setWebcamCrop(null);
+    setSourceVideoMeta(null);
+    setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
+    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+    setBottomFitMode("cover");
+    setCropInteraction(null);
+    setVerticalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  const handlePickFile = () => {
+    trackEditorEvent("new_project_clicked", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: { mode: isVerticalMode ? "vertical" : "horizontal" },
+    });
+    fileInputRef.current?.click();
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    if (isVerticalMode) {
+      prepareVerticalFile(file);
+      return;
+    }
+    void handleFile(file);
+  };
+
+  const handleSelectJob = (jobId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("jobId", jobId);
+    setSearchParams(next, { replace: false });
+  };
+
+  const handleCancelJob = useCallback(
+    async (jobId: string) => {
+      if (!accessToken || !jobId) return;
+      setCancelingJobId(jobId);
+      try {
+        const requestCancel = async () =>
+          apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel`, {
+            method: "POST",
+            token: accessToken,
+          });
+        try {
+          await requestCancel();
+        } catch (err: any) {
+          // Backward compatibility while backend deploys the new /cancel route.
+          if (err instanceof ApiError && err.status === 404) {
+            await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/cancel-queue`, {
+              method: "POST",
+              token: accessToken,
+            });
+          } else {
+            throw err;
+          }
+        }
+        setJobs((prev) =>
+          prev.map((job) =>
+            job.id === jobId
+              ? { ...job, status: "failed", progress: Math.max(0, Math.min(100, Number(job.progress ?? 0))) }
+              : job,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== jobId) return prev;
+          return {
+            ...prev,
+            status: "failed",
+            progress: Math.max(0, Math.min(100, Number(prev.progress ?? 0))),
+            error: "queue_canceled_by_user",
+          };
         });
         toast({
-          title: "Job synced",
-          description: isStillRunning
-            ? `${statusLabel(detail.status)} • ${toProgressPercent(detail.progress)}%`
-            : "Job status refreshed.",
+          title: "Job canceled",
+          description: "The job has been stopped.",
         });
-      } catch (error: any) {
-        const message = error instanceof ApiError ? error.message : "Could not open this job.";
-        setErrorMessage(message);
+        fetchJobs();
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          toast({ title: "Session expired", description: "Please sign in again." });
+          try {
+            await signOut();
+          } catch (e) {
+            // ignore
+          }
+        } else {
+          toast({
+            title: "Cancel failed",
+            description: err?.message || "Please try again.",
+          });
+          fetchJobs();
+        }
       } finally {
-        setJobActionPendingId((current) => (current === jobId ? null : current));
+        setCancelingJobId((current) => (current === jobId ? null : current));
+      }
+    },
+    [accessToken, fetchJobs, signOut, toast],
+  );
+
+  const handleRedoRender = useCallback(
+    async (job: JobDetail) => {
+      if (!accessToken || !job?.id) return;
+      setReprocessingJobId(job.id);
+      try {
+        const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+        const editorModeForJob = mapEditorModeForBackend(editorMode);
+        const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+        const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+        const captionsEnabledForJob = autoCaptionsEnabled;
+        const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
+        const preferredHook = selectedHookByJob[job.id] || null;
+        const hookSelectionModeForJob =
+          hookSelectionModeByJob[job.id] ??
+          normalizeHookSelectionMode(
+            (job.analysis as any)?.hook_selection_mode ??
+            (job.analysis as any)?.hookSelectionMode ??
+            (job.analysis as any)?.hook_mode ??
+            (job.analysis as any)?.hookMode,
+          );
+        const payload: Record<string, unknown> = {
+          requestedQuality: selectedQuality,
+          retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
+          retentionStrategyProfile: effectiveRetentionStrategyProfile,
+          retentionTargetPlatform,
+          platformProfile: retentionTargetPlatform,
+          onlyHookAndCut,
+          maxCuts: maxCutsRequested,
+          editorMode: editorModeForJob,
+          hookSelectionMode: hookSelectionModeForJob,
+          longFormPreset,
+          longFormAggression,
+          longFormClarityVsSpeed,
+          tangentKiller,
+          autoCaptions: captionsEnabledForJob,
+          subtitleStyle: subtitleStyleForJob,
+          subtitles: {
+            enabled: captionsEnabledForJob,
+            preset: subtitlePresetForJob,
+            style: subtitleStyleForJob,
+          },
+        };
+        if (requestedMode === "vertical") {
+          payload.verticalCaptionText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+        }
+        if (preferredHook && hookSelectionModeForJob !== "auto") {
+          payload.preferredHook = {
+            start: preferredHook.start,
+            duration: preferredHook.duration,
+          };
+        }
+
+        const result = await apiFetch<{
+          ok: boolean;
+          queued: boolean;
+          rerenderUsage?: {
+            day?: string;
+            rerendersUsed?: number;
+            rerendersLimit?: number | null;
+            rerendersRemaining?: number | null;
+          } | null;
+        }>(`/api/jobs/${job.id}/reprocess`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify(payload),
+        });
+
+        setExportOpen(false);
+        setJobs((prev) =>
+          prev.map((entry) =>
+            entry.id === job.id
+              ? { ...entry, status: "queued", progress: 1 }
+              : entry,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== job.id) return prev;
+          return {
+            ...prev,
+            status: "queued",
+            progress: 1,
+            error: null,
+            outputUrl: null,
+            outputUrls: null,
+          };
+        });
+        await Promise.allSettled([fetchJobs(), fetchJob(job.id), refetchMe()]);
+        const remaining = Number(result?.rerenderUsage?.rerendersRemaining);
+        const limit = Number(result?.rerenderUsage?.rerendersLimit);
+        if (Number.isFinite(remaining) && Number.isFinite(limit)) {
+          toast({
+            title: "Re-render queued",
+            description: `${remaining} of ${limit} re-renders left today.`,
+          });
+        } else {
+          toast({
+            title: "Re-render queued",
+            description: "Your job was added back to the queue.",
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof ApiError && err.code === "RERENDER_LIMIT_REACHED") {
+          const used = Number(err.data?.rerendersUsed ?? 0);
+          const limit = Number(err.data?.maxRerendersPerDay ?? maxRerendersPerDay ?? 0);
+          const dayLabel = typeof err.data?.day === "string" ? ` on ${err.data.day}` : "";
+          toast({
+            title: "Daily re-render limit reached",
+            description:
+              Number.isFinite(limit) && limit > 0
+                ? `You used ${used} of ${limit} re-renders${dayLabel}.`
+                : "You reached your re-render limit for today.",
+          });
+        } else if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
+          const maxRenders = err.data?.maxRendersPerMonth ?? maxRendersPerMonth;
+          toast({
+            title: "Render limit reached",
+            description: maxRenders
+              ? `You used all ${maxRenders} renders for this month.`
+              : "You've reached your monthly render limit.",
+          });
+        } else {
+          toast({
+            title: "Re-render failed",
+            description: err?.message || "Please try again.",
+          });
+        }
+      } finally {
+        setReprocessingJobId((current) => (current === job.id ? null : current));
       }
     },
     [
-      fetchDetailedJob,
-      jobResultCache,
-      setErrorMessage,
-      setLatestResult,
-      setRenderState,
-      setRetentionExpanded,
-      setSuccessModalOpen,
+      accessToken,
+      autoCaptionsEnabled,
+      editorMode,
+      fetchJob,
+      fetchJobs,
+      maxRendersPerMonth,
+      maxRerendersPerDay,
+      maxCutsRequested,
+      longFormPreset,
+      longFormAggression,
+      longFormClarityVsSpeed,
+      onlyHookAndCut,
+      qualityByJob,
+      refetchMe,
+      retentionStrategyProfile,
+      retentionTargetPlatform,
+      tangentKiller,
+      hookSelectionModeByJob,
+      selectedHookByJob,
+      subtitleStyleDraft,
+      verticalCaptionText,
       toast,
     ],
   );
 
-  const handleExportJob = useCallback(
-    async (jobId: string) => {
-      setActivePipelineJobId(jobId);
-      setJobActionPendingId(jobId);
-      try {
-        const detail = jobResultCache[jobId] || (await fetchDetailedJob(jobId));
-        if (detail.status !== "completed") {
-          toast({ title: "Export not ready", description: "This job is still processing." });
-          return;
-        }
-        const exportUrl = resolveApiMediaUrl(detail.outputVideoUrl || detail.clipUrls?.[0] || "");
-        if (!exportUrl) {
-          setErrorMessage("No export file was found for this job.");
-          return;
-        }
-        triggerExportDownload(exportUrl);
-      } catch (error: any) {
-        const message = error instanceof ApiError ? error.message : "Could not export this job.";
-        setErrorMessage(message);
-      } finally {
-        setJobActionPendingId((current) => (current === jobId ? null : current));
+  const handleDownload = async (clipIndex = 0) => {
+    if (!accessToken || !activeJob) return;
+    try {
+      const outputUrls = Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [];
+      const selectedExistingUrl =
+        outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
+      if (selectedExistingUrl) {
+        window.open(selectedExistingUrl, "_blank");
+        submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
+        return;
       }
-    },
-    [fetchDetailedJob, jobResultCache, setErrorMessage, toast, triggerExportDownload],
+      const clipParam = clipIndex + 1;
+      const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipParam}`, { token: accessToken });
+      setActiveJob((prev) => {
+        if (!prev) return prev;
+        const nextUrls = Array.isArray(prev.outputUrls) ? [...prev.outputUrls] : [];
+        while (nextUrls.length < clipParam) nextUrls.push("");
+        nextUrls[clipIndex] = data.url;
+        return { ...prev, outputUrl: data.url, outputUrls: nextUrls };
+      });
+      window.open(data.url, "_blank");
+      submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err?.message || "Please try again." });
+    }
+  };
+
+  const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const activeStatusLabel = activeJob
+    ? normalizeStatus(activeJob.status) === "failed" && activeJob.error === "queue_canceled_by_user"
+      ? "Canceled"
+      : STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued"
+    : "Queued";
+  const canCancelJob = Boolean(activeJob && !isTerminalStatus(activeJob.status));
+  const cancelButtonLabel =
+    normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading"
+      ? "Cancel Queue"
+      : "Cancel Job";
+  const activeOutputUrls = useMemo(() => {
+    if (!activeJob) return [] as string[];
+    const urls = Array.isArray(activeJob.outputUrls)
+      ? activeJob.outputUrls.map((url) => (typeof url === "string" ? url : ""))
+      : [];
+    if (urls.length > 0) return urls;
+    if (activeJob.outputUrl) return [activeJob.outputUrl];
+    return [];
+  }, [activeJob]);
+  const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
+  const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const hookStartSec = Number(activeAnalysis?.hook_start_time ?? activeAnalysis?.hook?.start ?? NaN);
+  const hookEndSec = Number(activeAnalysis?.hook_end_time ?? (Number.isFinite(hookStartSec) ? hookStartSec + Number(activeAnalysis?.hook?.duration ?? 0) : NaN));
+  const hookText = typeof activeAnalysis?.hook_text === "string" ? activeAnalysis.hook_text : "";
+  const hookReason = typeof activeAnalysis?.hook_reason === "string" ? activeAnalysis.hook_reason : "";
+  const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
+    ? activeAnalysis.metadata_summary
+    : null;
+  const metadataClipSummaries: Array<{
+    clip: number;
+    predictedCompletion: number | null;
+    reason: string | null;
+  }> = Array.isArray(metadataSummary?.clips)
+    ? metadataSummary.clips
+        .map((entry: any, index: number) => {
+          const clipNumber = Number.isFinite(Number(entry?.clip)) ? Number(entry.clip) : index + 1;
+          const predictedCompletion = Number(entry?.predictedCompletion);
+          const reason = typeof entry?.reason === "string" ? entry.reason.trim() : "";
+          return {
+            clip: clipNumber,
+            predictedCompletion: Number.isFinite(predictedCompletion) ? predictedCompletion : null,
+            reason: reason.length > 0 ? reason : null,
+          };
+        })
+        .slice(0, 6)
+    : [];
+  const metadataRetention = metadataSummary?.retention && typeof metadataSummary.retention === "object"
+    ? metadataSummary.retention
+    : null;
+  const metadataNiche = metadataSummary?.niche && typeof metadataSummary.niche === "object"
+    ? metadataSummary.niche
+    : null;
+  const verticalSelectionMode = typeof metadataSummary?.selectionMode === "string"
+    ? metadataSummary.selectionMode
+    : null;
+  const verticalClipPredictions: VerticalClipPrediction[] = Array.isArray(metadataSummary?.clips)
+    ? metadataSummary.clips
+        .map((item: any) => {
+          const clip = Number(item?.clip);
+          const start = Number(item?.start);
+          const end = Number(item?.end);
+          const duration = Number(item?.duration);
+          const predictedCompletion = Number(item?.predictedCompletion);
+          if (
+            !Number.isFinite(clip) ||
+            !Number.isFinite(start) ||
+            !Number.isFinite(end) ||
+            !Number.isFinite(duration) ||
+            !Number.isFinite(predictedCompletion)
+          ) {
+            return null;
+          }
+          return {
+            clip: Math.max(1, Math.round(clip)),
+            start,
+            end,
+            duration: Math.max(0, duration),
+            predictedCompletion: Math.max(0, Math.min(100, predictedCompletion)),
+            reason: typeof item?.reason === "string" ? item.reason : "",
+          } as VerticalClipPrediction;
+        })
+        .filter((item: VerticalClipPrediction | null): item is VerticalClipPrediction => Boolean(item))
+        .sort((a, b) => a.clip - b.clip)
+    : [];
+  const verticalPredictedAverage = Number.isFinite(Number(metadataSummary?.predictedAverage))
+    ? Number(metadataSummary.predictedAverage)
+    : verticalClipPredictions.length > 0
+      ? Number(
+          (
+            verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
+            verticalClipPredictions.length
+          ).toFixed(2),
+        )
+      : null;
+  const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
+    activeAnalysis?.hook_selection_mode ??
+    activeAnalysis?.hookSelectionMode ??
+    activeAnalysis?.hook_mode ??
+    activeAnalysis?.hookMode ??
+    metadataRetention?.hookSelectionMode ??
+    metadataRetention?.hook_selection_mode ??
+    activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.hookSelectionMode,
   );
+  const activeHookSelectionMode = activeJob
+    ? (hookSelectionModeByJob[activeJob.id] ?? hookSelectionModeFromAnalysis)
+    : defaultHookSelectionMode;
+  const hookSelectionSource = typeof activeAnalysis?.hook_selection_source === "string"
+    ? activeAnalysis.hook_selection_source
+    : typeof metadataRetention?.hookSelectionSource === "string"
+      ? metadataRetention.hookSelectionSource
+      : "auto";
+  const pipelineJudgeMeta =
+    activeAnalysis?.pipelineSteps?.STORY_QUALITY_GATE?.meta ||
+    activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta ||
+    null;
+  const retentionJudge = activeAnalysis?.retention_judge && typeof activeAnalysis.retention_judge === "object"
+    ? activeAnalysis.retention_judge
+    : pipelineJudgeMeta?.selectedJudge && typeof pipelineJudgeMeta.selectedJudge === "object"
+      ? pipelineJudgeMeta.selectedJudge
+      : pipelineJudgeMeta?.judge && typeof pipelineJudgeMeta.judge === "object"
+        ? pipelineJudgeMeta.judge
+        : null;
+  const retentionAttempts = Array.isArray(activeAnalysis?.retention_attempts)
+    ? activeAnalysis.retention_attempts
+    : Array.isArray(pipelineJudgeMeta?.attempts)
+      ? pipelineJudgeMeta.attempts
+      : [];
+  const whyKeepWatching: string[] = Array.isArray(retentionJudge?.why_keep_watching)
+    ? retentionJudge.why_keep_watching.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    : [];
+  const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
+    ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    : [];
+  const detectedRetentionStrategyProfile =
+    typeof metadataRetention?.strategyProfile === "string"
+      ? metadataRetention.strategyProfile
+      : typeof retentionJudge?.strategy_profile === "string"
+        ? retentionJudge.strategy_profile
+        : typeof activeAnalysis?.retentionStrategyProfile === "string"
+          ? activeAnalysis.retentionStrategyProfile
+          : typeof activeAnalysis?.retentionStrategy === "string"
+            ? activeAnalysis.retentionStrategy
+            : null;
+  const detectedRetentionContentFormat =
+    typeof metadataRetention?.contentFormat === "string"
+      ? metadataRetention.contentFormat
+      : typeof retentionJudge?.content_format === "string"
+        ? retentionJudge.content_format
+        : typeof activeAnalysis?.retentionContentFormat === "string"
+          ? activeAnalysis.retentionContentFormat
+          : typeof activeAnalysis?.retention_content_format === "string"
+            ? activeAnalysis.retention_content_format
+            : null;
+  const detectedRetentionTargetPlatform =
+    typeof metadataRetention?.targetPlatform === "string"
+      ? metadataRetention.targetPlatform
+      : typeof retentionJudge?.target_platform === "string"
+        ? retentionJudge.target_platform
+        : typeof activeAnalysis?.retentionTargetPlatform === "string"
+          ? activeAnalysis.retentionTargetPlatform
+          : typeof activeAnalysis?.retention_target_platform === "string"
+            ? activeAnalysis.retention_target_platform
+            : typeof activeAnalysis?.retentionPlatform === "string"
+              ? activeAnalysis.retentionPlatform
+              : typeof activeAnalysis?.targetPlatform === "string"
+                ? activeAnalysis.targetPlatform
+                : null;
+  const detectedNicheRaw =
+    typeof activeAnalysis?.niche_profile?.niche === "string"
+      ? activeAnalysis.niche_profile.niche
+      : typeof metadataNiche?.name === "string"
+        ? metadataNiche.name
+        : null;
+  const detectedNicheConfidenceRaw =
+    Number.isFinite(Number(activeAnalysis?.niche_profile?.confidence))
+      ? Number(activeAnalysis.niche_profile.confidence)
+      : Number.isFinite(Number(metadataNiche?.confidence))
+        ? Number(metadataNiche.confidence)
+        : null;
+  const detectedNicheConfidencePercent =
+    detectedNicheConfidenceRaw !== null
+      ? Math.round(clamp01(detectedNicheConfidenceRaw) * 100)
+      : null;
+  const detectedNicheRationale: string[] = Array.isArray(activeAnalysis?.niche_profile?.rationale)
+    ? activeAnalysis.niche_profile.rationale.filter((line: unknown) => typeof line === "string").slice(0, 3)
+    : Array.isArray(metadataNiche?.rationale)
+      ? metadataNiche.rationale.filter((line: unknown) => typeof line === "string").slice(0, 3)
+      : [];
+  const hookVariants = normalizeHookCandidates(
+    activeAnalysis?.hook_variants ||
+    activeAnalysis?.hook_candidates ||
+    activeAnalysis?.editPlan?.hookVariants ||
+    activeAnalysis?.editPlan?.hookCandidates ||
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.topCandidates ||
+    activeAnalysis?.pipelineSteps?.BEST_MOMENT_SCORING?.meta?.topCandidates ||
+    (activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
+      ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
+      : [])
+  ).slice(0, 3);
+  const selectedHookFromPipeline =
+    normalizeHookCandidates(
+      activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
+        ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
+        : [],
+    )[0] ?? null;
+  const selectedHookFromAnalysis: HookCandidate | null =
+    Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec) && hookEndSec > hookStartSec
+      ? {
+          start: hookStartSec,
+          duration: Math.max(0.1, hookEndSec - hookStartSec),
+          score: Number.isFinite(Number(activeAnalysis?.hook_score)) ? Number(activeAnalysis?.hook_score) : 0,
+          auditScore: Number.isFinite(Number(activeAnalysis?.hook_audit_score))
+            ? Number(activeAnalysis?.hook_audit_score)
+            : Number.isFinite(Number(activeAnalysis?.hook_score))
+              ? Number(activeAnalysis?.hook_score)
+              : 0,
+          auditPassed: Boolean(activeAnalysis?.hook_audit_passed ?? true),
+          text: hookText,
+          reason: hookReason,
+          synthetic: Boolean(activeAnalysis?.hook_synthetic),
+        }
+      : selectedHookFromPipeline;
+  const selectedHookCandidate =
+    (activeJob ? selectedHookByJob[activeJob.id] : null) ||
+    (() => {
+      if (selectedHookFromAnalysis && hookVariants.length > 0) {
+        const matched = hookVariants.find((candidate) => (
+          Math.abs(candidate.start - selectedHookFromAnalysis.start) <= 0.4 &&
+          Math.abs(candidate.duration - selectedHookFromAnalysis.duration) <= 0.8
+        ));
+        if (matched) return matched;
+      }
+      if (selectedHookFromAnalysis) return selectedHookFromAnalysis;
+      return hookVariants[0] || null;
+    })();
+  const retentionImprovements: string[] = Array.isArray(metadataRetention?.improvements)
+    ? metadataRetention.improvements.filter((line: unknown) => typeof line === "string").slice(0, 8)
+    : Array.isArray(activeJob?.optimizationNotes)
+      ? activeJob.optimizationNotes.filter((line: unknown) => typeof line === "string").slice(0, 8)
+      : [];
+  const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
+    ? Number(activeJob?.retentionScore)
+    : Number.isFinite(Number(retentionJudge?.retention_score))
+      ? Number(retentionJudge?.retention_score)
+      : null;
+  const retentionScoreBeforeDisplay = Number.isFinite(Number(metadataRetention?.beforeScore))
+    ? Number(metadataRetention.beforeScore)
+    : Number.isFinite(Number(activeAnalysis?.retention_score_before))
+      ? Number(activeAnalysis.retention_score_before)
+      : null;
+  const retentionScoreAfterDisplay = Number.isFinite(Number(metadataRetention?.afterScore))
+    ? Number(metadataRetention.afterScore)
+    : Number.isFinite(Number(activeAnalysis?.retention_score_after))
+      ? Number(activeAnalysis.retention_score_after)
+      : retentionScoreDisplay;
+  const retentionScoreDeltaDisplay = Number.isFinite(Number(metadataRetention?.delta))
+    ? Number(metadataRetention.delta)
+    : (
+      retentionScoreBeforeDisplay !== null &&
+      retentionScoreAfterDisplay !== null
+        ? Number((retentionScoreAfterDisplay - retentionScoreBeforeDisplay).toFixed(1))
+        : null
+    );
+  const hookWindowLabel =
+    Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
+      ? formatHookRange(hookStartSec, hookEndSec)
+      : selectedHookCandidate
+        ? formatHookRange(selectedHookCandidate.start, selectedHookCandidate.start + selectedHookCandidate.duration)
+      : "Not available";
+  const failedGateReason =
+    activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
+      ? activeJob.error.replace(/^FAILED_HOOK:\s*/i, "").trim()
+      : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
+        ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
+        : "";
+  const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
+  const currentStepIndex = activeStepKey
+    ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
+    : -1;
+  const failedStepKey =
+    normalizedActiveStatus === "failed"
+      ? activeJob?.error && activeJob.error.startsWith("FAILED_HOOK:")
+        ? "hooking"
+        : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
+          ? "pacing"
+          : "rendering"
+      : null;
+  const failedStepIndex = failedStepKey
+    ? PIPELINE_STEPS.findIndex((step) => step.key === failedStepKey)
+    : -1;
+  const visualStepIndex = normalizedActiveStatus === "failed"
+    ? (failedStepIndex >= 0 ? failedStepIndex : Math.max(0, currentStepIndex))
+    : currentStepIndex;
+  const totalPipelineProgress = clamp(Number(activeJob?.progress ?? 0), 0, 100);
+  const activeStageProgress = useMemo(() => {
+    if (!activeJob) return 0;
+    const normalized = normalizeStatus(activeJob.status);
+    const overallProgress =
+      typeof activeJob.progress === "number" && Number.isFinite(activeJob.progress)
+        ? clamp(activeJob.progress, 0, 100)
+        : 0;
+    if (normalized === "ready") return 100;
+    const marker = statusStartRef.current[activeJob.id];
+    if (marker && marker.status === normalized && Number.isFinite(marker.startProgress)) {
+      const start = clamp(marker.startProgress, 0, 99);
+      const span = Math.max(1, 100 - start);
+      return clamp(((overallProgress - start) / span) * 100, 4, 99);
+    }
+    if (normalized === "failed") return clamp(overallProgress, 6, 99);
+    return clamp(overallProgress, 4, 99);
+  }, [activeJob?.id, activeJob?.status, activeJob?.progress]);
+  const analyzedFrames = firstFiniteNumber(
+    activeAnalysis?.frames_analyzed,
+    activeAnalysis?.framesAnalyzed,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.framesProcessed,
+    activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.framesProcessed,
+  );
+  const totalFrames = firstFiniteNumber(
+    activeAnalysis?.frames_total,
+    activeAnalysis?.totalFrames,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.totalFrames,
+    activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.totalFrames,
+  );
+  const highEnergyPeaks = firstFiniteNumber(
+    activeAnalysis?.high_energy_peaks,
+    activeAnalysis?.highEnergyPeaks,
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.peakCount,
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.highEnergyPeaks,
+  );
+  const cutsApplied = firstFiniteNumber(
+    activeAnalysis?.cuts_applied,
+    activeAnalysis?.cut_count,
+    activeAnalysis?.pipelineSteps?.CUTTING?.meta?.cutsApplied,
+    activeAnalysis?.pipelineSteps?.CUTTING?.meta?.cutCount,
+  );
+  const subtitleLines = firstFiniteNumber(
+    activeAnalysis?.subtitle_line_count,
+    activeAnalysis?.subtitlesCount,
+    activeAnalysis?.pipelineSteps?.SUBTITLING?.meta?.lineCount,
+    activeAnalysis?.pipelineSteps?.SUBTITLING?.meta?.subtitleCount,
+  );
+  const estimatedDurationSec = firstFiniteNumber(
+    activeAnalysis?.source_duration_seconds,
+    activeAnalysis?.sourceDurationSeconds,
+    activeAnalysis?.durationSec,
+    activeAnalysis?.duration_seconds,
+    activeAnalysis?.duration,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.durationSec,
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.sourceDurationSec,
+  );
+  const energyMomentsFromAnalysis = normalizeEnergyMoments(
+    activeAnalysis?.energyMoments ||
+    activeAnalysis?.energy_moments ||
+    activeAnalysis?.timeline_energy_scores ||
+    activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.energyMoments ||
+    activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.energyMoments ||
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.topCandidates,
+  );
+  const fallbackEnergyAnchorSec = selectedHookCandidate?.start ?? 252;
+  const energyTimelineMoments = useMemo(() => {
+    if (energyMomentsFromAnalysis.length > 0) return energyMomentsFromAnalysis;
+    const synthetic = [
+      { timestampSec: Math.max(6, fallbackEnergyAnchorSec - 120), energy: 66, motion: 62, audio: 67, visual: 64, facial: 61 },
+      { timestampSec: Math.max(12, fallbackEnergyAnchorSec - 62), energy: 73, motion: 75, audio: 71, visual: 72, facial: 70 },
+      { timestampSec: Math.max(18, fallbackEnergyAnchorSec), energy: 94, motion: 91, audio: 90, visual: 95, facial: 92 },
+      { timestampSec: Math.max(24, fallbackEnergyAnchorSec + 58), energy: 82, motion: 80, audio: 78, visual: 83, facial: 84 },
+      { timestampSec: Math.max(30, fallbackEnergyAnchorSec + 124), energy: 76, motion: 72, audio: 74, visual: 79, facial: 78 },
+    ] satisfies EnergyMoment[];
+    return synthetic;
+  }, [energyMomentsFromAnalysis, fallbackEnergyAnchorSec]);
+  const estimatedTimelineDurationSec = useMemo(() => {
+    const fromDuration = estimatedDurationSec !== null ? Math.max(1, estimatedDurationSec) : null;
+    const maxMomentSec = energyTimelineMoments.length > 0
+      ? energyTimelineMoments[energyTimelineMoments.length - 1].timestampSec + 45
+      : null;
+    const hookTail = selectedHookCandidate
+      ? selectedHookCandidate.start + selectedHookCandidate.duration + 90
+      : 0;
+    return Math.max(60, Math.round(fromDuration ?? maxMomentSec ?? hookTail ?? 360));
+  }, [estimatedDurationSec, energyTimelineMoments, selectedHookCandidate]);
+  const timelineEnergyMoments = useMemo(() => (
+    energyTimelineMoments.slice(0, 10).map((moment) => ({
+      ...moment,
+      positionPct: clamp((moment.timestampSec / Math.max(1, estimatedTimelineDurationSec)) * 100, 4, 96),
+      timestampLabel: formatTimelineClock(moment.timestampSec),
+    }))
+  ), [energyTimelineMoments, estimatedTimelineDurationSec]);
+  const highestEnergyMoment = timelineEnergyMoments.length > 0
+    ? timelineEnergyMoments.reduce((best, current) => (current.energy > best.energy ? current : best), timelineEnergyMoments[0])
+    : null;
+  const fullScanProgress = useMemo(() => {
+    if (analyzedFrames !== null && totalFrames !== null && totalFrames > 0) {
+      return clamp((analyzedFrames / totalFrames) * 100, 0, 100);
+    }
+    const analyzeIndex = PIPELINE_STEPS.findIndex((step) => step.key === "analyzing");
+    if (normalizedActiveStatus === "ready") return 100;
+    if (normalizedActiveStatus === "failed" && visualStepIndex > analyzeIndex) return 100;
+    if (visualStepIndex > analyzeIndex) return 100;
+    if (activeStepKey === "analyzing") return clamp(activeStageProgress, 4, 99);
+    if (visualStepIndex < analyzeIndex) return clamp(totalPipelineProgress * 0.45, 0, 40);
+    return clamp(totalPipelineProgress, 0, 100);
+  }, [
+    analyzedFrames,
+    totalFrames,
+    normalizedActiveStatus,
+    visualStepIndex,
+    activeStepKey,
+    activeStageProgress,
+    totalPipelineProgress,
+  ]);
+  const fullScanProgressLabel = analyzedFrames !== null && totalFrames !== null && totalFrames > 0
+    ? `${Math.round(analyzedFrames)} / ${Math.round(totalFrames)} frames analyzed`
+    : `Full scan ${Math.round(fullScanProgress)}% complete`;
+  const autoHookTimestampSec = highestEnergyMoment?.timestampSec ?? selectedHookCandidate?.start ?? 252;
+  const autoHookSummaryLine = `Highest energy at ${formatTimelineClock(autoHookTimestampSec)} - moved to start for max retention boost`;
+  const removedFillerPercent = toPercent(
+    firstFiniteNumber(
+      activeAnalysis?.boredom_removed_ratio,
+      activeAnalysis?.boredomRemovedRatio,
+      activeAnalysis?.low_engagement_removed_pct,
+      activeAnalysis?.lowEngagementRemovedPct,
+      activeAnalysis?.pipelineSteps?.CUTTING?.meta?.removedPct,
+      metadataRetention?.fillerRemovedPct,
+    ),
+    28,
+  );
+  const facialFocusSec = firstFiniteNumber(
+    activeAnalysis?.facial_focus_time_sec,
+    activeAnalysis?.facialFocusTimeSec,
+    activeAnalysis?.peak_facial_engagement_sec,
+    activeAnalysis?.peakFacialEngagementSec,
+    highestEnergyMoment?.timestampSec,
+  ) ?? 135;
+  const facialRetentionBoostPct = toPercent(
+    firstFiniteNumber(
+      activeAnalysis?.facial_scan_retention_boost_pct,
+      activeAnalysis?.facialScanRetentionBoostPct,
+      activeAnalysis?.face_retention_lift_pct,
+      activeAnalysis?.faceRetentionLiftPct,
+    ),
+    15,
+  );
+  const facialHeatmapMoments = useMemo(() => (
+    timelineEnergyMoments.slice(0, 4).map((moment, index) => ({
+      label: `Face Zone ${index + 1}`,
+      intensity: clamp(Math.round((moment.facial * 0.6) + (moment.energy * 0.4)), 0, 100),
+      at: moment.timestampLabel,
+    }))
+  ), [timelineEnergyMoments]);
+  const rehookIntervalSec = clamp(
+    Math.round(
+      firstFiniteNumber(
+        activeAnalysis?.rehook_interval_seconds,
+        activeAnalysis?.rehookIntervalSeconds,
+        activeAnalysis?.re_hook_every_sec,
+      ) ?? 45,
+    ),
+    30,
+    60,
+  );
+  const cliffhangerAtSec = firstFiniteNumber(
+    activeAnalysis?.cliffhanger_transition_sec,
+    activeAnalysis?.cliffhangerTransitionSec,
+    activeAnalysis?.pipelineSteps?.PACING?.meta?.cliffhangerAtSec,
+  ) ?? 105;
+  const curiosityLoopRetentionLift = toPercent(
+    firstFiniteNumber(
+      activeAnalysis?.curiosity_loop_retention_lift_pct,
+      activeAnalysis?.curiosityLoopRetentionLiftPct,
+      activeAnalysis?.curiosity_loop_lift_pct,
+    ),
+    20,
+  );
+  const bingeSuggestions = [
+    `Added Cliffhanger Transition at ${formatTimelineClock(cliffhangerAtSec)}`,
+    "Emotional Arc Pacing Applied for Binge Flow",
+    `Re-Hook Inserted Every ${rehookIntervalSec}s to Prevent Drop-Offs`,
+    `Curiosity Loop at End: +${curiosityLoopRetentionLift}% Viewer Retention Predicted`,
+  ];
+  const retentionCurvePoints = useMemo(() => {
+    const parsed = normalizeRetentionCurve(
+      activeAnalysis?.retentionCurve ||
+      activeAnalysis?.retention_curve ||
+      metadataRetention?.retentionCurve ||
+      metadataRetention?.curve ||
+      activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta?.curve,
+    );
+    if (parsed.length >= 2) return parsed;
+    const durationSec = Math.max(60, estimatedTimelineDurationSec);
+    const baseline = clamp(Math.round(retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 78), 55, 96);
+    const ratios = [0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1];
+    return ratios.map((ratio, idx) => {
+      const organicDrift = baseline - (ratio * 17) + (idx % 2 === 0 ? 2 : -1) + (ratio > 0.72 ? 3 : 0);
+      return {
+        atSec: Math.round(durationSec * ratio),
+        predicted: clamp(Math.round(organicDrift), 50, 100),
+      } as RetentionPoint;
+    });
+  }, [activeAnalysis, metadataRetention, estimatedTimelineDurationSec, retentionScoreAfterDisplay, retentionScoreDisplay]);
+  const retentionLinePoints = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return "";
+    const maxSec = Math.max(retentionCurvePoints[retentionCurvePoints.length - 1]?.atSec || 1, 1);
+    return retentionCurvePoints
+      .map((point) => {
+        const x = clamp((point.atSec / maxSec) * 100, 0, 100);
+        const y = 100 - clamp(point.predicted, 0, 100);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [retentionCurvePoints]);
+  const latestRetentionPoint = retentionCurvePoints.length > 0
+    ? retentionCurvePoints[retentionCurvePoints.length - 1]
+    : null;
+  const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
+  const retentionBeforeBar = retentionScoreBeforeDisplay !== null
+    ? clamp(retentionScoreBeforeDisplay, 0, 100)
+    : null;
+  const retentionAfterBar = retentionScoreAfterDisplay !== null
+    ? clamp(retentionScoreAfterDisplay, 0, 100)
+    : null;
+  const confidenceLabel = detectedNicheRaw ? formatNicheLabel(detectedNicheRaw) : "High Energy";
+  const confidenceValue = detectedNicheConfidencePercent !== null
+    ? `${detectedNicheConfidencePercent}%`
+    : null;
+  const stepMicroCopy: Record<string, string> = {
+    queued: "Queued in worker lane",
+    uploading:
+      uploadBytesUploaded !== null && uploadBytesTotal !== null && uploadBytesTotal > 0
+        ? `${(uploadBytesUploaded / MB).toFixed(1)} / ${(uploadBytesTotal / MB).toFixed(1)} MB uploaded`
+        : "Ingesting source media for full-retention analysis",
+    analyzing:
+      analyzedFrames !== null && totalFrames !== null
+        ? `Full scan ${Math.round(analyzedFrames)}/${Math.round(totalFrames)} frames with energy + facial ratings`
+        : "Full video scan for energy, emotion, and engagement",
+    hooking:
+      highEnergyPeaks !== null
+        ? `Detected ${Math.round(highEnergyPeaks)} high-energy peaks, selecting 8s opener`
+        : selectedHookCandidate
+          ? `Auto-hook from ${formatHookRange(selectedHookCandidate.start, selectedHookCandidate.start + selectedHookCandidate.duration)}`
+          : "Scoring high-energy opener candidates",
+    cutting:
+      cutsApplied !== null
+        ? `Applied ${Math.round(cutsApplied)} cuts (${removedFillerPercent}% low-engagement filler removed)`
+        : "Auto-cut boring/silent/filler segments",
+    pacing: `Binge optimization: cliffhangers, emotional arcs, and re-hooks every ${rehookIntervalSec}s`,
+    story: "Binge optimization and continuity checks",
+    subtitling:
+      autoCaptionsEnabled
+        ? subtitleLines !== null
+          ? `Generated ${Math.round(subtitleLines)} caption lines`
+          : "Generating timed captions"
+        : "Captions disabled",
+    rendering:
+      activeJob?.renderMode === "vertical"
+        ? `Rendering ${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} vertical clip(s)`
+        : "Encoding final MP4 output",
+    ready:
+      activeJob?.renderMode === "vertical"
+        ? `${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} clip(s) ready`
+        : "Export package is ready",
+  };
+  const pipelineRows = PIPELINE_STEPS.map((step, idx) => {
+    let state: "done" | "active" | "pending" | "failed" = "pending";
+    if (normalizedActiveStatus === "ready") {
+      state = "done";
+    } else if (normalizedActiveStatus === "failed") {
+      if (step.key === failedStepKey) state = "failed";
+      else if (idx < visualStepIndex) state = "done";
+    } else if (idx < visualStepIndex) {
+      state = "done";
+    } else if (idx === visualStepIndex) {
+      state = "active";
+    }
 
-  const activePipelineJob = useMemo(() => {
-    const preferredJobId = activePipelineJobId || renderJobId || latestResult?.jobId || recentJobs[0]?.id || null;
-    if (!preferredJobId) return null;
+    const connectorState: "done" | "active" | "pending" =
+      idx >= PIPELINE_STEPS.length - 1
+        ? "pending"
+        : normalizedActiveStatus === "ready"
+          ? "done"
+          : normalizedActiveStatus === "failed"
+            ? idx < visualStepIndex
+              ? "done"
+              : "pending"
+            : idx < visualStepIndex
+              ? "done"
+              : idx === visualStepIndex
+                ? "active"
+                : "pending";
 
-    const recent = recentJobs.find((job) => job.id === preferredJobId);
-    const cached = jobResultCache[preferredJobId];
-    const isActiveLiveJob = renderJobId === preferredJobId && isRendering;
-    const status = cached?.status || recent?.status || (isActiveLiveJob ? "processing" : "queued");
-    const progress = isActiveLiveJob
-      ? renderProgress
-      : cached?.progress ?? recent?.progress ?? (status === "completed" ? 100 : 0);
+    const percent = state === "done"
+      ? 100
+      : state === "active" || state === "failed"
+        ? Math.round(activeStageProgress)
+        : 0;
 
     return {
-      id: preferredJobId,
-      status,
-      progress: toProgressPercent(progress),
-      fileName: recent?.fileName || fileName || "Render Job",
-      mode: (recent?.mode || cached?.mode || mode || "horizontal") as RenderMode,
-      createdAt: recent?.createdAt || null,
+      ...step,
+      state,
+      percent,
+      connectorState,
+      detail: state === "failed" ? failedGateReason || "Rendering failed in this stage." : (stepMicroCopy[step.key] || step.label),
     };
-  }, [
-    activePipelineJobId,
-    fileName,
-    isRendering,
-    jobResultCache,
-    latestResult?.jobId,
-    mode,
-    recentJobs,
-    renderJobId,
-    renderProgress,
-  ]);
-
-  const activePipelineStageIndex = useMemo(() => {
-    if (!activePipelineJob) return 0;
-    return getPipelineStageIndex(activePipelineJob.status, activePipelineJob.progress);
-  }, [activePipelineJob]);
-
-  const activePipelineStage = useMemo(() => {
-    return PIPELINE_STAGES[activePipelineStageIndex] || PIPELINE_STAGES[0];
-  }, [activePipelineStageIndex]);
-
-  const fetchRecentJobs = useCallback(async () => {
-    if (!accessToken) return;
-    try {
-      const jobs = await fetchRecentJobsApi(accessToken);
-      setRecentJobs(jobs);
-    } catch {
-      // ignore
-    }
-  }, [accessToken, setRecentJobs]);
-
+  });
+  const pipelineLogEntries: Array<{ level: "info" | "success" | "warn" | "error"; message: string }> = [
+    ...(activeJob
+      ? [
+          {
+            level: "info" as const,
+            message: `${activeStatusLabel} (${Math.round(totalPipelineProgress)}%)`,
+          },
+        ]
+      : []),
+    ...(analyzedFrames !== null && totalFrames !== null
+      ? [
+          {
+            level: "info" as const,
+            message: `Analyzed ${Math.round(analyzedFrames)} of ${Math.round(totalFrames)} frames`,
+          },
+        ]
+      : []),
+    ...(highEnergyPeaks !== null
+      ? [
+          {
+            level: "info" as const,
+            message: `Detected ${Math.round(highEnergyPeaks)} high-energy peaks`,
+          },
+        ]
+      : []),
+    ...(cutsApplied !== null
+      ? [
+          {
+            level: "success" as const,
+            message: `Applied ${Math.round(cutsApplied)} cuts`,
+          },
+        ]
+      : []),
+    ...(hookSelectionSource === "fallback"
+      ? [
+          {
+            level: "warn" as const,
+            message: "Fallback hook used due to low confidence in primary candidates",
+          },
+        ]
+      : []),
+    ...(retentionScoreDeltaDisplay !== null
+      ? [
+          {
+            level: retentionScoreDeltaDisplay >= 0 ? ("success" as const) : ("warn" as const),
+            message: `Retention delta ${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)}`,
+          },
+        ]
+      : []),
+    ...(normalizeStatus(activeJob?.status) === "failed"
+      ? [
+          {
+            level: "error" as const,
+            message: failedGateReason || activeJob?.error || "Pipeline failed",
+          },
+        ]
+      : []),
+  ].slice(0, 8);
+  const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
+  const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
+  const canApplyHookRealtime = Boolean(
+    activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
+  );
+  const canShowRealtimeHookSelector = Boolean(
+    activeJob &&
+      activeJob.renderMode !== "vertical" &&
+      canApplyHookRealtime,
+  );
+  const hookPreviewCandidate =
+    (activeJob ? hookPreviewCandidateByJob[activeJob.id] : null) ||
+    selectedHookCandidate ||
+    hookVariants[0] ||
+    null;
+  const activeHookPreviewUrl = activeJob ? hookPreviewUrlByJob[activeJob.id] || "" : "";
+  const hookPreviewSourceUrl = activeJob
+    ? activeHookPreviewUrl || previewOutputUrl || ""
+    : "";
+  const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
+  const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
+  const hookPreviewRefreshNonce = activeJob ? hookPreviewRefreshNonceByJob[activeJob.id] || 0 : 0;
   useEffect(() => {
-    void fetchRecentJobs();
-  }, [fetchRecentJobs]);
-
+    if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
+    if (hookPromptedByJob[activeJob.id]) return;
+    setHookPromptedByJob((prev) => ({ ...prev, [activeJob.id]: true }));
+    setHookSelectorOpen(true);
+  }, [activeHookSelectionMode, activeJob?.id, canShowRealtimeHookSelector, hookPromptedByJob]);
   useEffect(() => {
-    if (!requestedJobId) {
-      handledRequestedJobIdRef.current = null;
-      return;
-    }
-    if (!accessToken) return;
-    if (handledRequestedJobIdRef.current === requestedJobId) return;
-    handledRequestedJobIdRef.current = requestedJobId;
-
-    setActivePipelineJobId(requestedJobId);
-    setJobActionPendingId(requestedJobId);
-    void (async () => {
-      try {
-        const detail = jobResultCache[requestedJobId] || (await fetchDetailedJob(requestedJobId));
-        if (detail.status === "completed") {
-          setLatestResult(detail);
-          setSuccessModalOpen(true);
-          setRetentionExpanded(false);
-        } else {
-          const isStillRunning = detail.status === "queued" || detail.status === "processing";
-          setRenderState({
-            rendering: isStillRunning,
-            jobId: detail.jobId,
-            progress: toProgressPercent(detail.progress),
-          });
-        }
-      } catch (error: any) {
-        const message = error instanceof ApiError ? error.message : "Could not load requested job.";
-        setErrorMessage(message);
-      } finally {
-        setJobActionPendingId((current) => (current === requestedJobId ? null : current));
-      }
-    })();
-  }, [
-    accessToken,
-    fetchDetailedJob,
-    jobResultCache,
-    requestedJobId,
-    setErrorMessage,
-    setLatestResult,
-    setRenderState,
-    setRetentionExpanded,
-    setSuccessModalOpen,
-  ]);
-
-  useEffect(() => {
-    if (renderJobId) {
-      setActivePipelineJobId(renderJobId);
-      return;
-    }
-
-    if (latestResult?.jobId && !activePipelineJobId) {
-      setActivePipelineJobId(latestResult.jobId);
-      return;
-    }
-
-    if (!activePipelineJobId && recentJobs[0]?.id) {
-      setActivePipelineJobId(recentJobs[0].id);
-      return;
-    }
-
-    if (
-      activePipelineJobId &&
-      activePipelineJobId !== latestResult?.jobId &&
-      !recentJobs.some((job) => job.id === activePipelineJobId)
-    ) {
-      setActivePipelineJobId(recentJobs[0]?.id || null);
-    }
-  }, [activePipelineJobId, latestResult?.jobId, recentJobs, renderJobId]);
-
-  useEffect(() => {
-    const shouldRevealEditorSettings =
-      flowStep === "mode_selection" || flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
-    if (!shouldRevealEditorSettings) {
-      if (revealedSectionCount !== 0) {
-        setRevealedSectionCount(0);
-      }
-      return;
-    }
-    if (shouldReduceMotion || isRendering) {
-      const fullyRevealedCount = SECTION_REVEAL_ORDER.length;
-      if (revealedSectionCount !== fullyRevealedCount) {
-        setRevealedSectionCount(fullyRevealedCount);
-      }
-      return;
-    }
-    const timers: number[] = [];
-    SECTION_REVEAL_ORDER.forEach((_, index) => {
-      const timer = window.setTimeout(() => setRevealedSectionCount(index + 1), 110 + index * 140);
-      timers.push(timer);
+    if (!hookSelectorOpen || !activeJob?.id || !canShowRealtimeHookSelector) return;
+    const jobId = activeJob.id;
+    setHookPreviewCandidateByJob((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, jobId)) return prev;
+      return { ...prev, [jobId]: selectedHookCandidate || hookVariants[0] || null };
     });
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [flowStep, isRendering, revealedSectionCount, setRevealedSectionCount, shouldReduceMotion]);
-
+  }, [
+    activeJob?.id,
+    canShowRealtimeHookSelector,
+    hookSelectorOpen,
+    hookVariants,
+    selectedHookCandidate,
+  ]);
   useEffect(() => {
-    if (!recentDrawerOpen) {
-      clearRecentDrawerTimer();
-      return;
-    }
+    if (!hookSelectorOpen || !activeJob?.id || !accessToken || !canShowRealtimeHookSelector) return;
+    const jobId = activeJob.id;
+    if (activeHookPreviewUrl || hookPreviewLoadingJobId === jobId) return;
 
-    const bumpRecentDrawerInactivity = () => {
-      markRecentInteraction();
-      clearRecentDrawerTimer();
-      recentDrawerTimeoutRef.current = window.setTimeout(() => {
-        setRecentDrawerOpen(false);
-      }, RECENT_DRAWER_CONFIG.timeoutMs);
-    };
+    let canceled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    setHookPreviewLoadingJobId(jobId);
+    setHookPreviewErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
 
-    bumpRecentDrawerInactivity();
-    const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart", "keydown"];
-    events.forEach((name) => window.addEventListener(name, bumpRecentDrawerInactivity, { passive: true }));
-
-    return () => {
-      events.forEach((name) => window.removeEventListener(name, bumpRecentDrawerInactivity));
-      clearRecentDrawerTimer();
-    };
-  }, [clearRecentDrawerTimer, markRecentInteraction, recentDrawerOpen, setRecentDrawerOpen]);
-
-  useEffect(() => {
-    if (!accessToken || !renderJobId || !isRendering) return;
-
-    let cancelled = false;
-    let inFlight = false;
-    let pollTimer: number | null = null;
-
-    const scheduleNextPoll = () => {
-      if (cancelled) return;
-      const delayMs = isPageVisible ? RENDER_POLL_INTERVAL_FOREGROUND_MS : RENDER_POLL_INTERVAL_BACKGROUND_MS;
-      pollTimer = window.setTimeout(() => void tick(), delayMs);
-    };
-
-    const tick = async () => {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      let keepPolling = true;
+    const resolvePreviewUrl = async () => {
+      let resolvedUrl = "";
       try {
-        const job = normalizeRenderJobUrls(await fetchJobByIdApi(accessToken, renderJobId));
-        if (cancelled) return;
-        setJobResultCache((prev) => ({ ...prev, [job.jobId]: job }));
-        const progress = toProgressPercent(job.progress);
-        const stillRunning = job.status === "queued" || job.status === "processing";
-        setRenderState({ rendering: stillRunning, jobId: job.jobId, progress });
-
-        if (job.status === "completed") {
-          setRenderState({ rendering: false, jobId: job.jobId, progress: 100 });
-          setLatestResult(job);
-          setRetentionExpanded(false);
-          setSuccessModalOpen(true);
-          const score = getRetentionScore(job);
-          toast({
-            title: "Render complete",
-            description:
-              score >= 70
-                ? `Predicted retention ${score.toFixed(1)}% • above target.`
-                : `Predicted retention ${score.toFixed(1)}% • below 70%, optimize and re-render.`,
-          });
-          void fetchRecentJobs();
-          keepPolling = false;
+        const proxyResp = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/proxy-url`, {
+          method: "POST",
+          token: accessToken,
+        });
+        if (typeof proxyResp?.url === "string" && proxyResp.url.length > 0) {
+          resolvedUrl = proxyResp.url;
         }
-
-        if (job.status === "failed") {
-          setRenderState({ rendering: false, progress: 0, jobId: null });
-          setErrorMessage(job.errorMessage || "Render failed. Please retry with adjusted settings.");
-          keepPolling = false;
-        }
-      } catch {
-        // ignore
-      } finally {
-        inFlight = false;
-        if (keepPolling) {
-          scheduleNextPoll();
+      } catch (err: any) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          console.warn("proxy preview url failed", err);
         }
       }
+
+      if (!resolvedUrl) {
+        try {
+          const inputResp = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/input-url`, {
+            method: "POST",
+            token: accessToken,
+          });
+          if (typeof inputResp?.url === "string" && inputResp.url.length > 0) {
+            resolvedUrl = inputResp.url;
+          }
+        } catch (err: any) {
+          if (!(err instanceof ApiError && err.status === 404)) {
+            console.warn("input preview url failed", err);
+          }
+        }
+      }
+
+      if (canceled) return;
+      if (resolvedUrl) {
+        setHookPreviewUrlByJob((prev) => ({ ...prev, [jobId]: resolvedUrl }));
+        setHookPreviewErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
+        return;
+      }
+      setHookPreviewErrorByJob((prev) => ({
+        ...prev,
+        [jobId]: "Preview unavailable right now. You can still apply a hook.",
+      }));
+      retryTimer = setTimeout(() => {
+        if (canceled) return;
+        setHookPreviewRefreshNonceByJob((prev) => ({
+          ...prev,
+          [jobId]: (prev[jobId] || 0) + 1,
+        }));
+      }, HOOK_PREVIEW_RETRY_DELAY_MS);
     };
 
-    void tick();
+    void resolvePreviewUrl().finally(() => {
+      setHookPreviewLoadingJobId((current) => (current === jobId ? null : current));
+    });
+
     return () => {
-      cancelled = true;
-      if (pollTimer !== null) {
-        window.clearTimeout(pollTimer);
-      }
+      canceled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [
     accessToken,
-    fetchRecentJobs,
-    isPageVisible,
-    isRendering,
-    renderJobId,
-    setErrorMessage,
-    setLatestResult,
-    setRenderState,
-    setRetentionExpanded,
-    setSuccessModalOpen,
-    toast,
+    activeJob?.id,
+    activeHookPreviewUrl,
+    canShowRealtimeHookSelector,
+    hookPreviewRefreshNonce,
+    hookSelectorOpen,
   ]);
-
-  const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
-
-    clearUploadStatusTimer();
-    setUploadingFileName(file.name || "video");
-    setUploadStatus("uploading");
-    uploadStatusTimeoutRef.current = window.setTimeout(() => {
-      setUploadStatus((current) => (current === "uploading" ? "analyzing" : current));
-      uploadStatusTimeoutRef.current = null;
-    }, 900);
-    setUploadAnalyzing(true);
-    setErrorMessage(null);
-    setSuccessModalOpen(false);
-    setRetentionExpanded(false);
-    setLatestResult(null);
-    clearRecentDrawerTimer();
-    setRecentDrawerOpen(false);
-    setActivePipelineJobId(null);
-    setJobResultCache({});
-
-    try {
-      const payload = await uploadAnalyze({ file, token: accessToken });
-      const forceStandardSubMode =
-        Number(payload.metadata?.duration || 0) >= 180 &&
-        Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) * 1.08;
-      clearUploadStatusTimer();
-      setUploadStatus("analyzing");
-      await wait(260);
-      setUploadStatus("applying");
-      setUploadAnalysis(payload);
-      setSuggestedSubMode(
-        forceStandardSubMode
-          ? "standard_mode"
-          : payload.autoDetection.editorProfile?.suggestedSubMode ||
-              payload.autoDetection.suggestedSubMode ||
-              (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
-      );
-      await wait(520);
-      toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
-      void fetchRecentJobs();
-    } catch (error: any) {
-      clearUploadStatusTimer();
-      setUploadStatus("failed");
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : error instanceof Error && error.message
-            ? error.message
-            : "Upload analysis failed.";
-      setErrorMessage(message);
-      await wait(320);
-    } finally {
-      clearUploadStatusTimer();
-      setUploadAnalyzing(false);
-      setUploadStatus("idle");
-      setUploadingFileName("");
-      setFileInputKey((value) => value + 1);
-    }
-  };
-
-  const handleStartRender = async () => {
-    if (!renderPayload || !accessToken) {
-      setErrorMessage("Upload a video before rendering.");
+  useEffect(() => {
+    if (!hookSelectorOpen) return;
+    const video = hookPreviewVideoRef.current;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    video.currentTime = start;
+    void video.play().catch(() => {});
+  }, [
+    hookPreviewCandidate?.duration,
+    hookPreviewCandidate?.start,
+    hookPreviewSourceUrl,
+    hookSelectorOpen,
+  ]);
+  const handleSelectHookPreviewCandidate = useCallback((candidate: HookCandidate) => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    setHookPreviewCandidateByJob((prev) => ({ ...prev, [jobId]: candidate }));
+  }, [activeJob?.id]);
+  const handleHookPreviewLoadedMetadata = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    video.currentTime = start;
+    void video.play().catch(() => {});
+  }, [hookPreviewCandidate]);
+  const handleHookPreviewVideoError = useCallback(() => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    setHookPreviewUrlByJob((prev) => ({ ...prev, [jobId]: "" }));
+    setHookPreviewErrorByJob((prev) => ({
+      ...prev,
+      [jobId]: "Refreshing preview video...",
+    }));
+    setHookPreviewRefreshNonceByJob((prev) => ({
+      ...prev,
+      [jobId]: (prev[jobId] || 0) + 1,
+    }));
+  }, [activeJob?.id]);
+  const handleHookPreviewTimeUpdate = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!video || !hookPreviewCandidate) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const start = clamp(hookPreviewCandidate.start, 0, Math.max(0, duration - 0.05));
+    const rawEnd = hookPreviewCandidate.start + Math.max(0.1, hookPreviewCandidate.duration);
+    const end = clamp(rawEnd, start + 0.08, duration);
+    if (video.currentTime < start) {
+      video.currentTime = start;
       return;
     }
-    setRenderState({ rendering: true, progress: 8, jobId: null });
-    setErrorMessage(null);
-    setRetentionExpanded(false);
-    setSuccessModalOpen(false);
-    setLatestResult(null);
-    setActivePipelineJobId(null);
-    setJobResultCache({});
-
+    if (video.currentTime >= end - 0.03) {
+      video.currentTime = start;
+      if (!video.paused) void video.play().catch(() => {});
+    }
+  }, [hookPreviewCandidate]);
+  const handleSetHookSelectionModeRealtime = useCallback(async (mode: HookSelectionMode) => {
+    if (!activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    const previousMode = hookSelectionModeByJob[jobId] ?? hookSelectionModeFromAnalysis;
+    setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: mode }));
+    setDefaultHookSelectionMode(mode);
+    if (mode === "auto") {
+      setSelectedHookByJob((prev) => ({ ...prev, [jobId]: null }));
+    }
+    setApplyingHookJobId(jobId);
     try {
-      const response = await apiFetch<{ jobId: string; status: string; progress: number }>("/api/vibecut/render", {
+      await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
         method: "POST",
         token: accessToken,
-        body: JSON.stringify(renderPayload),
+        body: JSON.stringify({ hookSelectionMode: mode }),
       });
-      setRenderState({ rendering: true, progress: response.progress || 10, jobId: response.jobId });
-      setActivePipelineJobId(response.jobId);
-      toast({ title: "Render started", description: "Retention-first pipeline is running." });
-      void fetchRecentJobs();
-    } catch (error: any) {
-      const message = error instanceof ApiError ? error.message : "Could not start render.";
-      setRenderState({ rendering: false, progress: 0, jobId: null });
-      setErrorMessage(message);
+      await fetchJob(jobId);
+      toast({
+        title: mode === "auto" ? "Auto hook enabled" : "Manual hook enabled",
+        description: mode === "auto"
+          ? "The editor will choose the opening hook automatically."
+          : "Select and apply your preferred opening hook.",
+      });
+    } catch (err: any) {
+      setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: previousMode }));
+      toast({
+        title: err instanceof ApiError && err.status === 409 ? "Hook stage passed" : "Hook mode update failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setApplyingHookJobId((current) => (current === jobId ? null : current));
     }
-  };
+  }, [accessToken, activeJob?.id, fetchJob, hookSelectionModeByJob, hookSelectionModeFromAnalysis, toast]);
+  const handleApplyPreferredHookRealtime = useCallback(async (candidate: HookCandidate) => {
+    if (!activeJob?.id || !accessToken) return;
+    const jobId = activeJob.id;
+    setHookSelectionModeByJob((prev) => ({ ...prev, [jobId]: "manual" }));
+    setDefaultHookSelectionMode("manual");
+    setSelectedHookByJob((prev) => ({ ...prev, [jobId]: candidate }));
+    setHookPreviewCandidateByJob((prev) => ({ ...prev, [jobId]: candidate }));
+    setApplyingHookJobId(jobId);
+    try {
+      await apiFetch(`/api/jobs/${jobId}/preferred-hook`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ preferredHook: candidate, hookSelectionMode: "manual" }),
+      });
+      await fetchJob(jobId);
+      toast({
+        title: "Hook updated",
+        description: "Preview another option any time before rendering locks.",
+      });
+    } catch (err: any) {
+      toast({
+        title: err instanceof ApiError && err.status === 409 ? "Hook stage passed" : "Hook update failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setApplyingHookJobId((current) => (current === jobId ? null : current));
+    }
+  }, [accessToken, activeJob?.id, fetchJob, toast]);
+  const handlePreviewLoadedMetadata = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
+  }, [activeJob, ensurePlaybackTelemetry]);
 
-  const handleAutoModeToggle = (value: boolean) => {
-    setAutoModeEnabled(value);
-    if (value && autoDetection?.finalMode) {
-      const forceHorizontalMode =
-        Number(duration || 0) >= 180 && autoDetection.metadataMode === "horizontal";
-      const resolvedMode = forceHorizontalMode ? "horizontal" : autoDetection.finalMode;
-      setMode(resolvedMode, false);
-      if (retentionStrategyMode === "ruthless") {
-        applyRetentionStrategyPreset("ruthless", resolvedMode);
-      } else {
-        setSuggestedSubMode(
-          forceHorizontalMode
-            ? "standard_mode"
-            : autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode,
-        );
+  const handlePreviewTimeUpdate = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+
+    const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
+    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    const delta = currentTime - telemetry.lastTimeSec;
+    if (Number.isFinite(delta)) {
+      if (delta >= 0 && delta <= 2.5) {
+        telemetry.watchedSeconds += delta;
+      } else if (delta < -0.25) {
+        telemetry.rewatchSeconds += Math.abs(delta);
+      }
+      if (delta < -Math.max(0.5, duration * 0.35)) {
+        telemetry.loopCount += 1;
       }
     }
+    telemetry.lastTimeSec = currentTime;
+    telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, currentTime);
+    telemetry.maxProgress = Math.max(telemetry.maxProgress, clamp01(telemetry.maxTimeSec / duration));
+
+    const shouldDispatch =
+      telemetry.maxProgress >= 0.95 ||
+      telemetry.maxProgress - telemetry.lastDispatchProgress >= WATCH_FEEDBACK_PROGRESS_STEP;
+    if (shouldDispatch) {
+      telemetry.lastDispatchProgress = telemetry.maxProgress;
+      submitPreviewFeedback(
+        activeJob,
+        telemetry,
+        `progress:${Math.round(telemetry.maxProgress * 100)}`,
+        telemetry.maxProgress >= 0.95,
+      );
+    }
+  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+
+  const handlePreviewPause = useCallback(() => {
+    if (!activeJob) return;
+    const telemetry = playbackTelemetryRef.current[activeJob.id];
+    if (!telemetry) return;
+    submitPreviewFeedback(activeJob, telemetry, "pause", false);
+  }, [activeJob, submitPreviewFeedback]);
+
+  const handlePreviewEnded = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    if (!activeJob || !video) return;
+    const duration = Number(video.duration);
+    const telemetry = ensurePlaybackTelemetry(activeJob.id, duration, duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, duration);
+      telemetry.maxProgress = Math.max(telemetry.maxProgress, 1);
+      telemetry.watchedSeconds = Math.max(telemetry.watchedSeconds, duration);
+      telemetry.lastDispatchProgress = 1;
+    }
+    submitPreviewFeedback(activeJob, telemetry, "ended", true);
+  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+
+  const handlePreviewVideoError = useCallback((event: any) => {
+    const video = event?.currentTarget as HTMLVideoElement | null;
+    const details = {
+      jobId: activeJob?.id ?? null,
+      outputUrl: previewOutputUrl || null,
+      networkState: video?.networkState ?? null,
+      readyState: video?.readyState ?? null,
+      errorCode: video?.error?.code ?? null,
+      errorMessage: video?.error?.message ?? null,
+    };
+    console.error("Preview video failed to load", details);
+    toast({
+      title: "Preview failed",
+      description: "Could not load the edited video. Check network/output URL.",
+    });
+  }, [activeJob?.id, previewOutputUrl, toast]);
+
+  const etaSeconds = useMemo(() => {
+    if (!activeJob) return null;
+    const normalized = normalizeStatus(activeJob.status);
+    if (normalized === "ready" || normalized === "failed") return null;
+    // During upload we show explicit status text instead of an ETA to avoid
+    // confusing/sticky countdowns before the edit pipeline actually starts.
+    if (normalized === "uploading") return null;
+    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
+    const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
+    const stageMarker = statusStartRef.current[activeJob.id];
+    const stageStartedAt =
+      stageMarker && stageMarker.status === normalized
+        ? stageMarker.startedAt
+        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const stageStartProgress =
+      stageMarker && stageMarker.status === normalized && Number.isFinite(stageMarker.startProgress)
+        ? clamp(stageMarker.startProgress, 0, 100)
+        : 0;
+    const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
+
+    // Otherwise, estimate remaining processing time from job progress and elapsed pipeline time.
+    const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+    const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
+    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
+    const clampedProgress = clamp(jobProgress, 0, 100);
+    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
+    const baselineRemaining = Math.max(2, Math.round(baseline - stageElapsed));
+    const finalizeFloor = Math.min(90, Math.max(4, Math.round(6 + stageElapsed * 0.08)));
+    const antiStall = (seconds: number) => {
+      const rounded = Math.max(0, Math.round(seconds));
+      if (rounded > 1) return rounded;
+      // Avoid misleading "1s remaining" while still in non-terminal stages.
+      if (clampedProgress >= 95) return Math.max(baselineRemaining, finalizeFloor);
+      return baselineRemaining;
+    };
+    const stageProgressGain = Math.max(0, clampedProgress - stageStartProgress);
+    if (clampedProgress > 0 && stageProgressGain >= 0.5 && stageElapsed >= 2) {
+      const remainingPct = Math.max(0, 100 - clampedProgress);
+      const remaining = Math.round((stageElapsed * remainingPct) / stageProgressGain);
+      return antiStall(remaining);
+    }
+    if (jobProgress > 0) {
+      const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
+      return antiStall(remaining);
+    }
+    return baselineRemaining;
+  }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
+
+  const formatEta = (seconds: number | null) => {
+    if (!seconds || seconds <= 0) return "Finalizing...";
+    const mins = Math.floor(seconds / 60);
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    const remSecs = seconds % 60;
+    if (hrs > 0) return `${hrs}h ${remMins}m`;
+    if (mins > 0) return `${mins}m ${remSecs}s`;
+    return `${remSecs}s`;
   };
 
-  const handleModeSelect = (nextMode: RenderMode) => {
-    setMode(nextMode, true);
-    applyRetentionStrategyPreset(retentionStrategyMode, nextMode);
-    syncEditorRouteForMode(nextMode);
+  const showUploadStatusOnly = normalizedActiveStatus === "uploading";
+  const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
+  const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
+  const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
+  const captionEngineOffline = captionCapability.available === false;
+  const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
+  const mobileApplyAndRenderDisabled =
+    Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
+  const mobileApplyAndRenderLabel = isVerticalMode
+    ? pendingVerticalFile
+      ? "Apply & Render"
+      : "Pick Clip & Render"
+    : "Apply & Render";
+
+  const applyPlatformRecommendation = () => {
+    setRetentionStrategyProfile(activePlatformRecommendation.profile);
+    setMaxCutsRequested(clamp(activePlatformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX));
+    trackEditorEvent("platform_recommendation_applied", {
+      retentionProfile: activePlatformRecommendation.profile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        suggestedCuts: activePlatformRecommendation.suggestedCuts,
+      },
+    });
   };
 
-  const handleRetentionStrategySelect = (nextStrategy: RetentionStrategyMode) => {
-    applyRetentionStrategyPreset(nextStrategy, mode || autoDetection?.finalMode || "horizontal");
+  const runApplyAndRender = () => {
+    if (isVerticalMode && pendingVerticalFile) {
+      void startVerticalRender();
+      return;
+    }
+    handlePickFile();
   };
 
-  const resetEverything = () => {
-    clearUploadStatusTimer();
-    clearRecentDrawerTimer();
-    setUploadStatus("idle");
-    setRecentDrawerOpen(false);
-    setActivePipelineJobId(null);
-    setJobResultCache({});
-    setJobActionPendingId(null);
-    setUploadingFileName("");
-    resetSession();
-    setFileInputKey((value) => value + 1);
-  };
+  const sectionPillClass = (active: boolean) =>
+    `editor-settings-pill min-h-12 rounded-xl border px-3 py-2 text-left text-sm font-medium transition-all md:min-h-[46px] ${
+      active
+        ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
+        : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+    }`;
 
-  const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
-  const showExpandedSettings =
-    flowStep === "mode_selection" || flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
-
-  const rightRail = (
-    <>
-      <PremiumCard className="p-4">
-        <p className="text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">Retention Target</p>
-        <p className="mt-2 text-sm text-slate-300">
-          Goal: <span className="font-semibold text-[#95fff2]">70%+ predicted average retention</span>.
-        </p>
-        <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 text-xs text-slate-300">
-          All AI edits prioritize hook strength, drop-risk recovery, dynamic pacing, and emotional arc.
-        </div>
-      </PremiumCard>
-      <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
-          <Workflow className="h-3.5 w-3.5" />
-          Pipeline Watch
-        </p>
-        {activePipelineJob ? (
-          <>
-            <p className="mt-2 text-sm text-slate-200">{activePipelineJob.fileName || "Render job"}</p>
-            <p className="mt-1 text-xs text-slate-400">
-              {modeLabel(activePipelineJob.mode)} • {statusLabel(activePipelineJob.status)}
-            </p>
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3">
-              <p className="text-xs text-slate-300">{activePipelineStage.detail}</p>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-300">
-                <span>{activePipelineStage.label}</span>
-                <span>{activePipelineJob.progress}%</span>
-              </div>
-              <MetallicProgress value={activePipelineJob.progress} className="mt-2 h-2" />
+  const renderSettingsSection = (section: EditorSettingsSection) => {
+    if (section === "format") {
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <button
+              type="button"
+              className={sectionPillClass(!isVerticalMode)}
+              onClick={() => {
+                trackEditorEvent("render_mode_selected", {
+                  retentionProfile: retentionStrategyProfile,
+                  targetPlatform: retentionTargetPlatform,
+                  captionStyle: activeSubtitlePreset,
+                  metadata: { mode: "horizontal" },
+                });
+                setRenderMode("horizontal");
+              }}
+            >
+              Horizontal
+            </button>
+            <button
+              type="button"
+              className={sectionPillClass(isVerticalMode)}
+              onClick={() => {
+                trackEditorEvent("render_mode_selected", {
+                  retentionProfile: retentionStrategyProfile,
+                  targetPlatform: retentionTargetPlatform,
+                  captionStyle: activeSubtitlePreset,
+                  metadata: { mode: "vertical" },
+                });
+                setRenderMode("vertical");
+              }}
+            >
+              Vertical
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {PLATFORM_OPTIONS.map((platform) => (
+              <Tooltip key={platform.value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={sectionPillClass(retentionTargetPlatform === platform.value)}
+                    onClick={() => {
+                      menuTouchedRef.current.targetPlatform = true;
+                      trackEditorEvent("target_platform_selected", {
+                        retentionProfile: retentionStrategyProfile,
+                        targetPlatform: platform.value,
+                        captionStyle: activeSubtitlePreset,
+                        metadata: {
+                          fromMode: isVerticalMode ? "vertical" : "horizontal",
+                        },
+                      });
+                      setRetentionTargetPlatform(platform.value);
+                    }}
+                    aria-label={`Target platform ${platform.label}`}
+                  >
+                    {platform.label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{PLATFORM_HELP_TEXT[platform.value]}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <div className="rounded-xl border border-primary/35 bg-gradient-to-r from-primary/12 via-primary/8 to-transparent px-3 py-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-primary">{activePlatformRecommendation.label}</span>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-12 rounded-xl bg-primary px-4 text-white hover:bg-primary/90 md:min-h-10"
+                onClick={applyPlatformRecommendation}
+              >
+                Apply Recommendation
+              </Button>
             </div>
-          </>
-        ) : (
-          <p className="mt-2 text-sm text-slate-300">Start a render to see live pipeline stage tracking here.</p>
-        )}
-      </PremiumCard>
-    </>
-  );
+          </div>
+        </div>
+      );
+    }
+    if (section === "vibe") {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-foreground">Vibe</span>
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                {RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label || "Balanced"}
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={RETENTION_PROFILE_SEQUENCE.length - 1}
+              step={1}
+              value={[retentionSliderValue]}
+              className="editor-settings-slider"
+              onValueChange={(values) => {
+                const candidate = Number(values?.[0] ?? retentionSliderValue);
+                const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
+                menuTouchedRef.current.strategy = true;
+                setRetentionStrategyProfile(next);
+              }}
+            />
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {RETENTION_PROFILE_OPTIONS.map((profile) => (
+                <Tooltip key={profile.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={sectionPillClass(retentionStrategyProfile === profile.value)}
+                      onClick={() => {
+                        menuTouchedRef.current.strategy = true;
+                        trackEditorEvent("retention_profile_selected", {
+                          retentionProfile: profile.value,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: {
+                            fromMode: isVerticalMode ? "vertical" : "horizontal",
+                          },
+                        });
+                        setRetentionStrategyProfile(profile.value);
+                      }}
+                    >
+                      {profile.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{RETENTION_PROFILE_HINTS[profile.value]}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
 
-  return (
-    <AppShell title="AutoEditor Studio" rightRail={rightRail} showSidebar>
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <p className="mb-3 text-sm text-foreground">Content Type</p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {EDITOR_MODE_OPTIONS.map((mode) => (
+                <Tooltip key={mode.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={sectionPillClass(editorMode === mode.value)}
+                      onClick={() => {
+                        menuTouchedRef.current.editorMode = true;
+                        trackEditorEvent("editor_mode_selected", {
+                          retentionProfile: retentionStrategyProfile,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: { editorMode: mode.value },
+                        });
+                        setEditorMode(mode.value);
+                      }}
+                    >
+                      {mode.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{mode.description}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (section === "cuts") {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-foreground">Cut Count</span>
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                {maxCutsRequested} cuts
+              </span>
+            </div>
+            <Slider
+              min={MAX_CUTS_MIN}
+              max={MAX_CUTS_MAX}
+              step={1}
+              value={[maxCutsRequested]}
+              className="editor-settings-slider"
+              onValueChange={(values) => {
+                const candidate = Number(values?.[0] ?? maxCutsRequested);
+                if (!Number.isFinite(candidate)) return;
+                setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
+              }}
+            />
+            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>{MAX_CUTS_MIN}</span>
+              <span>{MAX_CUTS_MAX}</span>
+            </div>
+          </div>
+
+          <Accordion type="single" collapsible className="rounded-xl border border-border/50 bg-muted/15 px-3">
+            <AccordionItem value="more-options" className="border-0">
+              <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
+                More Options
+              </AccordionTrigger>
+              <AccordionContent className="pb-3">
+                <div className="space-y-4">
+                  <div>
+                    <p className="mb-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Long-Form Efficiency</p>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      {LONG_FORM_PRESET_OPTIONS.map((preset) => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          className={sectionPillClass(longFormPreset === preset.value)}
+                          onClick={() => {
+                            const defaults = LONG_FORM_PRESET_DEFAULTS[preset.value];
+                            setLongFormPreset(preset.value);
+                            setLongFormAggression(defaults.aggression);
+                            setLongFormClarityVsSpeed(defaults.clarityVsSpeed);
+                            setTangentKiller(defaults.tangentKiller);
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Aggression</span>
+                        <span>{longFormAggression}</span>
+                      </div>
+                      <Slider
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[longFormAggression]}
+                        onValueChange={(values) => {
+                          const next = clamp(Math.round(Number(values?.[0] ?? longFormAggression)), 0, 100);
+                          setLongFormAggression(next);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Clarity vs Speed</span>
+                        <span>{longFormClarityVsSpeed}</span>
+                      </div>
+                      <Slider
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[longFormClarityVsSpeed]}
+                        onValueChange={(values) => {
+                          const next = clamp(Math.round(Number(values?.[0] ?? longFormClarityVsSpeed)), 0, 100);
+                          setLongFormClarityVsSpeed(next);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <button
+                      type="button"
+                      className={sectionPillClass(tangentKiller)}
+                      onClick={() => setTangentKiller((prev) => !prev)}
+                    >
+                      Tangent Killer {tangentKiller ? "On" : "Off"}
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className={sectionPillClass(defaultHookSelectionMode === "auto")}
+                        onClick={() => setDefaultHookSelectionMode("auto")}
+                      >
+                        Hook Auto
+                      </button>
+                      <button
+                        type="button"
+                        className={sectionPillClass(defaultHookSelectionMode === "manual")}
+                        onClick={() => setDefaultHookSelectionMode("manual")}
+                      >
+                        Hook Manual
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      );
+    }
+    return (
       <div className="space-y-4">
-        <PremiumCard className="p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold text-slate-100">Retention-First Editor</h1>
-                <VIPBadge label="Elite Studio" />
-              </div>
-              <p className="mt-1 text-sm text-slate-400">
-                Optimize every cut, caption, and effect for maximum watch-through.
+              <p className="text-sm text-foreground">Captions</p>
+              <p className="text-xs text-muted-foreground">
+                {autoCaptionsEnabled ? "Enabled" : "Disabled"} · {activeSubtitlePresetMeta?.label ?? formatNicheLabel(activeSubtitlePreset)}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {recentJobs.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setRecentDrawerOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-[rgba(52,240,208,0.36)]"
-                >
-                  <History className="h-4 w-4" />
-                  Recent Jobs
-                </button>
-              ) : null}
-              <button
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
                 type="button"
-                onClick={resetEverything}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-white/20"
+                className={`min-h-12 rounded-xl px-5 md:min-h-10 ${
+                  autoCaptionsEnabled
+                    ? "bg-primary text-white hover:bg-primary/90"
+                    : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                }`}
+                onClick={() => {
+                  if (captionsToggleDisabled) return;
+                  const nextState = !autoCaptionsEnabled;
+                  trackEditorEvent("captions_toggled", {
+                    retentionProfile: retentionStrategyProfile,
+                    targetPlatform: retentionTargetPlatform,
+                    captionStyle: activeSubtitlePreset,
+                    metadata: { enabled: nextState },
+                  });
+                  setAutoCaptionsEnabled(nextState);
+                  setSubtitleStyleDirty(true);
+                }}
+                disabled={captionsToggleDisabled}
               >
-                <RefreshCcw className="h-4 w-4" />
-                Reset
-              </button>
+                {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+              </Button>
+              {captionEngineOffline ? (
+                <Button
+                  type="button"
+                  className="min-h-12 rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)] md:min-h-10"
+                  onClick={() => navigate("/settings")}
+                >
+                  Setup Captions
+                </Button>
+              ) : null}
             </div>
           </div>
-        </PremiumCard>
+        </div>
 
-        <SettingsCardGroup
-          title="Editor Pipeline + Jobs"
-          description="Track each pipeline stage and jump between different renders without leaving this page."
-          badgeLabel="Premium Only"
-        >
-          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(52,240,208,0.28)] bg-[radial-gradient(circle_at_top_right,rgba(52,240,208,0.2),transparent_44%),radial-gradient(circle_at_bottom_left,rgba(192,132,252,0.16),transparent_56%),linear-gradient(140deg,rgba(8,11,19,0.97),rgba(6,8,14,0.93))] p-4">
-            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(52,240,208,0.24)] blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-12 left-0 h-28 w-1/2 bg-gradient-to-r from-[rgba(192,132,252,0.2)] to-transparent" />
-
-            <div className="relative flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--gold-accent)]">Pipeline Deck</p>
-                <p className="mt-1 truncate text-sm font-medium text-slate-100">
-                  {activePipelineJob?.fileName || "No active job selected"}
-                </p>
-                <p className="mt-1 text-xs text-slate-300/85">
-                  {activePipelineJob
-                    ? `${modeLabel(activePipelineJob.mode)} • ${
-                        activePipelineJob.createdAt ? new Date(activePipelineJob.createdAt).toLocaleString() : "Live pipeline"
-                      }`
-                    : "Run a render to populate pipeline stages and export actions."}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-[rgba(52,240,208,0.32)] bg-[rgba(52,240,208,0.12)] px-2.5 py-1 text-[11px] text-[#95fff2]">
-                  Stage: {activePipelineStage.label}
-                </span>
-                {activePipelineJob ? (
-                  <span
-                    className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(activePipelineJob.status)}`}
-                  >
-                    {statusLabel(activePipelineJob.status)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="relative mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                7-stage processing
-              </span>
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                Live progress sync
-              </span>
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                Multi-job focus
-              </span>
-            </div>
-
-            <div className="relative mt-3 grid gap-2 md:grid-cols-7">
-              {PIPELINE_STAGES.map((stage, index) => {
-                const done = activePipelineJob ? index < activePipelineStageIndex : false;
-                const active = activePipelineJob ? index === activePipelineStageIndex : index === 0;
-                return (
-                  <div
-                    key={stage.key}
-                    className={`rounded-2xl border px-2.5 py-2.5 transition ${
-                      done
-                        ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#95fff2]"
-                        : active
-                          ? "border-[rgba(52,240,208,0.45)] bg-gradient-to-r from-[rgba(52,240,208,0.2)] to-[rgba(192,132,252,0.16)] text-[#95fff2]"
-                          : "border-white/10 bg-white/[0.04] text-slate-400"
-                    }`}
-                  >
-                    <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em]">
-                      {done ? (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      ) : (
-                        <span
-                          className={`h-2.5 w-2.5 rounded-full border ${
-                            active ? "border-[rgba(52,240,208,0.85)] bg-[rgba(52,240,208,0.72)]" : "border-white/35 bg-transparent"
-                          }`}
-                        />
-                      )}
-                      {stage.label}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {activePipelineJob ? (
-              <div className="mt-3 rounded-2xl border border-[rgba(52,240,208,0.34)] bg-gradient-to-r from-[rgba(52,240,208,0.14)] via-[rgba(192,132,252,0.1)] to-slate-900/60 px-3 py-3">
-                <div className="mb-2 flex items-center justify-between text-xs text-slate-200">
-                  <span>{activePipelineStage.detail}</span>
-                  <span>{toProgressPercent(activePipelineJob.progress)}%</span>
+        <Accordion type="single" collapsible className="rounded-xl border border-border/50 bg-muted/15 px-3">
+          <AccordionItem value="caption-options" className="border-0">
+            <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
+              More Options
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {SUBTITLE_PRESET_OPTIONS.map((preset) => {
+                    const locked = !isSubtitlePresetAllowed(preset.id);
+                    const requiredPlan = getRequiredPlanForSubtitlePreset(preset.id);
+                    const active = activeSubtitlePreset === preset.id;
+                    const card = (
+                      <button
+                        type="button"
+                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+                          active
+                            ? "border-primary/60 bg-primary/15 text-primary shadow-sm"
+                            : "border-border/50 bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                        } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
+                        onClick={() => selectSubtitlePreset(preset.id)}
+                        disabled={locked}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{preset.label}</span>
+                          {locked ? <Lock className="h-3.5 w-3.5" /> : null}
+                        </div>
+                      </button>
+                    );
+                    if (!locked) return <div key={preset.id}>{card}</div>;
+                    return (
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>{card}</TooltipTrigger>
+                        <TooltipContent>Upgrade to {PLAN_CONFIG[requiredPlan]?.name || formatNicheLabel(requiredPlan)} to unlock</TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
                 </div>
-                <MetallicProgress value={toProgressPercent(activePipelineJob.progress)} className="h-2" />
-              </div>
-            ) : null}
-          </div>
 
-          <div className="grid gap-2">
-            {recentJobs.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[rgba(52,240,208,0.3)] bg-gradient-to-br from-[rgba(52,240,208,0.12)] to-[rgba(192,132,252,0.08)] px-4 py-6 text-sm text-slate-300">
-                No jobs yet. Upload and render a clip to start tracking.
-              </div>
-            ) : (
-              recentJobs.slice(0, 6).map((job) => {
-                const isSelected = activePipelineJob?.id === job.id;
-                const isBusy = jobActionPendingId === job.id;
-                return (
-                  <article
-                    key={job.id}
-                    className={`rounded-2xl border px-3 py-3 transition ${
-                      isSelected
-                        ? "border-[rgba(52,240,208,0.4)] bg-[linear-gradient(145deg,rgba(52,240,208,0.18),rgba(192,132,252,0.16))]"
-                        : "border-white/10 bg-[linear-gradient(155deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] hover:border-[rgba(52,240,208,0.35)] hover:bg-[linear-gradient(155deg,rgba(52,240,208,0.12),rgba(255,255,255,0.03))]"
-                    }`}
+                {activeSubtitlePreset === "mrbeast_animated" && isSubtitlePresetAllowed("mrbeast_animated") ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Font</span>
+                      <select
+                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                        value={subtitleStyleConfig.fontId}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ fontId: event.target.value as SubtitleStyleConfig["fontId"] })
+                        }
+                      >
+                        {MRBEAST_FONT_OPTIONS.map((fontOption) => (
+                          <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                            {fontOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Animation</span>
+                      <select
+                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                        value={subtitleStyleConfig.animation}
+                        onChange={(event) =>
+                          updateMrBeastSubtitleStyle({ animation: event.target.value as SubtitleStyleConfig["animation"] })
+                        }
+                      >
+                        {MRBEAST_ANIMATION_OPTIONS.map((animationOption) => (
+                          <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                            {animationOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Outline ({subtitleStyleConfig.outlineWidth}px)</span>
+                      <Slider
+                        min={1}
+                        max={12}
+                        step={1}
+                        className="editor-settings-slider"
+                        value={[subtitleStyleConfig.outlineWidth]}
+                        onValueChange={(values) =>
+                          updateMrBeastSubtitleStyle({ outlineWidth: Number(values?.[0] ?? subtitleStyleConfig.outlineWidth) })
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {subtitleStyleDirty ? <span className="text-xs text-amber-300">Unsaved caption changes</span> : <span />}
+                  <Button
+                    type="button"
+                    className="min-h-12 rounded-xl bg-primary text-white hover:bg-primary/90 md:min-h-10"
+                    onClick={() => void saveSubtitleStyle()}
+                    disabled={!subtitleStyleDirty || savingSubtitleStyle}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-100">{job.fileName || "Untitled render"}</p>
-                        <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-400">
-                          <Clock3 className="h-3 w-3" />
-                          {new Date(job.createdAt).toLocaleString()} • {modeLabel(job.mode)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(job.status)}`}>
-                          {statusLabel(job.status)}
-                        </span>
-                        <span className="text-xs text-slate-300">{toProgressPercent(job.progress)}%</span>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setActivePipelineJobId(job.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-[rgba(52,240,208,0.4)] bg-gradient-to-r from-[rgba(52,240,208,0.22)] to-[rgba(192,132,252,0.2)] px-3 py-1.5 text-xs text-[#95fff2] hover:border-[rgba(52,240,208,0.65)]"
-                      >
-                        <Workflow className="h-3.5 w-3.5" />
-                        Focus Pipeline
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenJob(job.id)}
-                        disabled={isBusy}
-                        className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-black/35 px-3 py-1.5 text-xs text-slate-200 hover:border-white/30 disabled:cursor-not-allowed disabled:opacity-70"
-                      >
-                        {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                        {job.status === "completed" ? "Open Result" : "Track Job"}
-                      </button>
-                      {job.status === "completed" ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleExportJob(job.id)}
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 rounded-xl border border-emerald-300/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:border-emerald-300/50 disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                          Export
-                        </button>
+                    {savingSubtitleStyle ? "Saving..." : subtitleStyleDirty ? "Save Captions" : "Captions Saved"}
+                  </Button>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+    );
+  };
+
+  const topToolbarToggleClass = (active: boolean) =>
+    `w-full min-h-12 rounded-full border px-4 text-xs transition-colors sm:w-auto ${
+      active
+        ? "border-primary/55 bg-primary/18 text-foreground shadow-sm"
+        : "border-border/60 bg-muted/10 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+    }`;
+  const activeRetentionLabel =
+    RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label ?? "Balanced";
+  const activeEditorModeLabel = EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto";
+  const activeTargetPlatformLabel =
+    PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
+
+  return (
+    <GlowBackdrop>
+      <Navbar />
+      <main className="editor-landing-skin responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
+              <p className="text-muted-foreground mt-1">{t("editor.shipFaster")}</p>
+            </div>
+            <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+              {me && (
+                <>
+                  {isDevAccount && (
+                    <Badge className="bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-orange-500/20 text-amber-200 border border-amber-400/40 uppercase tracking-[0.25em] text-[10px] px-3 py-1">
+                      Dev
+                    </Badge>
+                  )}
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {tierLabel} plan
+                  </Badge>
+                  {trialActive && (
+                    <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
+                      Trial {Math.max(1, trialDaysRemaining)}d left
+                    </Badge>
+                  )}
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {isDevAccount
+                      ? "Unlimited renders"
+                      : `${rendersRemaining ?? 0} renders left`}
+                  </Badge>
+                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
+                    {isDevAccount
+                      ? "Unlimited re-renders"
+                      : `${rerendersRemainingToday ?? 0} re-renders left today`}
+                  </Badge>
+                </>
+              )}
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={topToolbarToggleClass(onlyHookAndCut)}
+                    onClick={() => setOnlyHookAndCut((prev) => !prev)}
+                    aria-pressed={onlyHookAndCut}
+                    aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
+                    title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
+                  >
+                    <Scissors className="h-4 w-4" />
+                    <span>{onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={topToolbarToggleClass(!hideJobsPanel)}
+                    onClick={() => setHideJobsPanel((prev) => !prev)}
+                    aria-pressed={!hideJobsPanel}
+                  >
+                    {hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={topToolbarToggleClass(!hideEditorControlsPanel)}
+                    onClick={() => setHideEditorControlsPanel((prev) => !prev)}
+                    aria-pressed={!hideEditorControlsPanel}
+                    aria-label={hideEditorControlsPanel ? t("editor.settings.open") : t("editor.settings.close")}
+                    title={hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                    <span>{hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={topToolbarToggleClass(editorGuideOpen)}
+                    onClick={() => {
+                      editorGuidePromptedRef.current = true;
+                      setEditorGuideOpen(true);
+                    }}
+                    aria-pressed={editorGuideOpen}
+                    aria-label={t("editor.help.open")}
+                    title={t("editor.help.title")}
+                  >
+                    <MapIcon className="h-4 w-4" />
+                    <span>Help</span>
+                  </Button>
+                  <Button onClick={handlePickFile} className="w-full min-h-12 rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
+                    <Plus className="w-4 h-4" /> {t("editor.newProject")}
+                  </Button>
+                </div>
+              </div>
+              <div className="editor-settings-shell w-full p-3.5 md:p-4">
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Editing Tools</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{t("editor.settings.title")}</span>
+                      {hideEditorControlsPanel ? (
+                        <span className="text-xs text-muted-foreground">{t("editor.settings.collapsed")}</span>
                       ) : null}
                     </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
-        </SettingsCardGroup>
-
-        <SettingsCardGroup title="Upload Video" description="Upload your source clip to start AI analysis and profile setup." badgeLabel="Exclusive Feature">
-          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(52,240,208,0.26)] bg-[radial-gradient(circle_at_top_right,rgba(52,240,208,0.18),transparent_48%),linear-gradient(140deg,rgba(11,15,26,0.96),rgba(7,10,18,0.92))] p-4">
-            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(52,240,208,0.22)] blur-3xl" />
-            <div className="pointer-events-none absolute bottom-0 left-0 h-24 w-1/2 bg-gradient-to-r from-[rgba(192,132,252,0.12)] to-transparent" />
-
-            <div className="relative flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--gold-accent)]">Upload Gateway</p>
-                <p className="mt-1 text-sm font-medium text-slate-100">Drop in footage and prep your timeline instantly.</p>
-                <p className="mt-1 text-xs text-slate-300/85">Supports MP4, MOV, MKV with metadata scan and retention profiling.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  id={uploadInputId}
-                  key={fileInputKey}
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/x-matroska"
-                  onChange={handleUploadChange}
-                  disabled={isAnalyzingUpload}
-                  className="sr-only"
-                />
-                <label
-                  htmlFor={uploadInputId}
-                  className={`inline-flex min-h-11 items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                    isAnalyzingUpload
-                      ? "cursor-not-allowed border-white/15 bg-white/5 text-slate-400"
-                      : "cursor-pointer border-[rgba(52,240,208,0.45)] bg-gradient-to-r from-[rgba(52,240,208,0.3)] to-[rgba(192,132,252,0.25)] text-white hover:border-[rgba(52,240,208,0.72)] hover:brightness-110"
+                    <p className="text-xs text-muted-foreground">Quick setup first, then fine-tune only what you need.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHideEditorControlsPanel((prev) => !prev)}
+                    className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                    aria-label={hideEditorControlsPanel ? t("editor.settings.open") : t("editor.settings.close")}
+                    title={hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}
+                  >
+                    {hideEditorControlsPanel ? <SlidersHorizontal className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                  </button>
+                </div>
+                <div
+                  className={`overflow-hidden transition-all duration-300 ${
+                    hideEditorControlsPanel ? "max-h-16 opacity-95" : "max-h-[3400px] opacity-100"
                   }`}
                 >
-                  <Upload className="h-4 w-4" />
-                  {isAnalyzingUpload ? "Processing..." : "Choose Video"}
-                </label>
-              </div>
-            </div>
+                  {hideEditorControlsPanel ? (
+                    <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-muted/15 px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                      <span>{t("editor.settings.hidden")}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-10 rounded-lg border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                        onClick={() => setHideEditorControlsPanel(false)}
+                      >
+                        {t("editor.settings.openShort")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className={`space-y-3 ${mobilePipeline ? "pb-20" : ""}`}>
+                      {captionEngineOffline ? (
+                        <div className="rounded-xl border border-primary/35 bg-gradient-to-r from-primary/15 via-primary/8 to-transparent px-3 py-2.5">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-medium text-foreground">Captions Offline - Set OpenAI Key to Unlock</p>
+                            <Button
+                              type="button"
+                              className="min-h-12 rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)] md:min-h-10"
+                              onClick={() => navigate("/settings")}
+                            >
+                              Fix Now
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
 
-            <div className="relative mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                Metadata extract
-              </span>
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                Scene analysis
-              </span>
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                Smart edit profile
-              </span>
+                      <div className="editor-tools-step-card">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 1</p>
+                            <p className="text-sm font-semibold text-foreground">Quick Setup</p>
+                          </div>
+                          <Badge className="border-primary/35 bg-primary/10 text-primary">Fast Flow</Badge>
+                        </div>
+                        <p className="mb-3 text-xs text-muted-foreground">
+                          Choose format, vibe, cuts, and captions. Most creators can render from this section alone.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                            <p className="text-xs text-muted-foreground">Format</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button type="button" className={sectionPillClass(!isVerticalMode)} onClick={() => setRenderMode("horizontal")}>Horizontal</button>
+                              <button type="button" className={sectionPillClass(isVerticalMode)} onClick={() => setRenderMode("vertical")}>Vertical</button>
+                            </div>
+                          </div>
+                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                            <p className="text-xs text-muted-foreground">Vibe · {activeRetentionLabel}</p>
+                            <Slider
+                              min={0}
+                              max={RETENTION_PROFILE_SEQUENCE.length - 1}
+                              step={1}
+                              value={[retentionSliderValue]}
+                              className="editor-settings-slider"
+                              onValueChange={(values) => {
+                                const candidate = Number(values?.[0] ?? retentionSliderValue);
+                                const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
+                                setRetentionStrategyProfile(next);
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                            <p className="text-xs text-muted-foreground">Cuts · {maxCutsRequested}</p>
+                            <Slider
+                              min={MAX_CUTS_MIN}
+                              max={MAX_CUTS_MAX}
+                              step={1}
+                              value={[maxCutsRequested]}
+                              className="editor-settings-slider"
+                              onValueChange={(values) => {
+                                const candidate = Number(values?.[0] ?? maxCutsRequested);
+                                if (!Number.isFinite(candidate)) return;
+                                setMaxCutsRequested(clamp(Math.round(candidate), MAX_CUTS_MIN, MAX_CUTS_MAX));
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                            <p className="text-xs text-muted-foreground">Captions · {autoCaptionsEnabled ? "On" : "Off"}</p>
+                            <Button
+                              type="button"
+                              className={`w-full min-h-12 rounded-xl md:min-h-[46px] ${
+                                autoCaptionsEnabled
+                                  ? "bg-primary text-white hover:bg-primary/90"
+                                  : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                              }`}
+                              onClick={() => {
+                                if (captionsToggleDisabled) return;
+                                const nextState = !autoCaptionsEnabled;
+                                setAutoCaptionsEnabled(nextState);
+                                setSubtitleStyleDirty(true);
+                              }}
+                              disabled={captionsToggleDisabled}
+                            >
+                              {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              {isVerticalMode ? "Vertical" : "Horizontal"}
+                            </span>
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              {activeTargetPlatformLabel}
+                            </span>
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              {activeEditorModeLabel}
+                            </span>
+                            <span className="rounded-full border border-primary/35 bg-primary/10 px-2.5 py-1 text-primary">
+                              {activePlatformRecommendation.label}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="min-h-12 rounded-xl bg-primary px-4 text-white hover:bg-primary/90 md:min-h-10"
+                            onClick={applyPlatformRecommendation}
+                          >
+                            Use Recommended Preset
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="editor-tools-step-card">
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
+                            <p className="text-sm font-semibold text-foreground">Fine Tune (Optional)</p>
+                          </div>
+                          <span className="text-[11px] text-muted-foreground">Advanced controls</span>
+                        </div>
+                        {mobilePipeline ? (
+                          <Accordion
+                            type="single"
+                            collapsible
+                            value={editorSettingsSection}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              setEditorSettingsSection(value as EditorSettingsSection);
+                            }}
+                            className="space-y-2"
+                          >
+                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                              <AccordionItem key={item.key} value={item.key} className="rounded-xl border border-border/50 bg-muted/15 px-3">
+                                <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
+                                  {item.label}
+                                </AccordionTrigger>
+                                <AccordionContent className="pb-2">{renderSettingsSection(item.key)}</AccordionContent>
+                              </AccordionItem>
+                            ))}
+                          </Accordion>
+                        ) : (
+                          <Tabs
+                            value={editorSettingsSection}
+                            onValueChange={(value) => setEditorSettingsSection(value as EditorSettingsSection)}
+                            className="space-y-3"
+                          >
+                            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border/50 bg-muted/15 p-1.5 md:grid-cols-4">
+                              {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                                <TabsTrigger
+                                  key={item.key}
+                                  value={item.key}
+                                  className="editor-settings-tab min-h-12 rounded-lg text-xs"
+                                >
+                                  {item.label}
+                                </TabsTrigger>
+                              ))}
+                            </TabsList>
+                            {EDITOR_SETTINGS_SECTIONS.map((item) => (
+                              <TabsContent key={item.key} value={item.key} className="mt-0">
+                                {renderSettingsSection(item.key)}
+                              </TabsContent>
+                            ))}
+                          </Tabs>
+                        )}
+                      </div>
+
+                      {outcomeAutomationProfile ? (
+                        <div className="rounded-xl border border-border/50 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+                          Outcome automation: {outcomeAutomationProfile.enabled
+                            ? `${outcomeAutomationProfile.sampleSize} outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
+                            : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
+                        </div>
+                      ) : null}
+
+                      {/* Mobile adaptation: persistent bottom CTA for one-thumb apply-and-render flow. */}
+                      {mobilePipeline ? (
+                        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+                          <div className="pointer-events-auto rounded-2xl border border-primary/35 bg-[linear-gradient(145deg,rgba(15,15,26,0.96),rgba(18,18,31,0.92))] p-2 backdrop-blur-xl">
+                            <Button
+                              type="button"
+                              className="min-h-12 w-full rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)]"
+                              onClick={runApplyAndRender}
+                              disabled={mobileApplyAndRenderDisabled}
+                            >
+                              {mobileApplyAndRenderLabel}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {isAnalyzingUpload ? (
-            <motion.div
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
-              className="mt-3 rounded-2xl border border-[rgba(52,240,208,0.34)] bg-gradient-to-b from-[rgba(52,240,208,0.12)] to-slate-900/45 px-3 py-3"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-100">
-                  <Loader2 className="h-4 w-4 animate-spin text-[var(--gold-accent)]" />
-                  {currentUploadStatusText}
-                </p>
-                <span className="text-xs font-medium text-[#95fff2]">{Math.round(uploadStatusProgress)}%</span>
-              </div>
-
-              <MetallicProgress value={uploadStatusProgress} className="mt-3 h-2" />
-
-              <div className="mt-3 space-y-2">
-                {UPLOAD_STATUS_STEPS.map((step, index) => {
-                  const isComplete = index < uploadStatusIndex;
-                  const isActive = index === uploadStatusIndex;
-                  const textClass = isComplete ? "text-emerald-200" : isActive ? "text-slate-100" : "text-slate-400";
-
-                  return (
-                    <div
-                      key={step.id}
-                      className={`flex items-start gap-2 rounded-xl border px-2.5 py-2 transition ${
-                        isComplete
-                          ? "border-emerald-300/30 bg-emerald-500/10"
-                          : isActive
-                            ? "border-[rgba(52,240,208,0.34)] bg-[rgba(52,240,208,0.12)]"
-                            : "border-white/10 bg-white/[0.03]"
-                      }`}
-                    >
-                      {isComplete ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
-                      ) : isActive ? (
-                        <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-[var(--gold-accent)]" />
-                      ) : (
-                        <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/35 bg-transparent" />
-                      )}
-                      <div>
-                        <p className={`text-sm font-medium ${textClass}`}>{step.title}</p>
-                        <p className="text-xs text-slate-400">{step.detail}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </motion.div>
-          ) : null}
-
-          {videoId ? (
-            <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-              <span className="inline-flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-                {fileName || "Uploaded clip"} {duration ? `• ${Math.round(duration)}s` : ""}
-              </span>
-            </div>
-          ) : null}
-
-          {errorMessage ? <p className="mt-2 text-sm text-rose-300">{errorMessage}</p> : null}
-        </SettingsCardGroup>
-
-        {autoDetection ? (
-          <AutoModeBanner
-            autoDetection={autoDetection}
-            mode={mode}
-            autoModeEnabled={autoModeEnabled}
-            onAutoModeToggle={handleAutoModeToggle}
-          />
-        ) : null}
-
-        {videoId ? (
-          <>
-            {verticalModeExperience ? (
-              <SettingsCardGroup
-                title="Vertical Mode Studio"
-                description="Dedicated short-form workspace with webcam layering, subtitle controls, and TikTok/Reels-ready styling."
+          {trialActive && hideSubscriptionCard && (
+            <div className="mb-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px] text-muted-foreground"
+                onClick={handleShowSubscriptionCard}
               >
-                <VerticalModeToolkit
-                  captionsEnabled={captionsEnabled}
-                  onCaptionsEnabledChange={setCaptionsEnabled}
-                  captionMode={captionMode}
-                  onCaptionModeChange={setCaptionMode}
-                  captionStyle={captionStyle}
-                  onCaptionStyleChange={setCaptionStyle}
-                  captionFont={captionFont}
-                  onCaptionFontChange={setCaptionFont}
-                  captionEffect={captionEffect}
-                  onCaptionEffectChange={setCaptionEffect}
-                  webcamEnabled={verticalWebcamEnabled}
-                  onWebcamEnabledChange={setVerticalWebcamEnabled}
-                  webcamLayout={verticalWebcamLayout}
-                  onWebcamLayoutChange={setVerticalWebcamLayout}
-                  captionOutlineEnabled={captionOutlineEnabled}
-                  onCaptionOutlineEnabledChange={setCaptionOutlineEnabled}
-                  captionDropShadowEnabled={captionDropShadowEnabled}
-                  onCaptionDropShadowEnabledChange={setCaptionDropShadowEnabled}
-                />
-              </SettingsCardGroup>
-            ) : null}
+                Show subscription card
+              </Button>
+            </div>
+          )}
 
-            <SettingsCardGroup
-              title="Quick Tools"
-              description="Apply high-level editing tools before detailed tuning."
-              rightSlot={
-                <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(52,240,208,0.36)] bg-[rgba(52,240,208,0.14)] px-2 py-1 text-[11px] text-[#95fff2]">
-                  <Sparkles className="h-3 w-3" />
-                  Retention priority
-                </span>
+          {trialActive && !hideSubscriptionCard && (
+            <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-100">Free trial unlocked</p>
+                  <p className="text-xs text-emerald-200/80">
+                    {trialEndsAtLabel
+                      ? `Full ${PLAN_CONFIG[trialUnlockTier].name} access until ${trialEndsAtLabel}.`
+                      : `Full ${PLAN_CONFIG[trialUnlockTier].name} access is active.`}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
+                    Trial {Math.max(1, trialDaysRemaining)}d left
+                  </Badge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px] text-emerald-100/80 hover:text-emerald-100"
+                    onClick={handleHideSubscriptionCard}
+                  >
+                    Hide
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {trialUnlockedFeatures.map((feature) => (
+                  <p key={`trial-feature-${feature}`} className="text-xs text-emerald-100/90">
+                    - {feature}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={FILE_INPUT_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                if (isVerticalMode) {
+                  prepareVerticalFile(file);
+                } else {
+                  void handleFile(file);
+                }
               }
-            >
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {QUICK_CONTROL_CONFIG.map((control) => {
-                  const active = quickControls[control.key];
+              if (e.target) e.target.value = "";
+            }}
+          />
+
+          <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
+            {!hideJobsPanel ? (
+              <aside className="glass-card min-w-0 space-y-4 p-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-foreground">Recent Jobs</h2>
+                <Badge variant="secondary" className="bg-muted/40 text-muted-foreground">
+                  {jobs.length}
+                </Badge>
+              </div>
+              {loadingJobs && <p className="text-xs text-muted-foreground">Loading jobs...</p>}
+              {!loadingJobs && jobs.length === 0 && (
+                <p className="text-xs text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+              )}
+              <div className="space-y-2">
+                {jobs.map((job) => {
+                  const ready = normalizeStatus(job.status) === "ready";
                   return (
                     <button
-                      key={control.key}
+                      key={job.id}
                       type="button"
-                      onClick={() => toggleQuickControl(control.key)}
-                      className={`rounded-2xl border px-3 py-3 text-left transition ${
-                        active
-                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-slate-100"
-                          : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(52,240,208,0.35)]"
+                      onClick={() => handleSelectJob(job.id)}
+                      className={`w-full text-left rounded-xl border px-3 py-3 transition ${
+                        highlightedJobId === job.id
+                          ? "ring-2 ring-primary/40 bg-primary/10 border-primary/40"
+                          : ready
+                            ? "border-success/50 bg-success/15 ring-1 ring-emerald-400/35 shadow-[0_0_20px_rgba(52,211,153,0.28)]"
+                            : selectedJobId === job.id
+                              ? "border-primary/40 bg-primary/10"
+                              : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <control.icon className="h-4 w-4" />
-                        <span className="text-sm font-medium">{control.title}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          {ready ? <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" /> : null}
+                          <span className={`text-sm font-medium truncate ${ready ? "text-success" : "text-foreground"}`}>
+                            {displayName(job)}
+                          </span>
+                        </span>
+                        <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(job.status)}`}>
+                          {STATUS_LABELS[normalizeStatus(job.status)] || "Queued"}
+                        </Badge>
                       </div>
-                      <p className="mt-1 text-xs text-slate-400">{control.description}</p>
+                      {job.renderMode === "vertical" && (
+                        <p className="text-[10px] text-primary/90 mt-1 inline-flex items-center gap-1">
+                          <ScissorsSquare className="w-3 h-3" />
+                          Vertical clip job
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {new Date(job.createdAt).toLocaleString()}
+                      </p>
                     </button>
                   );
                 })}
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-                <div>
-                  <p className="text-sm text-slate-200">Manual Timestamp Editor</p>
-                  <p className="text-xs text-slate-400">Override AI cuts/hook with frame-accurate segments.</p>
-                </div>
-                <PurpleAccentButton onClick={() => setManualTimestampModalOpen(true)} icon={<ScissorsLineDashed className="h-4 w-4" />}>
-                  Open Editor
-                </PurpleAccentButton>
-              </div>
-            </SettingsCardGroup>
+              </aside>
+            ) : null}
 
-            <SettingsCardGroup title="Editor Mode" description="Choose horizontal or vertical output layout.">
-              <AccentPillToggle
-                value={mode || "horizontal"}
-                onChange={(value) => handleModeSelect(value)}
-                options={MODE_OPTIONS}
-                className="mx-auto"
-              />
-            </SettingsCardGroup>
-
-            <SettingsCardGroup
-              title="Retention Script Mode"
-              description="Choose how aggressive the ruthless retention script should be when scoring hooks and pacing decisions."
-            >
-              <AccentPillToggle
-                value={retentionStrategyMode}
-                onChange={(value) => handleRetentionStrategySelect(value)}
-                options={RETENTION_STRATEGY_OPTIONS}
-                className="mx-auto"
-              />
-              <p className="mt-2 text-center text-xs text-slate-300">
-                {retentionStrategyMode === "ruthless"
-                  ? "Ruthless mode locks high-impact cuts, stronger opener bias, and aggressive pacing."
-                  : "Balanced mode keeps retention optimizations while preserving smoother narrative flow."}
-              </p>
-            </SettingsCardGroup>
-
-            {showExpandedSettings ? (
-              <motion.div
-                initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.28, ease: "easeInOut" }}
-                className="space-y-4"
+            <section className="min-w-0 space-y-6">
+              <div
+                className={`glass-card p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
+                  isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
+                }`}
+                onClick={handlePickFile}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
               >
-                <SettingsCardGroup
-                  title="Editor Settings"
-                  description="Tune format, style, pacing, captions, and audio behavior."
-                  className="p-4"
-                >
-                  <StaggeredSettingsSections
-                    disableMotion={Boolean(shouldReduceMotion)}
-                    revealedSectionCount={revealedSectionCount}
-                    formatPreset={formatPreset}
-                    onFormatPresetChange={setFormatPreset}
-                    vibeChip={vibeChip}
-                    onVibeChipChange={setVibeChip}
-                    stylePreset={stylePreset}
-                    onStylePresetChange={setStylePreset}
-                    pacingValue={pacingValue}
-                    onPacingValueChange={setPacingValue}
-                    autoDetectBestMoments={autoDetectBestMoments}
-                    onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
-                    captionsEnabled={captionsEnabled}
-                    onCaptionsEnabledChange={setCaptionsEnabled}
-                    captionMode={captionMode}
-                    onCaptionModeChange={setCaptionMode}
-                    captionStyle={captionStyle}
-                    onCaptionStyleChange={setCaptionStyle}
-                    captionFont={captionFont}
-                    onCaptionFontChange={setCaptionFont}
-                    captionEffect={captionEffect}
-                    onCaptionEffectChange={setCaptionEffect}
-                    audioOption={audioOption}
-                    onAudioOptionChange={setAudioOption}
-                    audioDuckingEnabled={audioDuckingEnabled}
-                    onAudioDuckingEnabledChange={setAudioDuckingEnabled}
-                    audioCleanupEnabled={audioCleanupEnabled}
-                    onAudioCleanupEnabledChange={setAudioCleanupEnabled}
-                    audioMasteringEnabled={audioMasteringEnabled}
-                    onAudioMasteringEnabledChange={setAudioMasteringEnabled}
-                  />
-                </SettingsCardGroup>
-
-                <SettingsCardGroup title="Render" description="Start the render pipeline with your selected settings." badgeLabel="VIP Render Queue">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-                    <div className="space-y-1">
-                      <p className="text-sm text-slate-200">Target predicted retention: 70%+</p>
-                      <SliderWithPurpleThumb
-                        value={pacingValue}
-                        onChange={setPacingValue}
-                        label="Pacing aggressiveness"
-                        helper={`${Math.round(pacingValue)}%`}
-                        className="min-w-[280px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-xs text-slate-300">
-                        Auto-detect best moments
-                        <ExclusiveToggle checked={autoDetectBestMoments} onCheckedChange={setAutoDetectBestMoments} />
-                      </div>
-                      <PurpleAccentButton
-                        onClick={handleStartRender}
-                        disabled={!renderPayload || isRendering}
-                        icon={isRendering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                      >
-                        {isRendering ? "Rendering..." : "Render (Retention-First)"}
-                      </PurpleAccentButton>
-                    </div>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                    <Upload className="w-7 h-7 text-primary" />
                   </div>
-                  {isRendering ? (
-                    <div className="rounded-2xl border border-white/10 bg-black/40 px-3 py-3">
-                      <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
-                        <span>Pipeline progress</span>
-                        <span>{Math.round(renderProgress)}%</span>
+                  <p className="font-medium text-foreground">
+                    {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {isVerticalMode
+                      ? "Then place the webcam crop box for the top panel and preview the stacked 9:16 layout."
+                      : "MP4, M4V, or MKV up to 2GB"}
+                  </p>
+                  {uploadingJobId && (
+                    <div className="w-full max-w-sm mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                        <span>Uploading...</span>
+                        <span>{uploadProgress}%</span>
                       </div>
-                      <MetallicProgress value={renderProgress} className="h-2" />
-                      <p className="mt-2 inline-flex items-center gap-2 text-xs text-slate-300">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--gold-accent)]" />
-                        Edits are being applied to your timeline.
-                      </p>
+                      <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
                     </div>
+                  )}
+                </div>
+              </div>
+
+              {isVerticalMode && (
+                <div className="glass-card p-5 space-y-5">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
+                      <p className="text-xs text-muted-foreground">
+                        {skipManualWebcamCrop
+                          ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
+                          : "Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame."}
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setCropInteraction(null);
+                          setSkipManualWebcamCrop((prev) => !prev);
+                        }}
+                      >
+                        <span
+                          className={`inline-block h-2.5 w-2.5 rounded-full ${
+                            skipManualWebcamCrop ? "bg-emerald-400" : "bg-muted-foreground/60"
+                          }`}
+                        />
+                        {skipManualWebcamCrop ? "Using source framing (skip manual crop)" : "Use manual webcam crop"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[0, 8, 10, 12, 15, 20].map((count) => (
+                        <button
+                          key={count}
+                          type="button"
+                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                            verticalClipCount === count
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 text-muted-foreground hover:border-primary/40"
+                          }`}
+                          onClick={() => setVerticalClipCount(count)}
+                        >
+                          {count === 0 ? "Auto" : `${count} clips`}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
+                    <Textarea
+                      value={verticalCaptionText}
+                      onChange={(event) => setVerticalCaptionText(event.target.value)}
+                      placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
+                      className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
+                    </p>
+                  </div>
+
+                  {!verticalPreviewUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      Upload a file to open the webcam crop tool and 9:16 stacked preview.
+                    </p>
+                  )}
+
+                  {verticalPreviewUrl && (
+                    <div className="space-y-4">
+                      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                        <div className="space-y-3">
+                          {!skipManualWebcamCrop ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => {
+                                  if (!sourceVideoMeta) return;
+                                  setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
+                                  setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+                                }}
+                              >
+                                Reset crop
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => {
+                                  if (!sourceVideoMeta) return;
+                                  setWebcamCrop((prev) =>
+                                    normalizeWebcamCrop(
+                                      {
+                                        x: 0,
+                                        y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
+                                        w: sourceVideoMeta.width,
+                                        h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
+                                      },
+                                      sourceVideoMeta,
+                                    ),
+                                  );
+                                }}
+                              >
+                                Snap to full width
+                              </Button>
+                            </div>
+                          ) : null}
+
+                          <div
+                            ref={sourcePreviewRef}
+                            className="relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
+                            style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
+                          >
+                            <video
+                              ref={verticalSourceVideoRef}
+                              src={verticalPreviewUrl}
+                              controls
+                              onLoadedMetadata={handleVerticalSourceMetadata}
+                              className="h-full w-full object-contain"
+                            />
+                            {!skipManualWebcamCrop && webcamCropStyle && (
+                              <div
+                                className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
+                                style={webcamCropStyle}
+                                onPointerDown={(event) => beginCropInteraction("move", event)}
+                              >
+                                {webcamPaddingPx > 0 && webcamCrop && (
+                                  <div
+                                    className="absolute border border-foreground/70 border-dashed pointer-events-none"
+                                    style={{
+                                      left: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.w) * 100}%`,
+                                      top: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.h) * 100}%`,
+                                      width: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.w) * 100}%`,
+                                      height: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.h) * 100}%`,
+                                    }}
+                                  />
+                                )}
+                                {([
+                                  { key: "nw", className: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize" },
+                                  { key: "n", className: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize" },
+                                  { key: "ne", className: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize" },
+                                  { key: "e", className: "right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
+                                  { key: "se", className: "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize" },
+                                  { key: "s", className: "left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize" },
+                                  { key: "sw", className: "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize" },
+                                  { key: "w", className: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
+                                ] as { key: CropHandle; className: string }[]).map((handle) => (
+                                  <span
+                                    key={handle.key}
+                                    className={`absolute h-3.5 w-3.5 rounded-full border border-foreground/70 bg-primary shadow ${handle.className}`}
+                                    onPointerDown={(event) => beginCropInteraction(handle.key, event)}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                            <MousePointerClick className="w-3.5 h-3.5" />
+                            {skipManualWebcamCrop
+                              ? "Manual webcam crop is disabled. Source framing will be used."
+                              : webcamCrop
+                              ? `Crop: ${Math.round(webcamCrop.w)} x ${Math.round(webcamCrop.h)}px at (${Math.round(webcamCrop.x)}, ${Math.round(webcamCrop.y)})`
+                              : "Webcam crop initializes when video metadata loads."}
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <video
+                            ref={verticalCompositionVideoRef}
+                            src={verticalPreviewUrl}
+                            muted
+                            loop
+                            playsInline
+                            className="hidden"
+                          />
+                          <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
+                            <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
+                            <div className="mx-auto w-full max-w-[300px]">
+                              <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                                <canvas
+                                  ref={verticalCompositionCanvasRef}
+                                  className="h-full w-full rounded-lg border border-border/50 bg-black"
+                                />
+                                <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-border/50" />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
+                            {!skipManualWebcamCrop ? (
+                              <>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Webcam height</span>
+                                    <span>{Math.round(topHeightPx)}px ({Math.round(webcamTopHeightPct)}%)</span>
+                                  </div>
+                                  <Slider
+                                    value={[webcamTopHeightPct]}
+                                    min={20}
+                                    max={70}
+                                    step={1}
+                                    onValueChange={(value) => setWebcamTopHeightPct(clamp(value[0] ?? DEFAULT_WEBCAM_TOP_HEIGHT_PCT, 20, 70))}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Padding</span>
+                                    <span>{Math.round(webcamPaddingPx)}px</span>
+                                  </div>
+                                  <Slider
+                                    value={[webcamPaddingPx]}
+                                    min={0}
+                                    max={Math.max(0, Math.min(120, webcamPaddingMax))}
+                                    step={1}
+                                    disabled={webcamPaddingMax <= 0}
+                                    onValueChange={(value) => setWebcamPaddingPx(clamp(Math.round(value[0] ?? 0), 0, webcamPaddingMax))}
+                                  />
+                                </div>
+                              </>
+                            ) : null}
+                            <div className="space-y-2">
+                              <p className="text-xs text-muted-foreground">Bottom fit</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {(["cover", "contain"] as VerticalFitMode[]).map((fit) => (
+                                  <button
+                                    key={fit}
+                                    type="button"
+                                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                                      bottomFitMode === fit
+                                        ? "border-primary bg-primary/10 text-primary"
+                                        : "border-border/60 text-muted-foreground hover:border-primary/40"
+                                    }`}
+                                    onClick={() => setBottomFitMode(fit)}
+                                  >
+                                    {fit === "cover" ? "Cover (default)" : "Contain"}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {skipManualWebcamCrop
+                            ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, single-frame vertical render (manual crop skipped).`
+                            : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, top webcam strip + bottom full-frame stack.`}
+                        </p>
+                        <Button
+                          type="button"
+                          className="w-full gap-2 sm:w-auto"
+                          disabled={!verticalSelectionReady || !!uploadingJobId || !!cropInteraction}
+                          onClick={startVerticalRender}
+                        >
+                          <ScissorsSquare className="w-4 h-4" />
+                          Create Vertical Clips
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="glass-card overflow-hidden">
+                <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
+                  {showVideo ? (
+                    <video
+                      ref={previewVideoRef}
+                      src={previewOutputUrl}
+                      controls
+                      onLoadedMetadata={handlePreviewLoadedMetadata}
+                      onTimeUpdate={handlePreviewTimeUpdate}
+                      onPause={handlePreviewPause}
+                      onEnded={handlePreviewEnded}
+                      onError={handlePreviewVideoError}
+                      className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
+                    />
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
+                      <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
+                        <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+                          {activeJob && !isTerminalStatus(activeJob.status) ? (
+                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                          ) : (
+                            <Play className="w-6 h-6 text-primary ml-0.5" />
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {activeJob
+                            ? normalizedActiveStatus === "ready"
+                              ? "Ready to export"
+                              : normalizedActiveStatus === "failed"
+                                ? activeJob.error === "queue_canceled_by_user"
+                                  ? "Job canceled"
+                                  : "Job failed"
+                                : "Processing your edit..."
+                            : "Select a job to preview"}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
+                {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
+                <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                  {activeJob
+                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(totalPipelineProgress)} percent complete.`
+                    : "No active pipeline selected."}
+                </div>
+                {normalizeStatus(activeJob?.status) === "failed" ? (
+                  <div className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+                    Pipeline failed. {failedGateReason || activeJob?.error || "Retry the render."}
+                  </div>
+                ) : null}
+
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Pipeline</p>
+                    <p className="text-xs text-muted-foreground">Live status updates while your job runs</p>
+                  </div>
+                  {activeJob && (
+                    <Badge variant="outline" className={`text-xs flex items-center gap-1.5 ${statusBadgeClass(activeJob.status)}`}>
+                      {normalizeStatus(activeJob.status) === "ready" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                      {activeStatusLabel}
+                    </Badge>
+                  )}
+                </div>
+
+                {loadingJob && <p className="text-xs text-muted-foreground">Loading job details...</p>}
+                {!activeJob && !loadingJob && (
+                  <p className="text-xs text-muted-foreground">Select a job from the left to view its pipeline.</p>
+                )}
+
+                {activeJob && (
+                  <>
+                    <div className="space-y-1.5">
+                      <div className="h-2 overflow-hidden rounded-full bg-teal-950/50">
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-teal-400 via-cyan-300 to-teal-500"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${totalPipelineProgress}%` }}
+                          transition={{ duration: 0.35, ease: "easeOut" }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="uppercase tracking-[0.16em] text-teal-100/90">Live Pipeline Progress</span>
+                        <span>{Math.round(totalPipelineProgress)}%</span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-teal-400/25 bg-teal-950/15 p-3 sm:p-4">
+                      <div className="pipeline-scrollbar overflow-x-auto">
+                        <ol className="flex min-w-[980px] items-center gap-2" aria-label="High-retention pipeline stages">
+                          {pipelineRows.map((row, idx) => (
+                            <li key={row.key} className="flex items-center gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    aria-current={row.state === "active" ? "step" : undefined}
+                                    className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                      row.state === "done"
+                                        ? "border-teal-300/70 bg-teal-400/20 text-teal-100"
+                                        : row.state === "active"
+                                          ? "border-cyan-300/80 bg-cyan-300/20 text-cyan-100 shadow-[0_0_18px_rgba(45,212,191,0.35)]"
+                                          : row.state === "failed"
+                                            ? "border-destructive/70 bg-destructive/20 text-destructive"
+                                            : "border-teal-900/60 bg-teal-950/35 text-teal-100/65"
+                                    }`}
+                                  >
+                                    {row.label}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs border-teal-500/35 bg-teal-950 text-teal-100">
+                                  <p className="font-medium">{row.label}</p>
+                                  <p className="text-[11px] text-teal-100/80">{row.detail}</p>
+                                  <p className="mt-1 text-[11px] text-teal-100/70">{row.percent}% complete</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              {idx < pipelineRows.length - 1 ? (
+                                <span className="text-xs text-teal-200/80">→</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">Full Video Scan Progress</p>
+                        <Badge className="border-teal-300/35 bg-teal-400/15 text-teal-100">
+                          {Math.round(fullScanProgress)}%
+                        </Badge>
+                      </div>
+                      <Progress
+                        value={fullScanProgress}
+                        className="h-2 bg-teal-950/45 [&>div]:bg-gradient-to-r [&>div]:from-teal-400 [&>div]:via-cyan-300 [&>div]:to-teal-500"
+                      />
+                      <p className="text-[11px] text-teal-50/80">{fullScanProgressLabel}</p>
+
+                      <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Energy Timeline</p>
+                          <Badge className="border-teal-300/30 bg-teal-300/10 text-teal-100">0-100 score</Badge>
+                        </div>
+                        <div className="relative mt-3 h-10">
+                          <div className="absolute inset-x-0 top-4 h-px bg-gradient-to-r from-teal-800/70 via-teal-300/80 to-teal-800/70" />
+                          {timelineEnergyMoments.map((moment, idx) => (
+                            <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="absolute top-0 -translate-x-1/2"
+                                  style={{ left: `${moment.positionPct}%` }}
+                                >
+                                  <Badge className="border-teal-300/45 bg-teal-400/20 px-1.5 py-0.5 text-[10px] text-teal-100">
+                                    {moment.energy}
+                                  </Badge>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs border-teal-500/35 bg-teal-950 text-teal-100">
+                                <p className="text-[11px] font-medium">{moment.timestampLabel} energy {moment.energy}</p>
+                                <p className="text-[11px] text-teal-100/80">
+                                  Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                        <div className="rounded-lg border border-teal-400/25 bg-teal-950/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Badge className="border-teal-300/40 bg-teal-300/15 text-teal-100">
+                              Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
+                            </Badge>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="text-[11px] text-teal-100 underline underline-offset-4"
+                                >
+                                  Details
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="border-teal-500/35 bg-teal-950 text-teal-100">
+                                {autoHookSummaryLine}
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <p className="mt-2 text-xs text-teal-100/80">{autoHookSummaryLine}</p>
+                        </div>
+
+                        <div className="rounded-lg border border-teal-400/25 bg-teal-950/20 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-medium text-teal-100">Auto-Cut Boring/Silent/Pauses</p>
+                            <Switch
+                              checked={autoCutBoringEnabled}
+                              onCheckedChange={setAutoCutBoringEnabled}
+                              className="data-[state=checked]:bg-teal-500"
+                              aria-label="Auto-cut low engagement segments"
+                            />
+                          </div>
+                          <p className="mt-2 text-xs text-teal-100/80">
+                            {autoCutBoringEnabled
+                              ? `Cut ${removedFillerPercent}% low-engagement filler`
+                              : "Auto-cut paused, low-engagement filler retained."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">A-Mode</p>
+                          <p className="text-xs text-teal-50/75">Advanced retention automation (facial scan + binge logic)</p>
+                        </div>
+                        <Switch
+                          checked={aModeEnabled}
+                          onCheckedChange={setAModeEnabled}
+                          className="data-[state=checked]:bg-teal-500"
+                          aria-label="Toggle advanced AI retention mode"
+                        />
+                      </div>
+
+                      {aModeEnabled ? (
+                        <div className="space-y-3">
+                          <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Facial Scan Overlay</p>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button type="button" className="text-[11px] text-teal-100 underline underline-offset-4">
+                                    Suggestion
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="border-teal-500/35 bg-teal-950 text-teal-100">
+                                  {`Facial Scan: Boost Retention +${facialRetentionBoostPct}% by focusing on high-engagement face at ${formatTimelineClock(facialFocusSec)}`}
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              {facialHeatmapMoments.map((zone) => (
+                                <div key={`${zone.label}-${zone.at}`} className="rounded-md border border-teal-500/20 bg-teal-900/30 p-2">
+                                  <p className="text-[10px] text-teal-100/80">{zone.label} · {zone.at}</p>
+                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-teal-950/70">
+                                    <div
+                                      className="h-full rounded-full bg-gradient-to-r from-teal-400 to-cyan-300"
+                                      style={{ width: `${zone.intensity}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Binge Mode</p>
+                                <p className="text-xs text-teal-100/70">
+                                  Curiosity loops, cliffhangers, emotional arcs, dynamic pacing, and re-hooks.
+                                </p>
+                              </div>
+                              <Switch
+                                checked={bingeModeEnabled}
+                                onCheckedChange={setBingeModeEnabled}
+                                className="data-[state=checked]:bg-teal-500"
+                                aria-label="Toggle binge optimization mode"
+                              />
+                            </div>
+                            {bingeModeEnabled ? (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {bingeSuggestions.map((line, index) => (
+                                  <Badge
+                                    key={`binge-suggestion-${index}`}
+                                    className="border-teal-300/30 bg-teal-400/15 text-teal-50"
+                                  >
+                                    {line}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-teal-100/70">Binge optimizations are currently paused.</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-teal-100/75">
+                          Enable A-Mode to apply facial scan recognition and binge-flow suggestions.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">Retention Prediction Graph</p>
+                        <Badge className={`border-teal-300/30 ${retentionGoalMet ? "bg-teal-400/20 text-teal-50" : "bg-amber-500/20 text-amber-100"}`}>
+                          {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 h-32 overflow-hidden rounded-lg border border-teal-500/20 bg-teal-950/35 p-2">
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                          <line
+                            x1="0"
+                            y1={100 - RETENTION_GOAL_PERCENT}
+                            x2="100"
+                            y2={100 - RETENTION_GOAL_PERCENT}
+                            stroke="rgba(45,212,191,0.45)"
+                            strokeDasharray="3 3"
+                            strokeWidth="1"
+                          />
+                          <polyline
+                            points={retentionLinePoints}
+                            fill="none"
+                            stroke="rgb(45,212,191)"
+                            strokeWidth="2.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[11px] text-teal-100/80">
+                        <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
+                        <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"}</span>
+                      </div>
+                    </div>
+
+                    {!isTerminalStatus(activeJob.status) && (
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                        <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="uppercase tracking-[0.16em]">Live Processing</span>
+                          <span className="font-semibold text-foreground">{etaLabel}{etaSuffix}</span>
+                        </div>
+                        <Progress value={activeStageProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
+                          <div className="h-10 rounded-lg bg-muted/35 animate-pulse" />
+                        </div>
+                        {canCancelJob && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="mt-3 min-h-12 w-full border-destructive/40 text-destructive hover:bg-destructive/10 sm:min-h-10 sm:w-auto"
+                            disabled={cancelingJobId === activeJob.id}
+                            onClick={() => void handleCancelJob(activeJob.id)}
+                          >
+                            {cancelingJobId === activeJob.id ? (
+                              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            ) : (
+                              <XCircle className="mr-1.5 h-4 w-4" />
+                            )}
+                            {cancelButtonLabel}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {normalizeStatus(activeJob.status) === "failed" && (
+                      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
+                        <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
+                        <p className="mt-1 text-xs text-destructive/90">{failedGateReason || activeJob.error || "Retry suggested."}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Retry suggestion: adjust settings and run Redo Renderer.</p>
+                      </div>
+                    )}
+
+                    {canShowRealtimeHookSelector && (
+                      <div className="rounded-xl border border-primary/35 bg-primary/5 p-3 space-y-2">
+                        <div className="space-y-1">
+                          <p className="text-xs uppercase tracking-[0.2em] text-primary/80">Hook Job</p>
+                          <p className="text-xs text-muted-foreground">
+                            Automatic hook mode is on. The editor chooses the best 5-8 second opening hook.
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Hook mode: Auto
+                        </p>
+                        {selectedHookCandidate ? (
+                          <p className="text-xs text-foreground/90">
+                            Selected: {formatHookRange(
+                              selectedHookCandidate.start,
+                              selectedHookCandidate.start + selectedHookCandidate.duration
+                            )}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {normalizeStatus(activeJob.status) === "ready" && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
+                      >
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
+                        <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
+                        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm text-emerald-100 flex items-center gap-2">
+                            <CheckCircle2 className="h-4 w-4" />
+                            {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
+                              ? `Vertical clips are ready (${activeOutputUrls.length}).`
+                              : "Export is ready. Download your final cut."}
+                          </p>
+                          <Button
+                            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                            onClick={() => setExportOpen(true)}
+                          >
+                            <Download className="h-4 w-4" />
+                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
+                          </Button>
+                        </div>
+                      </motion.div>
+                    )}
+                    {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Need another pass? Queue a redo render using your daily re-render allowance.
+                        </p>
+                        <Button
+                          variant="outline"
+                          className="min-h-12 w-full gap-2 sm:min-h-10 sm:w-auto"
+                          disabled={
+                            reprocessingJobId === activeJob.id ||
+                            (!isDevAccount && (rerendersRemainingToday ?? 0) <= 0)
+                          }
+                          onClick={() => void handleRedoRender(activeJob)}
+                        >
+                          {reprocessingJobId === activeJob.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-4 h-4" />
+                          )}
+                          Redo Renderer
+                        </Button>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
+                            {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
+                          </Badge>
+                          <Badge className="border-primary/35 bg-primary/10 text-primary">
+                            {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
+                          {retentionScoreDeltaDisplay !== null ? (
+                            <motion.p
+                              key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={`mt-1 font-premium text-3xl font-semibold tracking-tight ${
+                                retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
+                              }`}
+                            >
+                              {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
+                              <span className="ml-1 text-lg align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
+                            </motion.p>
+                          ) : !isTerminalStatus(activeJob.status) ? (
+                            <div className="mt-2 h-9 w-28 animate-pulse rounded-md bg-muted/50" />
+                          ) : (
+                            <p className="mt-1 text-sm text-muted-foreground">Pending</p>
+                          )}
+                          <p className="mt-2 break-words text-xs text-foreground/90">
+                            Hook chosen: {hookWindowLabel}
+                            {hookText ? ` — ${hookText}` : ""}
+                          </p>
+                          {hookReason ? (
+                            <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
+                          ) : null}
+                        </div>
+                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
+                          {retentionBeforeBar !== null && retentionAfterBar !== null ? (
+                            <div className="mt-2 space-y-2">
+                              <div>
+                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                  <span>Before</span>
+                                  <span>{retentionScoreBeforeDisplay?.toFixed(1)}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-muted/60">
+                                  <motion.div
+                                    className="h-full rounded-full bg-slate-400/80"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${retentionBeforeBar}%` }}
+                                    transition={{ duration: 0.35, ease: "easeOut" }}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                  <span>After</span>
+                                  <span>{retentionScoreAfterDisplay?.toFixed(1)}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-muted/60">
+                                  <motion.div
+                                    className="h-full rounded-full bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))]"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${retentionAfterBar}%` }}
+                                    transition={{ duration: 0.45, ease: "easeOut" }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/45" />
+                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-lg border border-border/50 bg-background/30">
+                        <button
+                          type="button"
+                          aria-expanded={retentionDetailsOpen}
+                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
+                          onClick={() => setRetentionDetailsOpen((prev) => !prev)}
+                        >
+                          <span className="font-medium">{retentionDetailsOpen ? "Hide retention details" : "Show retention details"}</span>
+                          <span className="text-muted-foreground">{retentionDetailsOpen ? "Collapse" : "Expand"}</span>
+                        </button>
+                        {retentionDetailsOpen ? (
+                          <div className="space-y-2 border-t border-border/40 p-3 text-xs text-muted-foreground">
+                            {detectedRetentionStrategyProfile ? (
+                              <p>Profile: {formatNicheLabel(detectedRetentionStrategyProfile)}</p>
+                            ) : null}
+                            {detectedRetentionContentFormat ? (
+                              <p>Format: {formatNicheLabel(detectedRetentionContentFormat)}</p>
+                            ) : null}
+                            {detectedRetentionTargetPlatform ? (
+                              <p>Target: {formatPlatformLabel(detectedRetentionTargetPlatform)}</p>
+                            ) : null}
+                            {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
+                              <p>
+                                Predicted completion: {verticalPredictedAverage.toFixed(1)}%
+                                {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
+                              </p>
+                            ) : null}
+                            {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Top clip predictions:</p>
+                                {metadataClipSummaries.map((entry) => (
+                                  <p key={`clip-prediction-${entry.clip}`} className="text-foreground/90">
+                                    - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
+                                    {entry.reason ? ` — ${entry.reason}` : ""}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {detectedNicheRaw ? (
+                              <p>
+                                Detected niche: {formatNicheLabel(detectedNicheRaw)}
+                                {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
+                              </p>
+                            ) : null}
+                            {detectedNicheRationale.length > 0 ? (
+                              <div className="space-y-1">
+                                {detectedNicheRationale.map((line, index) => (
+                                  <p key={`niche-rationale-${index}`}>- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {retentionImprovements.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Improvements:</p>
+                                {retentionImprovements.map((line, index) => (
+                                  <p key={`improve-${index}`} className="text-foreground/90">- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {whyKeepWatching.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">Why viewers stay:</p>
+                                {whyKeepWatching.map((line, index) => (
+                                  <p key={`why-${index}`} className="text-foreground/90">- {line}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
+                              <div className="space-y-1">
+                                <p className="text-destructive">Gate reason: {failedGateReason}</p>
+                                {genericReasons.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {genericReasons.map((line, index) => (
+                                      <p key={`generic-${index}`}>- {line}</p>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div className="space-y-1 pt-1">
+                              <p>
+                                Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
+                              </p>
+                              {paidTier ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {CREATOR_FEEDBACK_ACTIONS.map((action) => (
+                                    <Button
+                                      key={action.category}
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 px-2 text-[11px]"
+                                      disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
+                                      onClick={() => void submitCreatorFeedback(action.category)}
+                                    >
+                                      {creatorFeedbackSubmitting === action.category ? (
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      ) : null}
+                                      {action.label}
+                                    </Button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[11px]">
+                                  Upgrade to send hook/pacing/generic corrections directly to the model.
+                                </p>
+                              )}
+                            </div>
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                className={`text-xs underline underline-offset-4 ${
+                                  analyzeUnlockedForActiveJob
+                                    ? "text-muted-foreground hover:text-foreground"
+                                    : "cursor-not-allowed text-muted-foreground/70"
+                                }`}
+                                disabled={!analyzeUnlockedForActiveJob}
+                                onClick={() => setShowAdvancedDebug((prev) => !prev)}
+                              >
+                                {showAdvancedDebug && analyzeUnlockedForActiveJob ? "Hide Analyze" : "Analyze"}
+                              </button>
+                              {!analyzeUnlockedForActiveJob ? (
+                                <p className="mt-1 text-[11px] text-muted-foreground">
+                                  Click a feedback button above to unlock Analyze for this render.
+                                </p>
+                              ) : null}
+                            </div>
+                            {showAdvancedDebug && analyzeUnlockedForActiveJob ? (
+                              <div className="space-y-1 text-[11px]">
+                                <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
+                                <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
+                                <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
+                                <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
+                                <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
+                                <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
+                                <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
+                                <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
+                                <p className="break-all">
+                                  Emotional tuning:
+                                  {" "}
+                                  {activeAnalysis?.emotional_tuning_profile
+                                    ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
+                                    : "n/a"}
+                                </p>
+                                <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
+                                <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
+                                <p>Attempts stored: {retentionAttempts.length}</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
+                        <button
+                          type="button"
+                          aria-expanded={pipelineLogOpen}
+                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
+                          onClick={() => setPipelineLogOpen((prev) => !prev)}
+                        >
+                          <span className="font-medium">Processing Log</span>
+                          <span className="font-mono text-[11px] text-muted-foreground">{pipelineLogOpen ? "Hide" : "Show"} stream</span>
+                        </button>
+                        {pipelineLogOpen ? (
+                          <div className="pipeline-scrollbar max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
+                            {pipelineLogEntries.length > 0 ? (
+                              pipelineLogEntries.map((entry, index) => (
+                                <p
+                                  key={`${entry.message}-${index}`}
+                                  className={`mb-1 ${
+                                    entry.level === "error"
+                                      ? "text-destructive"
+                                      : entry.level === "warn"
+                                        ? "text-amber-300"
+                                        : entry.level === "success"
+                                          ? "text-emerald-300"
+                                          : "text-muted-foreground"
+                                  }`}
+                                >
+                                  [{logTimestamp}] {entry.message}
+                                </p>
+                              ))
+                            ) : (
+                              <p className="text-muted-foreground">[{logTimestamp}] Awaiting backend stage messages...</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+          </div>
+        </motion.div>
+      </main>
+
+      <Dialog
+        open={editorGuideOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            editorGuidePromptedRef.current = true;
+            try {
+              window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+            } catch (error) {
+              // ignore storage failures
+            }
+          }
+          setEditorGuideOpen(open);
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Editor Help Menu</DialogTitle>
+            <DialogDescription>
+              Quick guide to what each control does, how modes work, and where to review privacy and terms.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">How It Works</p>
+              <div className="mt-2 space-y-1 text-xs text-foreground/90">
+                <p>1. Click <span className="font-medium">New Project</span> and upload your video.</p>
+                <p>2. Pick render mode, retention profile, platform target, and caption settings.</p>
+                <p>3. The editor auto-selects the best 5-8 second opening hook.</p>
+                <p>4. Wait for <span className="font-medium">Ready</span> then open export and download.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Main Buttons</p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <p className="text-xs text-foreground/90"><span className="font-medium">New Project:</span> Upload and start a new edit job.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Horizontal / Vertical:</span> Choose original format or 9:16 short-form output.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Safe / Balanced / Viral:</span> Control pacing and retention aggression.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">TikTok / IG Reels / YouTube:</span> Tune editing defaults for platform behavior.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Captions on/off:</span> Toggle subtitle burn-in for new renders.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Edit captions:</span> Open style/preset controls.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Save captions:</span> Persist caption settings to your account.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Only Hook + Cut:</span> Minimal edit path focused on hook and dead-space cuts.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Cut Count:</span> Set the maximum cuts (1-15) to remove low-energy and irrelevant moments.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Editor Mode:</span> Force style strategy (reaction, commentary, vlog, gaming, sports, education, or auto).</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Auto Hook:</span> Opening hook is selected automatically from top timeline moments.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Open Export / Open Clips:</span> Download final output files.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Modes</p>
+              <div className="mt-2 space-y-2 text-xs text-foreground/90">
+                <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
+                <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
+                <p><span className="font-medium">Retention Profiles:</span> Safe = conservative, Balanced = adaptive default, Viral = fastest pacing (best for short-form).</p>
+                <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Privacy And Terms</p>
+              <p className="mt-2 text-xs text-foreground/90">
+                By using the editor, you agree to the service terms. Review how uploads and processing are handled in the privacy policy.
+              </p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <a
+                  href="https://www.autoeditor.app/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  Privacy Policy
+                </a>
+                <a
+                  href="https://www.autoeditor.app/terms"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  Terms of Service
+                </a>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button type="button" size="sm" onClick={() => setEditorGuideOpen(false)}>
+                Okay
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={trialUpgradeOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            dismissTrialUpgradePrompt();
+            return;
+          }
+          setTrialUpgradeOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Free trial ended</DialogTitle>
+            <DialogDescription>
+              {trialEndsAtLabel
+                ? `Your trial ended on ${trialEndsAtLabel}. Upgrade now to keep premium editing tools unlocked.`
+                : "Your trial ended. Upgrade now to keep premium editing tools unlocked."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">
+                Trial features you used
+              </p>
+              <div className="space-y-1">
+                {trialUnlockedFeatures.slice(0, 6).map((feature) => (
+                  <p key={`ended-trial-${feature}`} className="text-xs text-foreground/90">
+                    - {feature}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={dismissTrialUpgradePrompt}>
+                Maybe later
+              </Button>
+              <Button
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                onClick={handleUpgradeFromTrialPrompt}
+              >
+                Upgrade now
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {activeJob?.renderMode === "vertical"
+                ? "Choose quality and download each vertical clip."
+                : "Choose your quality and download the final MP4."}
+            </p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-foreground">Export Quality</span>
+                <span className="text-xs text-muted-foreground">Max: {maxQuality.toUpperCase()}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">{qualityButtons}</div>
+            </div>
+            {activeJob?.renderMode === "vertical" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">Vertical Clips</p>
+                  {verticalPredictedAverage !== null ? (
+                    <p className="text-xs text-muted-foreground">
+                      Predicted completion: {verticalPredictedAverage.toFixed(1)}%
+                    </p>
                   ) : null}
-                </SettingsCardGroup>
-              </motion.div>
-            ) : null}
-
-            {hasCompletedResult ? (
-              <RetentionInsights
-                result={latestResult}
-                expanded={retentionExpanded}
-                onExpandedChange={setRetentionExpanded}
-                selectedPointId={selectedRetentionPointId}
-                onSelectedPointIdChange={setSelectedRetentionPointId}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      <ManualTimestampModal
-        open={manualTimestampModalOpen}
-        onOpenChange={setManualTimestampModalOpen}
-        videoUrl={videoUrl}
-        duration={duration}
-        scrubberTime={scrubberTime}
-        segments={manualSegments}
-        onScrub={setScrubberTime}
-        onAddSegment={addSegmentAtScrubber}
-        onRemoveSegment={removeSegment}
-        onUpdateSegment={updateSegment}
-      />
-
-      <RecentJobsDrawer
-        open={recentDrawerOpen}
-        onOpenChange={setRecentDrawerOpen}
-        jobs={recentJobs}
-        inactivitySeconds={Math.round(RECENT_DRAWER_CONFIG.timeoutMs / 1000)}
-        onInteract={markRecentInteraction}
-      />
-
-      <PostRenderModal
-        open={successModalOpen}
-        onOpenChange={setSuccessModalOpen}
-        result={latestResult}
-        selectedPointId={selectedRetentionPointId}
-        onSelectedPointIdChange={setSelectedRetentionPointId}
-        selectedThumbnailId={selectedThumbnailId}
-        onSelectedThumbnailIdChange={setSelectedThumbnailId}
-        onRerender={() => {
-          setSuccessModalOpen(false);
-          void handleStartRender();
-        }}
-        onOpenInsightsGraph={() => {
-          setSuccessModalOpen(false);
-          setRetentionExpanded(true);
-        }}
-        onOpenFeedback={() => {
-          setSuccessModalOpen(false);
-          window.location.href = `/analytics?jobId=${encodeURIComponent(latestResult?.jobId || "")}&source=vibecut`;
-        }}
-      />
-    </AppShell>
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: Math.max(1, activeOutputUrls.length || verticalClipCount) }).map((_, idx) => {
+                    const clipNumber = idx + 1;
+                    const prediction = verticalClipPredictions.find((item) => item.clip === clipNumber) || null;
+                    return (
+                      <div key={`clip-${clipNumber}`} className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="gap-2"
+                            onClick={() => handleDownload(idx)}
+                          >
+                            <Download className="w-4 h-4" />
+                            Clip {clipNumber}
+                          </Button>
+                          {prediction ? (
+                            <p className="text-[11px] text-emerald-300">{prediction.predictedCompletion.toFixed(0)}% likely</p>
+                          ) : null}
+                        </div>
+                        {prediction?.reason ? (
+                          <p className="mt-1 text-[11px] text-muted-foreground">{prediction.reason}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setExportOpen(false)}>
+                Close
+              </Button>
+              <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
+                <Download className="w-4 h-4" />
+                {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
+            <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
+              <Button
+                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                onClick={() => {
+                  try {
+                    const url = autoDownloadModal.url;
+                    const fileName = autoDownloadModal.fileName;
+                    if (!url) return;
+                    const a = document.createElement('a');
+                    a.href = url;
+                    if (fileName) a.download = fileName;
+                    a.target = '_blank';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    if (autoDownloadModal.jobId) {
+                      const modalJob =
+                        activeJob && activeJob.id === autoDownloadModal.jobId
+                          ? activeJob
+                          : ({ id: autoDownloadModal.jobId, status: "ready", analysis: null } as JobDetail);
+                      submitDownloadFeedback(modalJob, 0, "frontend_modal_download");
+                      window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                  setAutoDownloadModal({ open: false });
+                }}
+              >
+                <Download className="w-4 h-4" /> Download
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </GlowBackdrop>
   );
-}
+};
+
+export default Editor;
+
+
+
 
