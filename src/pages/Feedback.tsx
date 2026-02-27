@@ -5,11 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
+import RetentionLineGraph from "@/features/autoeditor/components/editor/RetentionLineGraph";
+import type { RetentionHeatCell, RetentionPoint } from "@/features/autoeditor/types";
 import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
 import { API_URL, ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { BarChart3, Loader2, Sparkles, WandSparkles } from "lucide-react";
+import { BarChart3, Loader2, PlayCircle, Sparkles, WandSparkles } from "lucide-react";
 
 type FeedbackJob = {
   id: string;
@@ -24,6 +26,14 @@ type PlatformPrediction = {
   confidence: number;
   potential: "low" | "moderate" | "high";
   reasoning: string;
+};
+
+type RetentionTimelineMoment = {
+  timestampSeconds: number;
+  watchedPercent: number;
+  category: string;
+  label: string;
+  note: string;
 };
 
 type AnalyticsReport = {
@@ -74,6 +84,9 @@ type AnalyticsReport = {
       summary: string;
       visualization: string;
       action: string;
+      retentionTimeline?: RetentionTimelineMoment[];
+      bestMoments?: RetentionTimelineMoment[];
+      weakMoments?: RetentionTimelineMoment[];
       simulatedWatchTimeSeconds: {
         before: number;
         after: number;
@@ -115,6 +128,13 @@ type AnalyticsReport = {
     };
     improvementSuggestions: {
       suggestions: string[];
+      actionItems?: Array<{
+        id?: string;
+        priority?: "high" | "medium" | "low" | string;
+        tip?: string;
+        impact?: string;
+        category?: string;
+      }>;
       summary: string;
       visualization: string;
     };
@@ -157,6 +177,12 @@ type RealtimePredictionVideo = {
 type RealtimePredictionResponse = {
   generatedAt: string;
   videos: RealtimePredictionVideo[];
+};
+
+type VideoSourceDetail = {
+  previewUrl: string | null;
+  points: RetentionPoint[];
+  heatmap: RetentionHeatCell[];
 };
 
 const resolvePredictionWsUrl = (token: string) => {
@@ -241,6 +267,139 @@ const potentialTone = (value: "low" | "moderate" | "high") => {
 
 const sourceLabel = (sourceType: "classic" | "vibecut") => (sourceType === "classic" ? "AutoEditor" : "VibeCut");
 
+const toRetentionPointType = (raw: unknown, watchedPct: number, index: number): RetentionPoint["type"] => {
+  const normalized = String(raw || "").trim().toLowerCase();
+  if (normalized === "best" || normalized === "emotional_peak") return "best";
+  if (normalized === "hook") return "hook";
+  if (normalized === "skip_zone" || normalized === "skip_risk" || normalized === "skip-risk") return "skip_zone";
+  if (normalized === "worst") return "worst";
+  if (normalized === "low_energy" || normalized === "low-energy") return "worst";
+  if (index <= 1 && watchedPct >= 66) return "hook";
+  if (watchedPct >= 78) return "best";
+  if (watchedPct <= 36) return "skip_zone";
+  return "worst";
+};
+
+const normalizeTimelinePoints = (raw: any): RetentionPoint[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, index) => {
+      const timestamp = Number(item?.timestampSeconds ?? item?.timestamp ?? item?.time);
+      const watchedPct = Number(item?.watchedPercent ?? item?.watchedPct ?? item?.score);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(watchedPct)) return null;
+      const safePct = clamp(watchedPct, 0, 100);
+      const type = toRetentionPointType(item?.category ?? item?.type, safePct, index);
+      return {
+        id: String(item?.id || `timeline-${index}-${timestamp.toFixed(2)}`),
+        timestamp: Number(Math.max(0, timestamp).toFixed(2)),
+        watchedPct: Number(safePct.toFixed(2)),
+        type,
+        label: String(item?.label || `${type} moment`),
+        description: String(item?.note || item?.description || ""),
+      } as RetentionPoint;
+    })
+    .filter((point): point is RetentionPoint => Boolean(point))
+    .sort((a, b) => a.timestamp - b.timestamp);
+};
+
+const buildHeatmapFromPoints = (points: RetentionPoint[]): RetentionHeatCell[] =>
+  points
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((point) => ({
+      timestamp: point.timestamp,
+      intensity: clamp((100 - point.watchedPct) / 100 + (point.type === "skip_zone" ? 0.16 : 0), 0.14, 1),
+    }));
+
+const buildClassicRetentionPoints = (jobPayload: any): RetentionPoint[] => {
+  const analysis = jobPayload?.analysis && typeof jobPayload.analysis === "object" ? jobPayload.analysis : {};
+  const metadata = analysis?.metadata_summary && typeof analysis.metadata_summary === "object" ? analysis.metadata_summary : {};
+  const clips = Array.isArray(metadata?.clips) ? metadata.clips : [];
+  const windows = Array.isArray(analysis?.engagementWindows)
+    ? analysis.engagementWindows
+    : Array.isArray(analysis?.editPlan?.engagementWindows)
+      ? analysis.editPlan.engagementWindows
+      : [];
+
+  const clipPoints = clips
+    .map((clip: any, index: number) => {
+      const predicted = Number(clip?.predictedCompletion ?? clip?.predicted_completion);
+      if (!Number.isFinite(predicted)) return null;
+      const start = Number(clip?.start);
+      const end = Number(clip?.end);
+      const timestamp = Number.isFinite(start) ? start : Number.isFinite(end) ? Math.max(0, end - 2) : index * 4;
+      const safePct = clamp(predicted, 0, 100);
+      const type = toRetentionPointType(clip?.type ?? clip?.label, safePct, index);
+      return {
+        id: `clip-${index}-${timestamp.toFixed(2)}`,
+        timestamp: Number(timestamp.toFixed(2)),
+        watchedPct: Number(safePct.toFixed(2)),
+        type,
+        label: String(clip?.title || clip?.label || `Clip ${index + 1}`),
+        description: String(clip?.reason || clip?.description || ""),
+      } as RetentionPoint;
+    })
+    .filter((point): point is RetentionPoint => Boolean(point));
+  if (clipPoints.length >= 5) {
+    return clipPoints.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  return windows
+    .map((window: any, index: number) => {
+      const timestamp = Number(window?.time);
+      const score = Number(window?.score);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(score)) return null;
+      const safePct = clamp(score <= 1 ? score * 100 : score, 0, 100);
+      const type = toRetentionPointType(null, safePct, index);
+      return {
+        id: `window-${index}-${timestamp.toFixed(2)}`,
+        timestamp: Number(Math.max(0, timestamp).toFixed(2)),
+        watchedPct: Number(safePct.toFixed(2)),
+        type,
+        label: `Window ${index + 1}`,
+        description: type === "skip_zone" ? "Viewers may skip this section." : type === "best" ? "Strong retention window." : "Low-energy or drop-off area.",
+      } as RetentionPoint;
+    })
+    .filter((point): point is RetentionPoint => Boolean(point))
+    .sort((a, b) => a.timestamp - b.timestamp);
+};
+
+const buildVibecutRetentionPoints = (payload: any): RetentionPoint[] => {
+  const points = Array.isArray(payload?.retention?.points) ? payload.retention.points : [];
+  return points
+    .map((point: any, index: number) => {
+      const timestamp = Number(point?.timestamp);
+      const watchedPct = Number(point?.watchedPct);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(watchedPct)) return null;
+      return {
+        id: String(point?.id || `vibecut-${index}`),
+        timestamp: Number(Math.max(0, timestamp).toFixed(2)),
+        watchedPct: Number(clamp(watchedPct, 0, 100).toFixed(2)),
+        type: toRetentionPointType(point?.type, watchedPct, index),
+        label: String(point?.label || `Moment ${index + 1}`),
+        description: String(point?.description || ""),
+      } as RetentionPoint;
+    })
+    .filter((point): point is RetentionPoint => Boolean(point))
+    .sort((a, b) => a.timestamp - b.timestamp);
+};
+
+const buildTrendSignals = (video: RealtimePredictionVideo | null) => {
+  if (!video) return null;
+  const trendBoost = video.prediction.trend === "rising" ? 1.08 : video.prediction.trend === "falling" ? 0.94 : 1;
+  const hookBoost = Number.isFinite(Number(video.prediction.hookStrengthPercent))
+    ? clamp(0.9 + Number(video.prediction.hookStrengthPercent) / 100 * 0.2, 0.82, 1.22)
+    : 1;
+  const liftBoost = Number.isFinite(Number(video.prediction.expectedLiftPercent))
+    ? clamp(1 + Number(video.prediction.expectedLiftPercent) / 100, 0.82, 1.3)
+    : 1;
+  return {
+    tiktokShortBoost: Number((trendBoost * hookBoost).toFixed(3)),
+    youtubeLongBoost: Number((trendBoost * liftBoost).toFixed(3)),
+    instagramCaptionBoost: Number((trendBoost * ((hookBoost + liftBoost) / 2)).toFixed(3)),
+  };
+};
+
 const Feedback = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -258,6 +417,11 @@ const Feedback = () => {
   const [realtimeVideos, setRealtimeVideos] = useState<RealtimePredictionVideo[]>([]);
   const [realtimeGeneratedAt, setRealtimeGeneratedAt] = useState<string | null>(null);
   const [loadingRealtime, setLoadingRealtime] = useState(false);
+  const [sourceDetail, setSourceDetail] = useState<VideoSourceDetail | null>(null);
+  const [loadingSourceDetail, setLoadingSourceDetail] = useState(false);
+  const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const autoAnalyzeKeyRef = useRef("");
   const realtimePredictionErrorRef = useRef(false);
   const realtimeFetchInFlightRef = useRef(false);
   const realtimeRefetchQueuedRef = useRef(false);
@@ -270,6 +434,30 @@ const Feedback = () => {
     () => jobs.find((job) => job.id === selectedJobId) || null,
     [jobs, selectedJobId],
   );
+
+  const selectedRealtimeVideo = useMemo(
+    () => realtimeVideos.find((video) => video.jobId === selectedJobId) || null,
+    [realtimeVideos, selectedJobId],
+  );
+
+  const reportPoints = useMemo(
+    () => normalizeTimelinePoints(report?.metrics?.retentionPotential?.retentionTimeline),
+    [report],
+  );
+
+  const retentionPoints = reportPoints.length ? reportPoints : sourceDetail?.points || [];
+  const retentionHeatmap = retentionPoints.length ? buildHeatmapFromPoints(retentionPoints) : sourceDetail?.heatmap || [];
+  const selectedPoint = retentionPoints.find((point) => point.id === selectedPointId) || retentionPoints[0] || null;
+
+  const bestMoments = retentionPoints
+    .filter((point) => point.type === "best" || point.type === "hook")
+    .sort((a, b) => b.watchedPct - a.watchedPct)
+    .slice(0, 4);
+
+  const weakMoments = retentionPoints
+    .filter((point) => point.type === "worst" || point.type === "skip_zone")
+    .sort((a, b) => a.watchedPct - b.watchedPct)
+    .slice(0, 4);
 
   useEffect(() => {
     if (!accessToken || loadingMe || !isPremium) return;
@@ -463,23 +651,69 @@ const Feedback = () => {
     return () => window.clearTimeout(timer);
   }, [loadingMe, isPremium, navigate]);
 
-  const handleAnalyze = async () => {
+  const fetchSourceDetail = async (jobId: string, sourceType: "classic" | "vibecut") => {
+    if (!accessToken || !jobId) return;
+    try {
+      setLoadingSourceDetail(true);
+      if (sourceType === "vibecut") {
+        const result = await apiFetch<any>(`/api/vibecut/jobs/${jobId}`, { token: accessToken });
+        const previewUrl =
+          (typeof result?.outputVideoUrl === "string" && result.outputVideoUrl) ||
+          (Array.isArray(result?.clipUrls) && typeof result.clipUrls[0] === "string" ? result.clipUrls[0] : null);
+        const points = buildVibecutRetentionPoints(result);
+        setSourceDetail({ previewUrl, points, heatmap: buildHeatmapFromPoints(points) });
+        return;
+      }
+
+      const result = await apiFetch<{ job?: any }>(`/api/jobs/${jobId}`, { token: accessToken });
+      const payload = result?.job || {};
+      let previewUrl = typeof payload?.outputUrl === "string" ? payload.outputUrl : "";
+      if (!previewUrl && Array.isArray(payload?.outputUrls) && typeof payload.outputUrls[0] === "string") {
+        previewUrl = payload.outputUrls[0];
+      }
+      if (!previewUrl) {
+        try {
+          const fallback = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/output-url?clip=1`, { token: accessToken });
+          previewUrl = typeof fallback?.url === "string" ? fallback.url : "";
+        } catch {
+          // ignore fallback errors
+        }
+      }
+      const points = buildClassicRetentionPoints(payload);
+      setSourceDetail({ previewUrl: previewUrl || null, points, heatmap: buildHeatmapFromPoints(points) });
+    } catch {
+      setSourceDetail({ previewUrl: null, points: [], heatmap: [] });
+    } finally {
+      setLoadingSourceDetail(false);
+    }
+  };
+
+  const handleAnalyze = async (silent = false) => {
     if (!accessToken) return;
     setAnalyzeError(null);
     if (!selectedJobId) {
-      toast({ title: "Select a completed render", description: "Choose a render to generate analytics." });
+      if (!silent) {
+        toast({ title: "Select a completed render", description: "Choose a render to generate analytics." });
+      }
       return;
     }
 
     try {
       setAnalyzing(true);
+      const trendSignals = buildTrendSignals(selectedRealtimeVideo);
       const result = await apiFetch<FeedbackResponse>("/api/feedback/analyze", {
         method: "POST",
-        body: JSON.stringify({ jobId: selectedJobId, sourceType: selectedSourceType }),
+        body: JSON.stringify({
+          jobId: selectedJobId,
+          sourceType: selectedSourceType,
+          ...(trendSignals ? { trendSignals } : {}),
+        }),
         token: accessToken,
       });
       setReport(result.feedback);
-      toast({ title: "Feedback ready", description: "Per-video analytics report generated." });
+      if (!silent) {
+        toast({ title: "Analytics ready", description: "Single-video report generated." });
+      }
     } catch (error: any) {
       if (error instanceof ApiError && error.code === "PREMIUM_REQUIRED") {
         navigate("/pricing");
@@ -487,11 +721,45 @@ const Feedback = () => {
       }
       const message = error?.message || "Please try again.";
       setAnalyzeError(message);
-      toast({ title: "Analysis failed", description: message, variant: "destructive" });
+      if (!silent) {
+        toast({ title: "Analysis failed", description: message, variant: "destructive" });
+      }
     } finally {
       setAnalyzing(false);
     }
   };
+
+  const seekToPoint = (point: RetentionPoint) => {
+    setSelectedPointId(point.id);
+    if (previewRef.current) {
+      previewRef.current.currentTime = Math.max(0, point.timestamp);
+      void previewRef.current.play().catch(() => null);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedJobId || !accessToken || loadingMe || !isPremium) return;
+    void fetchSourceDetail(selectedJobId, selectedSourceType);
+  }, [selectedJobId, selectedSourceType, accessToken, loadingMe, isPremium]);
+
+  useEffect(() => {
+    if (!selectedJobId || !accessToken || loadingMe || !isPremium) return;
+    const key = `${selectedSourceType}:${selectedJobId}`;
+    if (autoAnalyzeKeyRef.current === key) return;
+    autoAnalyzeKeyRef.current = key;
+    setReport(null);
+    setSelectedPointId(null);
+    void handleAnalyze(true);
+  }, [selectedJobId, selectedSourceType, accessToken, loadingMe, isPremium, selectedRealtimeVideo?.prediction?.trend]);
+
+  useEffect(() => {
+    if (!retentionPoints.length) {
+      setSelectedPointId(null);
+      return;
+    }
+    const hasSelected = retentionPoints.some((point) => point.id === selectedPointId);
+    if (!hasSelected) setSelectedPointId(retentionPoints[0].id);
+  }, [retentionPoints, selectedPointId]);
 
   if (loadingMe) {
     return (
@@ -514,16 +782,16 @@ const Feedback = () => {
         <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
           <div className="mx-auto max-w-4xl rounded-3xl border border-[#d4af37]/35 bg-[linear-gradient(140deg,rgba(10,12,18,0.96),rgba(17,14,9,0.95))] p-8 shadow-[0_35px_110px_-60px_rgba(212,175,55,0.72)] backdrop-blur-xl">
             <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/15 text-[#f8e8b5]">Premium Feature</Badge>
-            <h1 className="mt-4 text-3xl font-bold text-white">AI Feedback Analytics</h1>
+            <h1 className="mt-4 text-3xl font-bold text-white">Single-Video Analytics</h1>
             <p className="mt-2 text-sm text-slate-300">
-              Upgrade to unlock per-video dynamic analytics, platform predictions, and optimization guidance.
+              Upgrade to unlock per-video dynamic analytics, retention intelligence, and platform predictions.
             </p>
             <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-slate-200">
               Free tier users are redirected to pricing. Paid and dev users can generate premium feedback reports.
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Button asChild className="rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] hover:brightness-110">
-                <Link to="/pricing">Upgrade to Unlock Feedback</Link>
+                <Link to="/pricing">Upgrade to Unlock Analytics</Link>
               </Button>
               <p className="text-xs text-slate-400">Redirecting to pricing...</p>
             </div>
@@ -555,10 +823,10 @@ const Feedback = () => {
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-[#f3d77f]/85">Premium Intelligence</p>
               <h1 className="mt-2 bg-gradient-to-r from-[#f8e8b5] via-[#d4af37] to-[#f5d48f] bg-clip-text text-3xl font-bold text-transparent">
-                AI Feedback Analytics
+                Single-Video Analytics
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                Dynamic per-video metrics for editing efficiency, quality, retention, and platform fit.
+                One selected render at a time with deep retention insights, preview jumps, and platform-fit guidance.
               </p>
             </div>
             <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
@@ -568,7 +836,7 @@ const Feedback = () => {
 
           <div className="grid gap-4 md:grid-cols-[1.1fr,0.9fr]">
             <div className="rounded-2xl border border-[#d4af37]/30 bg-black/30 p-4 backdrop-blur-md">
-              <p className="mb-2 text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Select Completed Render</p>
+              <p className="mb-2 text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Select Rendered Video</p>
               <select
                 value={selectedJobId}
                 onChange={(event) => {
@@ -594,12 +862,12 @@ const Feedback = () => {
                   : "Pick a finished render to compute dynamic metrics."}
               </p>
               <Button
-                onClick={handleAnalyze}
+                onClick={() => void handleAnalyze(false)}
                 disabled={analyzing}
                 className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] shadow-[0_0_24px_rgba(212,175,55,0.45)] hover:brightness-110"
               >
                 {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                Generate Feedback
+                Regenerate Analytics
               </Button>
               {analyzeError ? (
                 <div className="mt-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
@@ -640,9 +908,9 @@ const Feedback = () => {
         <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-[#d4af37]/30 bg-black/25 p-4 backdrop-blur-md">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Realtime Predictions</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Realtime Signal (Selected Video)</p>
               <p className="mt-1 text-sm text-slate-300">
-                Live outlook per unique uploaded video. Push updates trigger instantly with fallback polling every 12 seconds.
+                Trend heuristics are applied to this single render only.
               </p>
             </div>
             <Badge className="border border-cyan-300/45 bg-cyan-500/15 text-cyan-100">
@@ -650,84 +918,37 @@ const Feedback = () => {
             </Badge>
           </div>
 
-          {loadingRealtime && !realtimeVideos.length ? (
+          {loadingRealtime && !selectedRealtimeVideo ? (
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-slate-300">
               <Loader2 className="h-4 w-4 animate-spin text-cyan-200" />
-              Loading realtime prediction feed...
+              Loading selected video telemetry...
             </div>
-          ) : realtimeVideos.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {realtimeVideos.map((video) => {
-                const isSelected = selectedJobId === video.jobId;
-                return (
-                  <button
-                    key={video.videoId}
-                    type="button"
-                    onClick={() => {
-                      setSelectedJobId(video.jobId);
-                      setSelectedSourceType(video.sourceType);
-                    }}
-                    className={`rounded-xl border p-3 text-left transition ${
-                      isSelected
-                        ? "border-[#d4af37]/60 bg-[#d4af37]/10 shadow-[0_0_20px_rgba(212,175,55,0.28)]"
-                        : "border-white/10 bg-black/30 hover:border-cyan-300/40"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-100">{video.title}</p>
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          {sourceLabel(video.sourceType)} • Updated {formatDateTime(video.prediction.updatedAt || video.updatedAt)}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge className={statusTone(video.status)}>{formatStatus(video.status)}</Badge>
-                        {isSelected ? (
-                          <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/15 text-[#f8e8b5]">Selected</Badge>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Score</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-100">{formatPercent(video.prediction.score)}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Completion</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
-                          {formatPercent(video.prediction.predictedCompletionPercent)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Expected Lift</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
-                          {formatLift(video.prediction.expectedLiftPercent)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Confidence</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
-                          {formatPercent(video.prediction.confidencePercent)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex items-center justify-between text-[11px]">
-                      <p className={`font-medium ${trendTone(video.prediction.trend)}`}>Trend: {trendLabel(video.prediction.trend)}</p>
-                      <p className="text-slate-400">
-                        Hook {formatPercent(video.prediction.hookStrengthPercent)} • Pacing{" "}
-                        {formatPercent(video.prediction.pacingScorePercent)}
-                      </p>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-300">{video.prediction.summary}</p>
-                  </button>
-                );
-              })}
+          ) : selectedRealtimeVideo ? (
+            <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-100">{selectedRealtimeVideo.title}</p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {sourceLabel(selectedRealtimeVideo.sourceType)} • {formatDateTime(selectedRealtimeVideo.prediction.updatedAt || selectedRealtimeVideo.updatedAt)}
+                  </p>
+                </div>
+                <Badge className={statusTone(selectedRealtimeVideo.status)}>{formatStatus(selectedRealtimeVideo.status)}</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Trend</p>
+                  <p className={`mt-0.5 text-sm font-semibold ${trendTone(selectedRealtimeVideo.prediction.trend)}`}>{trendLabel(selectedRealtimeVideo.prediction.trend)}</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Expected Lift</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-100">{formatLift(selectedRealtimeVideo.prediction.expectedLiftPercent)}</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-slate-300">{selectedRealtimeVideo.prediction.summary}</p>
             </div>
           ) : (
             <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-slate-300">
-              No uploaded videos with prediction telemetry yet. Upload and render a video to populate the live feed.
+              No telemetry found for this render yet.
             </div>
           )}
         </section>
@@ -747,6 +968,103 @@ const Feedback = () => {
                 <Badge className="border border-white/20 bg-white/5 text-slate-200">Source: {report.source.type}</Badge>
                 <Badge className="border border-white/20 bg-white/5 text-slate-200">Video: {report.source.title}</Badge>
               </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[1.25fr,0.75fr]">
+              <div className="rounded-2xl border border-[#d4af37]/25 bg-black/30 p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Preview + Best Parts</p>
+                  {loadingSourceDetail ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading preview
+                    </span>
+                  ) : null}
+                </div>
+                {sourceDetail?.previewUrl ? (
+                  <div className="overflow-hidden rounded-xl border border-white/15 bg-black">
+                    <video
+                      ref={previewRef}
+                      src={sourceDetail.previewUrl}
+                      controls
+                      preload="metadata"
+                      className="aspect-video w-full object-contain bg-black"
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-10 text-center text-sm text-slate-300">
+                    Preview unavailable for this render.
+                  </div>
+                )}
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {bestMoments.map((point) => (
+                    <button
+                      key={`best-${point.id}`}
+                      type="button"
+                      onClick={() => seekToPoint(point)}
+                      className="rounded-xl border border-emerald-300/35 bg-emerald-500/10 px-3 py-2 text-left text-xs text-emerald-100 transition hover:border-emerald-200/65"
+                    >
+                      <p className="font-semibold">Best • {point.timestamp.toFixed(1)}s</p>
+                      <p className="mt-0.5">{point.description || point.label}</p>
+                    </button>
+                  ))}
+                  {weakMoments.slice(0, 2).map((point) => (
+                    <button
+                      key={`weak-${point.id}`}
+                      type="button"
+                      onClick={() => seekToPoint(point)}
+                      className="rounded-xl border border-rose-300/35 bg-rose-500/10 px-3 py-2 text-left text-xs text-rose-100 transition hover:border-rose-200/65"
+                    >
+                      <p className="font-semibold">{point.type === "skip_zone" ? "Skip Risk" : "Low Energy"} • {point.timestamp.toFixed(1)}s</p>
+                      <p className="mt-0.5">{point.description || point.label}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Current Focus</p>
+                {selectedPoint ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                    <p className="text-sm font-semibold text-slate-100">
+                      {selectedPoint.type === "skip_zone" ? "Skip Risk" : selectedPoint.type === "worst" ? "Low Energy" : selectedPoint.type === "best" ? "Best Moment" : "Hook"} • {selectedPoint.timestamp.toFixed(1)}s
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">{selectedPoint.description || selectedPoint.label}</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#d4af37] via-[#f5d48f] to-[#f8e8b5]"
+                        style={{ width: `${Math.max(4, Math.min(100, selectedPoint.watchedPct))}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">{selectedPoint.watchedPct.toFixed(1)}% estimated hold</p>
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-slate-300">
+                    Select a graph marker to inspect that moment.
+                  </div>
+                )}
+                <div className="mt-3 rounded-xl border border-[#d4af37]/25 bg-[#d4af37]/10 p-3 text-xs text-[#f8e8b5]">
+                  {report.metrics.retentionPotential.action}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#d4af37]/25 bg-black/30 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Retention Timeline</p>
+                  <p className="mt-1 text-sm text-slate-300">Best, worst, low-energy, and skip-risk markers for this video only.</p>
+                </div>
+                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                  Estimated Lift {formatLift(report.metrics.retentionPotential.estimatedLiftPercent)}
+                </Badge>
+              </div>
+              <RetentionLineGraph
+                points={retentionPoints}
+                heatmap={retentionHeatmap}
+                selectedPointId={selectedPoint?.id || null}
+                onPointSelect={seekToPoint}
+              />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -776,6 +1094,20 @@ const Feedback = () => {
                 <p className="mt-2 text-sm text-slate-100">{report.metrics.engagementInsights.summary}</p>
                 <p className="mt-2 text-xs text-slate-400">{report.metrics.engagementInsights.visualization}</p>
                 <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.engagementInsights.action}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">AI Efficiency Score</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.aiEfficiencyScore.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.aiEfficiencyScore.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.aiEfficiencyScore.action}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Content Optimization Breakdown</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.contentOptimizationBreakdown.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.contentOptimizationBreakdown.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.contentOptimizationBreakdown.action}</p>
               </div>
             </div>
 
@@ -816,22 +1148,34 @@ const Feedback = () => {
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Improvement Suggestions</p>
                 <div className="mt-3 space-y-2 text-sm text-slate-100">
-                  {report.metrics.improvementSuggestions.suggestions.map((item, index) => (
-                    <div key={`${item}-${index}`} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      {item}
+                  {(Array.isArray(report.metrics.improvementSuggestions.actionItems) && report.metrics.improvementSuggestions.actionItems.length
+                    ? report.metrics.improvementSuggestions.actionItems
+                    : report.metrics.improvementSuggestions.suggestions.map((tip, index) => ({
+                        id: `fallback-${index}`,
+                        priority: index < 2 ? "high" : index < 4 ? "medium" : "low",
+                        tip,
+                      }))
+                  ).map((item: any, index: number) => (
+                    <div key={`${item?.id || "tip"}-${index}`} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <p>{String(item?.tip || item)}</p>
+                        <Badge className="border border-white/20 bg-white/5 text-slate-200">{String(item?.priority || "medium").toUpperCase()}</Badge>
+                      </div>
+                      {item?.impact ? <p className="text-xs text-slate-400">{String(item.impact)}</p> : null}
                     </div>
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-slate-400">{report.metrics.improvementSuggestions.summary}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.improvementSuggestions.visualization}</p>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
                 <div className="mb-2 flex items-center gap-2 text-slate-200">
                   <BarChart3 className="h-4 w-4 text-[#f8e8b5]" />
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">JSON Analytics Output</p>
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Computed Metrics Object</p>
                 </div>
                 <pre className="max-h-[360px] overflow-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[11px] text-slate-200">
-                  {JSON.stringify(report, null, 2)}
+                  {JSON.stringify(report.metrics, null, 2)}
                 </pre>
               </div>
             </div>
@@ -845,6 +1189,22 @@ const Feedback = () => {
           </motion.section>
         ) : null}
       </main>
+      {selectedPoint ? (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="pointer-events-none fixed bottom-5 left-1/2 z-50 w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border border-white/20 bg-black/75 px-4 py-3 shadow-[0_30px_56px_-30px_rgba(0,0,0,0.9)] backdrop-blur-lg"
+        >
+          <p className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.12em] text-[#d8ced1]">
+            <PlayCircle className="h-3.5 w-3.5" />
+            {selectedPoint.type === "skip_zone" ? "Skip Risk" : selectedPoint.type === "worst" ? "Low Energy" : selectedPoint.type === "best" ? "Best Moment" : "Hook"}
+          </p>
+          <p className="mt-1 text-sm text-[#f9f1e5]">{selectedPoint.description || selectedPoint.label}</p>
+          <p className="mt-1 text-xs text-[#bcaeb2]">
+            {selectedPoint.timestamp.toFixed(1)}s • {selectedPoint.watchedPct.toFixed(1)}% hold
+          </p>
+        </motion.div>
+      ) : null}
     </GlowBackdrop>
   );
 };
