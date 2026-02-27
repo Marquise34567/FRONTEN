@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { History, Loader2, RefreshCcw, Upload } from "lucide-react";
+import { History, Loader2, Palette, RefreshCcw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "@/providers/AuthProvider";
@@ -90,6 +90,18 @@ const getZoomEffect = (speedRampEnabled: boolean, mode: RenderMode): ZoomEffect 
   return mode === "vertical" ? "punch_zoom" : "slow_push_in";
 };
 
+type EditorBackgroundTheme = "obsidian" | "aurora" | "daylight";
+
+const EDITOR_THEME_STORAGE_KEY = "autoeditor:background-theme";
+const EDITOR_THEME_OPTIONS: Array<{ value: EditorBackgroundTheme; label: string }> = [
+  { value: "obsidian", label: "Obsidian" },
+  { value: "aurora", label: "Aurora" },
+  { value: "daylight", label: "Daylight" },
+];
+
+const isEditorBackgroundTheme = (value: string | null): value is EditorBackgroundTheme =>
+  EDITOR_THEME_OPTIONS.some((option) => option.value === value);
+
 export default function AutoEditorPage() {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
@@ -97,6 +109,11 @@ export default function AutoEditorPage() {
 
   const [fileInputKey, setFileInputKey] = useState(0);
   const [uploadingFileName, setUploadingFileName] = useState("");
+  const [backgroundTheme, setBackgroundTheme] = useState<EditorBackgroundTheme>(() => {
+    if (typeof window === "undefined") return "obsidian";
+    const stored = window.localStorage.getItem(EDITOR_THEME_STORAGE_KEY);
+    return isEditorBackgroundTheme(stored) ? stored : "obsidian";
+  });
 
   const {
     flowStep,
@@ -366,6 +383,11 @@ export default function AutoEditorPage() {
     toast,
   ]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(EDITOR_THEME_STORAGE_KEY, backgroundTheme);
+  }, [backgroundTheme]);
+
   const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
@@ -468,43 +490,69 @@ export default function AutoEditorPage() {
   const showExpandedSettings = flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
 
   return (
-    <div className="autoeditor-root min-h-screen text-slate-100">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(70%_65%_at_8%_0%,rgba(212,180,131,0.16),transparent_68%),radial-gradient(62%_48%_at_98%_-2%,rgba(142,168,201,0.18),transparent_74%),radial-gradient(90%_70%_at_50%_110%,rgba(9,10,13,0.72),transparent_80%)]" />
+    <div className="autoeditor-root min-h-screen text-slate-100" data-theme={backgroundTheme}>
+      <div className="ae-background-layer" />
 
       <main className="relative mx-auto w-full max-w-[1380px] px-4 pb-16 pt-6 sm:px-6 lg:px-10">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="ae-kicker">AutoEditor Studio</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#fbf2e6] sm:text-4xl">Modern Creator Editor</h1>
-            <p className="mt-1 text-sm text-[#beb2b5]">Premium workflow for narrative clarity, retention, and polished export output.</p>
+            <p className="mt-1 text-sm text-[#beb2b5]">
+              Auto mode now prioritizes a best-part hook (5-8s) and keeps every smart cut locked to 5 seconds.
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="ae-chip ae-chip-accent">AI Assist</span>
-              <span className="ae-chip">Adaptive Cuts</span>
+              <span className="ae-chip">5s Smart Cuts</span>
+              <span className="ae-chip">5-8s Hook Intro</span>
               <span className="ae-chip">Retention Insights</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {recentJobs.length > 0 ? (
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="ae-theme-switch">
+              <span className="ae-theme-switch-label">
+                <Palette className="h-3.5 w-3.5" />
+                Theme
+              </span>
+              <div className="ae-theme-switch-options" role="radiogroup" aria-label="Editor background theme">
+                {EDITOR_THEME_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={backgroundTheme === option.value}
+                    onClick={() => setBackgroundTheme(option.value)}
+                    className={`ae-theme-option ${backgroundTheme === option.value ? "is-active" : ""}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {recentJobs.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRecentDrawerOpen(true)}
+                  className="rounded-xl border-white/20 bg-white/[0.08] text-[#f7efe3] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
+                >
+                  <History className="h-4 w-4" />
+                  Recent Jobs
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => setRecentDrawerOpen(true)}
-                className="rounded-xl border-white/20 bg-white/[0.08] text-[#f7efe3] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
+                variant="ghost"
+                onClick={resetEverything}
+                className="rounded-xl text-[#d5cbce] hover:bg-white/[0.1]"
               >
-                <History className="h-4 w-4" />
-                Recent Jobs
+                <RefreshCcw className="h-4 w-4" />
+                Reset
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={resetEverything}
-              className="rounded-xl text-[#d5cbce] hover:bg-white/[0.1]"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              Reset
-            </Button>
+            </div>
           </div>
         </header>
 
@@ -665,7 +713,7 @@ export default function AutoEditorPage() {
                     <div>
                       <p className="text-sm font-medium text-[#fbf2e6]">Ready to render</p>
                       <p className="text-xs text-[#bcaeb2]">
-                        Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
+                        Auto mode: best hook is front-loaded to 5-8s and every smart cut is normalized to 5 seconds.
                       </p>
                     </div>
                     <Button
@@ -693,7 +741,7 @@ export default function AutoEditorPage() {
                       <div className="h-2 overflow-hidden rounded-full bg-[#1c1b1d]">
                         <div className="h-full bg-gradient-to-r from-[#e8d7bc] via-[#d4b483] to-[#90aacd]" style={{ width: `${renderProgress}%` }} />
                       </div>
-                      <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Claude retention scoring in progress.</p>
+                      <p className="mt-2 text-xs text-[#9f9497]">Whisper + OpenCV + Hugging Face (free AI) retention scoring in progress.</p>
                     </div>
                   ) : null}
                 </CleanCard>

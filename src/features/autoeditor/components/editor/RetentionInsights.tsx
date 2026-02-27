@@ -7,11 +7,17 @@ import CleanCard from "@/features/autoeditor/components/primitives/CleanCard";
 import RetentionLineGraph from "@/features/autoeditor/components/editor/RetentionLineGraph";
 import {
   buildRetentionAdvice,
+  GOOD_RETENTION_THRESHOLD,
   getRetentionScore,
   isGoodRetention,
 } from "@/features/autoeditor/lib/retentionQuality";
 import type { InsightTooltip, RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
 import { resolveApiMediaUrl } from "@/lib/api";
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const resolveFallbackAspectRatio = (mode: RenderJobResult["mode"] | null | undefined) =>
+  mode === "horizontal" ? 16 / 9 : 9 / 16;
 
 const pointInsight = (point: RetentionPoint): InsightTooltip => {
   switch (point.type) {
@@ -67,6 +73,7 @@ export default function RetentionInsights({
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const [tooltip, setTooltip] = useState<InsightTooltip | null>(null);
   const [processingLogExpanded, setProcessingLogExpanded] = useState(false);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState(resolveFallbackAspectRatio(result?.mode));
 
   const selectedPoint = useMemo(() => {
     if (!result?.retention.points.length) return null;
@@ -89,6 +96,10 @@ export default function RetentionInsights({
   useEffect(() => {
     setProcessingLogExpanded(false);
   }, [result?.jobId]);
+
+  useEffect(() => {
+    setPreviewAspectRatio(resolveFallbackAspectRatio(result?.mode));
+  }, [result?.jobId, result?.mode]);
 
   if (!result || result.status !== "completed") return null;
 
@@ -183,13 +194,13 @@ export default function RetentionInsights({
                       Amazing retention: {retentionScore.toFixed(1)} / 100
                     </p>
                     <p className="relative mt-1 text-xs text-emerald-100/90">
-                      50+ is strong. This cut is in a healthy watch-through zone.
+                      {GOOD_RETENTION_THRESHOLD}+ is strong. This cut is in a healthy watch-through zone.
                     </p>
                   </motion.div>
                 ) : (
                   <div className="mt-3 rounded-xl border border-amber-300/35 bg-amber-500/12 p-3">
                     <p className="text-sm font-medium text-amber-50">
-                      Retention is {retentionScore.toFixed(1)} / 100, below the 50 target.
+                      Retention is {retentionScore.toFixed(1)} / 100, below the {GOOD_RETENTION_THRESHOLD} target.
                     </p>
                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-50/95">
                       {advice.map((item) => (
@@ -208,8 +219,14 @@ export default function RetentionInsights({
                     ref={previewRef}
                     src={outputVideoUrl}
                     controls
-                    loop
-                    className="aspect-[9/16] w-full object-cover"
+                    onLoadedMetadata={() => {
+                      const video = previewRef.current;
+                      if (!video || !video.videoWidth || !video.videoHeight) return;
+                      const detected = clamp(video.videoWidth / video.videoHeight, 0.45, 2.35);
+                      setPreviewAspectRatio(detected);
+                    }}
+                    className="w-full object-cover"
+                    style={{ aspectRatio: previewAspectRatio }}
                   />
                 </div>
                 <div className="mt-2 rounded-xl border border-white/15 bg-black/30 p-3">

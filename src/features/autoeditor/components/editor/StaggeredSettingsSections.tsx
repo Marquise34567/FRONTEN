@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { Clapperboard, MessageSquareText, Scissors, Volume2, Wand2 } from "lucide-react";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
@@ -111,7 +112,10 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 1 ? (
           <motion.section key="section-format" {...sectionMotion}>
             <CleanCard>
-              <p className="ae-kicker">A. Format & Platform</p>
+              <p className="ae-kicker inline-flex items-center gap-1.5">
+                <Clapperboard className="h-3.5 w-3.5" />
+                A. Format & Platform Target
+              </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {PLATFORM_OPTIONS.map((platform) => {
                   const active = formatPreset === platform.value;
@@ -140,7 +144,10 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 2 ? (
           <motion.section key="section-vibe" {...sectionMotion}>
             <CleanCard>
-              <p className="ae-kicker">B. Vibe & Style</p>
+              <p className="ae-kicker inline-flex items-center gap-1.5">
+                <Wand2 className="h-3.5 w-3.5" />
+                B. Creative Direction & Style
+              </p>
 
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {VIBE_CHIPS.map((chip) => {
@@ -151,12 +158,13 @@ export default function StaggeredSettingsSections({
                       type="button"
                       onClick={() => onVibeChipChange(chip.value)}
                       className={cn(
-                        "shrink-0 rounded-full border px-3 py-1.5 text-sm transition",
+                        "shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
                           ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
+                      <chip.icon className="h-3.5 w-3.5" />
                       {chip.label}
                     </button>
                   );
@@ -191,20 +199,23 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 3 ? (
           <motion.section key="section-cuts" {...sectionMotion}>
             <CleanCard>
-              <p className="ae-kicker">C. Cuts & Pacing</p>
+              <p className="ae-kicker inline-flex items-center gap-1.5">
+                <Scissors className="h-3.5 w-3.5" />
+                C. Hooking, Cuts & Pacing
+              </p>
               <MinimalSlider
                 className="mt-3"
                 value={pacingValue}
                 onValueChange={onPacingValueChange}
-                leftLabel="Narrative"
-                rightLabel={`Intensity ${pacingValue}`}
+                leftLabel="Narrative Flow"
+                rightLabel={`Cut Intensity ${pacingValue}`}
               />
               <SubtleToggle
                 className="mt-3"
                 checked={autoDetectBestMoments}
                 onCheckedChange={onAutoDetectBestMomentsChange}
-                label="Auto-detect best moments"
-                description="Uses retention and motion to prioritize high-value cuts."
+                label="Auto Hook + Best-Moment Detection"
+                description="Uses frame + retention scoring, then auto mode keeps cuts at 5s and the opener at 5-8s."
               />
             </CleanCard>
           </motion.section>
@@ -213,23 +224,26 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 4 ? (
           <motion.section key="section-captions" {...sectionMotion}>
             <CleanCard>
-              <p className="ae-kicker">D. Captions</p>
+              <p className="ae-kicker inline-flex items-center gap-1.5">
+                <MessageSquareText className="h-3.5 w-3.5" />
+                D. Caption Intelligence
+              </p>
 
               <SubtleToggle
                 className="mt-3"
                 checked={captionsEnabled}
                 onCheckedChange={onCaptionsEnabledChange}
-                label="Enable captions"
-                description="AI captions with configurable fonts, styling, and motion."
+                label="Enable AI Captions"
+                description="Retention-focused captions with configurable typography, styling, and animation."
               />
 
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Mode</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Workflow</p>
                   <div className="flex gap-2">
                     {([
-                      { value: "ai", label: "AI" },
-                      { value: "manual", label: "Manual" },
+                      { value: "ai", label: "AI Generated" },
+                      { value: "manual", label: "Manual Only" },
                     ] as const).map((modeOption) => {
                       const active = captionMode === modeOption.value;
                       return (
@@ -268,7 +282,7 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Font</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Caption Font Family</p>
                   <Select value={captionFont} onValueChange={onCaptionFontChange}>
                     <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
                       <SelectValue placeholder="Select font" />
@@ -284,7 +298,7 @@ export default function StaggeredSettingsSections({
                 </div>
 
                 <div>
-                  <p className="mb-1 text-xs text-[#b7aeb0]">Effect</p>
+                  <p className="mb-1 text-xs text-[#b7aeb0]">Motion Effect</p>
                   <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
                     <SelectTrigger className="border-white/15 bg-black/35 text-[#f8efe3] hover:border-[#e6cfa9]/45">
                       <SelectValue placeholder="Select effect" />
@@ -306,7 +320,10 @@ export default function StaggeredSettingsSections({
         {revealedSectionCount >= 5 ? (
           <motion.section key="section-audio" {...sectionMotion}>
             <CleanCard>
-              <p className="ae-kicker">E. Audio</p>
+              <p className="ae-kicker inline-flex items-center gap-1.5">
+                <Volume2 className="h-3.5 w-3.5" />
+                E. Audio Mix & Delivery
+              </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {AUDIO_OPTIONS.map((option) => {
@@ -317,12 +334,13 @@ export default function StaggeredSettingsSections({
                       type="button"
                       onClick={() => onAudioOptionChange(option.value)}
                       className={cn(
-                        "rounded-full border px-3 py-1.5 text-sm transition",
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
                           ? "border-[#e6cfa9]/45 bg-[#d4b483]/16 text-[#fff2de]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25",
                       )}
                     >
+                      <option.icon className="h-3.5 w-3.5" />
                       {option.label}
                     </button>
                   );

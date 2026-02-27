@@ -152,10 +152,10 @@ export default function ModernizedOriginalEditor({
         </div>
 
         <div className="mb-4 rounded-2xl border border-white/15 bg-black/25 p-3">
-          <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-[#b7aeb0]">
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            Original Quick Controls
-          </p>
+              <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-[#b7aeb0]">
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Precision Quick Controls
+              </p>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {QUICK_CONTROL_CONFIG.map((control) => {
               const active = quickControls[control.key];
@@ -230,8 +230,9 @@ export default function ModernizedOriginalEditor({
                     key={chip.value}
                     type="button"
                     onClick={() => onVibeChipChange(chip.value)}
-                    className={controlChipClass(vibeChip === chip.value)}
+                    className={cn(controlChipClass(vibeChip === chip.value), "inline-flex items-center gap-1.5")}
                   >
+                    <chip.icon className="h-3.5 w-3.5" />
                     {chip.label}
                   </button>
                 ))}
@@ -268,15 +269,15 @@ export default function ModernizedOriginalEditor({
                 className="mt-3"
                 value={pacingValue}
                 onValueChange={onPacingValueChange}
-                leftLabel="Narrative"
-                rightLabel="Intensity"
+                leftLabel="Narrative Flow"
+                rightLabel="Cut Intensity"
               />
               <SubtleToggle
                 className="mt-3"
                 checked={autoDetectBestMoments}
                 onCheckedChange={onAutoDetectBestMomentsChange}
-                label="Auto-detect best moments"
-                description="Keeps high-retention sections and trims low-value sections automatically."
+                label="Auto Hook + Best-Moment Detection"
+                description="Keeps high-retention sections, prepends a 5-8s hook, and normalizes auto cuts to 5s."
               />
             </div>
           </TabsContent>
@@ -368,8 +369,9 @@ export default function ModernizedOriginalEditor({
                     key={option.value}
                     type="button"
                     onClick={() => onAudioOptionChange(option.value)}
-                    className={controlChipClass(audioOption === option.value)}
+                    className={cn(controlChipClass(audioOption === option.value), "inline-flex items-center gap-1.5")}
                   >
+                    <option.icon className="h-3.5 w-3.5" />
                     {option.label}
                   </button>
                 ))}

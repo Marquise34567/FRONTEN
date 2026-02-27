@@ -28,6 +28,11 @@ import {
 import type { InsightTooltip, RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
 import { resolveApiMediaUrl } from "@/lib/api";
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const resolveFallbackAspectRatio = (mode: RenderJobResult["mode"] | null | undefined) =>
+  mode === "horizontal" ? 16 / 9 : 9 / 16;
+
 const tooltipFromPoint = (point: RetentionPoint): InsightTooltip => {
   if (point.type === "best") {
     return {
@@ -91,6 +96,7 @@ export default function PostRenderModal({
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const [tooltip, setTooltip] = useState<InsightTooltip | null>(null);
   const [processingLogExpanded, setProcessingLogExpanded] = useState(false);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState(resolveFallbackAspectRatio(result?.mode));
 
   const thumbnails = useMemo(
     () =>
@@ -118,6 +124,10 @@ export default function PostRenderModal({
   useEffect(() => {
     setProcessingLogExpanded(false);
   }, [open, result?.jobId]);
+
+  useEffect(() => {
+    setPreviewAspectRatio(resolveFallbackAspectRatio(result?.mode));
+  }, [result?.jobId, result?.mode]);
 
   if (!result || result.status !== "completed") return null;
 
@@ -216,10 +226,14 @@ export default function PostRenderModal({
                     <img
                       src={floatingPreviewThumbnail.url}
                       alt={`${floatingPreviewThumbnail.label} preview`}
-                      className="aspect-[9/16] w-full object-cover"
+                      className="w-full object-cover"
+                      style={{ aspectRatio: previewAspectRatio }}
                     />
                   ) : (
-                    <div className="flex aspect-[9/16] w-full items-center justify-center bg-emerald-500/10 text-[11px] text-emerald-100/85">
+                    <div
+                      className="flex w-full items-center justify-center bg-emerald-500/10 text-[11px] text-emerald-100/85"
+                      style={{ aspectRatio: previewAspectRatio }}
+                    >
                       Preview
                     </div>
                   )}
@@ -318,15 +332,21 @@ export default function PostRenderModal({
           </section>
 
           <aside className="overflow-y-auto bg-black/15 p-4 lg:p-5">
-            <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[#bcaeb2]">Looping Preview</p>
+            <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[#bcaeb2]">Preview</p>
             <div className="overflow-hidden rounded-2xl border border-white/15 bg-black shadow-[0_26px_64px_-36px_rgba(0,0,0,0.96)]">
               <video
                 ref={previewRef}
                 src={outputVideoUrl}
                 controls
                 autoPlay
-                loop
-                className="aspect-[9/16] w-full object-cover"
+                onLoadedMetadata={() => {
+                  const video = previewRef.current;
+                  if (!video || !video.videoWidth || !video.videoHeight) return;
+                  const detected = clamp(video.videoWidth / video.videoHeight, 0.45, 2.35);
+                  setPreviewAspectRatio(detected);
+                }}
+                className="w-full object-cover"
+                style={{ aspectRatio: previewAspectRatio }}
               />
             </div>
 

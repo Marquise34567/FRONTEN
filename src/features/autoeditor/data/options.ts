@@ -1,14 +1,22 @@
 import {
+  BrainCircuit,
   Bot,
   Clapperboard,
   Flame,
+  Film,
   Gauge,
   Instagram,
+  MessageSquareText,
   Music2,
+  PlayCircle,
   Rabbit,
   Scissors,
   Sparkles,
   Timer,
+  TrendingUp,
+  Volume2,
+  Wand2,
+  Waves,
   Youtube,
   Zap,
   type LucideIcon,
@@ -35,26 +43,26 @@ export const QUICK_CONTROL_CONFIG: Array<{
 }> = [
   {
     key: "autoEdit",
-    title: "Auto-Edit",
-    description: "Smart pacing baseline",
-    icon: Sparkles,
+    title: "AI Story Cut Engine",
+    description: "Auto mode: 5s smart cuts + 5-8s opening hook.",
+    icon: BrainCircuit,
   },
   {
     key: "highlightReel",
-    title: "Highlight Reel",
-    description: "Pull high-retention moments",
+    title: "Hook Finder + Highlights",
+    description: "Pulls best moments and trims weak sections.",
     icon: Flame,
   },
   {
     key: "speedRamp",
-    title: "Speed Ramp",
-    description: "Subtle speed dynamics",
+    title: "Beat-Aware Speed Ramps",
+    description: "Adds tempo shifts around impact beats.",
     icon: Timer,
   },
   {
     key: "musicSync",
-    title: "Music Sync",
-    description: "Beat-aware cut sync",
+    title: "Rhythm Cut Alignment",
+    description: "Aligns cut points with music rhythm and energy.",
     icon: Music2,
   },
 ];
@@ -87,22 +95,22 @@ export const PLATFORM_OPTIONS: Array<{
   label: string;
   icon: LucideIcon;
 }> = [
-  { value: "tiktok", label: "TikTok", icon: Flame },
-  { value: "instagram_reels", label: "IG Reels", icon: Instagram },
-  { value: "youtube_shorts", label: "YouTube Shorts", icon: Youtube },
-  { value: "youtube", label: "YouTube", icon: Youtube },
-  { value: "custom", label: "Custom", icon: Bot },
+  { value: "tiktok", label: "TikTok (9:16 Viral)", icon: Flame },
+  { value: "instagram_reels", label: "Instagram Reels (9:16)", icon: Instagram },
+  { value: "youtube_shorts", label: "YouTube Shorts (9:16)", icon: Youtube },
+  { value: "youtube", label: "YouTube Long-form (16:9)", icon: Clapperboard },
+  { value: "custom", label: "Custom Delivery", icon: Bot },
 ];
 
-export const VIBE_CHIPS: Array<{ value: VibeChip; label: string }> = [
-  { value: "energetic", label: "Energetic" },
-  { value: "chill", label: "Chill" },
-  { value: "luxury", label: "Luxury" },
-  { value: "cinematic", label: "Cinematic" },
-  { value: "aesthetic", label: "Aesthetic" },
-  { value: "motivational", label: "Motivational" },
-  { value: "funny", label: "Funny" },
-  { value: "dark", label: "Dark" },
+export const VIBE_CHIPS: Array<{ value: VibeChip; label: string; icon: LucideIcon }> = [
+  { value: "energetic", label: "Energetic Momentum", icon: Zap },
+  { value: "chill", label: "Calm Conversational", icon: Waves },
+  { value: "luxury", label: "Premium Polished", icon: Sparkles },
+  { value: "cinematic", label: "Cinematic Story", icon: Film },
+  { value: "aesthetic", label: "Aesthetic Clean", icon: Wand2 },
+  { value: "motivational", label: "Motivational Drive", icon: TrendingUp },
+  { value: "funny", label: "Comedy Reaction", icon: PlayCircle },
+  { value: "dark", label: "Dark Intense", icon: Gauge },
 ];
 
 export const STYLE_PRESETS: Array<{ value: StylePreset; label: string; preview: string }> = [
@@ -150,13 +158,13 @@ export const PACING_BANDS: Array<{ value: PacingBand; label: string; icon: Lucid
 ];
 
 export const CAPTION_STYLE_OPTIONS: Array<{ value: CaptionStylePreset; label: string }> = [
-  { value: "impact", label: "Impact" },
-  { value: "subtle", label: "Subtle" },
-  { value: "pop", label: "Pop" },
-  { value: "scroll", label: "Scroll" },
-  { value: "vintage_typewriter", label: "Typewriter" },
-  { value: "meme", label: "Meme" },
-  { value: "neon_glow", label: "Glow" },
+  { value: "impact", label: "Impact Headlines" },
+  { value: "subtle", label: "Subtle Narrative" },
+  { value: "pop", label: "Kinetic Pop Captions" },
+  { value: "scroll", label: "Story Scroll Captions" },
+  { value: "vintage_typewriter", label: "Vintage Typewriter" },
+  { value: "meme", label: "Meme Punchlines" },
+  { value: "neon_glow", label: "Neon Glow Emphasis" },
 ];
 
 export const CAPTION_FONT_OPTIONS = [
@@ -173,32 +181,36 @@ export const CAPTION_FONT_OPTIONS = [
 ];
 
 export const CAPTION_EFFECT_OPTIONS: Array<{ value: CaptionEffect; label: string }> = [
-  { value: "clean_fade", label: "Clean Fade" },
-  { value: "kinetic_pop", label: "Kinetic Pop" },
-  { value: "underline_sweep", label: "Underline Sweep" },
-  { value: "none", label: "None" },
+  { value: "clean_fade", label: "Clean Fade In/Out" },
+  { value: "kinetic_pop", label: "Kinetic Pop Burst" },
+  { value: "underline_sweep", label: "Underline Sweep Accent" },
+  { value: "none", label: "No Animation" },
 ];
 
-export const AUDIO_OPTIONS: Array<{ value: AudioOption; label: string; description: string }> = [
+export const AUDIO_OPTIONS: Array<{ value: AudioOption; label: string; description: string; icon: LucideIcon }> = [
   {
     value: "auto_sync_tracks",
-    label: "Auto Sync Track",
+    label: "Beat-Synced Music Bed",
     description: "AI aligns cuts to beat map and emotional shifts.",
+    icon: Music2,
   },
   {
     value: "voiceover_ai",
-    label: "Voiceover Assist",
+    label: "Voiceover Clarity Assist",
     description: "Auto-level voice and clean room-noise floor.",
+    icon: MessageSquareText,
   },
   {
     value: "sfx_library",
-    label: "SFX Layer",
+    label: "Cinematic SFX Layer",
     description: "Subtle risers and impact one-shots.",
+    icon: Volume2,
   },
   {
     value: "mute",
-    label: "Mute Source",
+    label: "Mute Source Audio",
     description: "Keep visual edit and replace audio externally.",
+    icon: Scissors,
   },
 ];
 
