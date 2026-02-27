@@ -24,7 +24,7 @@ type RetentionGraphCardProps = {
 };
 
 const dotClassByType: Record<RetentionGraphPoint["type"], string> = {
-  peak: "fill-[#d4af37] stroke-[#f6da8a]",
+  peak: "fill-[#34f0d0] stroke-[#95fff2]",
   drop: "fill-rose-400 stroke-rose-200",
   skip: "fill-amber-400 stroke-amber-200",
   neutral: "fill-slate-300 stroke-slate-100",
@@ -64,7 +64,7 @@ export default function RetentionGraphCard({
         <h3 className="text-base font-semibold text-slate-100">{title}</h3>
         <div className="inline-flex items-center gap-2 text-[11px] text-slate-400">
           <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#d4af37]" />
+            <span className="h-2 w-2 rounded-full bg-[#34f0d0]" />
             Peak
           </span>
           <span className="inline-flex items-center gap-1">
@@ -107,7 +107,7 @@ export default function RetentionGraphCard({
         />
       </div>
       <motion.div
-        className="h-[300px] rounded-2xl border border-[rgba(212,175,55,0.22)] bg-[linear-gradient(140deg,rgba(8,8,14,0.94),rgba(10,10,18,0.88))] p-2"
+        className="h-[300px] rounded-2xl border border-[rgba(52,240,208,0.22)] bg-[linear-gradient(140deg,rgba(8,8,14,0.94),rgba(10,10,18,0.88))] p-2"
         onMouseMove={(event) => {
           const box = event.currentTarget.getBoundingClientRect();
           const x = ((event.clientX - box.left) / box.width - 0.5) * 8;
@@ -132,7 +132,7 @@ export default function RetentionGraphCard({
             <Tooltip
               contentStyle={{
                 background: "rgba(9,9,15,0.95)",
-                border: "1px solid rgba(212,175,55,0.24)",
+                border: "1px solid rgba(52,240,208,0.24)",
                 borderRadius: 16,
                 color: "#fef5de",
                 fontSize: 12,
@@ -143,7 +143,7 @@ export default function RetentionGraphCard({
             <Line
               type="monotone"
               dataKey="watchedPercent"
-              stroke="#d4af37"
+              stroke="#34f0d0"
               strokeWidth={2.5}
               dot={(props) => {
                 const payload = props?.payload as RetentionGraphPoint | undefined;
@@ -161,11 +161,11 @@ export default function RetentionGraphCard({
                       className={cn("stroke-[1.5]", dotClass)}
                       fillOpacity={active ? 0.9 : 0.75}
                     />
-                    {active ? <circle r={11} className="fill-[#d4af37]/20" /> : null}
+                    {active ? <circle r={11} className="fill-[#34f0d0]/20" /> : null}
                   </g>
                 );
               }}
-              activeDot={{ r: 8, fill: "#d4af37", stroke: "#fff7de", strokeWidth: 1.5 }}
+              activeDot={{ r: 8, fill: "#34f0d0", stroke: "#fff7de", strokeWidth: 1.5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -173,3 +173,4 @@ export default function RetentionGraphCard({
     </PremiumCard>
   );
 }
+

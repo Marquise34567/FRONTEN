@@ -1,4 +1,4 @@
-export type RenderMode = "horizontal" | "vertical";
+export type RenderMode = "horizontal" | "vertical" | "ai";
 
 export type QuickControlKey = "autoEdit" | "highlightReel" | "speedRamp" | "musicSync";
 

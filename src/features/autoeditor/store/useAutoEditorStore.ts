@@ -238,6 +238,101 @@ const resolveEditorFlow = (state: {
   return "mode_selection";
 };
 
+const resolveLayoutMode = (mode: RenderMode | null, autoDetection: AutoDetection | null): "horizontal" | "vertical" => {
+  if (mode === "horizontal" || mode === "vertical") return mode;
+  return autoDetection?.finalMode === "vertical" ? "vertical" : "horizontal";
+};
+
+type QuickControlDerivedSettings = {
+  retentionStrategyMode: RetentionStrategyMode;
+  formatPreset: FormatPreset;
+  vibeChip: VibeChip;
+  stylePreset: StylePreset;
+  pacingValue: number;
+  autoDetectBestMoments: boolean;
+  captionMode: CaptionMode;
+  captionStyle: CaptionStylePreset;
+  captionEffect: CaptionEffect;
+  audioOption: AudioOption;
+  suggestedSubMode: SuggestedSubMode;
+};
+
+const deriveSettingsFromQuickControls = ({
+  quickControls,
+  layoutMode,
+}: {
+  quickControls: Record<QuickControlKey, boolean>;
+  layoutMode: "horizontal" | "vertical";
+}): QuickControlDerivedSettings => {
+  const ruthlessMode =
+    quickControls.autoEdit && quickControls.highlightReel && (quickControls.speedRamp || quickControls.musicSync);
+  const highlightHunter = quickControls.autoEdit && (quickControls.highlightReel || quickControls.speedRamp);
+  const storyPreserve = !quickControls.highlightReel && !quickControls.speedRamp && !quickControls.musicSync;
+  const vertical = layoutMode === "vertical";
+
+  if (ruthlessMode) {
+    return {
+      retentionStrategyMode: "ruthless",
+      formatPreset: vertical ? "tiktok" : "youtube",
+      vibeChip: vertical ? "energetic" : "cinematic",
+      stylePreset: vertical ? "bold" : "clean",
+      pacingValue: vertical ? 82 : 68,
+      autoDetectBestMoments: true,
+      captionMode: "ai",
+      captionStyle: vertical ? "impact_clean" : "subtle",
+      captionEffect: vertical ? "kinetic_pop" : "clean_fade",
+      audioOption: "auto_sync_tracks",
+      suggestedSubMode: vertical ? "highlight_mode" : "story_mode",
+    };
+  }
+
+  if (highlightHunter) {
+    return {
+      retentionStrategyMode: "ruthless",
+      formatPreset: vertical ? "tiktok" : "youtube",
+      vibeChip: vertical ? "energetic" : "cinematic",
+      stylePreset: vertical ? "bold" : "clean",
+      pacingValue: vertical ? 76 : 62,
+      autoDetectBestMoments: true,
+      captionMode: "ai",
+      captionStyle: vertical ? "impact_clean" : "subtle",
+      captionEffect: vertical ? "kinetic_pop" : "clean_fade",
+      audioOption: "auto_sync_tracks",
+      suggestedSubMode: vertical ? "highlight_mode" : "standard_mode",
+    };
+  }
+
+  if (storyPreserve) {
+    return {
+      retentionStrategyMode: "balanced",
+      formatPreset: vertical ? "youtube_shorts" : "youtube",
+      vibeChip: vertical ? "chill" : "cinematic",
+      stylePreset: vertical ? "clean" : "minimal",
+      pacingValue: vertical ? 56 : 40,
+      autoDetectBestMoments: vertical,
+      captionMode: "manual",
+      captionStyle: "subtle",
+      captionEffect: "clean_fade",
+      audioOption: "voiceover_ai",
+      suggestedSubMode: vertical ? "story_mode" : "standard_mode",
+    };
+  }
+
+  return {
+    retentionStrategyMode: "balanced",
+    formatPreset: vertical ? "tiktok" : "youtube",
+    vibeChip: vertical ? "energetic" : "cinematic",
+    stylePreset: vertical ? "clean" : "clean",
+    pacingValue: vertical ? DEFAULT_PACING_VALUE.vertical : DEFAULT_PACING_VALUE.horizontal,
+    autoDetectBestMoments: vertical || quickControls.highlightReel,
+    captionMode: "ai",
+    captionStyle: vertical ? "impact_clean" : "subtle",
+    captionEffect: "clean_fade",
+    audioOption: "auto_sync_tracks",
+    suggestedSubMode: vertical ? "highlight_mode" : "standard_mode",
+  };
+};
+
 export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   ...initialState,
 
@@ -270,21 +365,15 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       : payload.autoDetection?.finalMode || metadataDetectedMode;
     const isVertical = detectedMode === "vertical";
     const profile = payload.autoDetection.editorProfile;
-    const inferredPacing =
-      profile?.pacingPreset === "aggressive"
-        ? 80
-        : profile?.pacingPreset === "chill"
-          ? 34
-          : profile?.pacingPreset === "cinematic"
-            ? 38
-            : undefined;
     const resolvedQuickControls = {
       ...DEFAULT_QUICK_CONTROLS,
       ...(profile?.quickControls || {}),
       highlightReel: typeof profile?.quickControls?.highlightReel === "boolean" ? profile.quickControls.highlightReel : isVertical,
     };
-    const retentionStrategyMode: RetentionStrategyMode =
-      profile?.pacingPreset === "aggressive" || profile?.suggestedSubMode === "story_mode" ? "ruthless" : "balanced";
+    const quickControlDerived = deriveSettingsFromQuickControls({
+      quickControls: resolvedQuickControls,
+      layoutMode: detectedMode,
+    });
 
     set({
       videoId: payload.videoId,
@@ -293,35 +382,32 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       duration: payload.metadata.duration,
       autoDetection: payload.autoDetection,
       autoModeEnabled: true,
-      mode: detectedMode,
+      mode: "ai",
       modeConfirmed: true,
       revealedSectionCount: 0,
       quickControls: resolvedQuickControls,
-      retentionStrategyMode,
+      retentionStrategyMode: quickControlDerived.retentionStrategyMode,
       manualTimestampModalOpen: false,
       scrubberTime: 0,
       manualSegments: [],
-      formatPreset: profile?.formatPreset || (isVertical ? "tiktok" : "youtube"),
-      vibeChip: profile?.vibeChip || (isVertical ? "energetic" : "cinematic"),
-      stylePreset: profile?.stylePreset || (isVertical ? "bold" : "clean"),
-      pacingValue: profile?.pacingValue ?? inferredPacing ?? (isVertical ? DEFAULT_PACING_VALUE.vertical : DEFAULT_PACING_VALUE.horizontal),
-      autoDetectBestMoments:
-        typeof profile?.autoDetectBestMoments === "boolean"
-          ? profile.autoDetectBestMoments
-          : isVertical,
+      formatPreset: quickControlDerived.formatPreset,
+      vibeChip: quickControlDerived.vibeChip,
+      stylePreset: quickControlDerived.stylePreset,
+      pacingValue: quickControlDerived.pacingValue,
+      autoDetectBestMoments: quickControlDerived.autoDetectBestMoments,
       captionsEnabled: profile ? profile.captionMode !== "manual" : true,
-      captionMode: profile?.captionMode || "ai",
-      captionStyle: profile?.captionStyle || (isVertical ? "impact_clean" : "subtle"),
+      captionMode: quickControlDerived.captionMode,
+      captionStyle: quickControlDerived.captionStyle,
       captionFont: profile?.captionFont || "Inter",
-      captionEffect: profile?.captionEffect || (isVertical ? "kinetic_pop" : "clean_fade"),
+      captionEffect: quickControlDerived.captionEffect,
       verticalWebcamEnabled: isVertical,
       verticalWebcamLayout: "top_banner",
       captionOutlineEnabled: true,
       captionDropShadowEnabled: isVertical,
-      audioOption: profile?.audioOption || "auto_sync_tracks",
+      audioOption: quickControlDerived.audioOption,
       suggestedSubMode: longFormLandscapeLock
         ? "standard_mode"
-        : profile?.suggestedSubMode || payload.autoDetection.suggestedSubMode || (isVertical ? "highlight_mode" : "standard_mode"),
+        : quickControlDerived.suggestedSubMode,
       retentionExpanded: false,
       successModalOpen: false,
       latestResult: null,
@@ -339,18 +425,32 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setAutoModeEnabled: (value) =>
     set((state) => ({
       autoModeEnabled: value,
-      mode: value ? state.autoDetection?.finalMode || state.mode : state.mode,
+      mode: value ? "ai" : state.mode,
     })),
   setMode: (mode, confirmed = false) =>
     set((state) => {
       const nextModeConfirmed = confirmed ? true : state.modeConfirmed;
+      const nextLayoutMode = resolveLayoutMode(mode, state.autoDetection);
+      const quickControlDerived = deriveSettingsFromQuickControls({
+        quickControls: state.quickControls,
+        layoutMode: nextLayoutMode,
+      });
       return {
         mode,
         modeConfirmed: nextModeConfirmed,
-        formatPreset:
-          mode === "vertical"
-            ? state.formatPreset === "youtube" ? "tiktok" : state.formatPreset
-            : state.formatPreset === "tiktok" ? "youtube" : state.formatPreset,
+        retentionStrategyMode: quickControlDerived.retentionStrategyMode,
+        formatPreset: quickControlDerived.formatPreset,
+        vibeChip: quickControlDerived.vibeChip,
+        stylePreset: quickControlDerived.stylePreset,
+        pacingValue: quickControlDerived.pacingValue,
+        autoDetectBestMoments: quickControlDerived.autoDetectBestMoments,
+        captionMode: quickControlDerived.captionMode,
+        captionStyle: quickControlDerived.captionStyle,
+        captionEffect: quickControlDerived.captionEffect,
+        audioOption: quickControlDerived.audioOption,
+        suggestedSubMode: quickControlDerived.suggestedSubMode,
+        verticalWebcamEnabled: nextLayoutMode === "vertical",
+        captionDropShadowEnabled: nextLayoutMode === "vertical",
         flowStep: nextModeConfirmed ? "settings" : "mode_selection",
       };
     }),
@@ -362,12 +462,31 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setRevealedSectionCount: (value) => set({ revealedSectionCount: Math.max(0, Math.min(5, value)) }),
 
   toggleQuickControl: (key) =>
-    set((state) => ({
-      quickControls: {
+    set((state) => {
+      const nextQuickControls = {
         ...state.quickControls,
         [key]: !state.quickControls[key],
-      },
-    })),
+      };
+      const layoutMode = resolveLayoutMode(state.mode, state.autoDetection);
+      const quickControlDerived = deriveSettingsFromQuickControls({
+        quickControls: nextQuickControls,
+        layoutMode,
+      });
+      return {
+        quickControls: nextQuickControls,
+        retentionStrategyMode: quickControlDerived.retentionStrategyMode,
+        formatPreset: quickControlDerived.formatPreset,
+        vibeChip: quickControlDerived.vibeChip,
+        stylePreset: quickControlDerived.stylePreset,
+        pacingValue: quickControlDerived.pacingValue,
+        autoDetectBestMoments: quickControlDerived.autoDetectBestMoments,
+        captionMode: quickControlDerived.captionMode,
+        captionStyle: quickControlDerived.captionStyle,
+        captionEffect: quickControlDerived.captionEffect,
+        audioOption: quickControlDerived.audioOption,
+        suggestedSubMode: quickControlDerived.suggestedSubMode,
+      };
+    }),
 
   setManualTimestampModalOpen: (value) => set({ manualTimestampModalOpen: value }),
   setScrubberTime: (value) =>

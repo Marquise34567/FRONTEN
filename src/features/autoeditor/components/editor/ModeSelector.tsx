@@ -19,12 +19,12 @@ export default function ModeSelector({ mode, autoModeEnabled, onSelectMode }: Mo
           <h3 className="mt-1 text-xl font-semibold tracking-tight text-[#f8efe3]">Choose Edit Layout</h3>
             <p className="mt-1 text-sm text-[#baafb1]">
               {autoModeEnabled
-                ? "Detected mode is preselected. Confirm orientation to unlock Format & Platform."
-                : "Pick Horizontal or Vertical to reveal the editing pipeline."}
+                ? "Detected mode is preselected. Confirm AI/Horizontal/Vertical to unlock Format & Platform."
+                : "Pick AI, Horizontal, or Vertical to reveal the editing pipeline."}
             </p>
           </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           {MODE_OPTIONS.map((option) => {
             const active = mode === option.value;
             return (

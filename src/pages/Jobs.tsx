@@ -17,7 +17,7 @@ const PIPELINE_STEPS = ["Analyze", "Hook", "Pacing", "Captions", "Render", "Read
 
 const statusStyles: Record<string, string> = {
   ready: "border-emerald-300/40 bg-emerald-500/10 text-emerald-100",
-  processing: "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.12)] text-[#f6da8a]",
+  processing: "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.12)] text-[#95fff2]",
   queued: "border-purple-300/35 bg-purple-500/10 text-purple-100",
 };
 
@@ -58,7 +58,7 @@ export default function Jobs() {
                   <span
                     className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
                       done
-                        ? "border-[rgba(212,175,55,0.48)] bg-[rgba(212,175,55,0.14)] text-[#f6da8a]"
+                        ? "border-[rgba(52,240,208,0.48)] bg-[rgba(52,240,208,0.14)] text-[#95fff2]"
                         : "border-white/20 text-slate-400"
                     }`}
                   >
@@ -100,7 +100,7 @@ export default function Jobs() {
                 <MetallicProgress value={job.progress} className="mt-3" />
 
                 {open ? (
-                  <div className="mt-3 grid gap-3 rounded-2xl border border-[rgba(212,175,55,0.22)] bg-[rgba(7,7,12,0.72)] p-3 sm:grid-cols-3">
+                  <div className="mt-3 grid gap-3 rounded-2xl border border-[rgba(52,240,208,0.22)] bg-[rgba(7,7,12,0.72)] p-3 sm:grid-cols-3">
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Pipeline</p>
                       <p className="mt-1 text-sm text-slate-100">{job.status === "ready" ? "Export Ready" : "In Progress"}</p>
@@ -129,3 +129,4 @@ export default function Jobs() {
     </AppShell>
   );
 }
+

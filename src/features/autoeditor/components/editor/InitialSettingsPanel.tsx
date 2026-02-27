@@ -33,10 +33,12 @@ export default function InitialSettingsPanel({
             <p className="ae-kicker">Initial Editor Settings</p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#f7efe2]">Quick Controls</h2>
           </div>
-          {mode === "vertical" ? (
+          {mode === "vertical" || mode === "ai" ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#e6cfa9]/45 bg-[#d4b483]/18 px-3 py-1 text-xs text-[#ffefd5]">
               <WandSparkles className="h-3.5 w-3.5 text-[#f8dcae]" />
-              Highlight Mode default: 5s cuts, 5-8s opener hook
+              {mode === "ai"
+                ? "AI Director default: ruthless retention cuts + best hook opener"
+                : "Highlight Mode default: 5s cuts, 5-8s opener hook"}
             </span>
           ) : null}
         </div>

@@ -178,7 +178,7 @@ const statusLabel = (status: string) => {
 
 const statusBadgeClass = (status: string) => {
   if (status === "completed") return "border-emerald-300/45 bg-emerald-500/15 text-emerald-100";
-  if (status === "processing") return "border-[rgba(212,175,55,0.46)] bg-[rgba(212,175,55,0.16)] text-[#f6da8a]";
+  if (status === "processing") return "border-[rgba(52,240,208,0.46)] bg-[rgba(52,240,208,0.16)] text-[#95fff2]";
   if (status === "failed") return "border-rose-300/45 bg-rose-500/15 text-rose-100";
   return "border-purple-300/45 bg-purple-500/15 text-purple-100";
 };
@@ -1006,7 +1006,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
       <PremiumCard className="p-4">
         <p className="text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">Retention Target</p>
         <p className="mt-2 text-sm text-slate-300">
-          Goal: <span className="font-semibold text-[#f6da8a]">70%+ predicted average retention</span>.
+          Goal: <span className="font-semibold text-[#95fff2]">70%+ predicted average retention</span>.
         </p>
         <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 text-xs text-slate-300">
           All AI edits prioritize hook strength, drop-risk recovery, dynamic pacing, and emotional arc.
@@ -1058,7 +1058,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                 <button
                   type="button"
                   onClick={() => setRecentDrawerOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-[rgba(212,175,55,0.36)]"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-[rgba(52,240,208,0.36)]"
                 >
                   <History className="h-4 w-4" />
                   Recent Jobs
@@ -1081,8 +1081,8 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
           description="Track each pipeline stage and jump between different renders without leaving this page."
           badgeLabel="Premium Only"
         >
-          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(212,175,55,0.28)] bg-[radial-gradient(circle_at_top_right,rgba(212,175,55,0.2),transparent_44%),radial-gradient(circle_at_bottom_left,rgba(192,132,252,0.16),transparent_56%),linear-gradient(140deg,rgba(8,11,19,0.97),rgba(6,8,14,0.93))] p-4">
-            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(212,175,55,0.24)] blur-3xl" />
+          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(52,240,208,0.28)] bg-[radial-gradient(circle_at_top_right,rgba(52,240,208,0.2),transparent_44%),radial-gradient(circle_at_bottom_left,rgba(192,132,252,0.16),transparent_56%),linear-gradient(140deg,rgba(8,11,19,0.97),rgba(6,8,14,0.93))] p-4">
+            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(52,240,208,0.24)] blur-3xl" />
             <div className="pointer-events-none absolute -bottom-12 left-0 h-28 w-1/2 bg-gradient-to-r from-[rgba(192,132,252,0.2)] to-transparent" />
 
             <div className="relative flex flex-wrap items-start justify-between gap-2">
@@ -1100,7 +1100,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-[rgba(212,175,55,0.32)] bg-[rgba(212,175,55,0.12)] px-2.5 py-1 text-[11px] text-[#f6da8a]">
+                <span className="inline-flex items-center rounded-full border border-[rgba(52,240,208,0.32)] bg-[rgba(52,240,208,0.12)] px-2.5 py-1 text-[11px] text-[#95fff2]">
                   Stage: {activePipelineStage.label}
                 </span>
                 {activePipelineJob ? (
@@ -1134,9 +1134,9 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                     key={stage.key}
                     className={`rounded-2xl border px-2.5 py-2.5 transition ${
                       done
-                        ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-[#f6da8a]"
+                        ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#95fff2]"
                         : active
-                          ? "border-[rgba(212,175,55,0.45)] bg-gradient-to-r from-[rgba(212,175,55,0.2)] to-[rgba(192,132,252,0.16)] text-[#f6da8a]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-gradient-to-r from-[rgba(52,240,208,0.2)] to-[rgba(192,132,252,0.16)] text-[#95fff2]"
                           : "border-white/10 bg-white/[0.04] text-slate-400"
                     }`}
                   >
@@ -1146,7 +1146,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                       ) : (
                         <span
                           className={`h-2.5 w-2.5 rounded-full border ${
-                            active ? "border-[rgba(212,175,55,0.85)] bg-[rgba(212,175,55,0.72)]" : "border-white/35 bg-transparent"
+                            active ? "border-[rgba(52,240,208,0.85)] bg-[rgba(52,240,208,0.72)]" : "border-white/35 bg-transparent"
                           }`}
                         />
                       )}
@@ -1158,7 +1158,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
             </div>
 
             {activePipelineJob ? (
-              <div className="mt-3 rounded-2xl border border-[rgba(212,175,55,0.34)] bg-gradient-to-r from-[rgba(212,175,55,0.14)] via-[rgba(192,132,252,0.1)] to-slate-900/60 px-3 py-3">
+              <div className="mt-3 rounded-2xl border border-[rgba(52,240,208,0.34)] bg-gradient-to-r from-[rgba(52,240,208,0.14)] via-[rgba(192,132,252,0.1)] to-slate-900/60 px-3 py-3">
                 <div className="mb-2 flex items-center justify-between text-xs text-slate-200">
                   <span>{activePipelineStage.detail}</span>
                   <span>{toProgressPercent(activePipelineJob.progress)}%</span>
@@ -1170,7 +1170,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
 
           <div className="grid gap-2">
             {recentJobs.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[rgba(212,175,55,0.3)] bg-gradient-to-br from-[rgba(212,175,55,0.12)] to-[rgba(192,132,252,0.08)] px-4 py-6 text-sm text-slate-300">
+              <div className="rounded-2xl border border-dashed border-[rgba(52,240,208,0.3)] bg-gradient-to-br from-[rgba(52,240,208,0.12)] to-[rgba(192,132,252,0.08)] px-4 py-6 text-sm text-slate-300">
                 No jobs yet. Upload and render a clip to start tracking.
               </div>
             ) : (
@@ -1182,8 +1182,8 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                     key={job.id}
                     className={`rounded-2xl border px-3 py-3 transition ${
                       isSelected
-                        ? "border-[rgba(212,175,55,0.4)] bg-[linear-gradient(145deg,rgba(212,175,55,0.18),rgba(192,132,252,0.16))]"
-                        : "border-white/10 bg-[linear-gradient(155deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] hover:border-[rgba(212,175,55,0.35)] hover:bg-[linear-gradient(155deg,rgba(212,175,55,0.12),rgba(255,255,255,0.03))]"
+                        ? "border-[rgba(52,240,208,0.4)] bg-[linear-gradient(145deg,rgba(52,240,208,0.18),rgba(192,132,252,0.16))]"
+                        : "border-white/10 bg-[linear-gradient(155deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] hover:border-[rgba(52,240,208,0.35)] hover:bg-[linear-gradient(155deg,rgba(52,240,208,0.12),rgba(255,255,255,0.03))]"
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1205,7 +1205,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                       <button
                         type="button"
                         onClick={() => setActivePipelineJobId(job.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-[rgba(212,175,55,0.4)] bg-gradient-to-r from-[rgba(212,175,55,0.22)] to-[rgba(192,132,252,0.2)] px-3 py-1.5 text-xs text-[#f6da8a] hover:border-[rgba(212,175,55,0.65)]"
+                        className="inline-flex items-center gap-1 rounded-xl border border-[rgba(52,240,208,0.4)] bg-gradient-to-r from-[rgba(52,240,208,0.22)] to-[rgba(192,132,252,0.2)] px-3 py-1.5 text-xs text-[#95fff2] hover:border-[rgba(52,240,208,0.65)]"
                       >
                         <Workflow className="h-3.5 w-3.5" />
                         Focus Pipeline
@@ -1239,8 +1239,8 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
         </SettingsCardGroup>
 
         <SettingsCardGroup title="Upload Video" description="Upload your source clip to start AI analysis and profile setup." badgeLabel="Exclusive Feature">
-          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(212,175,55,0.26)] bg-[radial-gradient(circle_at_top_right,rgba(212,175,55,0.18),transparent_48%),linear-gradient(140deg,rgba(11,15,26,0.96),rgba(7,10,18,0.92))] p-4">
-            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(212,175,55,0.22)] blur-3xl" />
+          <div className="relative overflow-hidden rounded-[26px] border border-[rgba(52,240,208,0.26)] bg-[radial-gradient(circle_at_top_right,rgba(52,240,208,0.18),transparent_48%),linear-gradient(140deg,rgba(11,15,26,0.96),rgba(7,10,18,0.92))] p-4">
+            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-[rgba(52,240,208,0.22)] blur-3xl" />
             <div className="pointer-events-none absolute bottom-0 left-0 h-24 w-1/2 bg-gradient-to-r from-[rgba(192,132,252,0.12)] to-transparent" />
 
             <div className="relative flex flex-wrap items-start justify-between gap-3">
@@ -1264,7 +1264,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                   className={`inline-flex min-h-11 items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
                     isAnalyzingUpload
                       ? "cursor-not-allowed border-white/15 bg-white/5 text-slate-400"
-                      : "cursor-pointer border-[rgba(212,175,55,0.45)] bg-gradient-to-r from-[rgba(212,175,55,0.3)] to-[rgba(192,132,252,0.25)] text-white hover:border-[rgba(212,175,55,0.72)] hover:brightness-110"
+                      : "cursor-pointer border-[rgba(52,240,208,0.45)] bg-gradient-to-r from-[rgba(52,240,208,0.3)] to-[rgba(192,132,252,0.25)] text-white hover:border-[rgba(52,240,208,0.72)] hover:brightness-110"
                   }`}
                 >
                   <Upload className="h-4 w-4" />
@@ -1291,14 +1291,14 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
               initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
-              className="mt-3 rounded-2xl border border-[rgba(212,175,55,0.34)] bg-gradient-to-b from-[rgba(212,175,55,0.12)] to-slate-900/45 px-3 py-3"
+              className="mt-3 rounded-2xl border border-[rgba(52,240,208,0.34)] bg-gradient-to-b from-[rgba(52,240,208,0.12)] to-slate-900/45 px-3 py-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-100">
                   <Loader2 className="h-4 w-4 animate-spin text-[var(--gold-accent)]" />
                   {currentUploadStatusText}
                 </p>
-                <span className="text-xs font-medium text-[#f6da8a]">{Math.round(uploadStatusProgress)}%</span>
+                <span className="text-xs font-medium text-[#95fff2]">{Math.round(uploadStatusProgress)}%</span>
               </div>
 
               <MetallicProgress value={uploadStatusProgress} className="mt-3 h-2" />
@@ -1316,7 +1316,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                         isComplete
                           ? "border-emerald-300/30 bg-emerald-500/10"
                           : isActive
-                            ? "border-[rgba(212,175,55,0.34)] bg-[rgba(212,175,55,0.12)]"
+                            ? "border-[rgba(52,240,208,0.34)] bg-[rgba(52,240,208,0.12)]"
                             : "border-white/10 bg-white/[0.03]"
                       }`}
                     >
@@ -1393,7 +1393,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
               title="Quick Tools"
               description="Apply high-level editing tools before detailed tuning."
               rightSlot={
-                <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(212,175,55,0.36)] bg-[rgba(212,175,55,0.14)] px-2 py-1 text-[11px] text-[#f6da8a]">
+                <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(52,240,208,0.36)] bg-[rgba(52,240,208,0.14)] px-2 py-1 text-[11px] text-[#95fff2]">
                   <Sparkles className="h-3 w-3" />
                   Retention priority
                 </span>
@@ -1409,8 +1409,8 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                       onClick={() => toggleQuickControl(control.key)}
                       className={`rounded-2xl border px-3 py-3 text-left transition ${
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-slate-100"
-                          : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(212,175,55,0.35)]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-slate-100"
+                          : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(52,240,208,0.35)]"
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -1606,3 +1606,4 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
     </AppShell>
   );
 }
+

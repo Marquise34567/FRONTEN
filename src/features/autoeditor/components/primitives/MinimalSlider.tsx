@@ -31,7 +31,7 @@ export default function MinimalSlider({
           <span>{leftLabel}</span>
           <span className="inline-flex items-center gap-2">
             <span
-              className="rounded-full border border-[rgba(212,175,55,0.42)] bg-[rgba(212,175,55,0.16)] px-2 py-0.5 font-medium tracking-[0.12em] text-[#f8ecd8]"
+              className="rounded-full border border-[rgba(52,240,208,0.42)] bg-[rgba(52,240,208,0.16)] px-2 py-0.5 font-medium tracking-[0.12em] text-[#f8ecd8]"
               aria-label={`Current value ${normalizedValue}`}
             >
               {normalizedValue}
@@ -53,3 +53,4 @@ export default function MinimalSlider({
     </div>
   );
 }
+

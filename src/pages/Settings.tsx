@@ -336,7 +336,7 @@ const Settings = () => {
       <Navbar />
       <main className="responsive-main mx-auto min-h-screen max-w-6xl px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-[rgba(212,175,55,0.24)] bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.22),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(192,132,252,0.2),transparent_48%),linear-gradient(145deg,rgba(7,8,16,0.94),rgba(14,16,28,0.92))] p-6 shadow-[0_28px_80px_-48px_rgba(212,175,55,0.42)]">
+          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-[rgba(52,240,208,0.24)] bg-[radial-gradient(circle_at_top_left,rgba(52,240,208,0.22),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(192,132,252,0.2),transparent_48%),linear-gradient(145deg,rgba(7,8,16,0.94),rgba(14,16,28,0.92))] p-6 shadow-[0_28px_80px_-48px_rgba(52,240,208,0.42)]">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="flex items-center gap-2">
@@ -363,10 +363,112 @@ const Settings = () => {
             </div>
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(12,26,30,0.56),rgba(22,13,35,0.46))] p-6 shadow-[0_24px_70px_-46px_rgba(52,240,208,0.62)] backdrop-blur-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-cyan-100">Brand Template Studio</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">Clip styles, captions, and retention voice controls</h2>
+              </div>
+              <span className="rounded-full border border-cyan-200/35 bg-cyan-400/14 px-3 py-1 text-[11px] uppercase tracking-[0.13em] text-cyan-100">
+                Live retention preview
+              </span>
+            </div>
+
+            <div className="mt-4 inline-flex w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-xs">
+              {["Clip Styles", "Captions & Overlays", "Brand Voice AI", "Audio Enhancement", "Intro/Outro"].map((tab, index) => (
+                <span
+                  key={tab}
+                  className={`rounded-full px-3 py-1.5 ${
+                    index === 0
+                      ? "border border-cyan-200/35 bg-cyan-400/14 text-cyan-100"
+                      : "border border-white/10 bg-white/[0.02] text-slate-300"
+                  }`}
+                >
+                  {tab}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Vertical style preset</p>
+                    <p className="mt-1 text-sm text-slate-100">Retention Overlay - Punch Zoom Focus</p>
+                  </div>
+                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Logo / Watermark position</p>
+                    <p className="mt-1 text-sm text-slate-100">Top-right safe zone</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Color palette</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    {["#2fe4c8", "#2ab0ff", "#b477ff", "#0b131c", "#f3fffd"].map((swatch) => (
+                      <span
+                        key={swatch}
+                        className="h-6 w-6 rounded-full border border-white/20"
+                        style={{ backgroundColor: swatch }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Brand voice hooks and pacing</p>
+                  <textarea
+                    value="Use energetic urgency in first 3 seconds, reinforce payoff by second 9, and keep sentence cadence punchy."
+                    readOnly
+                    className="mt-2 h-20 w-full resize-none rounded-lg border border-white/10 bg-[rgba(7,10,16,0.9)] px-3 py-2 text-sm text-slate-200"
+                  />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                    <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-cyan-100">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Caption keyword highlighter
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">Animated emphasis on high-retention words.</p>
+                  </div>
+                  <div className="rounded-xl border border-white/12 bg-black/30 p-3">
+                    <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-cyan-100">
+                      <WandSparkles className="h-3.5 w-3.5" />
+                      Studio audio preset
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">Voice isolate + auto level + noise cleanup.</p>
+                  </div>
+                </div>
+
+                <GoldAccentButton className="rounded-xl">
+                  <CreditCard className="h-4 w-4" />
+                  Save Template
+                </GoldAccentButton>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(6,13,21,0.94),rgba(13,10,23,0.92))] p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Live branded retention preview</p>
+                <div className="mt-3 aspect-[9/16] overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(9,18,28,0.95),rgba(10,8,18,0.9))] p-3">
+                  <div className="h-full rounded-lg border border-cyan-200/25 bg-black/35 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-cyan-100">Hook zone 0-5s</p>
+                    <div className="mt-2 h-1.5 rounded-full bg-slate-800/80">
+                      <div className="h-full w-[78%] rounded-full bg-[linear-gradient(90deg,#2fe4c8,#b477ff)]" />
+                    </div>
+                    <p className="mt-3 text-xs text-slate-300">Retention score preview</p>
+                    <p className="text-lg font-semibold text-cyan-100">Virality 92/100</p>
+                    <p className="mt-3 text-xs text-slate-300">Hook Win Rate projected</p>
+                    <p className="text-sm font-semibold text-cyan-100">+31%</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[rgba(212,175,55,0.12)] flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-[rgba(52,240,208,0.12)] flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-[var(--gold-accent)]" />
                 </div>
                 <div>
@@ -374,7 +476,7 @@ const Settings = () => {
                   <p className="text-sm text-muted-foreground">Manage your subscription</p>
                 </div>
               </div>
-              <Badge variant="secondary" className="bg-[rgba(212,175,55,0.12)] text-[#f6da8a] border-[rgba(212,175,55,0.35)]">
+              <Badge variant="secondary" className="bg-[rgba(52,240,208,0.12)] text-[#95fff2] border-[rgba(52,240,208,0.35)]">
                 {isDevAccount ? "dev" : isFounderPlan ? "Founder (Lifetime)" : tier}
               </Badge>
             </div>
@@ -388,7 +490,7 @@ const Settings = () => {
             </div>
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
               <Shield className="w-5 h-5 text-[var(--gold-accent)]" />
               <h2 className="font-semibold text-foreground">{dailyLimited ? "Daily Usage" : "Monthly Usage"}</h2>
@@ -452,7 +554,7 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
               <Gauge className="w-5 h-5 text-[var(--gold-accent)]" />
               <div>
@@ -884,7 +986,7 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
+          <div className="rounded-2xl border border-[rgba(52,240,208,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(52,240,208,0.56)] backdrop-blur-xl">
             <h2 className="font-semibold text-foreground mb-4">Account</h2>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
@@ -991,4 +1093,5 @@ const Settings = () => {
 };
 
 export default Settings;
+
 

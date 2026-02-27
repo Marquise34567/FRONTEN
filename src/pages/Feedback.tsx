@@ -768,8 +768,8 @@ const Feedback = () => {
       <GlowBackdrop>
         <Navbar />
         <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
-          <div className="mx-auto flex max-w-4xl items-center justify-center rounded-3xl border border-[#d4af37]/25 bg-black/35 p-10 backdrop-blur-xl">
-            <Loader2 className="h-6 w-6 animate-spin text-[#d4af37]" />
+          <div className="mx-auto flex max-w-4xl items-center justify-center rounded-3xl border border-[#34f0d0]/25 bg-black/35 p-10 backdrop-blur-xl">
+            <Loader2 className="h-6 w-6 animate-spin text-[#34f0d0]" />
             <span className="ml-3 text-sm text-slate-300">Loading analytics access...</span>
           </div>
         </main>
@@ -782,8 +782,8 @@ const Feedback = () => {
       <GlowBackdrop>
         <Navbar />
         <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
-          <div className="mx-auto max-w-4xl rounded-3xl border border-[#d4af37]/35 bg-[linear-gradient(140deg,rgba(10,12,18,0.96),rgba(17,14,9,0.95))] p-8 shadow-[0_35px_110px_-60px_rgba(212,175,55,0.72)] backdrop-blur-xl">
-            <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/15 text-[#f8e8b5]">Premium Feature</Badge>
+          <div className="mx-auto max-w-4xl rounded-3xl border border-[#34f0d0]/35 bg-[linear-gradient(140deg,rgba(10,12,18,0.96),rgba(17,14,9,0.95))] p-8 shadow-[0_35px_110px_-60px_rgba(52,240,208,0.72)] backdrop-blur-xl">
+            <Badge className="border border-[#34f0d0]/45 bg-[#34f0d0]/15 text-[#f8e8b5]">Premium Feature</Badge>
             <h1 className="mt-4 text-3xl font-bold text-white">Single-Video Analytics</h1>
             <p className="mt-2 text-sm text-slate-300">
               Upgrade to unlock per-video dynamic analytics, retention intelligence, and platform predictions.
@@ -792,7 +792,7 @@ const Feedback = () => {
               Free tier users are redirected to pricing. Paid and dev users can generate premium feedback reports.
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Button asChild className="rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] hover:brightness-110">
+              <Button asChild className="rounded-xl bg-gradient-to-r from-[#34f0d0] to-[#f8e8b5] text-[#1f1b13] hover:brightness-110">
                 <Link to="/pricing">Upgrade to Unlock Analytics</Link>
               </Button>
               <p className="text-xs text-slate-400">Redirecting to pricing...</p>
@@ -816,7 +816,7 @@ const Feedback = () => {
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
         <motion.section
-          className="mx-auto max-w-6xl rounded-3xl border border-[#d4af37]/35 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.2),transparent_50%),radial-gradient(circle_at_bottom_right,rgba(255,245,214,0.1),transparent_55%),linear-gradient(145deg,rgba(9,11,17,0.95),rgba(13,16,24,0.94))] p-6 shadow-[0_34px_120px_-68px_rgba(212,175,55,0.82)] backdrop-blur-xl"
+          className="mx-auto max-w-6xl rounded-3xl border border-[#34f0d0]/35 bg-[radial-gradient(circle_at_top_left,rgba(52,240,208,0.2),transparent_50%),radial-gradient(circle_at_bottom_right,rgba(255,245,214,0.1),transparent_55%),linear-gradient(145deg,rgba(9,11,17,0.95),rgba(13,16,24,0.94))] p-6 shadow-[0_34px_120px_-68px_rgba(52,240,208,0.82)] backdrop-blur-xl"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.38 }}
@@ -824,20 +824,20 @@ const Feedback = () => {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-[#f3d77f]/85">Premium Intelligence</p>
-              <h1 className="mt-2 bg-gradient-to-r from-[#f8e8b5] via-[#d4af37] to-[#f5d48f] bg-clip-text text-3xl font-bold text-transparent">
+              <h1 className="mt-2 bg-gradient-to-r from-[#f8e8b5] via-[#34f0d0] to-[#f5d48f] bg-clip-text text-3xl font-bold text-transparent">
                 Single-Video Analytics
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-300">
                 One selected render at a time with deep retention insights, preview jumps, and platform-fit guidance.
               </p>
             </div>
-            <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+            <Badge className="border border-[#34f0d0]/45 bg-[#34f0d0]/12 text-[#f8e8b5]">
               {isDev ? "Dev Access" : "Premium"}
             </Badge>
           </div>
 
           <div className="grid gap-4 md:grid-cols-[1.1fr,0.9fr]">
-            <div className="rounded-2xl border border-[#d4af37]/30 bg-black/30 p-4 backdrop-blur-md">
+            <div className="rounded-2xl border border-[#34f0d0]/30 bg-black/30 p-4 backdrop-blur-md">
               <p className="mb-2 text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Select Rendered Video</p>
               <select
                 value={selectedJobId}
@@ -866,7 +866,7 @@ const Feedback = () => {
               <Button
                 onClick={() => void handleAnalyze(false)}
                 disabled={analyzing}
-                className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] shadow-[0_0_24px_rgba(212,175,55,0.45)] hover:brightness-110"
+                className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#34f0d0] to-[#f8e8b5] text-[#1f1b13] shadow-[0_0_24px_rgba(52,240,208,0.45)] hover:brightness-110"
               >
                 {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                 Regenerate Analytics
@@ -900,14 +900,14 @@ const Feedback = () => {
                   </p>
                 </div>
               </div>
-              <div className="mt-3 rounded-xl border border-[#d4af37]/25 bg-[#d4af37]/10 p-3 text-xs text-[#f8e8b5]">
+              <div className="mt-3 rounded-xl border border-[#34f0d0]/25 bg-[#34f0d0]/10 p-3 text-xs text-[#f8e8b5]">
                 {report ? report.classification.reason : "Run analytics to get short/long-form classification and performance prediction."}
               </div>
             </div>
           </div>
         </motion.section>
 
-        <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-[#d4af37]/30 bg-black/25 p-4 backdrop-blur-md">
+        <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-[#34f0d0]/30 bg-black/25 p-4 backdrop-blur-md">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Realtime Signal (Selected Video)</p>
@@ -964,7 +964,7 @@ const Feedback = () => {
           >
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                <Badge className="border border-[#34f0d0]/45 bg-[#34f0d0]/12 text-[#f8e8b5]">
                   {report.classification.type === "short-form" ? "Short-form" : "Long-form"}
                 </Badge>
                 <Badge className="border border-white/20 bg-white/5 text-slate-200">Source: {report.source.type}</Badge>
@@ -973,7 +973,7 @@ const Feedback = () => {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[1.25fr,0.75fr]">
-              <div className="rounded-2xl border border-[#d4af37]/25 bg-black/30 p-4">
+              <div className="rounded-2xl border border-[#34f0d0]/25 bg-black/30 p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Preview + Best Parts</p>
                   {loadingSourceDetail ? (
@@ -1034,7 +1034,7 @@ const Feedback = () => {
                     <p className="mt-1 text-xs text-slate-300">{selectedPoint.description || selectedPoint.label}</p>
                     <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#d4af37] via-[#f5d48f] to-[#f8e8b5]"
+                        className="h-full rounded-full bg-gradient-to-r from-[#34f0d0] via-[#f5d48f] to-[#f8e8b5]"
                         style={{ width: `${Math.max(4, Math.min(100, selectedPoint.watchedPct))}%` }}
                       />
                     </div>
@@ -1045,19 +1045,19 @@ const Feedback = () => {
                     Select a graph marker to inspect that moment.
                   </div>
                 )}
-                <div className="mt-3 rounded-xl border border-[#d4af37]/25 bg-[#d4af37]/10 p-3 text-xs text-[#f8e8b5]">
+                <div className="mt-3 rounded-xl border border-[#34f0d0]/25 bg-[#34f0d0]/10 p-3 text-xs text-[#f8e8b5]">
                   {report.metrics.retentionPotential.action}
                 </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[#d4af37]/25 bg-black/30 p-4">
+            <div className="rounded-2xl border border-[#34f0d0]/25 bg-black/30 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Retention Timeline</p>
                   <p className="mt-1 text-sm text-slate-300">Best, worst, low-energy, and skip-risk markers for this video only.</p>
                 </div>
-                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                <Badge className="border border-[#34f0d0]/45 bg-[#34f0d0]/12 text-[#f8e8b5]">
                   Estimated Lift {formatLift(report.metrics.retentionPotential.estimatedLiftPercent)}
                 </Badge>
               </div>
@@ -1116,7 +1116,7 @@ const Feedback = () => {
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Platform Performance Predictions</p>
-                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                <Badge className="border border-[#34f0d0]/45 bg-[#34f0d0]/12 text-[#f8e8b5]">
                   Best Fit: {report.metrics.platformPerformancePredictions.bestFit.toUpperCase()}
                 </Badge>
               </div>
@@ -1132,7 +1132,7 @@ const Feedback = () => {
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#d4af37] via-[#f5d48f] to-[#f8e8b5]"
+                        className="h-full rounded-full bg-gradient-to-r from-[#34f0d0] via-[#f5d48f] to-[#f8e8b5]"
                         style={{ width: `${Math.max(2, Math.min(100, platform.value.score))}%` }}
                       />
                     </div>
@@ -1182,7 +1182,7 @@ const Feedback = () => {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[#d4af37]/30 bg-[#d4af37]/10 p-4">
+            <div className="rounded-2xl border border-[#34f0d0]/30 bg-[#34f0d0]/10 p-4">
               <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#f8e8b5]">
                 <Sparkles className="h-4 w-4" />
                 {report.motivationalNote}
@@ -1212,3 +1212,4 @@ const Feedback = () => {
 };
 
 export default Feedback;
+

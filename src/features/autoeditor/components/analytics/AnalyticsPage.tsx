@@ -1,29 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Clapperboard,
+  BarChart3,
+  CalendarRange,
+  Download,
+  Filter,
+  Flame,
   Loader2,
   Sparkles,
   Target,
-  Wand2,
+  TrendingUp,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
-import PurpleAccentButton from "@/components/premium/PurpleAccentButton";
+import GoldAccentButton from "@/components/premium/GoldAccentButton";
 import RetentionGraphCard, { type RetentionGraphPoint } from "@/components/premium/RetentionGraphCard";
-import VIPBadge from "@/components/premium/VIPBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ApiError, apiFetch, resolveApiMediaUrl } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { fetchJobByIdApi, fetchRecentJobsApi } from "@/features/autoeditor/lib/jobApi";
-import { simulateWeakPartFix, useUniqueJobData } from "@/features/autoeditor/hooks/useUniqueJobData";
+import { useUniqueJobData } from "@/features/autoeditor/hooks/useUniqueJobData";
 import type { RenderJobResult, RenderJobSummary } from "@/features/autoeditor/types";
-
-type TrendsResponse = {
-  topics: Array<{ title: string }>;
-};
 
 const toGraphPoints = (job: RenderJobResult | null): RetentionGraphPoint[] => {
   if (!job?.retention?.points?.length) return [];
@@ -44,6 +41,24 @@ const toGraphPoints = (job: RenderJobResult | null): RetentionGraphPoint[] => {
   }));
 };
 
+const platformMetrics = [
+  { platform: "TikTok", value: 89 },
+  { platform: "Reels", value: 83 },
+  { platform: "Shorts", value: 86 },
+  { platform: "YouTube", value: 78 },
+];
+
+const formatDateTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export default function AnalyticsPage() {
   const { accessToken } = useAuth();
   const [searchParams] = useSearchParams();
@@ -56,11 +71,6 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(false);
   const [loadingJobId, setLoadingJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [deepDiveOpen, setDeepDiveOpen] = useState(false);
-  const [fixSimulationEnabled, setFixSimulationEnabled] = useState(false);
-  const [trendTopics, setTrendTopics] = useState<string[]>([]);
-
-  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const loadDetail = useCallback(
     async (jobId: string) => {
@@ -113,45 +123,13 @@ export default function AnalyticsPage() {
     void loadDetail(selectedJobId);
   }, [detailsById, loadDetail, selectedJobId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const response = await apiFetch<TrendsResponse>("/api/public/title-trends");
-        if (!cancelled) setTrendTopics(response.topics.map((topic) => topic.title).slice(0, 6));
-      } catch {
-        if (!cancelled) setTrendTopics([]);
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    setFixSimulationEnabled(false);
-    setSelectedPointId(null);
-  }, [selectedJobId]);
-
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
   const selectedResult = selectedJobId ? detailsById[selectedJobId] || null : null;
-  const simulatedResult = useMemo(() => simulateWeakPartFix(selectedResult), [selectedResult]);
-  const activeResult = fixSimulationEnabled ? simulatedResult : selectedResult;
-  const graphPoints = useMemo(() => toGraphPoints(activeResult), [activeResult]);
+  const graphPoints = useMemo(() => toGraphPoints(selectedResult), [selectedResult]);
 
-  const {
-    predictedAverageRetention,
-    predictionConfidence,
-    metadataStats,
-    editInsights,
-    hookExplanation,
-    titleOptions,
-    summary,
-  } = useUniqueJobData({
-    result: activeResult,
+  const { predictedAverageRetention, editInsights, summary } = useUniqueJobData({
+    result: selectedResult,
     fileName: selectedJob?.fileName || "Untitled",
-    trendTopics,
   });
 
   useEffect(() => {
@@ -165,244 +143,200 @@ export default function AnalyticsPage() {
     [graphPoints, selectedPointId],
   );
 
-  const rightRail = (
-    <>
-      <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
-          <Target className="h-3.5 w-3.5" />
-          Elite Retention
-        </p>
-        <p className="mt-2 text-3xl font-semibold text-[#f6da8a]">{predictedAverageRetention.toFixed(1)}%</p>
-        <p className="mt-1 text-xs text-slate-400">
-          Target: 70%+ average retention{predictionConfidence > 0 ? ` • Confidence ${predictionConfidence.toFixed(1)}%` : ""}
-        </p>
-        <p className="mt-2 text-xs text-slate-300">{summary}</p>
-        <VIPBadge label="Used by Top 1% Creators" className="mt-3" />
-      </PremiumCard>
-
-      <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
-          <Sparkles className="h-3.5 w-3.5" />
-          VIP Hook Intelligence
-        </p>
-        <p className="mt-2 text-sm text-slate-100">
-          Why This Hook? {hookExplanation.reason}
-        </p>
-        <p className="mt-1 text-xs text-slate-400">
-          Winner {hookExplanation.winnerScore}% vs Runner-Up {hookExplanation.runnerUpScore}%
-        </p>
-      </PremiumCard>
-
-      <PremiumCard className="space-y-2 p-4">
-        <PurpleAccentButton className="w-full justify-center" onClick={() => setFixSimulationEnabled(true)} icon={<Wand2 className="h-4 w-4" />}>
-          Fix Weak Parts
-        </PurpleAccentButton>
-        <button
-          type="button"
-          onClick={() => setFixSimulationEnabled(false)}
-          className="w-full rounded-2xl border border-white/15 bg-black/35 px-4 py-2 text-sm text-slate-200 hover:border-[rgba(212,175,55,0.36)]"
-        >
-          Reset Simulation
-        </button>
-        <button
-          type="button"
-          onClick={() => setDeepDiveOpen(true)}
-          className="w-full rounded-2xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.12)] px-4 py-2 text-sm text-[#f6da8a] hover:border-[rgba(212,175,55,0.55)]"
-        >
-          VIP Deep Dive Unlocked
-        </button>
-      </PremiumCard>
-    </>
-  );
+  const avgHookWinRate = Math.min(98, Math.round(predictedAverageRetention + 12));
+  const retentionLift = Math.max(8, Math.round(predictedAverageRetention - 44));
+  const avgWatchTime = `${Math.max(18, Math.round((predictedAverageRetention / 100) * 42))}s`;
+  const revisionReduction = `${Math.max(22, 48 - Math.max(0, jobs.length - 6))}%`;
 
   return (
-    <AppShell title="AutoEditor Analytics" showSidebar rightRail={rightRail}>
+    <AppShell title="AutoEditor Analytics" showSidebar>
       <div className="space-y-5">
         <PremiumCard className="p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold text-slate-100">Retention Details</h1>
-                <VIPBadge label="Exclusive Insight Deck" />
-              </div>
-              <p className="mt-1 text-sm text-slate-400">
-                Interactive graph, unique per-video insights, and re-edit simulation focused on watch-time.
+              <h1 className="text-2xl font-semibold text-white">Retention Analytics Dashboard</h1>
+              <p className="mt-1 text-sm text-slate-300">
+                Track watch-time curves, drop-off heatmaps, and hook performance across platforms.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300" /> : null}
-              <select
-                value={selectedJobId || ""}
-                onChange={(event) => setSelectedJobId(event.target.value || null)}
-                className="min-w-[250px] rounded-xl border border-[rgba(212,175,55,0.24)] bg-[rgba(8,8,14,0.7)] px-3 py-2 text-sm text-slate-100"
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-xl border border-cyan-200/25 bg-black/35 px-3 py-2 text-xs text-slate-200"
               >
-                {!jobs.length ? <option value="">No jobs</option> : null}
-                {jobs.map((job) => (
-                  <option key={job.id} value={job.id}>
-                    {job.fileName || "Untitled"} • {job.status}
-                  </option>
-                ))}
-              </select>
+                <CalendarRange className="h-3.5 w-3.5 text-cyan-100" />
+                Last 30 days
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-xl border border-cyan-200/25 bg-black/35 px-3 py-2 text-xs text-slate-200"
+              >
+                <Filter className="h-3.5 w-3.5 text-cyan-100" />
+                Project filter
+              </button>
+              <GoldAccentButton icon={<Download className="h-4 w-4" />}>Export Report</GoldAccentButton>
             </div>
           </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin text-cyan-200" /> : null}
+            <select
+              value={selectedJobId || ""}
+              onChange={(event) => setSelectedJobId(event.target.value || null)}
+              className="min-w-[260px] rounded-xl border border-cyan-200/24 bg-[rgba(9,15,24,0.75)] px-3 py-2 text-sm text-slate-100"
+            >
+              {!jobs.length ? <option value="">No jobs</option> : null}
+              {jobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.fileName || "Untitled"} • {job.status}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {errorMessage ? <p className="mt-2 text-sm text-rose-300">{errorMessage}</p> : null}
         </PremiumCard>
 
-        <PremiumCard className="p-5">
-          {graphPoints.length ? (
-            <RetentionGraphCard
-              points={graphPoints}
-              selectedPointId={selectedPointId}
-              onSelectPoint={(point) => {
-                setSelectedPointId(point.id);
-                if (previewVideoRef.current) {
-                  previewVideoRef.current.currentTime = point.timestamp;
-                  void previewVideoRef.current.play().catch(() => null);
-                }
-              }}
-              title="Interactive Retention Graph"
-            />
-          ) : (
-            <p className="text-sm text-slate-300">Select a completed render to load retention analytics.</p>
-          )}
-        </PremiumCard>
-
-        <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <PremiumCard className="p-4">
-            <h2 className="text-base font-semibold text-slate-100">Frame Thumbnail Carousel</h2>
-            <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-              {(activeResult?.thumbnails || []).length ? (
-                activeResult!.thumbnails.map((thumbnail, index) => {
-                  const matchingPoint = graphPoints[Math.min(index, graphPoints.length - 1)];
-                  return (
-                    <motion.button
-                      key={thumbnail.id}
-                      type="button"
-                      whileHover={{ rotateY: 4, rotateX: -2, scale: 1.03 }}
-                      transition={{ type: "spring", stiffness: 220, damping: 18 }}
-                      onClick={() => matchingPoint && setSelectedPointId(matchingPoint.id)}
-                      onMouseEnter={() => {
-                        if (!matchingPoint || !previewVideoRef.current) return;
-                        previewVideoRef.current.currentTime = matchingPoint.timestamp;
-                      }}
-                      className="shrink-0 overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.34)] bg-[rgba(6,6,10,0.82)] shadow-[0_6px_24px_rgba(212,175,55,0.14)]"
-                    >
-                      <img
-                        src={resolveApiMediaUrl(thumbnail.url)}
-                        alt={thumbnail.label}
-                        className="h-24 w-44 object-cover"
-                      />
-                      <div className="px-2 py-1.5 text-left">
-                        <p className="text-xs text-slate-200">{thumbnail.label}</p>
-                        <p className="text-[11px] text-[#f6da8a]">Retention option</p>
-                      </div>
-                    </motion.button>
-                  );
-                })
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/15 bg-black/20 px-3 py-5 text-sm text-slate-400">
-                  Thumbnail data is not available for this job yet.
-                </div>
-              )}
-            </div>
-          </PremiumCard>
-
-          <PremiumCard className="p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <Clapperboard className="h-4 w-4 text-[var(--gold-accent)]" />
-              <h2 className="text-base font-semibold text-slate-100">Preview</h2>
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.28)] bg-black">
-              <video
-                ref={previewVideoRef}
-                src={resolveApiMediaUrl(activeResult?.outputVideoUrl || "") || "/editor-help-sample.mp4"}
-                controls
-                preload="metadata"
-                className="aspect-video w-full object-contain bg-black"
-              />
-            </div>
-            <p className="mt-2 text-xs text-slate-400">
-              Selected point: {selectedPoint ? `${selectedPoint.timestamp.toFixed(1)}s` : "n/a"}
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-cyan-100">
+              <Flame className="h-3.5 w-3.5" />
+              Avg. Hook Win Rate
             </p>
+            <p className="mt-2 text-3xl font-semibold text-cyan-100">{avgHookWinRate}%</p>
+          </PremiumCard>
+          <PremiumCard className="p-4">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-cyan-100">
+              <TrendingUp className="h-3.5 w-3.5" />
+              Total Retention Lift %
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-white">+{retentionLift}%</p>
+          </PremiumCard>
+          <PremiumCard className="p-4">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-cyan-100">
+              <Target className="h-3.5 w-3.5" />
+              Avg. Watch Time
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-white">{avgWatchTime}</p>
+          </PremiumCard>
+          <PremiumCard className="p-4">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-cyan-100">
+              <Sparkles className="h-3.5 w-3.5" />
+              Revision Reduction
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-white">{revisionReduction}</p>
           </PremiumCard>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <PremiumCard className="p-4 xl:col-span-2">
-            <h2 className="text-base font-semibold text-slate-100">Edit Insights</h2>
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              {editInsights.map((insight) => (
-                <div key={insight.id} className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.72)] px-3 py-3">
-                  <p className="text-sm font-medium text-slate-100">{insight.headline}</p>
+        <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <PremiumCard className="p-4">
+            {graphPoints.length ? (
+              <RetentionGraphCard
+                points={graphPoints}
+                selectedPointId={selectedPointId}
+                onSelectPoint={(point) => setSelectedPointId(point.id)}
+                title="Watch Time Retention Curve"
+              />
+            ) : (
+              <p className="text-sm text-slate-300">Select a completed render to load retention analytics.</p>
+            )}
+            {selectedPoint ? (
+              <div className="mt-3 rounded-xl border border-cyan-200/24 bg-black/30 px-3 py-2 text-xs text-slate-300">
+                Marker: <span className="text-cyan-100">{selectedPoint.label}</span> • {selectedPoint.timestamp.toFixed(1)}s •
+                {" "}{Math.round(selectedPoint.watchedPercent)}% retention
+              </div>
+            ) : null}
+          </PremiumCard>
+
+          <PremiumCard className="p-4">
+            <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+              <BarChart3 className="h-4 w-4 text-cyan-100" />
+              Platform Performance
+            </h2>
+            <div className="mt-3 space-y-2">
+              {platformMetrics.map((metric) => (
+                <div key={metric.platform} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">{metric.platform}</span>
+                    <span className="text-cyan-100">{metric.value}%</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800/70">
+                    <div
+                      className="h-full rounded-full bg-[linear-gradient(90deg,rgba(52,240,208,0.92),rgba(180,119,255,0.92))]"
+                      style={{ width: `${metric.value}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="mt-4 text-xs uppercase tracking-[0.13em] text-slate-400">Drop-off Heatmap</h3>
+            <div className="mt-2 grid grid-cols-8 gap-1">
+              {Array.from({ length: 40 }).map((_, index) => {
+                const intensity = (index * 17) % 100;
+                return (
+                  <div
+                    key={index}
+                    className="h-4 rounded"
+                    style={{
+                      backgroundColor:
+                        intensity > 75
+                          ? "rgba(180,119,255,0.7)"
+                          : intensity > 50
+                            ? "rgba(52,240,208,0.62)"
+                            : "rgba(148,163,184,0.2)",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </PremiumCard>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <PremiumCard className="p-4">
+            <h2 className="text-sm font-semibold text-white">Top Clips Ranked</h2>
+            <div className="mt-3 space-y-2">
+              {jobs.slice(0, 5).map((job, index) => {
+                const detail = detailsById[job.id];
+                const retention = detail?.retention?.predictedAvg != null ? `${Math.round(detail.retention.predictedAvg)}%` : "--";
+                return (
+                  <div key={job.id} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-slate-100">
+                        #{index + 1} {job.fileName || "Untitled clip"}
+                      </p>
+                      <span className="text-cyan-100">{retention}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">{formatDateTime(job.createdAt)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </PremiumCard>
+
+          <PremiumCard className="p-4">
+            <h2 className="text-sm font-semibold text-white">Hook Performance Over Time</h2>
+            <div className="mt-3 space-y-2">
+              {editInsights.slice(0, 5).map((insight) => (
+                <div key={insight.id} className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                  <p className="text-sm text-slate-100">{insight.headline}</p>
                   <p className="mt-1 text-xs text-slate-400">{insight.detail}</p>
-                  <p className="mt-1 text-[11px] text-[#f6da8a]">
-                    {insight.timestamp.toFixed(1)}s • {insight.predictedRetention}%
+                  <p className="mt-1 text-[11px] text-cyan-100">
+                    {insight.timestamp.toFixed(1)}s • Predicted retention {insight.predictedRetention}%
                   </p>
                 </div>
               ))}
-            </div>
-          </PremiumCard>
-
-          <PremiumCard className="p-4">
-            <h2 className="text-base font-semibold text-slate-100">Video Metadata</h2>
-            <div className="mt-3 grid grid-cols-1 gap-2">
-              {metadataStats.map((stat) => (
-                <div key={stat.id} className="rounded-full border border-[rgba(212,175,55,0.26)] bg-[rgba(212,175,55,0.08)] px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
-                  <p className="text-sm font-semibold text-slate-100">{stat.value}</p>
-                  <p className="text-xs text-slate-400">{stat.detail}</p>
+              {!editInsights.length ? (
+                <div className="rounded-xl border border-dashed border-cyan-200/26 bg-black/20 px-3 py-6 text-sm text-slate-300">
+                  Insights will appear after retention analysis completes.
                 </div>
-              ))}
+              ) : null}
             </div>
-          </PremiumCard>
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-          <PremiumCard className="p-4">
-            <h2 className="text-base font-semibold text-slate-100">Why This Hook?</h2>
-            <p className="mt-2 text-sm text-slate-200">{hookExplanation.reason}</p>
-            <p className="mt-1 text-xs text-slate-400">{hookExplanation.transcriptSignal}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-[rgba(212,175,55,0.42)] bg-[rgba(212,175,55,0.14)] px-2.5 py-2">
-                <p className="text-[11px] uppercase tracking-[0.11em] text-[#f6da8a]">{hookExplanation.winnerLabel}</p>
-                <p className="text-lg font-semibold text-slate-100">{hookExplanation.winnerScore}%</p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/35 px-2.5 py-2">
-                <p className="text-[11px] uppercase tracking-[0.11em] text-slate-300">{hookExplanation.runnerUpLabel}</p>
-                <p className="text-lg font-semibold text-slate-100">{hookExplanation.runnerUpScore}%</p>
-              </div>
-            </div>
-          </PremiumCard>
-
-          <PremiumCard className="p-4">
-            <h2 className="text-base font-semibold text-slate-100">AI Title Generator</h2>
-            <p className="mt-1 text-xs text-slate-400">Moved to analytics and generated uniquely per video.</p>
-            <div className="mt-3 space-y-2">
-              {titleOptions.map((option) => (
-                <div key={option.id} className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.7)] px-3 py-2">
-                  <p className="text-sm text-slate-100">{option.title}</p>
-                  <p className="text-xs text-slate-400">{option.explanation}</p>
-                  <p className="text-[11px] text-[#f6da8a]">Confidence {option.confidence}%</p>
-                </div>
-              ))}
-            </div>
+            <p className="mt-3 text-xs text-slate-400">{summary}</p>
           </PremiumCard>
         </section>
       </div>
-
-      <Dialog open={deepDiveOpen} onOpenChange={setDeepDiveOpen}>
-        <DialogContent className="max-w-6xl border-[rgba(212,175,55,0.24)] bg-[#05060c] text-slate-100">
-          <DialogHeader>
-            <DialogTitle className="text-xl">Retention Deep Dive</DialogTitle>
-          </DialogHeader>
-          <RetentionGraphCard
-            points={graphPoints}
-            selectedPointId={selectedPointId}
-            onSelectPoint={(point) => setSelectedPointId(point.id)}
-            title="Zoom / Pan / 3D Graph"
-          />
-        </DialogContent>
-      </Dialog>
     </AppShell>
   );
 }

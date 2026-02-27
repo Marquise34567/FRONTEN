@@ -122,7 +122,8 @@ export default function ModernizedOriginalEditor({
     () => Object.values(quickControls).filter(Boolean).length,
     [quickControls],
   );
-  const modeLabel = mode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9";
+  const modeLabel =
+    mode === "ai" ? "AI Director (Auto Layout)" : mode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9";
 
   return (
     <motion.section

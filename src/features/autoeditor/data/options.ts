@@ -75,6 +75,13 @@ export const MODE_OPTIONS: Array<{
   icon: LucideIcon;
 }> = [
   {
+    value: "ai",
+    label: "AI Director",
+    ratio: "AUTO",
+    description: "Auto-picks layout, hook, and cuts",
+    icon: Bot,
+  },
+  {
     value: "horizontal",
     label: "Horizontal",
     ratio: "16:9",

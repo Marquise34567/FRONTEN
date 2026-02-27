@@ -136,7 +136,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-[#f8ecd8] shadow-[0_12px_26px_-20px_rgba(168,85,247,0.7)]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#f8ecd8] shadow-[0_12px_26px_-20px_rgba(168,85,247,0.7)]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
@@ -169,7 +169,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-[#f8ecd8]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#f8ecd8]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                       )}
                     >
@@ -191,7 +191,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "rounded-xl border p-2 text-left transition-all",
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.14)] shadow-[0_14px_30px_-24px_rgba(212,175,55,0.42)]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.14)] shadow-[0_14px_30px_-24px_rgba(52,240,208,0.42)]"
                           : "border-white/15 bg-black/22 hover:border-white/25 hover:bg-black/35",
                       )}
                     >
@@ -263,7 +263,7 @@ export default function StaggeredSettingsSections({
                           className={cn(
                             "rounded-full border px-3 py-1.5 text-sm transition",
                             active
-                              ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-[#f8ecd8]"
+                              ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#f8ecd8]"
                               : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25 hover:bg-white/[0.09]",
                           )}
                         >
@@ -277,7 +277,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Caption Style</p>
                   <Select value={captionStyle} onValueChange={(value) => onCaptionStyleChange(value as CaptionStylePreset)}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                       <SelectValue placeholder="Select style" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -293,7 +293,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Caption Font Family</p>
                   <Select value={captionFont} onValueChange={onCaptionFontChange}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                       <SelectValue placeholder="Select font" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -309,7 +309,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Motion Effect</p>
                   <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
-                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+                    <SelectTrigger className="border-white/15 bg-black/35 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                       <SelectValue placeholder="Select effect" />
                     </SelectTrigger>
                     <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -345,7 +345,7 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.16)] text-[#f8ecd8]"
+                          ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.16)] text-[#f8ecd8]"
                           : "border-white/15 bg-white/5 text-[#d4c9cd] hover:border-white/25",
                       )}
                     >
@@ -400,4 +400,5 @@ export default function StaggeredSettingsSections({
     </AnimatePresence>
   );
 }
+
 

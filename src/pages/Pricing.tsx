@@ -1,138 +1,133 @@
 import { useMemo, useState } from "react";
-import { Check, Crown, Loader2, Sparkles } from "lucide-react";
+import { Check, Loader2, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
-import PurpleAccentButton from "@/components/premium/PurpleAccentButton";
-import { Switch } from "@/components/ui/switch";
+import GoldAccentButton from "@/components/premium/GoldAccentButton";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
-import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import type { PlanTier } from "@/shared/planConfig";
 
 type BillingInterval = "monthly" | "annual";
 
-type Tier = {
-  id: PlanTier;
-  name: string;
+type PricingPlan = {
+  id: "free" | "pro" | "enterprise";
+  title: string;
   subtitle: string;
   monthlyPrice: number;
   annualPrice: number;
-  oneTimePrice?: number;
+  mappedTier: PlanTier;
+  featured?: boolean;
+  tone: "neutral" | "teal" | "violet";
   features: string[];
-  popular?: boolean;
-  premium?: boolean;
+  scans: string;
+  exports: string;
 };
 
-const tiers: Tier[] = [
+const plans: PricingPlan[] = [
   {
     id: "free",
-    name: "Free",
-    subtitle: "Try retention-first editing",
+    title: "Free",
+    subtitle: "Starter clips and basic hook scoring",
     monthlyPrice: 0,
     annualPrice: 0,
-    features: ["10 renders / month", "Basic retention graph", "Manual trim + export"],
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    subtitle: "For consistent weekly publishing",
-    monthlyPrice: 9,
-    annualPrice: 86,
-    features: ["20 renders / month", "1080p exports", "Caption + pacing automation", "Standard queue"],
-  },
-  {
-    id: "creator",
-    name: "Creator",
-    subtitle: "Scale multi-channel output",
-    monthlyPrice: 29,
-    annualPrice: 278,
-    popular: true,
-    features: ["100 renders / month", "4K exports", "Deep retention analytics", "Priority queue"],
-  },
-  {
-    id: "studio",
-    name: "Studio",
-    subtitle: "For teams and production workflows",
-    monthlyPrice: 99,
-    annualPrice: 948,
-    features: ["5000 renders / month", "Advanced experimentation controls", "Team workflows", "Priority support"],
-  },
-  {
-    id: "founder",
-    name: "Founder",
-    subtitle: "One-time lifetime access for early adopters",
-    monthlyPrice: 0,
-    annualPrice: 0,
-    oneTimePrice: 149,
-    premium: true,
+    mappedTier: "free",
+    tone: "neutral",
+    scans: "20 retention scans / month",
+    exports: "720p exports",
     features: [
-      "One-time payment",
-      "500 minutes / month forever",
-      "4K exports + priority queue",
-      "All future premium features",
+      "Credits: 20 clips/month",
+      "Hook AI (basic)",
+      "Caption automation",
+      "Single-platform export",
+      "Community support",
     ],
   },
+  {
+    id: "pro",
+    title: "Pro",
+    subtitle: "Best for creators scaling short-form output",
+    monthlyPrice: 19,
+    annualPrice: 15,
+    mappedTier: "creator",
+    featured: true,
+    tone: "teal",
+    scans: "200 retention scans / month",
+    exports: "4K multi-platform exports",
+    features: [
+      "Credits: 500 clips/month",
+      "Advanced Hook AI + pacing controls",
+      "Studio audio enhancement",
+      "Animated caption styles + keyword highlighter",
+      "TikTok / Reels / Shorts / YouTube exports",
+    ],
+  },
+  {
+    id: "enterprise",
+    title: "Enterprise",
+    subtitle: "Custom automation for teams and agencies",
+    monthlyPrice: 49,
+    annualPrice: 39,
+    mappedTier: "studio",
+    tone: "violet",
+    scans: "Unlimited retention scans",
+    exports: "Priority queue + team workspaces",
+    features: [
+      "Unlimited processing credits",
+      "Custom hook/pacing models",
+      "Shared brand templates",
+      "SLA support + onboarding",
+      "Advanced reporting API",
+    ],
+  },
+];
+
+const comparisonRows = [
+  ["Retention scans", "20/mo", "200/mo", "Unlimited"],
+  ["Hook AI", "Basic", "Advanced", "Custom"],
+  ["Studio Audio", "-", "Included", "Included + presets"],
+  ["Exports", "Single platform", "Multi-platform", "Multi-platform + team queues"],
+  ["Analytics depth", "Core", "Retention + virality", "Cross-team attribution"],
 ];
 
 export default function Pricing() {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
   const { toast } = useToast();
-  const { data: founderAvailability } = useFounderAvailability();
-  const [loadingTier, setLoadingTier] = useState<PlanTier | null>(null);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
-  const [starterTrialEnabled, setStarterTrialEnabled] = useState(true);
+  const [loadingTier, setLoadingTier] = useState<PricingPlan["id"] | null>(null);
 
-  const founderSlotsRemaining = Math.max(0, Number(founderAvailability?.remaining || 0));
-  const founderSoldOut = Boolean(founderAvailability?.soldOut);
+  const intervalSuffix = billingInterval === "annual" ? "/mo billed yearly" : "/mo";
 
-  const comparisonRows = useMemo(
-    () => [
-      ["Retention scoring", "Basic", "Advanced", "Deep dive", "Deep dive + lab", "Deep dive + future"],
-      ["Renders/month", "10", "20", "100", "5000", "5000+"],
-      ["Queue priority", "Standard", "Standard", "Priority", "Priority", "Priority"],
-      ["Billing model", "Free", "Recurring", "Recurring", "Recurring", "One-time lifetime"],
-    ],
+  const planCopy = useMemo(
+    () => ({
+      monthly: "Switch to yearly for ~20% savings.",
+      annual: "Annual active: Save tag unlocked.",
+    }),
     [],
   );
 
-  const getDisplayPrice = (tier: Tier) => {
-    if (tier.oneTimePrice) return `$${tier.oneTimePrice}`;
-    if (billingInterval === "annual") return `$${tier.annualPrice}`;
-    return `$${tier.monthlyPrice}`;
-  };
-
-  const getCadence = (tier: Tier) => {
-    if (tier.oneTimePrice) return "one-time";
-    if (tier.id === "free") return "forever";
-    return billingInterval === "annual" ? "/year" : "/month";
-  };
-
-  const handleCheckout = async (tier: PlanTier) => {
-    if (tier === "free") {
+  const handleCheckout = async (plan: PricingPlan) => {
+    if (plan.mappedTier === "free") {
       navigate("/signup");
       return;
     }
-    if (tier === "founder" && founderSoldOut) {
-      toast({ title: "Founder plan sold out", description: "Founder access is currently unavailable." });
-      return;
-    }
+
     if (!accessToken) {
       navigate("/signup");
       return;
     }
+
     try {
-      setLoadingTier(tier);
+      setLoadingTier(plan.id);
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
         token: accessToken,
         body: JSON.stringify({
-          tier,
-          interval: billingInterval,
-          trial: tier === "starter" ? starterTrialEnabled : false,
+          tier: plan.mappedTier,
+          interval: billingInterval === "annual" ? "annual" : "monthly",
         }),
       });
       window.location.href = result.url;
@@ -145,25 +140,24 @@ export default function Pricing() {
   };
 
   return (
-    <AppShell title="AutoEditor Pricing">
-      <div className="space-y-4">
-        <PremiumCard className="overflow-hidden p-8 md:p-10">
-          <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(34,211,238,0.16),transparent_55%),radial-gradient(90%_120%_at_100%_0%,rgba(217,70,239,0.2),transparent_58%)]" />
+    <AppShell title="AutoEditor Pricing" showSidebar>
+      <div className="space-y-5">
+        <PremiumCard className="relative overflow-hidden p-7 md:p-9">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(52,240,208,0.24),transparent_54%),radial-gradient(90%_120%_at_100%_0%,rgba(180,119,255,0.24),transparent_56%)]" />
           <div className="relative">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-5xl">
-              Premium Plans Built For 2026 Creator Teams
+            <h1 className="text-3xl font-semibold tracking-tight text-white md:text-5xl">
+              Transparent Plans For Retention-First Creators
             </h1>
             <p className="mt-3 max-w-2xl text-slate-300">
-              Every tier includes retention-first editing logic. Upgrade for deeper analytics, faster iteration loops, and
-              premium output controls.
+              Premium dark-mode pricing with credits, hook AI, studio audio, and high-retention export workflows.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-white/15 bg-black/35 p-1">
+              <div className="inline-flex rounded-full border border-cyan-200/25 bg-black/35 p-1">
                 <button
                   type="button"
                   onClick={() => setBillingInterval("monthly")}
                   className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "monthly" ? "bg-purple-500/20 text-purple-100" : "text-slate-300 hover:text-slate-100"
+                    billingInterval === "monthly" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
                   }`}
                 >
                   Monthly
@@ -172,148 +166,96 @@ export default function Pricing() {
                   type="button"
                   onClick={() => setBillingInterval("annual")}
                   className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-                    billingInterval === "annual" ? "bg-purple-500/20 text-purple-100" : "text-slate-300 hover:text-slate-100"
+                    billingInterval === "annual" ? "bg-cyan-400/20 text-cyan-100" : "text-slate-300 hover:text-slate-100"
                   }`}
                 >
-                  Annual
+                  Yearly
                 </button>
               </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/35 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100">
-                <span>Starter free trial</span>
-                <Switch checked={starterTrialEnabled} onCheckedChange={setStarterTrialEnabled} />
-              </div>
-              {founderSlotsRemaining > 0 ? (
-                <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100">
-                  <Crown className="h-3.5 w-3.5" />
-                  Founder slots left: {founderSlotsRemaining}
-                </div>
-              ) : (
-                <div className="inline-flex items-center gap-2 rounded-full border border-rose-300/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100">
-                  Founder plan sold out
-                </div>
-              )}
+              <span className="rounded-full border border-emerald-300/35 bg-emerald-500/12 px-3 py-1 text-xs text-emerald-100">
+                Annual Save Tag: 20%
+              </span>
+              <span className="text-xs text-slate-400">{planCopy[billingInterval]}</span>
             </div>
           </div>
         </PremiumCard>
 
-        <section className="grid gap-4 xl:grid-cols-5">
-          {tiers.map((tier) => (
-            <PremiumCard
-              key={tier.id}
-              className={`relative flex h-full flex-col p-5 ${
-                tier.popular
-                  ? "border-purple-300/45 shadow-[0_0_35px_rgba(168,85,247,0.28)]"
-                  : tier.premium
-                    ? "border-amber-300/40 bg-[radial-gradient(110%_130%_at_0%_0%,rgba(245,158,11,0.2),transparent_58%),linear-gradient(180deg,rgba(20,13,5,0.88),rgba(10,8,5,0.92))]"
-                    : ""
-              }`}
-            >
-              {tier.popular ? (
-                <span className="absolute right-4 top-4 rounded-full border border-purple-300/35 bg-purple-500/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-purple-100">
-                  Popular
-                </span>
-              ) : null}
-              {tier.premium ? (
-                <span className="absolute right-4 top-4 rounded-full border border-amber-300/35 bg-amber-400/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-amber-200">
-                  Founder
-                </span>
-              ) : null}
+        <section className="grid gap-4 lg:grid-cols-3">
+          {plans.map((plan) => {
+            const price = billingInterval === "annual" ? plan.annualPrice : plan.monthlyPrice;
+            const cardTone =
+              plan.tone === "teal"
+                ? "border-cyan-200/45 shadow-[0_0_30px_rgba(52,240,208,0.22)]"
+                : plan.tone === "violet"
+                  ? "border-violet-300/35"
+                  : "border-white/10";
 
-              <p className={`text-sm uppercase tracking-[0.14em] ${tier.premium ? "text-amber-200" : "text-purple-200"}`}>
-                {tier.name}
-              </p>
-              <p className="mt-3 text-4xl font-semibold text-slate-100">
-                {getDisplayPrice(tier)}
-                <span className="text-sm text-slate-400"> {getCadence(tier)}</span>
-              </p>
-              <p className="mt-2 text-sm text-slate-300">{tier.subtitle}</p>
-              <ul className="mt-4 flex-1 space-y-2">
-                {tier.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-sm text-slate-200">
-                    <Check className="mt-0.5 h-4 w-4 text-emerald-300" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <PurpleAccentButton
-                className={`mt-4 w-full ${tier.premium ? "from-amber-500 to-yellow-400 text-black hover:opacity-95" : ""}`}
-                onClick={() => handleCheckout(tier.id)}
-                disabled={loadingTier !== null || (tier.id === "founder" && founderSoldOut)}
-              >
-                {loadingTier === tier.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {tier.id === "free" ? "Start Free" : tier.id === "founder" ? "Claim Founder Access" : "Choose Plan"}
-              </PurpleAccentButton>
-            </PremiumCard>
-          ))}
-        </section>
+            return (
+              <PremiumCard key={plan.id} className={`relative flex h-full flex-col p-5 ${cardTone}`}>
+                {plan.featured ? (
+                  <span className="absolute right-4 top-4 rounded-full border border-cyan-200/40 bg-cyan-400/16 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100">
+                    Best For Creators
+                  </span>
+                ) : null}
+                {plan.id === "pro" ? (
+                  <span className="absolute left-4 top-4 rounded-full border border-emerald-300/35 bg-emerald-500/15 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-emerald-100">
+                    BETA Access
+                  </span>
+                ) : null}
 
-        <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-          <PremiumCard className="overflow-hidden p-0">
-            <div className="border-b border-white/10 px-5 py-4">
-              <h2 className="text-lg font-semibold text-slate-100">Plan Comparison</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
-                <thead className="bg-black/40 text-slate-300">
-                  <tr>
-                    <th className="px-5 py-3 text-left">Feature</th>
-                    <th className="px-5 py-3 text-left">Free</th>
-                    <th className="px-5 py-3 text-left">Starter</th>
-                    <th className="px-5 py-3 text-left">Creator</th>
-                    <th className="px-5 py-3 text-left">Studio</th>
-                    <th className="px-5 py-3 text-left">Founder</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonRows.map((row) => (
-                    <tr key={row[0]} className="border-t border-white/10">
-                      {row.map((cell, index) => (
-                        <td key={`${row[0]}-${index}`} className="px-5 py-3 text-slate-200">
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </PremiumCard>
-
-          <PremiumCard className="p-5">
-            <h2 className="text-lg font-semibold text-slate-100">Why teams choose premium</h2>
-            <div className="mt-4 space-y-3">
-              {[
-                "Retention predictions tied to every completed job.",
-                "Faster render queue for Creator/Studio/Founder tiers.",
-                "Founder plan locks in pricing and future feature access.",
-                "Starter trial toggle lets you test premium before billing.",
-              ].map((line) => (
-                <div key={line} className="rounded-2xl border border-white/10 bg-black/35 p-3">
-                  <p className="inline-flex items-center gap-2 text-sm text-slate-200">
-                    <Sparkles className="h-4 w-4 text-purple-300" />
-                    {line}
-                  </p>
+                <p className="mt-6 text-sm uppercase tracking-[0.14em] text-cyan-100">{plan.title}</p>
+                <p className="mt-3 text-4xl font-semibold text-white">
+                  ${price}
+                  <span className="text-sm text-slate-400"> {intervalSuffix}</span>
+                </p>
+                <p className="mt-2 text-sm text-slate-300">{plan.subtitle}</p>
+                <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-300">
+                  <p>{plan.scans}</p>
+                  <p className="mt-1">{plan.exports}</p>
                 </div>
-              ))}
-            </div>
-          </PremiumCard>
+                <ul className="mt-4 flex-1 space-y-2">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-200">
+                      <Check className="mt-0.5 h-4 w-4 text-cyan-300" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+                <GoldAccentButton className="mt-4 w-full" onClick={() => handleCheckout(plan)} disabled={loadingTier !== null}>
+                  {loadingTier === plan.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {plan.id === "free" ? "Start Free" : plan.id === "pro" ? "Choose Pro" : "Contact Enterprise"}
+                </GoldAccentButton>
+              </PremiumCard>
+            );
+          })}
         </section>
 
-        <PremiumCard className="p-5">
-          <h2 className="text-lg font-semibold text-slate-100">FAQ</h2>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-              <p className="text-sm font-medium text-slate-100">Is retention optimization always enabled?</p>
-              <p className="mt-1 text-xs text-slate-400">Yes. Every plan uses retention-priority edit decisions by default.</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-              <p className="text-sm font-medium text-slate-100">Can I simulate fixes before re-rendering?</p>
-              <p className="mt-1 text-xs text-slate-400">Creator and above include full deep-dive simulation and weak-part repair previews.</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-              <p className="text-sm font-medium text-slate-100">Do themes and analytics sync across pages?</p>
-              <p className="mt-1 text-xs text-slate-400">Yes. Theme and retention dashboards are persisted across the entire app.</p>
-            </div>
+        <PremiumCard className="overflow-hidden p-0">
+          <div className="border-b border-white/10 px-5 py-4">
+            <h2 className="text-lg font-semibold text-white">Retention Plan Comparison</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-sm">
+              <thead className="bg-black/35 text-slate-300">
+                <tr>
+                  <th className="px-5 py-3 text-left">Metric</th>
+                  <th className="px-5 py-3 text-left">Free</th>
+                  <th className="px-5 py-3 text-left">Pro</th>
+                  <th className="px-5 py-3 text-left">Enterprise</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonRows.map((row) => (
+                  <tr key={row[0]} className="border-t border-white/10">
+                    {row.map((cell, index) => (
+                      <td key={`${row[0]}-${index}`} className="px-5 py-3 text-slate-200">
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </PremiumCard>
       </div>

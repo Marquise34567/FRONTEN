@@ -5,10 +5,10 @@
   --ae-subtext: #bfb4b3;
   --ae-border: rgba(255, 255, 255, 0.14);
   --ae-kicker: #f4d479;
-  --ae-accent: #d4af37;
+  --ae-accent: #34f0d0;
   --ae-grid: rgba(255, 255, 255, 0.03);
   --ae-backdrop:
-    radial-gradient(1120px 620px at 14% -12%, rgba(212, 175, 55, 0.22), transparent 64%),
+    radial-gradient(1120px 620px at 14% -12%, rgba(52, 240, 208, 0.22), transparent 64%),
     radial-gradient(900px 480px at 86% -14%, rgba(192, 132, 252, 0.18), transparent 70%),
     linear-gradient(162deg, #05050a 0%, #0a0a11 45%, #06060b 100%);
   --ae-shadow:
@@ -345,3 +345,4 @@
     opacity: 0;
   }
 }
+

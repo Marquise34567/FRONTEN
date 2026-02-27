@@ -97,9 +97,14 @@ const mapPacingPreset = (value: number) => {
   return "balanced";
 };
 
-const getZoomEffect = (speedRampEnabled: boolean, mode: RenderMode): ZoomEffect => {
+const getZoomEffect = (
+  speedRampEnabled: boolean,
+  mode: RenderMode,
+  detectedMode: RenderMode | null | undefined,
+): ZoomEffect => {
   if (speedRampEnabled) return "beat_zoom";
-  return mode === "vertical" ? "punch_zoom" : "slow_push_in";
+  const layoutMode = mode === "ai" ? (detectedMode === "vertical" ? "vertical" : "horizontal") : mode;
+  return layoutMode === "vertical" ? "punch_zoom" : "slow_push_in";
 };
 
 type EditorBackgroundTheme = "obsidian" | "aurora" | "daylight";
@@ -232,8 +237,11 @@ export default function AutoEditorPage() {
     resetSession,
   } = useAutoEditorStore();
 
+  const detectedLayoutMode = autoDetection?.finalMode === "vertical" ? "vertical" : "horizontal";
+
   const renderPayload = useMemo<AutoEditorRenderPayload | null>(() => {
     if (!videoId || !mode) return null;
+    const effectiveLayoutMode = mode === "ai" ? detectedLayoutMode : mode;
 
     return {
       videoId,
@@ -249,10 +257,10 @@ export default function AutoEditorPage() {
       captionStyle,
       captionFont,
       captionEffect,
-      zoomEffect: getZoomEffect(quickControls.speedRamp, mode),
+      zoomEffect: getZoomEffect(quickControls.speedRamp, mode, detectedLayoutMode),
       audioOption,
       suggestedSubMode,
-      verticalWebcamEnabled: mode === "vertical" ? verticalWebcamEnabled : false,
+      verticalWebcamEnabled: effectiveLayoutMode === "vertical" ? verticalWebcamEnabled : false,
       verticalWebcamLayout,
       captionOutlineEnabled,
       captionDropShadowEnabled,
@@ -278,9 +286,8 @@ export default function AutoEditorPage() {
     verticalWebcamLayout,
     videoId,
     suggestedSubMode,
+    detectedLayoutMode,
   ]);
-
-  const selectedMode = mode || "horizontal";
 
   const fetchRecentJobs = useCallback(async () => {
     if (!accessToken) return;
@@ -364,7 +371,7 @@ export default function AutoEditorPage() {
           toast({
             title: "Render complete",
             description:
-              selectedMode === "vertical"
+              job.mode === "vertical"
                 ? "Vertical highlight pipeline finished with retention insights."
                 : "Horizontal pipeline finished with retention insights.",
           });
@@ -400,7 +407,6 @@ export default function AutoEditorPage() {
     fetchRecentJobs,
     isRendering,
     renderJobId,
-    selectedMode,
     setErrorMessage,
     setLatestResult,
     setRenderState,
@@ -432,6 +438,7 @@ export default function AutoEditorPage() {
         Number(payload.metadata?.duration || 0) >= 180 &&
         Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) * 1.08;
       setUploadAnalysis(payload);
+      setMode("ai", true);
       setSuggestedSubMode(
         forceStandardSubMode
           ? "standard_mode"
@@ -512,7 +519,7 @@ export default function AutoEditorPage() {
     if (value && autoDetection?.finalMode) {
       const forceHorizontalMode =
         Number(duration || 0) >= 180 && autoDetection.metadataMode === "horizontal";
-      setMode(forceHorizontalMode ? "horizontal" : autoDetection.finalMode, false);
+      setMode("ai", false);
       setSuggestedSubMode(
         forceHorizontalMode
           ? "standard_mode"

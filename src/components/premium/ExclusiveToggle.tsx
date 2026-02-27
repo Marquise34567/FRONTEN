@@ -21,8 +21,8 @@ export default function ExclusiveToggle({
     <Switch
       className={cn(
         "border-[rgba(255,255,255,0.24)] bg-[#0b0b11]/90",
-        "data-[state=checked]:border-[rgba(212,175,55,0.62)]",
-        "data-[state=checked]:bg-[linear-gradient(128deg,#f6da8a_0%,#d4af37_32%,#c084fc_72%,#a855f7_100%)]",
+        "data-[state=checked]:border-[rgba(52,240,208,0.62)]",
+        "data-[state=checked]:bg-[linear-gradient(128deg,#95fff2_0%,#34f0d0_32%,#c084fc_72%,#a855f7_100%)]",
         className,
       )}
       {...props}
@@ -46,3 +46,4 @@ export default function ExclusiveToggle({
     </div>
   );
 }
+

@@ -37,7 +37,7 @@ export default function SubtleToggle({
           className={cn(
             "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] transition",
             checked
-              ? "border-[rgba(212,175,55,0.48)] bg-[rgba(212,175,55,0.14)] text-[#fff4e4]"
+              ? "border-[rgba(52,240,208,0.48)] bg-[rgba(52,240,208,0.14)] text-[#fff4e4]"
               : "border-white/15 bg-white/5 text-[#b9b1b2]",
           )}
         >
@@ -51,3 +51,4 @@ export default function SubtleToggle({
     </motion.div>
   );
 }
+

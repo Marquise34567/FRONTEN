@@ -91,8 +91,8 @@ export default function VerticalModeToolkit({
                 className={cn(
                   "rounded-xl border px-3 py-2 text-left transition",
                   active
-                    ? "border-[rgba(212,175,55,0.42)] bg-[rgba(212,175,55,0.12)] text-[#f6da8a]"
-                    : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(212,175,55,0.3)]",
+                    ? "border-[rgba(52,240,208,0.42)] bg-[rgba(52,240,208,0.12)] text-[#95fff2]"
+                    : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(52,240,208,0.3)]",
                   !webcamEnabled && "cursor-not-allowed opacity-55",
                 )}
               >
@@ -138,8 +138,8 @@ export default function VerticalModeToolkit({
                     className={cn(
                       "rounded-full border px-3 py-1.5 text-sm transition",
                       active
-                        ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.14)] text-slate-100"
-                        : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(212,175,55,0.32)]",
+                        ? "border-[rgba(52,240,208,0.45)] bg-[rgba(52,240,208,0.14)] text-slate-100"
+                        : "border-white/10 bg-black/35 text-slate-300 hover:border-[rgba(52,240,208,0.32)]",
                     )}
                   >
                     {option.label}
@@ -154,7 +154,7 @@ export default function VerticalModeToolkit({
           <div>
             <p className="mb-1 text-xs text-slate-400">Caption Style</p>
             <Select value={captionStyle} onValueChange={(value) => onCaptionStyleChange(value as CaptionStylePreset)}>
-              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                 <SelectValue placeholder="Select style" />
               </SelectTrigger>
               <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -169,7 +169,7 @@ export default function VerticalModeToolkit({
           <div>
             <p className="mb-1 text-xs text-slate-400">Caption Font</p>
             <Select value={captionFont} onValueChange={onCaptionFontChange}>
-              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                 <SelectValue placeholder="Select font" />
               </SelectTrigger>
               <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -184,7 +184,7 @@ export default function VerticalModeToolkit({
           <div>
             <p className="mb-1 text-xs text-slate-400">Motion / Effect</p>
             <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
-              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(212,175,55,0.45)]">
+              <SelectTrigger className="border-white/15 bg-black/40 text-slate-100 hover:border-[rgba(52,240,208,0.45)]">
                 <SelectValue placeholder="Select effect" />
               </SelectTrigger>
               <SelectContent className="border-white/20 bg-[#14161d] text-[#f6eee2]">
@@ -215,7 +215,7 @@ export default function VerticalModeToolkit({
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-[rgba(212,175,55,0.32)] bg-[rgba(212,175,55,0.12)] px-3 py-2 text-xs text-[#f6da8a]">
+        <div className="mt-3 rounded-xl border border-[rgba(52,240,208,0.32)] bg-[rgba(52,240,208,0.12)] px-3 py-2 text-xs text-[#95fff2]">
           <span className="font-medium">Tip:</span> Use <span className="font-medium">Impact Clean (No Lightning)</span> +
           outline + soft shadow for high-contrast TikTok subtitles without flashy strike effects.
         </div>
@@ -254,3 +254,4 @@ export default function VerticalModeToolkit({
     </div>
   );
 }
+
