@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { PlayCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import CleanCard from "@/features/autoeditor/components/primitives/CleanCard";
 import RetentionLineGraph from "@/features/autoeditor/components/editor/RetentionLineGraph";
+import {
+  buildRetentionAdvice,
+  getRetentionScore,
+  isGoodRetention,
+} from "@/features/autoeditor/lib/retentionQuality";
 import type { InsightTooltip, RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
 
 const pointInsight = (point: RetentionPoint): InsightTooltip => {
@@ -60,11 +65,15 @@ export default function RetentionInsights({
 }: RetentionInsightsProps) {
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const [tooltip, setTooltip] = useState<InsightTooltip | null>(null);
+  const [processingLogExpanded, setProcessingLogExpanded] = useState(false);
 
   const selectedPoint = useMemo(() => {
     if (!result?.retention.points.length) return null;
     return result.retention.points.find((point) => point.id === selectedPointId) || result.retention.points[0];
   }, [result, selectedPointId]);
+  const retentionScore = useMemo(() => getRetentionScore(result), [result]);
+  const goodRetention = useMemo(() => isGoodRetention(retentionScore), [retentionScore]);
+  const advice = useMemo(() => buildRetentionAdvice(result), [result]);
 
   useEffect(() => {
     if (!tooltip) return;
@@ -72,7 +81,11 @@ export default function RetentionInsights({
     return () => window.clearTimeout(timer);
   }, [tooltip]);
 
-  if (!result) return null;
+  useEffect(() => {
+    setProcessingLogExpanded(false);
+  }, [result?.jobId]);
+
+  if (!result || result.status !== "completed") return null;
 
   const handlePointSelect = (point: RetentionPoint) => {
     onSelectedPointIdChange(point.id);
@@ -84,17 +97,52 @@ export default function RetentionInsights({
   };
 
   return (
-    <CleanCard className="p-0">
+    <CleanCard id="retention-insights" className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
-        <p className="text-sm font-medium tracking-tight text-slate-100">Retention Details</p>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onExpandedChange(!expanded)}
-          className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.14]"
-        >
-          {expanded ? "Collapse Retention Insights" : "Expand Retention Insights"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium tracking-tight text-slate-100">Retention Details</p>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[11px] ${
+              goodRetention
+                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+                : "border-amber-300/40 bg-amber-500/15 text-amber-100"
+            }`}
+          >
+            Score {retentionScore.toFixed(1)}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              if (!expanded) onExpandedChange(true);
+              setProcessingLogExpanded((value) => !value);
+            }}
+            className="rounded-xl border-white/15 bg-white/[0.06] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.12]"
+          >
+            {processingLogExpanded ? (
+              <span className="inline-flex items-center gap-1">
+                <ChevronUp className="h-4 w-4" />
+                Hide Processing Log
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <ChevronDown className="h-4 w-4" />
+                Show Processing Log
+              </span>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onExpandedChange(!expanded)}
+            className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.14]"
+          >
+            {expanded ? "Collapse Retention Insights" : "Expand Retention Insights"}
+          </Button>
+        </div>
       </div>
 
       <AnimatePresence initial={false}>
@@ -115,6 +163,36 @@ export default function RetentionInsights({
                   selectedPointId={selectedPointId}
                   onPointSelect={handlePointSelect}
                 />
+                {goodRetention ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="relative mt-3 overflow-hidden rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3"
+                  >
+                    <motion.div
+                      className="absolute inset-0 pointer-events-none"
+                      animate={{ opacity: [0.15, 0.35, 0.15] }}
+                      transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <p className="relative text-sm font-medium text-emerald-100">
+                      Amazing retention: {retentionScore.toFixed(1)} / 100
+                    </p>
+                    <p className="relative mt-1 text-xs text-emerald-200/90">
+                      50+ is strong. This cut is in a healthy watch-through zone.
+                    </p>
+                  </motion.div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3">
+                    <p className="text-sm font-medium text-amber-100">
+                      Retention is {retentionScore.toFixed(1)} / 100, below the 50 target.
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-50/95">
+                      {advice.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <p className="mt-3 text-sm text-slate-300">{result.retention.summary}</p>
               </div>
 
@@ -138,6 +216,36 @@ export default function RetentionInsights({
                 </p>
               </aside>
             </div>
+
+            <AnimatePresence initial={false}>
+              {processingLogExpanded ? (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.22, ease: "easeInOut" }}
+                  className="overflow-hidden border-t border-white/10"
+                >
+                  <div className="p-4 sm:px-5">
+                    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+                      <p className="text-xs uppercase tracking-[0.13em] text-slate-400">Processing Log</p>
+                      {result.ffmpegCommands.length > 0 ? (
+                        <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-white/10 bg-black/45 p-2 font-mono text-[11px] text-slate-300">
+                          {result.ffmpegCommands.map((command, index) => (
+                            <p key={`${index}-${command.slice(0, 32)}`} className="break-all py-1">
+                              <span className="mr-2 text-slate-500">{String(index + 1).padStart(2, "0")}.</span>
+                              {command}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-slate-500">No processing commands were logged for this render.</p>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </motion.div>
         ) : null}
       </AnimatePresence>
