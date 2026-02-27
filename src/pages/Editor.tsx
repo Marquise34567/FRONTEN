@@ -31,6 +31,7 @@ import {
   ScissorsSquare,
   Scissors,
   MousePointerClick,
+  Pencil,
   X,
   XCircle,
   Map as MapIcon,
@@ -132,6 +133,14 @@ const normalizeVerticalCaptionTextForJob = (value: string) =>
     .slice(0, 18)
     .join("\n")
     .slice(0, 1800);
+
+const normalizeVerticalCaptionEditorText = (value: string) =>
+  String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => normalizeVerticalCaptionPhrase(line))
+    .slice(0, 18)
+    .join("\n");
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -1793,6 +1802,8 @@ const Editor = () => {
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState(0.84);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
+  const [verticalCaptionInlineEditorOpen, setVerticalCaptionInlineEditorOpen] = useState(false);
+  const [verticalCaptionInlineDraft, setVerticalCaptionInlineDraft] = useState("");
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -1882,6 +1893,7 @@ const Editor = () => {
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const verticalCompositionFrameRef = useRef<HTMLDivElement | null>(null);
+  const verticalCaptionInlineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const helpDemoVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -3709,6 +3721,33 @@ const Editor = () => {
     });
   }, [verticalCaptionEnabled, verticalCaptionPositionX, verticalCaptionPositionY]);
 
+  const openCaptionInlineEditor = useCallback(() => {
+    if (!verticalCaptionEnabled || !verticalPreviewUrl) return;
+    const fallbackPreviewCaption = verticalCaptionAutoGenerate
+      ? (VERTICAL_CAPTION_PREVIEW_FALLBACKS[verticalCaptionPreset] || "")
+      : "";
+    const seed = String(verticalCaptionText || "").trim().length > 0
+      ? verticalCaptionText
+      : fallbackPreviewCaption;
+    setCaptionDragInteraction(null);
+    setVerticalCaptionInlineDraft(normalizeVerticalCaptionEditorText(seed));
+    setVerticalCaptionInlineEditorOpen(true);
+  }, [verticalCaptionAutoGenerate, verticalCaptionEnabled, verticalCaptionPreset, verticalCaptionText, verticalPreviewUrl]);
+
+  const closeCaptionInlineEditor = useCallback(() => {
+    setVerticalCaptionInlineEditorOpen(false);
+    setVerticalCaptionInlineDraft("");
+  }, []);
+
+  const applyCaptionInlineEditor = useCallback(() => {
+    const normalized = normalizeVerticalCaptionEditorText(verticalCaptionInlineDraft);
+    setVerticalCaptionText(normalized);
+    if (normalized.trim().length > 0) {
+      setVerticalCaptionAutoGenerate(false);
+    }
+    setVerticalCaptionInlineEditorOpen(false);
+  }, [verticalCaptionInlineDraft]);
+
   useEffect(() => {
     if (!cropInteraction || !sourceVideoMeta) return;
     const onMove = (event: PointerEvent) => {
@@ -3775,6 +3814,21 @@ const Editor = () => {
       window.removeEventListener("pointercancel", onEnd);
     };
   }, [captionDragInteraction]);
+
+  useEffect(() => {
+    if (!verticalCaptionInlineEditorOpen) return;
+    const raf = window.requestAnimationFrame(() => {
+      verticalCaptionInlineTextareaRef.current?.focus();
+      verticalCaptionInlineTextareaRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [verticalCaptionInlineEditorOpen]);
+
+  useEffect(() => {
+    if (verticalCaptionEnabled && verticalPreviewUrl) return;
+    setVerticalCaptionInlineEditorOpen(false);
+    setVerticalCaptionInlineDraft("");
+  }, [verticalCaptionEnabled, verticalPreviewUrl]);
 
   const webcamPaddingMax = useMemo(() => {
     if (!webcamCrop) return 0;
@@ -5308,7 +5362,6 @@ const Editor = () => {
   const previewVideoUrl = previewOutputUrl || (canShowAiProgressPreview ? previewFallbackUrl : "");
   const previewUsesProxy = Boolean(activeProxyPreviewUrl && previewVideoUrl === activeProxyPreviewUrl);
   const activeProxyPreviewRefreshNonce = activeJob ? (proxyPreviewRefreshNonceByJob[activeJob.id] || 0) : 0;
-  const showVideo = Boolean(activeJob && previewVideoUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -7595,18 +7648,83 @@ const Editor = () => {
                             />
                             <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-emerald-200/10" />
                             {verticalCaptionEnabled && verticalCaptionPreviewText && verticalPreviewUrl ? (
-                              <button
-                                type="button"
-                                className={`absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${captionDragInteraction ? "cursor-grabbing" : "cursor-grab"}`}
+                              <div
+                                className="absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1"
                                 style={{
                                   left: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%`,
                                   top: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%`,
                                 }}
-                                onPointerDown={beginCaptionDrag}
                               >
-                                <MousePointerClick className="h-3 w-3" />
-                                Caption
-                              </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] hover:bg-slate-800/90"
+                                  onClick={openCaptionInlineEditor}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                  Caption
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`inline-flex items-center gap-1 rounded-full border border-cyan-200/70 bg-slate-900/85 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${captionDragInteraction ? "cursor-grabbing" : "cursor-grab"} hover:bg-slate-800/90`}
+                                  onPointerDown={beginCaptionDrag}
+                                  aria-label="Drag caption position"
+                                  title="Drag caption position"
+                                >
+                                  <MousePointerClick className="h-3 w-3" />
+                                  Move
+                                </button>
+                              </div>
+                            ) : null}
+                            {verticalCaptionInlineEditorOpen && verticalCaptionEnabled && verticalPreviewUrl ? (
+                              <div
+                                className="absolute z-30 w-[min(92vw,280px)] -translate-x-1/2 translate-y-3"
+                                style={{
+                                  left: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionX) * 100)}%`,
+                                  top: `${Math.round(clampVerticalCaptionPosition(verticalCaptionPositionY) * 100)}%`,
+                                }}
+                              >
+                                <div className="rounded-xl border border-cyan-200/60 bg-slate-950/95 p-2 shadow-[0_14px_30px_rgba(0,0,0,0.55)]">
+                                  <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/80">Edit caption</p>
+                                  <textarea
+                                    ref={verticalCaptionInlineTextareaRef}
+                                    value={verticalCaptionInlineDraft}
+                                    onChange={(event) => setVerticalCaptionInlineDraft(normalizeVerticalCaptionEditorText(event.target.value))}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Escape") {
+                                        event.preventDefault();
+                                        closeCaptionInlineEditor();
+                                        return;
+                                      }
+                                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                        event.preventDefault();
+                                        applyCaptionInlineEditor();
+                                      }
+                                    }}
+                                    rows={4}
+                                    placeholder={"WTF 😂\nNO WAY HAPPENED\nRUN IT BACK"}
+                                    className="mt-1 min-h-[84px] w-full resize-y rounded-lg border border-cyan-300/35 bg-slate-900/85 px-2 py-1.5 text-xs text-cyan-50 outline-none focus:border-cyan-200/80"
+                                  />
+                                  <div className="mt-2 flex items-center justify-end gap-1.5">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-[11px]"
+                                      onClick={closeCaptionInlineEditor}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-7 px-2 text-[11px]"
+                                      onClick={applyCaptionInlineEditor}
+                                    >
+                                      Apply
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
                             ) : null}
                             {!verticalPreviewUrl ? (
                               <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black px-6 text-center text-sm text-slate-300">
@@ -7912,7 +8030,7 @@ const Editor = () => {
                           />
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-[11px] text-muted-foreground">
-                              Drag the CAPTION handle in the preview to place text anywhere.
+                              Click CAPTION in the preview to edit text, or drag MOVE to reposition it.
                             </p>
                             <Button
                               type="button"
@@ -7942,16 +8060,7 @@ const Editor = () => {
                           <p className="text-xs font-medium text-foreground">Custom caption phrases (optional)</p>
                           <Textarea
                             value={verticalCaptionText}
-                            onChange={(event) =>
-                              setVerticalCaptionText(
-                                String(event.target.value || "")
-                                  .replace(/\r\n?/g, "\n")
-                                  .split("\n")
-                                  .map((line) => normalizeVerticalCaptionPhrase(line))
-                                  .slice(0, 18)
-                                  .join("\n"),
-                              )
-                            }
+                            onChange={(event) => setVerticalCaptionText(normalizeVerticalCaptionEditorText(event.target.value))}
                             placeholder={"WTF 😂\nNO WAY HAPPENED\nRUN IT BACK"}
                             className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
                           />
@@ -8162,62 +8271,20 @@ const Editor = () => {
                   </div>
                 )}
 
-                <div>
-                  <div className="glass-card overflow-hidden">
-                    <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Manual Output Preview</p>
-                      <span className="text-[10px] text-muted-foreground">
-                        {previewOutputUrl
-                          ? "Final output ready"
-                          : canShowAiProgressPreview
-                            ? (previewVideoUrl ? "AI progress preview" : "Preparing AI preview")
-                            : "Preview unlocks after pacing"}
-                      </span>
-                    </div>
-                    <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
-                      {showVideo ? (
-                        <video
-                          ref={previewVideoRef}
-                          src={previewVideoUrl}
-                          controls
-                          onLoadedMetadata={handlePreviewLoadedMetadata}
-                          onTimeUpdate={handlePreviewTimeUpdate}
-                          onPlay={handlePreviewPlay}
-                          onPause={handlePreviewPause}
-                          onEnded={handlePreviewEnded}
-                          onError={handlePreviewVideoError}
-                          className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
-                        />
-                      ) : (
-                        <>
-                          <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
-                          <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
-                            <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-                              {!activeJob ? (
-                                <CircleOff className="w-6 h-6 text-muted-foreground" />
-                              ) : activeJob && !isTerminalStatus(activeJob.status) ? (
-                                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                              ) : (
-                                <Play className="w-6 h-6 text-primary ml-0.5" />
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              {!activeJob
-                                ? "Select a job to preview."
-                                : normalizedActiveStatus === "failed"
-                                  ? activeJob.error === "queue_canceled_by_user"
-                                    ? "Job canceled"
-                                    : "Job failed"
-                                  : canShowAiProgressPreview
-                                    ? "Preparing AI edit preview..."
-                                    : "Preview becomes available after hook, cuts, and pacing."}
-                            </p>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <video
+                  ref={previewVideoRef}
+                  src={previewVideoUrl || undefined}
+                  preload="metadata"
+                  playsInline
+                  muted
+                  onLoadedMetadata={handlePreviewLoadedMetadata}
+                  onTimeUpdate={handlePreviewTimeUpdate}
+                  onPlay={handlePreviewPlay}
+                  onPause={handlePreviewPause}
+                  onEnded={handlePreviewEnded}
+                  onError={handlePreviewVideoError}
+                  className="hidden"
+                />
               </div>
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
@@ -9249,6 +9316,30 @@ const Editor = () => {
             </p>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Manual Output Preview</p>
+              {previewOutputUrl ? (
+                <div className={`${activeJob?.renderMode === "vertical" ? "mx-auto aspect-[9/16] max-w-[260px]" : "aspect-video"} overflow-hidden rounded-xl border border-border/50 bg-black`}>
+                  <video
+                    src={previewOutputUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    onLoadedMetadata={handlePreviewLoadedMetadata}
+                    onTimeUpdate={handlePreviewTimeUpdate}
+                    onPlay={handlePreviewPlay}
+                    onPause={handlePreviewPause}
+                    onEnded={handlePreviewEnded}
+                    onError={handlePreviewVideoError}
+                    className={`h-full w-full ${activeJob?.renderMode === "vertical" ? "object-contain bg-black" : "object-cover"}`}
+                  />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Final preview will appear here after rendering completes.
+                </div>
+              )}
+            </div>
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-foreground">Export Quality</span>
