@@ -36,7 +36,7 @@ export default function InitialSettingsPanel({
           {mode === "vertical" ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#e6cfa9]/45 bg-[#d4b483]/18 px-3 py-1 text-xs text-[#ffefd5]">
               <WandSparkles className="h-3.5 w-3.5 text-[#f8dcae]" />
-              Highlight Mode default: 3 best moments, 15-30s, first-3s hook
+              Highlight Mode default: 5s cuts, 5-8s opener hook
             </span>
           ) : null}
         </div>

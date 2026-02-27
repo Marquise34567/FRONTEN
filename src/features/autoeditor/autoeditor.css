@@ -1,25 +1,60 @@
 .autoeditor-root {
-  --ae-bg: #111216;
-  --ae-bg-soft: #171a21;
-  --ae-surface: rgba(255, 255, 255, 0.045);
-  --ae-surface-soft: rgba(255, 255, 255, 0.03);
-  --ae-surface-strong: rgba(255, 255, 255, 0.08);
-  --ae-text: #f6f3ec;
-  --ae-subtext: #c5bec2;
+  --ae-bg: #0f1116;
+  --ae-bg-soft: #171b23;
+  --ae-text: #f7f2ea;
+  --ae-subtext: #bfb4b3;
   --ae-border: rgba(255, 255, 255, 0.14);
-  --ae-accent: #d4b483;
-  --ae-accent-soft: rgba(212, 180, 131, 0.24);
+  --ae-kicker: #ddc8a8;
+  --ae-accent: #d8b885;
+  --ae-grid: rgba(255, 255, 255, 0.03);
+  --ae-backdrop:
+    radial-gradient(1120px 620px at 14% -12%, rgba(216, 184, 133, 0.22), transparent 64%),
+    radial-gradient(900px 480px at 86% -14%, rgba(116, 152, 208, 0.18), transparent 70%),
+    linear-gradient(162deg, #0f1116 0%, #141924 45%, #0f1218 100%);
   --ae-shadow:
     0 40px 84px -46px rgba(0, 0, 0, 0.88),
     0 14px 26px -18px rgba(0, 0, 0, 0.62),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   font-family: "Sora", "Manrope", "Avenir Next", "SF Pro Text", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(1100px 560px at 16% -8%, rgba(212, 180, 131, 0.2), transparent 65%),
-    radial-gradient(900px 460px at 88% -12%, rgba(149, 177, 219, 0.18), transparent 68%),
-    linear-gradient(165deg, #111216 0%, #141821 42%, #101114 100%);
+  background: var(--ae-backdrop);
   color: var(--ae-text);
   isolation: isolate;
+  position: relative;
+}
+
+.autoeditor-root[data-theme="aurora"] {
+  --ae-bg: #0c1117;
+  --ae-bg-soft: #121d27;
+  --ae-kicker: #9bcfe2;
+  --ae-accent: #61d2c8;
+  --ae-grid: rgba(154, 241, 230, 0.058);
+  --ae-backdrop:
+    radial-gradient(1200px 620px at 12% -15%, rgba(81, 179, 255, 0.24), transparent 62%),
+    radial-gradient(980px 520px at 86% -10%, rgba(97, 210, 200, 0.24), transparent 70%),
+    linear-gradient(162deg, #0c1117 0%, #111d28 42%, #0d141c 100%);
+}
+
+.autoeditor-root[data-theme="daylight"] {
+  --ae-bg: #15121a;
+  --ae-bg-soft: #211827;
+  --ae-kicker: #f1cb8d;
+  --ae-accent: #f0a86c;
+  --ae-grid: rgba(255, 211, 169, 0.05);
+  --ae-backdrop:
+    radial-gradient(1160px 680px at 14% -12%, rgba(255, 170, 101, 0.3), transparent 64%),
+    radial-gradient(920px 520px at 86% -12%, rgba(255, 113, 163, 0.24), transparent 72%),
+    linear-gradient(164deg, #17121d 0%, #261a2e 43%, #18111d 100%);
+}
+
+.autoeditor-root .ae-background-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -2;
+  background:
+    radial-gradient(780px 480px at -12% 102%, rgba(255, 255, 255, 0.06), transparent 74%),
+    radial-gradient(700px 420px at 112% 102%, rgba(255, 255, 255, 0.04), transparent 78%);
+  animation: ae-background-float 24s linear infinite;
 }
 
 .autoeditor-root::before {
@@ -29,8 +64,8 @@
   pointer-events: none;
   opacity: 0.35;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(var(--ae-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ae-grid) 1px, transparent 1px);
   background-size: 26px 26px;
   mask-image: radial-gradient(circle at 50% 40%, rgba(0, 0, 0, 0.75), transparent 90%);
   z-index: -1;
@@ -46,11 +81,11 @@
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.69rem;
-  color: #d2c1a7;
+  color: var(--ae-kicker);
 }
 
 .autoeditor-root .ae-muted {
-  color: #b0a9ad;
+  color: var(--ae-subtext);
 }
 
 .autoeditor-root * {
@@ -85,9 +120,63 @@
 }
 
 .autoeditor-root .ae-chip-accent {
-  border-color: rgba(212, 180, 131, 0.5);
-  background: linear-gradient(180deg, rgba(212, 180, 131, 0.32), rgba(212, 180, 131, 0.12));
+  border-color: color-mix(in srgb, var(--ae-accent) 60%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ae-accent) 33%, transparent), color-mix(in srgb, var(--ae-accent) 13%, transparent));
   color: #fff8ec;
+}
+
+.autoeditor-root .ae-theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 0.3rem 0.4rem 0.3rem 0.6rem;
+  background: rgba(8, 10, 14, 0.56);
+  backdrop-filter: blur(10px);
+}
+
+.autoeditor-root .ae-theme-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.67rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ae-kicker) 82%, #ffffff 18%);
+}
+
+.autoeditor-root .ae-theme-switch-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.autoeditor-root .ae-theme-option {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 0.24rem 0.56rem;
+  font-size: 0.69rem;
+  letter-spacing: 0.04em;
+  color: #d7ccce;
+  background: rgba(255, 255, 255, 0.06);
+  transition: all 180ms ease;
+}
+
+.autoeditor-root .ae-theme-option:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-0.5px);
+}
+
+.autoeditor-root .ae-theme-option.is-active {
+  border-color: color-mix(in srgb, var(--ae-accent) 70%, transparent);
+  color: #fff4e1;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--ae-accent) 34%, transparent),
+    color-mix(in srgb, var(--ae-accent) 14%, transparent)
+  );
+  box-shadow: 0 12px 24px -18px color-mix(in srgb, var(--ae-accent) 62%, transparent);
 }
 
 .autoeditor-root .ae-skeleton {
@@ -224,6 +313,18 @@
   }
 }
 
+@keyframes ae-background-float {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -1.6%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 @keyframes ae-shimmer {
   0% {
     transform: translateX(-120%);
@@ -234,6 +335,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .autoeditor-root .ae-background-layer {
+    animation: none;
+  }
+
   .autoeditor-root .ae-skeleton::after {
     animation: none;
     transform: none;
