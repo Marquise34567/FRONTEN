@@ -2805,11 +2805,9 @@ const Editor = () => {
   useEffect(() => {
     if (mobilePipeline) {
       setPipelineLogOpen(false);
-      setRetentionDetailsOpen(false);
       return;
     }
     setPipelineLogOpen(true);
-    setRetentionDetailsOpen(true);
   }, [mobilePipeline, activeJob?.id]);
 
   useEffect(() => {
@@ -5913,7 +5911,6 @@ const Editor = () => {
       (typeof detectedRetentionTargetPlatform === "string" && detectedRetentionTargetPlatform) || retentionTargetPlatform
     );
     const nicheLabel = detectedNicheRaw ? formatNicheLabel(detectedNicheRaw) : "General";
-    setRetentionDetailsOpen(true);
     toast({
       title: "Trend alignment opened",
       description: `${strategyLabel} pacing on ${platformLabel}; niche signal ${nicheLabel}.`,
@@ -8622,10 +8619,12 @@ const Editor = () => {
                               <Button
                                 variant="outline"
                                 className="min-h-12 w-full gap-2 border-emerald-300/45 bg-emerald-500/5 text-emerald-100 hover:bg-emerald-500/15 sm:w-auto"
-                                onClick={() => navigate("/feedback")}
+                                onClick={() =>
+                                  navigate(`/feedback?jobId=${encodeURIComponent(activeJob.id)}&source=classic`)
+                                }
                               >
                                 <MessageSquareText className="h-4 w-4" />
-                                Video Feedback
+                                Feedback
                               </Button>
                             ) : null}
                           </div>
@@ -8656,314 +8655,29 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
-                            {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
-                          </Badge>
-                          <Badge className="border-primary/35 bg-primary/10 text-primary">
-                            {manualMode
-                              ? "Manual hook"
-                              : hookSelectionSource === "fallback"
-                                ? "Fallback hook"
-                                : "Auto hook"}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      {(manualMode || manualOverridePlan) ? (
-                        <div className="space-y-2 rounded-lg border border-violet-300/35 bg-violet-500/10 p-3 text-xs text-violet-100">
-                          <p className="font-semibold uppercase tracking-[0.16em]">Manual Override Plan</p>
-                          <p>
-                            Manual Mode: ON | Hook: {manualOverridePlan?.hook || (activeManualMarkers.some((marker) => marker.type === "hook") ? "user-set" : manualAutoAssist ? "AI-suggested" : "none")}
-                            {(activeManualHookMarker || (manualOverridePlan?.hook && !manualOverridePlan.hook.toLowerCase().includes("none")))
-                              ? " | Opening: pinned to 00:00"
-                              : ""}
+                    <div className="rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Moved to Analytics page for a cleaner editor workspace.
                           </p>
-                          <div className="space-y-1 text-violet-100/90">
-                            <p className="font-medium">User Cuts:</p>
-                            {(manualOverridePlan?.userCuts && manualOverridePlan.userCuts.length > 0)
-                              ? manualOverridePlan.userCuts.slice(0, 8).map((line, index) => <p key={`manual-cut-${index}`}>- {line}</p>)
-                              : activeManualMarkers.length > 0
-                                ? activeManualMarkers
-                                    .filter((marker) => marker.type === "keep" || marker.type === "remove")
-                                    .slice(0, 8)
-                                    .map((marker) => (
-                                      <p key={`manual-cut-live-${marker.id}`}>
-                                        - {marker.type === "keep" ? "KEEP" : "REMOVE"} {formatHookRange(marker.start, marker.end)}
-                                      </p>
-                                    ))
-                                : <p>- none</p>}
-                          </div>
-                          <div className="space-y-1 text-violet-100/90">
-                            <p className="font-medium">Removals:</p>
-                            {(manualOverridePlan?.removals && manualOverridePlan.removals.length > 0)
-                              ? manualOverridePlan.removals.slice(0, 8).map((line, index) => <p key={`manual-removal-${index}`}>- {line}</p>)
-                              : activeManualMarkers.filter((marker) => marker.type === "remove").length > 0
-                                ? activeManualMarkers
-                                    .filter((marker) => marker.type === "remove")
-                                    .slice(0, 8)
-                                    .map((marker) => <p key={`manual-removal-live-${marker.id}`}>- {formatHookRange(marker.start, marker.end)}</p>)
-                                : <p>- none</p>}
-                          </div>
-                          <p>
-                            Retention Impact: {manualOverridePlan?.retentionImpact || (manualRetentionDisplay !== null ? `${manualRetentionDisplay >= 0 ? "+" : ""}${manualRetentionDisplay.toFixed(2)} pts` : "n/a")}
-                          </p>
-                          <div className="space-y-1 text-violet-100/90">
-                            <p className="font-medium">AI Suggestions:</p>
-                            {(manualOverridePlan?.aiSuggestions && manualOverridePlan.aiSuggestions.length > 0)
-                              ? manualOverridePlan.aiSuggestions.slice(0, 8).map((line, index) => <p key={`manual-ai-${index}`}>- {line}</p>)
-                              : activeManualSuggestions.length > 0
-                                ? activeManualSuggestions.slice(0, 8).map((item) => (
-                                    <p key={`manual-ai-live-${item.id}`}>
-                                      - {item.type.toUpperCase()} {formatHookRange(item.start, item.end)} :: {item.rationale}
-                                    </p>
-                                  ))
-                                : <p>- none</p>}
-                          </div>
-                          {manualWarnings.length > 0 ? (
-                            <div className="space-y-1 text-amber-200">
-                              {manualWarnings.slice(0, 3).map((warning, index) => (
-                                <p key={`manual-warning-${index}`}>- {warning}</p>
-                              ))}
-                            </div>
-                          ) : null}
                         </div>
-                      ) : null}
-
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            <div className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
-                              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Manual</p>
-                              {manualRetentionDisplay !== null ? (
-                                <p className={`mt-1 text-xl font-semibold ${manualRetentionDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
-                                  {manualRetentionDisplay > 0 ? "+" : ""}{manualRetentionDisplay.toFixed(1)}
-                                </p>
-                              ) : (
-                                <p className="mt-1 text-sm text-muted-foreground">n/a</p>
-                              )}
-                            </div>
-                            <div className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
-                              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">AI</p>
-                              {retentionScoreDeltaDisplay !== null ? (
-                                <motion.p
-                                  key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
-                                  initial={{ opacity: 0, y: 6 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  className={`mt-1 text-xl font-semibold ${
-                                    retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
-                                  }`}
-                                >
-                                  {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
-                                  <span className="ml-1 text-sm align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
-                                </motion.p>
-                              ) : !isTerminalStatus(activeJob.status) ? (
-                                <div className="mt-2 h-6 w-20 animate-pulse rounded-md bg-muted/50" />
-                              ) : (
-                                <p className="mt-1 text-sm text-muted-foreground">Pending</p>
-                              )}
-                            </div>
-                          </div>
-                          {manualVsAiRetentionDelta !== null ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Manual vs AI delta: {manualVsAiRetentionDelta >= 0 ? "+" : ""}{manualVsAiRetentionDelta.toFixed(1)} pts
-                            </p>
-                          ) : null}
-                          <p className="mt-2 break-words text-xs text-foreground/90">
-                            Hook source: {pinnedHookSourceRangeLabel || hookWindowLabel}
-                            {hookText ? ` — ${hookText}` : ""}
-                          </p>
-                          {hookPinnedToOpening ? (
-                            <p className="mt-1 text-xs text-muted-foreground">Opening placement: pinned to 00:00 in the edited timeline.</p>
-                          ) : null}
-                          {hookReason ? (
-                            <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
-                          ) : null}
-                        </div>
-                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Deep Dive</p>
-                          <div className="mt-2">
-                            <RetentionGraphModal
-                              canAccessPremium={paidTier || isDevAccount}
-                              curve={retentionCurvePreview}
-                              durationSec={activeManualDurationSec}
-                              beforeScore={retentionScoreBeforeDisplay}
-                              afterScore={retentionScoreAfterDisplay}
-                              deltaScore={retentionScoreDeltaDisplay}
-                              hookStartSec={hookStartSec}
-                              hookEndSec={hookEndSec}
-                              hookText={hookText}
-                              hookReason={hookReason}
-                              keepWatchingReasons={whyKeepWatching}
-                              weakReasons={genericReasons}
-                              improvementTips={retentionImprovements}
-                              trendSignals={retentionTrendSignals}
-                              onUpgrade={handleRetentionAnalyticsUpgrade}
-                              onFixWeakPartsNow={handleRetentionFixWeakPartsNow}
-                              onBoostBestMoments={handleRetentionBoostBestMoments}
-                              onApplyAllSuggestions={handleRetentionApplyAllSuggestions}
-                              onSeeTrendAlignment={handleRetentionTrendAlignment}
-                            />
-                          </div>
-                          {retentionBeforeBar !== null && retentionAfterBar !== null ? (
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-1 text-muted-foreground">
-                                Before {retentionScoreBeforeDisplay?.toFixed(1)}%
-                              </span>
-                              <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-1 text-primary">
-                                After {retentionScoreAfterDisplay?.toFixed(1)}%
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="overflow-hidden rounded-lg border border-border/50 bg-background/30">
-                        <button
+                        <Button
                           type="button"
-                          aria-expanded={retentionDetailsOpen}
-                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
-                          onClick={() => setRetentionDetailsOpen((prev) => !prev)}
+                          className="min-h-12 w-full gap-2 sm:min-h-10 sm:w-auto"
+                          onClick={() => {
+                            if (!paidTier && !isDevAccount) {
+                              handleRetentionAnalyticsUpgrade();
+                              return;
+                            }
+                            navigate(`/analytics?jobId=${encodeURIComponent(activeJob.id)}`);
+                          }}
                         >
-                          <span className="font-medium">{retentionDetailsOpen ? "Hide retention details" : "Show retention details"}</span>
-                          <span className="text-muted-foreground">{retentionDetailsOpen ? "Collapse" : "Expand"}</span>
-                        </button>
-                        {retentionDetailsOpen ? (
-                          <div className="space-y-2 border-t border-border/40 p-3 text-xs text-muted-foreground">
-                            {detectedRetentionStrategyProfile ? (
-                              <p>Profile: {formatNicheLabel(detectedRetentionStrategyProfile)}</p>
-                            ) : null}
-                            {detectedRetentionContentFormat ? (
-                              <p>Format: {formatNicheLabel(detectedRetentionContentFormat)}</p>
-                            ) : null}
-                            {detectedRetentionTargetPlatform ? (
-                              <p>Target: {formatPlatformLabel(detectedRetentionTargetPlatform)}</p>
-                            ) : null}
-                            {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
-                              <p>
-                                Predicted completion: {verticalPredictedAverage.toFixed(1)}%
-                                {metadataSelectionMode ? ` (${formatNicheLabel(metadataSelectionMode)})` : ""}
-                              </p>
-                            ) : null}
-                            {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Top clip predictions:</p>
-                                {metadataClipSummaries.map((entry) => (
-                                  <p key={`clip-prediction-${entry.clip}`} className="text-foreground/90">
-                                    - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
-                                    {entry.reason ? ` — ${entry.reason}` : ""}
-                                  </p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {detectedNicheRaw ? (
-                              <p>
-                                Detected niche: {formatNicheLabel(detectedNicheRaw)}
-                                {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
-                              </p>
-                            ) : null}
-                            {detectedNicheRationale.length > 0 ? (
-                              <div className="space-y-1">
-                                {detectedNicheRationale.map((line, index) => (
-                                  <p key={`niche-rationale-${index}`}>- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {retentionImprovements.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Improvements:</p>
-                                {retentionImprovements.map((line, index) => (
-                                  <p key={`improve-${index}`} className="text-foreground/90">- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {whyKeepWatching.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Why viewers stay:</p>
-                                {whyKeepWatching.map((line, index) => (
-                                  <p key={`why-${index}`} className="text-foreground/90">- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
-                              <div className="space-y-1">
-                                <p className="text-destructive">Gate reason: {failedGateReason}</p>
-                                {genericReasons.length > 0 ? (
-                                  <div className="space-y-1">
-                                    {genericReasons.map((line, index) => (
-                                      <p key={`generic-${index}`}>- {line}</p>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            <div className="space-y-1 pt-1">
-                              <p>
-                                Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
-                              </p>
-                              {paidTier ? (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {CREATOR_FEEDBACK_ACTIONS.map((action) => (
-                                    <Button
-                                      key={action.category}
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 px-2 text-[11px]"
-                                      disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
-                                      onClick={() => void submitCreatorFeedback(action.category)}
-                                    >
-                                      {creatorFeedbackSubmitting === action.category ? (
-                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                      ) : null}
-                                      {action.label}
-                                    </Button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-[11px]">
-                                  Upgrade to send hook/pacing/generic corrections directly to the model.
-                                </p>
-                              )}
-                            </div>
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                                onClick={() => setShowAdvancedDebug((prev) => !prev)}
-                              >
-                                {showAdvancedDebug ? "Hide Advanced" : "Advanced"}
-                              </button>
-                            </div>
-                            {showAdvancedDebug ? (
-                              <div className="space-y-1 text-[11px]">
-                                <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
-                                <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
-                                <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
-                                <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
-                                <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
-                                <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
-                                <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
-                                <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
-                                <p className="break-all">
-                                  Emotional tuning:
-                                  {" "}
-                                  {activeAnalysis?.emotional_tuning_profile
-                                    ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
-                                    : "n/a"}
-                                </p>
-                                <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
-                                <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
-                                <p>Attempts stored: {retentionAttempts.length}</p>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
+                          {paidTier || isDevAccount ? "Open Analytics" : "Upgrade for Analytics"}
+                        </Button>
                       </div>
+                    </div>
 
                       <div className="overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
                         <button
@@ -9000,9 +8714,8 @@ const Editor = () => {
                           </div>
                         ) : null}
                       </div>
-                    </div>
-                  </>
-                )}
+                    </>
+                  )}
               </div>
             </section>
           </div>
@@ -9479,3 +9192,4 @@ const Editor = () => {
 };
 
 export default Editor;
+

@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Link, useNavigate } from "react-router-dom";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import GlowBackdrop from "@/components/GlowBackdrop";
@@ -10,193 +9,154 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Sparkles, TrendingUp, Upload, WandSparkles } from "lucide-react";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { BarChart3, Loader2, Sparkles, WandSparkles } from "lucide-react";
 
 type FeedbackJob = {
   id: string;
+  sourceType: "classic" | "vibecut";
   title: string;
   createdAt: string;
   durationSeconds: number | null;
 };
 
-type TrendInsight = {
-  title: string;
-  summary: string;
-  howToApply: string;
-  source: string;
-  url: string;
-  publishedAt: string | null;
+type PlatformPrediction = {
+  score: number;
+  confidence: number;
+  potential: "low" | "moderate" | "high";
+  reasoning: string;
 };
 
-type FeedbackAnalysis = {
-  detectedNiche: string;
-  detectedTopics: string[];
-  trendingTopics: string[];
-  voicePerformance: string[];
-  positioningAngle: string[];
-  contentTips: string[];
-  retentionBoosts: string[];
-  trendInsights: TrendInsight[];
-  retentionBoostEstimatePercent: number;
-  visuals: {
-    retentionCurve: Array<{ second: number; score: number }>;
-    suggestionPins: Array<{ second: number; label: string }>;
+type AnalyticsReport = {
+  schemaVersion: number;
+  style: {
+    surface: string;
+    accent: string;
+    renderHint: string;
   };
+  classification: {
+    type: "short-form" | "long-form";
+    reason: string;
+  };
+  source: {
+    type: string;
+    title: string;
+  };
+  metrics: {
+    timeSavedOnThisEdit: {
+      estimatedManualWithoutAiMinutes: number;
+      actualTimeSpentMinutes: number;
+      timeSavedMinutes: number;
+      aiContributionPercent: number;
+      summary: string;
+      visualization: string;
+      action: string;
+    };
+    renderDetails: {
+      exportFormat: {
+        container: string;
+        resolution: string;
+        orientation: "vertical" | "horizontal" | "unknown";
+        aspectRatio: string;
+      };
+      templateUsed: string;
+      chapterCount: number;
+      featureCoveragePercent: {
+        deadAirTrim: number;
+        audioEnhancement: number;
+        captions: number;
+      };
+      summary: string;
+      visualization: string;
+      action: string;
+    };
+    retentionPotential: {
+      estimatedLiftPercent: number;
+      summary: string;
+      visualization: string;
+      action: string;
+      simulatedWatchTimeSeconds: {
+        before: number;
+        after: number;
+      };
+    };
+    engagementInsights: {
+      available: boolean;
+      summary: string;
+      visualization: string;
+      action: string;
+      retentionRatePercent: number | null;
+      views: number | null;
+      ratios: {
+        engagementRatePercent: number | null;
+      };
+    };
+    aiEfficiencyScore: {
+      score: number;
+      summary: string;
+      visualization: string;
+      action: string;
+    };
+    contentOptimizationBreakdown: {
+      shortenedPercent: number;
+      mostImpactfulFeature: string;
+      summary: string;
+      visualization: string;
+      action: string;
+      featureContributionPercent: Array<{ feature: string; percent: number }>;
+    };
+    platformPerformancePredictions: {
+      youtube: PlatformPrediction;
+      tiktok: PlatformPrediction;
+      instagram: PlatformPrediction;
+      bestFit: "youtube" | "tiktok" | "instagram";
+      summary: string;
+      visualization: string;
+      action: string;
+    };
+    improvementSuggestions: {
+      suggestions: string[];
+      summary: string;
+      visualization: string;
+    };
+  };
+  motivationalNote: string;
 };
 
 type FeedbackResponse = {
   generatedAt: string;
-  feedback: FeedbackAnalysis;
+  feedback: AnalyticsReport;
 };
 
-type FeedbackRenderBoundaryProps = {
-  children: React.ReactNode;
-  resetKey: string | number;
-};
+type RealtimePredictionTrend = "rising" | "steady" | "falling";
 
-type FeedbackRenderBoundaryState = {
-  hasError: boolean;
-  errorMessage: string | null;
-};
-
-class FeedbackRenderBoundary extends React.Component<FeedbackRenderBoundaryProps, FeedbackRenderBoundaryState> {
-  state: FeedbackRenderBoundaryState = {
-    hasError: false,
-    errorMessage: null,
-  };
-
-  static getDerivedStateFromError(error: unknown): FeedbackRenderBoundaryState {
-    return {
-      hasError: true,
-      errorMessage: error instanceof Error ? error.message : "Feedback rendering failed.",
-    };
-  }
-
-  componentDidCatch(error: unknown) {
-    console.error("Feedback render error:", error);
-  }
-
-  componentDidUpdate(prevProps: FeedbackRenderBoundaryProps) {
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({
-        hasError: false,
-        errorMessage: null,
-      });
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-rose-400/35 bg-rose-500/10 p-4 text-sm text-rose-100">
-          <p className="font-semibold">Could not render feedback output.</p>
-          <p className="mt-1 text-xs text-rose-200/90">
-            Try another job/upload source and run analysis again.
-          </p>
-          {this.state.errorMessage ? (
-            <p className="mt-2 rounded-md border border-rose-300/35 bg-black/30 px-2 py-1 text-[11px] text-rose-100/90">
-              {this.state.errorMessage}
-            </p>
-          ) : null}
-        </section>
-      );
-    }
-    return <>{this.props.children}</>;
-  }
-}
-
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-const asFiniteNumber = (value: unknown, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const asStringArray = (value: unknown) =>
-  (Array.isArray(value) ? value : [])
-    .map((entry) => String(entry ?? "").trim())
-    .filter(Boolean);
-
-const normalizeTrendInsight = (value: unknown): TrendInsight | null => {
-  if (!value || typeof value !== "object") return null;
-  const entry = value as Record<string, unknown>;
-  const title = String(entry.title ?? "").trim();
-  const summary = String(entry.summary ?? "").trim();
-  const howToApply = String(entry.howToApply ?? entry.how_to_apply ?? "").trim();
-  if (!title && !summary && !howToApply) return null;
-  return {
-    title: title || "Trend signal",
-    summary: summary || "Fresh trend signal detected in creator ecosystem coverage.",
-    howToApply: howToApply || "Apply this signal in your opener with a clearer payoff hook.",
-    source: String(entry.source ?? "").trim() || "AutoEditor",
-    url: String(entry.url ?? "").trim(),
-    publishedAt: entry.publishedAt ? String(entry.publishedAt) : entry.published_at ? String(entry.published_at) : null,
+type RealtimePredictionVideo = {
+  videoId: string;
+  uploadKey: string;
+  jobId: string;
+  sourceType: "classic" | "vibecut";
+  title: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  durationSeconds: number | null;
+  prediction: {
+    score: number | null;
+    confidencePercent: number;
+    potential: "low" | "moderate" | "high";
+    trend: RealtimePredictionTrend;
+    predictedCompletionPercent: number | null;
+    expectedLiftPercent: number | null;
+    hookStrengthPercent: number | null;
+    pacingScorePercent: number | null;
+    summary: string;
+    reasoning: string[];
+    updatedAt: string | null;
   };
 };
 
-const normalizeRetentionCurve = (value: unknown): Array<{ second: number; score: number }> => {
-  const points = (Array.isArray(value) ? value : [])
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const point = entry as Record<string, unknown>;
-      const second = Math.max(0, Math.round(asFiniteNumber(point.second ?? point.time, Number.NaN)));
-      const score = clamp(asFiniteNumber(point.score ?? point.retention ?? point.value, Number.NaN), 0, 100);
-      if (!Number.isFinite(second) || !Number.isFinite(score)) return null;
-      return { second, score: Math.round(score) };
-    })
-    .filter((entry): entry is { second: number; score: number } => Boolean(entry));
-
-  if (points.length) return points;
-  return [
-    { second: 0, score: 92 },
-    { second: 15, score: 84 },
-    { second: 30, score: 76 },
-    { second: 45, score: 69 },
-    { second: 60, score: 63 },
-  ];
-};
-
-const normalizeSuggestionPins = (value: unknown): Array<{ second: number; label: string }> =>
-  (Array.isArray(value) ? value : [])
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const pin = entry as Record<string, unknown>;
-      const second = Math.max(0, Math.round(asFiniteNumber(pin.second ?? pin.time, Number.NaN)));
-      const label = String(pin.label ?? pin.text ?? "").trim();
-      if (!Number.isFinite(second) || !label) return null;
-      return { second, label };
-    })
-    .filter((entry): entry is { second: number; label: string } => Boolean(entry));
-
-const normalizeFeedbackAnalysis = (value: unknown): FeedbackAnalysis => {
-  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const visualsRaw = source.visuals && typeof source.visuals === "object" ? (source.visuals as Record<string, unknown>) : {};
-  const trendInsightsRaw = Array.isArray(source.trendInsights)
-    ? source.trendInsights
-    : Array.isArray(source.trend_insights)
-    ? source.trend_insights
-    : [];
-
-  return {
-    detectedNiche: String(source.detectedNiche ?? source.detected_niche ?? source.niche ?? "podcast / commentary").trim() || "podcast / commentary",
-    detectedTopics: asStringArray(source.detectedTopics ?? source.detected_topics),
-    trendingTopics: asStringArray(source.trendingTopics ?? source.trending_topics),
-    voicePerformance: asStringArray(source.voicePerformance ?? source.voice_performance),
-    positioningAngle: asStringArray(source.positioningAngle ?? source.positioning_angle),
-    contentTips: asStringArray(source.contentTips ?? source.content_tips),
-    retentionBoosts: asStringArray(source.retentionBoosts ?? source.retention_boosts),
-    trendInsights: trendInsightsRaw.map(normalizeTrendInsight).filter((entry): entry is TrendInsight => Boolean(entry)),
-    retentionBoostEstimatePercent: clamp(
-      Math.round(asFiniteNumber(source.retentionBoostEstimatePercent ?? source.retention_boost_estimate_percent, 12)),
-      0,
-      100,
-    ),
-    visuals: {
-      retentionCurve: normalizeRetentionCurve(visualsRaw.retentionCurve ?? visualsRaw.retention_curve),
-      suggestionPins: normalizeSuggestionPins(visualsRaw.suggestionPins ?? visualsRaw.suggestion_pins),
-    },
-  };
+type RealtimePredictionResponse = {
+  generatedAt: string;
+  videos: RealtimePredictionVideo[];
 };
 
 const formatDuration = (seconds: number | null | undefined) => {
@@ -213,56 +173,90 @@ const formatDate = (value: string) => {
   return parsed.toLocaleDateString();
 };
 
-const formatNicheLabel = (value: string) =>
-  String(value || "")
-    .split(/[_\s-]+/g)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) return "Unknown";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+};
 
-const readVideoDuration = (file: File) =>
-  new Promise<number>((resolve) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.src = url;
-    video.onloadedmetadata = () => {
-      const value = Number(video.duration);
-      URL.revokeObjectURL(url);
-      resolve(Number.isFinite(value) ? Math.max(0, value) : 0);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(0);
-    };
-  });
+const formatPercent = (value: number | null | undefined) =>
+  Number.isFinite(Number(value)) ? `${Math.round(Number(value))}%` : "n/a";
+
+const formatLift = (value: number | null | undefined) => {
+  if (!Number.isFinite(Number(value))) return "n/a";
+  const numeric = Number(value);
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(1)}%`;
+};
+
+const formatStatus = (value: string) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "Queued";
+  if (normalized === "ready" || normalized === "completed") return "Ready";
+  if (normalized === "failed") return "Failed";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const statusTone = (value: string) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "ready" || normalized === "completed") {
+    return "border-emerald-300/45 bg-emerald-500/15 text-emerald-100";
+  }
+  if (normalized === "failed") {
+    return "border-rose-300/45 bg-rose-500/15 text-rose-100";
+  }
+  if (normalized === "queued" || normalized === "uploading") {
+    return "border-amber-300/45 bg-amber-500/15 text-amber-100";
+  }
+  return "border-cyan-300/40 bg-cyan-500/12 text-cyan-100";
+};
+
+const trendLabel = (trend: RealtimePredictionTrend) =>
+  trend === "rising" ? "Rising" : trend === "falling" ? "Falling" : "Stable";
+
+const trendTone = (trend: RealtimePredictionTrend) =>
+  trend === "rising" ? "text-emerald-200" : trend === "falling" ? "text-rose-200" : "text-slate-200";
+
+const potentialTone = (value: "low" | "moderate" | "high") => {
+  if (value === "high") return "text-emerald-200 border-emerald-400/40 bg-emerald-500/10";
+  if (value === "moderate") return "text-amber-100 border-amber-300/40 bg-amber-500/10";
+  return "text-rose-100 border-rose-300/40 bg-rose-500/10";
+};
+
+const sourceLabel = (sourceType: "classic" | "vibecut") => (sourceType === "classic" ? "AutoEditor" : "VibeCut");
 
 const Feedback = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { accessToken } = useAuth();
   const { data: me, isLoading: loadingMe } = useMe();
   const { toast } = useToast();
+
   const [jobs, setJobs] = useState<FeedbackJob[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [selectedSourceType, setSelectedSourceType] = useState<"classic" | "vibecut">("classic");
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [feedback, setFeedback] = useState<FeedbackAnalysis | null>(null);
+  const [report, setReport] = useState<AnalyticsReport | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [analysisRunKey, setAnalysisRunKey] = useState(0);
-  const [uploadedFileName, setUploadedFileName] = useState<string>("");
-  const [uploadedDurationSeconds, setUploadedDurationSeconds] = useState<number>(0);
-  const [manualTranscript, setManualTranscript] = useState<string>("");
-  const [dropActive, setDropActive] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const selectedJob = jobs.find((job) => job.id === selectedJobId) || null;
+  const [realtimeVideos, setRealtimeVideos] = useState<RealtimePredictionVideo[]>([]);
+  const [realtimeGeneratedAt, setRealtimeGeneratedAt] = useState<string | null>(null);
+  const [loadingRealtime, setLoadingRealtime] = useState(false);
+  const realtimePredictionErrorRef = useRef(false);
 
   const tier = String(me?.subscription?.tier || "free").toLowerCase();
   const isDev = Boolean(me?.flags?.dev);
   const isPremium = isDev || tier !== "free";
 
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.id === selectedJobId) || null,
+    [jobs, selectedJobId],
+  );
+
   useEffect(() => {
     if (!accessToken || loadingMe || !isPremium) return;
     let cancelled = false;
+
     const run = async () => {
       try {
         setLoadingJobs(true);
@@ -272,7 +266,7 @@ const Feedback = () => {
       } catch (error: any) {
         if (!cancelled) {
           toast({
-            title: "Could not load past jobs",
+            title: "Could not load completed renders",
             description: error?.message || "Try again in a moment.",
           });
         }
@@ -280,6 +274,7 @@ const Feedback = () => {
         if (!cancelled) setLoadingJobs(false);
       }
     };
+
     void run();
     return () => {
       cancelled = true;
@@ -287,8 +282,61 @@ const Feedback = () => {
   }, [accessToken, loadingMe, isPremium, toast]);
 
   useEffect(() => {
+    if (!accessToken || loadingMe || !isPremium) return;
+    let cancelled = false;
+
+    const loadRealtimePredictions = async (silent: boolean) => {
+      try {
+        if (!silent) setLoadingRealtime(true);
+        const result = await apiFetch<RealtimePredictionResponse>("/api/feedback/realtime-predictions?limit=24", {
+          token: accessToken,
+        });
+        if (cancelled) return;
+        setRealtimeVideos(Array.isArray(result.videos) ? result.videos : []);
+        setRealtimeGeneratedAt(result.generatedAt || new Date().toISOString());
+        realtimePredictionErrorRef.current = false;
+      } catch (error: any) {
+        if (cancelled) return;
+        if (!realtimePredictionErrorRef.current) {
+          realtimePredictionErrorRef.current = true;
+          toast({
+            title: "Realtime predictions unavailable",
+            description: error?.message || "Retrying in the background.",
+          });
+        }
+      } finally {
+        if (!cancelled && !silent) setLoadingRealtime(false);
+      }
+    };
+
+    void loadRealtimePredictions(false);
+    const timer = window.setInterval(() => {
+      void loadRealtimePredictions(true);
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [accessToken, loadingMe, isPremium, toast]);
+
+  useEffect(() => {
+    const deepLinkJobId = String(searchParams.get("jobId") || "").trim();
+    const deepLinkSource = String(searchParams.get("source") || "").trim().toLowerCase();
+    if (!deepLinkJobId) return;
+
+    setSelectedJobId(deepLinkJobId);
+    if (deepLinkSource === "vibecut") {
+      setSelectedSourceType("vibecut");
+    } else if (deepLinkSource === "classic" || deepLinkSource === "job") {
+      setSelectedSourceType("classic");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (selectedJobId || !jobs.length) return;
     setSelectedJobId(jobs[0].id);
+    setSelectedSourceType(jobs[0].sourceType);
   }, [jobs, selectedJobId]);
 
   useEffect(() => {
@@ -299,58 +347,23 @@ const Feedback = () => {
     return () => window.clearTimeout(timer);
   }, [loadingMe, isPremium, navigate]);
 
-  if (loadingMe) {
-    return (
-      <GlowBackdrop>
-        <Navbar />
-        <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
-          <div className="mx-auto flex max-w-4xl items-center justify-center rounded-3xl border border-white/10 bg-black/30 p-10 backdrop-blur-xl">
-            <Loader2 className="h-6 w-6 animate-spin text-purple-300" />
-            <span className="ml-3 text-sm text-slate-300">Loading feedback access...</span>
-          </div>
-        </main>
-      </GlowBackdrop>
-    );
-  }
-
-  const pickVideoFile = () => fileRef.current?.click();
-
-  const onFileSelected = async (file: File | null) => {
-    if (!file) return;
-    setSelectedJobId("");
-    setUploadedFileName(file.name);
-    const duration = await readVideoDuration(file);
-    setUploadedDurationSeconds(duration);
-  };
-
   const handleAnalyze = async () => {
     if (!accessToken) return;
     setAnalyzeError(null);
-    if (!selectedJobId && !uploadedFileName) {
-      toast({ title: "Select a source", description: "Choose a completed job or upload a video file first." });
+    if (!selectedJobId) {
+      toast({ title: "Select a completed render", description: "Choose a render to generate analytics." });
       return;
     }
+
     try {
       setAnalyzing(true);
-      const body = selectedJobId
-        ? { jobId: selectedJobId }
-        : {
-            uploadSummary: {
-              fileName: uploadedFileName,
-              durationSeconds: uploadedDurationSeconds,
-              transcript: manualTranscript,
-              metadata: { source: "feedback_upload" },
-            },
-          };
       const result = await apiFetch<FeedbackResponse>("/api/feedback/analyze", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ jobId: selectedJobId, sourceType: selectedSourceType }),
         token: accessToken,
       });
-      const normalizedFeedback = normalizeFeedbackAnalysis(result?.feedback);
-      setFeedback(normalizedFeedback);
-      setAnalysisRunKey((current) => current + 1);
-      toast({ title: "Feedback ready", description: "AI trend and retention insights have been generated." });
+      setReport(result.feedback);
+      toast({ title: "Feedback ready", description: "Per-video analytics report generated." });
     } catch (error: any) {
       if (error instanceof ApiError && error.code === "PREMIUM_REQUIRED") {
         navigate("/pricing");
@@ -358,31 +371,42 @@ const Feedback = () => {
       }
       const message = error?.message || "Please try again.";
       setAnalyzeError(message);
-      toast({
-        title: "Analysis failed",
-        description: message,
-      });
+      toast({ title: "Analysis failed", description: message, variant: "destructive" });
     } finally {
       setAnalyzing(false);
     }
   };
+
+  if (loadingMe) {
+    return (
+      <GlowBackdrop>
+        <Navbar />
+        <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
+          <div className="mx-auto flex max-w-4xl items-center justify-center rounded-3xl border border-[#d4af37]/25 bg-black/35 p-10 backdrop-blur-xl">
+            <Loader2 className="h-6 w-6 animate-spin text-[#d4af37]" />
+            <span className="ml-3 text-sm text-slate-300">Loading analytics access...</span>
+          </div>
+        </main>
+      </GlowBackdrop>
+    );
+  }
 
   if (!isPremium) {
     return (
       <GlowBackdrop>
         <Navbar />
         <main className="responsive-main min-h-screen px-4 pb-16 pt-24">
-          <div className="mx-auto max-w-4xl rounded-3xl border border-purple-500/35 bg-[linear-gradient(145deg,rgba(15,15,30,0.92),rgba(11,13,25,0.92))] p-8 shadow-[0_35px_110px_-60px_rgba(168,85,247,0.8)] backdrop-blur-xl">
-            <Badge className="border border-purple-400/40 bg-purple-500/15 text-purple-100">Premium Feature</Badge>
-            <h1 className="mt-4 text-3xl font-bold text-white">AI Feedback on Your Video</h1>
+          <div className="mx-auto max-w-4xl rounded-3xl border border-[#d4af37]/35 bg-[linear-gradient(140deg,rgba(10,12,18,0.96),rgba(17,14,9,0.95))] p-8 shadow-[0_35px_110px_-60px_rgba(212,175,55,0.72)] backdrop-blur-xl">
+            <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/15 text-[#f8e8b5]">Premium Feature</Badge>
+            <h1 className="mt-4 text-3xl font-bold text-white">AI Feedback Analytics</h1>
             <p className="mt-2 text-sm text-slate-300">
-              Upgrade to unlock transcript-driven feedback, niche trends, retention insights, and visual suggestion pins.
+              Upgrade to unlock per-video dynamic analytics, platform predictions, and optimization guidance.
             </p>
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-slate-200">
-              Free tier users are redirected to pricing. Paid and dev users get full feedback + trend intelligence.
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-slate-200">
+              Free tier users are redirected to pricing. Paid and dev users can generate premium feedback reports.
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Button asChild className="rounded-xl bg-gradient-to-r from-[#A855F7] to-cyan-400 text-white hover:brightness-110">
+              <Button asChild className="rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] hover:brightness-110">
                 <Link to="/pricing">Upgrade to Unlock Feedback</Link>
               </Button>
               <p className="text-xs text-slate-400">Redirecting to pricing...</p>
@@ -393,297 +417,317 @@ const Feedback = () => {
     );
   }
 
+  const platforms = report
+    ? [
+        { key: "YouTube", value: report.metrics.platformPerformancePredictions.youtube },
+        { key: "TikTok", value: report.metrics.platformPerformancePredictions.tiktok },
+        { key: "Instagram", value: report.metrics.platformPerformancePredictions.instagram },
+      ]
+    : [];
+
   return (
     <GlowBackdrop>
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
         <motion.section
-          className="mx-auto max-w-6xl rounded-3xl border border-purple-500/35 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.22),transparent_46%),radial-gradient(circle_at_bottom_right,rgba(34,211,238,0.16),transparent_52%),linear-gradient(145deg,rgba(11,13,25,0.92),rgba(7,10,22,0.92))] p-6 shadow-[0_30px_100px_-56px_rgba(168,85,247,0.8)] backdrop-blur-xl"
+          className="mx-auto max-w-6xl rounded-3xl border border-[#d4af37]/35 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.2),transparent_50%),radial-gradient(circle_at_bottom_right,rgba(255,245,214,0.1),transparent_55%),linear-gradient(145deg,rgba(9,11,17,0.95),rgba(13,16,24,0.94))] p-6 shadow-[0_34px_120px_-68px_rgba(212,175,55,0.82)] backdrop-blur-xl"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.42 }}
+          transition={{ duration: 0.38 }}
         >
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-purple-200/80">Premium Intelligence</p>
-              <h1 className="mt-2 bg-gradient-to-r from-[#A855F7] via-purple-300 to-cyan-300 bg-clip-text text-3xl font-bold text-transparent">
-                AI Feedback on Your Video
+              <p className="text-xs uppercase tracking-[0.2em] text-[#f3d77f]/85">Premium Intelligence</p>
+              <h1 className="mt-2 bg-gradient-to-r from-[#f8e8b5] via-[#d4af37] to-[#f5d48f] bg-clip-text text-3xl font-bold text-transparent">
+                AI Feedback Analytics
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                Transcript + metadata + energy signals + live trend scouting for niche-specific retention improvements.
+                Dynamic per-video metrics for editing efficiency, quality, retention, and platform fit.
               </p>
             </div>
-            <Badge className="border border-cyan-300/40 bg-cyan-400/12 text-cyan-100">
-              {isDev ? "Dev God-Mode" : "Premium"}
+            <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+              {isDev ? "Dev Access" : "Premium"}
             </Badge>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-purple-500/30 bg-black/25 p-4 backdrop-blur-md">
-              <p className="mb-2 text-xs uppercase tracking-[0.18em] text-purple-200/80">Upload / Select</p>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={pickVideoFile}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  setDropActive(true);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDropActive(true);
-                }}
-                onDragLeave={(event) => {
-                  event.preventDefault();
-                  setDropActive(false);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDropActive(false);
-                  const dropped = event.dataTransfer?.files?.[0] ?? null;
-                  void onFileSelected(dropped);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    pickVideoFile();
-                  }
-                }}
-                className={`rounded-2xl border border-dashed bg-gradient-to-br from-purple-500/12 to-cyan-400/10 p-5 text-center transition hover:border-purple-300/70 hover:shadow-[0_0_24px_rgba(168,85,247,0.35)] ${
-                  dropActive ? "border-purple-200/85 shadow-[0_0_30px_rgba(168,85,247,0.55)]" : "border-purple-400/40"
-                }`}
-              >
-                <Upload className="mx-auto h-6 w-6 text-purple-200" />
-                <p className="mt-2 text-sm font-medium text-slate-100">Drop a video or click to upload</p>
-                <p className="mt-1 text-xs text-slate-400">Use uploaded file summary or choose a completed job for full transcript signals.</p>
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="video/mp4,video/m4v,video/x-matroska,.mp4,.m4v,.mkv"
-                className="hidden"
-                onChange={(event) => void onFileSelected(event.target.files?.[0] ?? null)}
-              />
-              {uploadedFileName ? (
-                <div className="mt-3 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100">
-                  Uploaded: {uploadedFileName} ({formatDuration(uploadedDurationSeconds)})
-                </div>
-              ) : null}
-              <label className="mt-3 block text-xs text-slate-300">
-                Optional transcript/context
-                <textarea
-                  value={manualTranscript}
-                  onChange={(event) => setManualTranscript(event.target.value)}
-                  rows={4}
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none focus:border-purple-300/60"
-                  placeholder="Paste transcript, keywords, or content notes..."
-                />
-              </label>
-            </div>
-
-            <div className="rounded-2xl border border-purple-500/30 bg-black/25 p-4 backdrop-blur-md">
-              <p className="mb-2 text-xs uppercase tracking-[0.18em] text-purple-200/80">Past Jobs</p>
+          <div className="grid gap-4 md:grid-cols-[1.1fr,0.9fr]">
+            <div className="rounded-2xl border border-[#d4af37]/30 bg-black/30 p-4 backdrop-blur-md">
+              <p className="mb-2 text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Select Completed Render</p>
               <select
                 value={selectedJobId}
                 onChange={(event) => {
-                  setSelectedJobId(event.target.value);
-                  if (event.target.value) {
-                    setUploadedFileName("");
-                    setUploadedDurationSeconds(0);
-                  }
+                  const nextId = event.target.value;
+                  setSelectedJobId(nextId);
+                  const next = jobs.find((job) => job.id === nextId);
+                  if (next) setSelectedSourceType(next.sourceType);
                 }}
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100"
+                className="w-full rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-sm text-slate-100"
               >
-                <option value="">Select completed job (optional)</option>
+                <option value="">Select render</option>
                 {jobs.map((job) => (
-                  <option key={job.id} value={job.id}>
-                    {job.title} • {formatDate(job.createdAt)} • {formatDuration(job.durationSeconds)}
+                  <option key={`${job.sourceType}:${job.id}`} value={job.id}>
+                    [{sourceLabel(job.sourceType)}] {job.title} • {formatDate(job.createdAt)} • {formatDuration(job.durationSeconds)}
                   </option>
                 ))}
               </select>
-              <div className="mt-3 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-slate-400">
                 {loadingJobs
-                  ? "Loading completed jobs..."
+                  ? "Loading completed renders..."
                   : selectedJob
-                  ? `Selected: ${selectedJob.title}`
-                  : "Tip: choose a completed render for best transcript + energy precision."}
-              </div>
+                  ? `Selected ${sourceLabel(selectedJob.sourceType)} render: ${selectedJob.title}`
+                  : "Pick a finished render to compute dynamic metrics."}
+              </p>
               <Button
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="mt-6 w-full rounded-xl bg-gradient-to-r from-[#A855F7] to-purple-400 text-white shadow-[0_0_22px_rgba(168,85,247,0.45)] hover:brightness-110"
+                className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#d4af37] to-[#f8e8b5] text-[#1f1b13] shadow-[0_0_24px_rgba(212,175,55,0.45)] hover:brightness-110"
               >
                 {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                Get Feedback
+                Generate Feedback
               </Button>
               {analyzeError ? (
-                <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                <div className="mt-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
                   {analyzeError}
                 </div>
               ) : null}
             </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Snapshot</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                  <p className="text-[11px] text-slate-400">Time Saved</p>
+                  <p className="mt-1 text-xl font-semibold text-[#f8e8b5]">
+                    {report ? `${report.metrics.timeSavedOnThisEdit.timeSavedMinutes.toFixed(1)}m` : "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                  <p className="text-[11px] text-slate-400">AI Efficiency</p>
+                  <p className="mt-1 text-xl font-semibold text-[#f8e8b5]">
+                    {report ? `${report.metrics.aiEfficiencyScore.score.toFixed(1)}/100` : "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                  <p className="text-[11px] text-slate-400">Best Fit</p>
+                  <p className="mt-1 text-xl font-semibold text-[#f8e8b5]">
+                    {report ? report.metrics.platformPerformancePredictions.bestFit.toUpperCase() : "-"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-[#d4af37]/25 bg-[#d4af37]/10 p-3 text-xs text-[#f8e8b5]">
+                {report ? report.classification.reason : "Run analytics to get short/long-form classification and performance prediction."}
+              </div>
+            </div>
           </div>
         </motion.section>
 
-        {feedback ? (
-          <FeedbackRenderBoundary resetKey={analysisRunKey}>
-            <motion.section
-              className="mx-auto mt-6 max-w-6xl space-y-4"
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35 }}
-            >
-              <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="border border-purple-300/50 bg-purple-400/15 text-purple-100">
-                    Detected Niche: {formatNicheLabel(feedback.detectedNiche)}
-                  </Badge>
-                  {feedback.detectedTopics.slice(0, 4).map((topic) => (
-                    <Badge key={topic} className="border border-cyan-300/40 bg-cyan-400/12 text-cyan-100">
-                      {topic}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
+        <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-[#d4af37]/30 bg-black/25 p-4 backdrop-blur-md">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Realtime Predictions</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Live outlook per unique uploaded video. Refreshes every 4 seconds.
+              </p>
+            </div>
+            <Badge className="border border-cyan-300/45 bg-cyan-500/15 text-cyan-100">
+              LIVE {realtimeGeneratedAt ? `• ${formatDateTime(realtimeGeneratedAt)}` : "• syncing"}
+            </Badge>
+          </div>
 
-              <div className="rounded-2xl border border-purple-500/35 bg-black/30 p-4 backdrop-blur-md">
-                <h3 className="mb-3 bg-gradient-to-r from-[#A855F7] to-cyan-300 bg-clip-text text-2xl font-bold text-transparent">
-                  AI Trend Analysis for Your Video 🔥
-                </h3>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {feedback.trendInsights.slice(0, 6).map((trend, index) => (
-                    <motion.article
-                      key={`${trend.title}-${index}`}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      className="rounded-2xl border border-purple-400/35 bg-gradient-to-br from-purple-500/14 to-cyan-400/10 p-3 transition hover:shadow-[0_0_20px_rgba(168,85,247,0.35)]"
-                    >
-                      <p className="text-sm font-semibold text-slate-100">{trend.title}</p>
-                      <p className="mt-1 text-xs text-slate-300">{trend.summary}</p>
-                      <p className="mt-2 text-xs text-cyan-100">How to apply: {trend.howToApply}</p>
-                      {trend.url ? (
-                        <a href={trend.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[11px] text-purple-200 underline">
-                          Source
-                        </a>
-                      ) : null}
-                    </motion.article>
-                  ))}
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-slate-300">
-                    Retention boost estimate from trend alignment: +{feedback.retentionBoostEstimatePercent}%
-                  </p>
-                  <Button asChild variant="outline" className="border-purple-400/35 bg-purple-500/10 text-purple-100 hover:bg-purple-500/20">
-                    <Link to="/settings">Upgrade Effects to Match Trends</Link>
-                  </Button>
-                </div>
-              </div>
-
-              <Accordion type="multiple" className="space-y-3">
-                <AccordionItem value="niche" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Niche Detection</AccordionTrigger>
-                  <AccordionContent className="text-sm text-slate-300">
-                    Your video's niche: {formatNicheLabel(feedback.detectedNiche)}. Trending topics: {feedback.trendingTopics.join(", ")}.
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="voice" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Voice / Performance</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-sm text-slate-300">
-                    {feedback.voicePerformance.map((line, index) => (
-                      <p key={`voice-${index}`}>- {line}</p>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="positioning" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Positioning / Angle</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-sm text-slate-300">
-                    {feedback.positioningAngle.map((line, index) => (
-                      <p key={`pos-${index}`}>- {line}</p>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="content" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Content Tips</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-sm text-slate-300">
-                    {feedback.contentTips.map((line, index) => (
-                      <p key={`content-${index}`}>- {line}</p>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="retention" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Retention Boosts</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-sm text-slate-300">
-                    {feedback.retentionBoosts.map((line, index) => (
-                      <p key={`ret-${index}`}>- {line}</p>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="visuals" className="rounded-2xl border border-purple-500/35 bg-black/30 px-4">
-                  <AccordionTrigger className="text-slate-100 hover:no-underline">Visuals</AccordionTrigger>
-                  <AccordionContent>
-                    <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                        <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Retention Curve</p>
-                        <div className="h-56 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={feedback.visuals.retentionCurve}>
-                              <XAxis dataKey="second" stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                              <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                              <Tooltip
-                                formatter={(value: any) => [`${value}%`, "Retention"]}
-                                labelFormatter={(label) => `${label}s`}
-                                contentStyle={{
-                                  backgroundColor: "rgba(15,23,42,0.92)",
-                                  border: "1px solid rgba(168,85,247,0.45)",
-                                  borderRadius: "10px",
-                                }}
-                              />
-                              <Line type="monotone" dataKey="score" stroke="#A855F7" strokeWidth={2.6} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
+          {loadingRealtime && !realtimeVideos.length ? (
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-slate-300">
+              <Loader2 className="h-4 w-4 animate-spin text-cyan-200" />
+              Loading realtime prediction feed...
+            </div>
+          ) : realtimeVideos.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {realtimeVideos.map((video) => {
+                const isSelected = selectedJobId === video.jobId;
+                return (
+                  <button
+                    key={video.videoId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedJobId(video.jobId);
+                      setSelectedSourceType(video.sourceType);
+                    }}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      isSelected
+                        ? "border-[#d4af37]/60 bg-[#d4af37]/10 shadow-[0_0_20px_rgba(212,175,55,0.28)]"
+                        : "border-white/10 bg-black/30 hover:border-cyan-300/40"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-100">{video.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          {sourceLabel(video.sourceType)} • Updated {formatDateTime(video.prediction.updatedAt || video.updatedAt)}
+                        </p>
                       </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                        <p className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-400">Timeline Suggestion Pins</p>
-                        <div className="space-y-2 text-xs text-slate-300">
-                          {feedback.visuals.suggestionPins.length ? (
-                            feedback.visuals.suggestionPins.map((pin, index) => (
-                              <div key={`${pin.second}-${index}`} className="rounded-lg border border-purple-400/25 bg-purple-500/10 p-2">
-                                <p className="text-purple-100">{pin.second}s</p>
-                                <p>{pin.label}</p>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400">
-                              No major retention dips found. Keep the current pacing and add one extra micro-hook around minute 1.
-                            </div>
-                          )}
-                        </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge className={statusTone(video.status)}>{formatStatus(video.status)}</Badge>
+                        {isSelected ? (
+                          <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/15 text-[#f8e8b5]">Selected</Badge>
+                        ) : null}
                       </div>
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </motion.section>
-          </FeedbackRenderBoundary>
-        ) : (
-          <section className="mx-auto mt-6 max-w-6xl rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-            <div className="flex items-center gap-2 text-slate-200">
-              <TrendingUp className="h-4 w-4 text-purple-300" />
-              Run feedback to get niche trends, retention curve, and personalized editing recommendations.
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Score</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-100">{formatPercent(video.prediction.score)}</p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Completion</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
+                          {formatPercent(video.prediction.predictedCompletionPercent)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Expected Lift</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
+                          {formatLift(video.prediction.expectedLiftPercent)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Confidence</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-100">
+                          {formatPercent(video.prediction.confidencePercent)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between text-[11px]">
+                      <p className={`font-medium ${trendTone(video.prediction.trend)}`}>Trend: {trendLabel(video.prediction.trend)}</p>
+                      <p className="text-slate-400">
+                        Hook {formatPercent(video.prediction.hookStrengthPercent)} • Pacing{" "}
+                        {formatPercent(video.prediction.pacingScorePercent)}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-300">{video.prediction.summary}</p>
+                  </button>
+                );
+              })}
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-              <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
-              Render as premium glass cards with glow hover.
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-slate-300">
+              No uploaded videos with prediction telemetry yet. Upload and render a video to populate the live feed.
             </div>
-          </section>
-        )}
+          )}
+        </section>
+
+        {report ? (
+          <motion.section
+            className="mx-auto mt-6 max-w-6xl space-y-4"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32 }}
+          >
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                  {report.classification.type === "short-form" ? "Short-form" : "Long-form"}
+                </Badge>
+                <Badge className="border border-white/20 bg-white/5 text-slate-200">Source: {report.source.type}</Badge>
+                <Badge className="border border-white/20 bg-white/5 text-slate-200">Video: {report.source.title}</Badge>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Time Saved on This Edit</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.timeSavedOnThisEdit.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.timeSavedOnThisEdit.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.timeSavedOnThisEdit.action}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Render Details</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.renderDetails.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.renderDetails.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.renderDetails.action}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Retention Potential</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.retentionPotential.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.retentionPotential.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.retentionPotential.action}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Engagement Insights</p>
+                <p className="mt-2 text-sm text-slate-100">{report.metrics.engagementInsights.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">{report.metrics.engagementInsights.visualization}</p>
+                <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.engagementInsights.action}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Platform Performance Predictions</p>
+                <Badge className="border border-[#d4af37]/45 bg-[#d4af37]/12 text-[#f8e8b5]">
+                  Best Fit: {report.metrics.platformPerformancePredictions.bestFit.toUpperCase()}
+                </Badge>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                {platforms.map((platform) => (
+                  <div key={platform.key} className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-100">{platform.key}</p>
+                      <div className={`rounded-full border px-2 py-0.5 text-[11px] ${potentialTone(platform.value.potential)}`}>
+                        {platform.value.potential} • {platform.value.confidence.toFixed(1)}% confidence
+                      </div>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#d4af37] via-[#f5d48f] to-[#f8e8b5]"
+                        style={{ width: `${Math.max(2, Math.min(100, platform.value.score))}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-300">{platform.value.reasoning}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-3 text-sm text-slate-100">{report.metrics.platformPerformancePredictions.summary}</p>
+              <p className="mt-1 text-xs text-slate-400">{report.metrics.platformPerformancePredictions.visualization}</p>
+              <p className="mt-2 text-xs text-[#f8e8b5]">{report.metrics.platformPerformancePredictions.action}</p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[1fr,1fr]">
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Improvement Suggestions</p>
+                <div className="mt-3 space-y-2 text-sm text-slate-100">
+                  {report.metrics.improvementSuggestions.suggestions.map((item, index) => (
+                    <div key={`${item}-${index}`} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-slate-400">{report.metrics.improvementSuggestions.summary}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <div className="mb-2 flex items-center gap-2 text-slate-200">
+                  <BarChart3 className="h-4 w-4 text-[#f8e8b5]" />
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">JSON Analytics Output</p>
+                </div>
+                <pre className="max-h-[360px] overflow-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[11px] text-slate-200">
+                  {JSON.stringify(report, null, 2)}
+                </pre>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#d4af37]/30 bg-[#d4af37]/10 p-4">
+              <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#f8e8b5]">
+                <Sparkles className="h-4 w-4" />
+                {report.motivationalNote}
+              </p>
+            </div>
+          </motion.section>
+        ) : null}
       </main>
     </GlowBackdrop>
   );
