@@ -234,7 +234,9 @@ export default function Editor() {
   }, [fetchRecentJobs]);
 
   useEffect(() => {
-    if (flowStep !== "settings" && flowStep !== "rendering" && flowStep !== "post_render") {
+    const shouldRevealEditorSettings =
+      flowStep === "mode_selection" || flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
+    if (!shouldRevealEditorSettings) {
       setRevealedSectionCount(0);
       return;
     }
@@ -352,7 +354,7 @@ export default function Editor() {
 
   const handleStartRender = async () => {
     if (!renderPayload || !accessToken) {
-      setErrorMessage("Upload a video and confirm mode first.");
+      setErrorMessage("Upload a video before rendering.");
       return;
     }
     setRenderState({ rendering: true, progress: 8, jobId: null });
@@ -398,7 +400,8 @@ export default function Editor() {
   };
 
   const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
-  const showExpandedSettings = flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
+  const showExpandedSettings =
+    flowStep === "mode_selection" || flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
 
   const rightRail = (
     <>
@@ -457,7 +460,7 @@ export default function Editor() {
           </div>
         </PremiumCard>
 
-        <SettingsCardGroup title="1. Auto Mode Detection" description="Upload your source clip for orientation + sub-mode analysis.">
+        <SettingsCardGroup title="Upload Video" description="Upload your source clip to start AI analysis and profile setup.">
           <div className="flex flex-wrap items-center gap-3">
             <Input
               key={fileInputKey}
@@ -501,8 +504,8 @@ export default function Editor() {
         {videoId ? (
           <>
             <SettingsCardGroup
-              title="2. Initial Controls"
-              description="Set high-level retention intent before detailed section tuning."
+              title="Quick Tools"
+              description="Apply high-level editing tools before detailed tuning."
               rightSlot={
                 <span className="inline-flex items-center gap-1 rounded-full border border-purple-300/35 bg-purple-500/15 px-2 py-1 text-[11px] text-purple-100">
                   <Sparkles className="h-3 w-3" />
@@ -544,7 +547,7 @@ export default function Editor() {
               </div>
             </SettingsCardGroup>
 
-            <SettingsCardGroup title="3. Output Layout" description="Choose target orientation for retention strategy.">
+            <SettingsCardGroup title="Editor Mode" description="Choose horizontal or vertical output layout.">
               <AccentPillToggle
                 value={mode || "horizontal"}
                 onChange={(value) => handleModeSelect(value)}
@@ -560,7 +563,11 @@ export default function Editor() {
                 transition={{ duration: 0.28, ease: "easeInOut" }}
                 className="space-y-4"
               >
-                <PremiumCard className="p-4">
+                <SettingsCardGroup
+                  title="Editor Settings"
+                  description="Tune format, style, pacing, captions, and audio behavior."
+                  className="p-4"
+                >
                   <StaggeredSettingsSections
                     revealedSectionCount={revealedSectionCount}
                     formatPreset={formatPreset}
@@ -592,9 +599,9 @@ export default function Editor() {
                     audioMasteringEnabled={audioMasteringEnabled}
                     onAudioMasteringEnabledChange={setAudioMasteringEnabled}
                   />
-                </PremiumCard>
+                </SettingsCardGroup>
 
-                <SettingsCardGroup title="4. Render" description="Start retention-optimized render pipeline.">
+                <SettingsCardGroup title="Render" description="Start the render pipeline with your selected settings.">
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
                     <div className="space-y-1">
                       <p className="text-sm text-slate-200">Target predicted retention: 70%+</p>
