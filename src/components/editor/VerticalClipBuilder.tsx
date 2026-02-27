@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import "./vertical-clip-builder.css";
 
@@ -305,6 +306,7 @@ const VerticalClipBuilderInner = ({
   const isMobile = useIsMobile();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [manualSelectorOpen, setManualSelectorOpen] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -343,7 +345,7 @@ const VerticalClipBuilderInner = ({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [manualSelectorOpen, settings.autoCropWebcam]);
 
   useEffect(() => {
     if (!sourceMeta) return;
@@ -842,10 +844,40 @@ const VerticalClipBuilderInner = ({
           <Switch
             checked={settings.autoCropWebcam}
             onCheckedChange={(next) => {
+              if (!next && !videoUrl) {
+                toast({ title: "Upload required", description: "Upload a source video to use manual webcam selector." });
+                return;
+              }
               setSettings((prev) => ({ ...prev, autoCropWebcam: next }));
-              if (next) applySmartCrop();
+              if (next) {
+                setManualSelectorOpen(false);
+                applySmartCrop();
+                return;
+              }
+              setManualSelectorOpen(true);
             }}
           />
+        </div>
+
+        <div className="mt-3 rounded-xl border border-violet-400/25 bg-violet-500/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-violet-50">Manual Webcam Selector</p>
+              <p className="mt-1 text-xs text-violet-100/70">Open popup with drag/resize crop and live stacked preview.</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-10 border-violet-400/35 bg-white/[0.03] text-violet-100 hover:bg-violet-500/15"
+              disabled={!videoUrl}
+              onClick={() => {
+                setSettings((prev) => ({ ...prev, autoCropWebcam: false }));
+                setManualSelectorOpen(true);
+              }}
+            >
+              Open Selector
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1014,70 +1046,87 @@ const VerticalClipBuilderInner = ({
                     </div>
                   </div>
 
-                  <div
-                    ref={stageRef}
-                    className="relative overflow-hidden rounded-xl border border-violet-400/25 bg-black/60"
-                    style={sourceMeta ? { aspectRatio: `${sourceMeta.width} / ${sourceMeta.height}` } : { aspectRatio: "16 / 9" }}
-                  >
-                    <ReactPlayer
-                      ref={sourcePlayerRef}
-                      url={videoUrl}
-                      width="100%"
-                      height="100%"
-                      playing={playing}
-                      controls={false}
-                      muted={false}
-                      onReady={syncSourceMeta}
-                      onDuration={(seconds) => setDuration(seconds || 0)}
-                      onProgress={({ playedSeconds }) => setCurrentTime(playedSeconds || 0)}
-                      onPause={() => setPlaying(false)}
-                      onPlay={() => setPlaying(true)}
-                      config={{ file: { attributes: { playsInline: true } } }}
-                    />
-
-                    {!settings.autoCropWebcam && cropDisplayRect ? (
-                      <div className="absolute inset-0 pointer-events-none">
-                        <div className="absolute" style={{ left: cropDisplayRect.left, top: cropDisplayRect.top }}>
-                          <ResizableBox
-                            className="vcb-resizable pointer-events-auto"
-                            width={cropDisplayRect.width}
-                            height={cropDisplayRect.height}
-                            minConstraints={[48, 48]}
-                            maxConstraints={[stageSize.width, stageSize.height]}
-                            resizeHandles={["se", "sw", "ne", "nw", "n", "s", "e", "w"]}
-                            onResize={handleResizeCrop}
-                            onResizeStop={handleResizeCrop}
-                            handle={(axis, ref) => (
-                              <span
-                                ref={ref}
-                                className={`vcb-handle react-resizable-handle react-resizable-handle-${axis}`}
-                              />
-                            )}
-                          >
-                            <div
-                              className="vcb-crop-box relative h-full w-full"
-                              onPointerDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (!crop) return;
-                                setCropMoving({
-                                  startClientX: event.clientX,
-                                  startClientY: event.clientY,
-                                  startCrop: crop,
-                                });
-                              }}
-                            >
-                              <div className="pointer-events-none absolute inset-0 border-2 border-violet-300" />
-                              <div className="pointer-events-none absolute inset-1 border border-white/70 border-dashed" />
-                              <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[10px] text-violet-100">
-                                Manual webcam crop
-                              </div>
-                            </div>
-                          </ResizableBox>
-                        </div>
+                  {manualSelectorOpen && !settings.autoCropWebcam ? (
+                    <div className="flex aspect-video items-center justify-center rounded-xl border border-dashed border-violet-400/35 bg-[#090915]/80 p-5 text-center">
+                      <div>
+                        <p className="text-sm font-medium text-violet-100">Manual selector is open in popup</p>
+                        <p className="mt-1 text-xs text-violet-100/70">Drag and resize the webcam crop there. Changes apply live.</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="mt-3 min-h-10 border-violet-400/35 bg-white/[0.03] text-violet-100 hover:bg-violet-500/15"
+                          onClick={() => setManualSelectorOpen(true)}
+                        >
+                          Re-open Selector Popup
+                        </Button>
                       </div>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : (
+                    <div
+                      ref={stageRef}
+                      className="relative overflow-hidden rounded-xl border border-violet-400/25 bg-black/60"
+                      style={sourceMeta ? { aspectRatio: `${sourceMeta.width} / ${sourceMeta.height}` } : { aspectRatio: "16 / 9" }}
+                    >
+                      <ReactPlayer
+                        ref={sourcePlayerRef}
+                        url={videoUrl}
+                        width="100%"
+                        height="100%"
+                        playing={playing}
+                        controls={false}
+                        muted={false}
+                        onReady={syncSourceMeta}
+                        onDuration={(seconds) => setDuration(seconds || 0)}
+                        onProgress={({ playedSeconds }) => setCurrentTime(playedSeconds || 0)}
+                        onPause={() => setPlaying(false)}
+                        onPlay={() => setPlaying(true)}
+                        config={{ file: { attributes: { playsInline: true } } }}
+                      />
+
+                      {!settings.autoCropWebcam && cropDisplayRect ? (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="absolute" style={{ left: cropDisplayRect.left, top: cropDisplayRect.top }}>
+                            <ResizableBox
+                              className="vcb-resizable pointer-events-auto"
+                              width={cropDisplayRect.width}
+                              height={cropDisplayRect.height}
+                              minConstraints={[48, 48]}
+                              maxConstraints={[stageSize.width, stageSize.height]}
+                              resizeHandles={["se", "sw", "ne", "nw", "n", "s", "e", "w"]}
+                              onResize={handleResizeCrop}
+                              onResizeStop={handleResizeCrop}
+                              handle={(axis, ref) => (
+                                <span
+                                  ref={ref}
+                                  className={`vcb-handle react-resizable-handle react-resizable-handle-${axis}`}
+                                />
+                              )}
+                            >
+                              <div
+                                className="vcb-crop-box relative h-full w-full"
+                                onPointerDown={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  if (!crop) return;
+                                  setCropMoving({
+                                    startClientX: event.clientX,
+                                    startClientY: event.clientY,
+                                    startCrop: crop,
+                                  });
+                                }}
+                              >
+                                <div className="pointer-events-none absolute inset-0 border-2 border-violet-300" />
+                                <div className="pointer-events-none absolute inset-1 border border-white/70 border-dashed" />
+                                <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[10px] text-violet-100">
+                                  Manual webcam crop
+                                </div>
+                              </div>
+                            </ResizableBox>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button
@@ -1113,43 +1162,50 @@ const VerticalClipBuilderInner = ({
                 </div>
 
                 <div className="space-y-4">
-                  <div
-                    className="vcb-glass rounded-2xl border border-violet-400/25 p-3"
-                    onWheel={(event) => {
-                      event.preventDefault();
-                      const delta = event.deltaY > 0 ? -0.05 : 0.05;
-                      setSettings((prev) => ({ ...prev, previewZoom: clamp(prev.previewZoom + delta, 1, 2.5) }));
-                    }}
-                    onPointerDown={(event) => {
-                      setPanDragging({
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        startPanX: settings.previewPanX,
-                        startPanY: settings.previewPanY,
-                      });
-                    }}
-                    onPointerMove={(event) => {
-                      if (!panDragging) return;
-                      const dx = (event.clientX - panDragging.startX) / 220;
-                      const dy = (event.clientY - panDragging.startY) / 220;
-                      setSettings((prev) => ({
-                        ...prev,
-                        previewPanX: clamp(panDragging.startPanX + dx, -1, 1),
-                        previewPanY: clamp(panDragging.startPanY + dy, -1, 1),
-                      }));
-                    }}
-                    onPointerUp={() => setPanDragging(null)}
-                    onPointerLeave={() => setPanDragging(null)}
-                  >
-                    <p className="text-sm font-medium text-violet-100">Live Stacked 9:16 Preview</p>
-                    <p className="mt-1 text-xs text-violet-100/70">Wheel = zoom. Drag = pan top panel.</p>
-                    <div className="mx-auto mt-3 w-full max-w-[320px]">
-                      <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
-                        <canvas ref={compositionCanvasRef} className="h-full w-full rounded-xl border border-violet-400/20 bg-black" />
-                        <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-violet-300/20" />
+                  {manualSelectorOpen && !settings.autoCropWebcam ? (
+                    <div className="vcb-glass rounded-2xl border border-violet-400/25 p-3">
+                      <p className="text-sm font-medium text-violet-100">Live Stacked 9:16 Preview</p>
+                      <p className="mt-1 text-xs text-violet-100/70">Moved into the manual selector popup for side-by-side tuning.</p>
+                    </div>
+                  ) : (
+                    <div
+                      className="vcb-glass rounded-2xl border border-violet-400/25 p-3"
+                      onWheel={(event) => {
+                        event.preventDefault();
+                        const delta = event.deltaY > 0 ? -0.05 : 0.05;
+                        setSettings((prev) => ({ ...prev, previewZoom: clamp(prev.previewZoom + delta, 1, 2.5) }));
+                      }}
+                      onPointerDown={(event) => {
+                        setPanDragging({
+                          startX: event.clientX,
+                          startY: event.clientY,
+                          startPanX: settings.previewPanX,
+                          startPanY: settings.previewPanY,
+                        });
+                      }}
+                      onPointerMove={(event) => {
+                        if (!panDragging) return;
+                        const dx = (event.clientX - panDragging.startX) / 220;
+                        const dy = (event.clientY - panDragging.startY) / 220;
+                        setSettings((prev) => ({
+                          ...prev,
+                          previewPanX: clamp(panDragging.startPanX + dx, -1, 1),
+                          previewPanY: clamp(panDragging.startPanY + dy, -1, 1),
+                        }));
+                      }}
+                      onPointerUp={() => setPanDragging(null)}
+                      onPointerLeave={() => setPanDragging(null)}
+                    >
+                      <p className="text-sm font-medium text-violet-100">Live Stacked 9:16 Preview</p>
+                      <p className="mt-1 text-xs text-violet-100/70">Wheel = zoom. Drag = pan top panel.</p>
+                      <div className="mx-auto mt-3 w-full max-w-[320px]">
+                        <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                          <canvas ref={compositionCanvasRef} className="h-full w-full rounded-xl border border-violet-400/20 bg-black" />
+                          <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-violet-300/20" />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="vcb-glass rounded-2xl border border-violet-400/25 p-3">
                     <p className="text-sm font-medium text-violet-100">Clip Count</p>
@@ -1385,6 +1441,167 @@ const VerticalClipBuilderInner = ({
             </>
           )}
         </div>
+
+        <Dialog
+          open={manualSelectorOpen && !settings.autoCropWebcam}
+          onOpenChange={(open) => setManualSelectorOpen(open)}
+        >
+          <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-violet-400/30 bg-gradient-to-b from-[#121227] to-[#0d0d18] p-4 sm:max-w-6xl sm:p-5">
+            <DialogHeader>
+              <DialogTitle className="text-violet-50">Manual Webcam Selector</DialogTitle>
+              <DialogDescription className="text-violet-100/70">
+                Drag and resize the webcam crop, then check the stacked preview before saving.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!videoUrl ? (
+              <div className="vcb-glass rounded-2xl border border-dashed border-violet-400/35 p-6 text-center">
+                <p className="text-sm text-violet-100">Upload a source video to use the manual webcam selector.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+                <div className="vcb-glass rounded-2xl border border-violet-400/25 p-3">
+                  <div
+                    ref={stageRef}
+                    className="relative overflow-hidden rounded-xl border border-violet-400/25 bg-black/60"
+                    style={sourceMeta ? { aspectRatio: `${sourceMeta.width} / ${sourceMeta.height}` } : { aspectRatio: "16 / 9" }}
+                  >
+                    <ReactPlayer
+                      ref={sourcePlayerRef}
+                      url={videoUrl}
+                      width="100%"
+                      height="100%"
+                      playing={playing}
+                      controls={false}
+                      muted={false}
+                      onReady={syncSourceMeta}
+                      onDuration={(seconds) => setDuration(seconds || 0)}
+                      onProgress={({ playedSeconds }) => setCurrentTime(playedSeconds || 0)}
+                      onPause={() => setPlaying(false)}
+                      onPlay={() => setPlaying(true)}
+                      config={{ file: { attributes: { playsInline: true } } }}
+                    />
+
+                    {!settings.autoCropWebcam && cropDisplayRect ? (
+                      <div className="absolute inset-0 pointer-events-none">
+                        <div className="absolute" style={{ left: cropDisplayRect.left, top: cropDisplayRect.top }}>
+                          <ResizableBox
+                            className="vcb-resizable pointer-events-auto"
+                            width={cropDisplayRect.width}
+                            height={cropDisplayRect.height}
+                            minConstraints={[48, 48]}
+                            maxConstraints={[stageSize.width, stageSize.height]}
+                            resizeHandles={["se", "sw", "ne", "nw", "n", "s", "e", "w"]}
+                            onResize={handleResizeCrop}
+                            onResizeStop={handleResizeCrop}
+                            handle={(axis, ref) => (
+                              <span
+                                ref={ref}
+                                className={`vcb-handle react-resizable-handle react-resizable-handle-${axis}`}
+                              />
+                            )}
+                          >
+                            <div
+                              className="vcb-crop-box relative h-full w-full"
+                              onPointerDown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                if (!crop) return;
+                                setCropMoving({
+                                  startClientX: event.clientX,
+                                  startClientY: event.clientY,
+                                  startCrop: crop,
+                                });
+                              }}
+                            >
+                              <div className="pointer-events-none absolute inset-0 border-2 border-violet-300" />
+                              <div className="pointer-events-none absolute inset-1 border border-white/70 border-dashed" />
+                              <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[10px] text-violet-100">
+                                Manual webcam crop
+                              </div>
+                            </div>
+                          </ResizableBox>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-12 border-violet-400/35 bg-white/[0.03] text-violet-100 hover:bg-violet-500/15"
+                      onClick={() => setPlaying((prev) => !prev)}
+                    >
+                      {playing ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                      {playing ? "Pause" : "Play"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-12 border-violet-400/35 bg-white/[0.03] text-violet-100 hover:bg-violet-500/15"
+                      onClick={() => {
+                        if (!sourceMeta) return;
+                        setCrop(buildDefaultCrop(sourceMeta.width, sourceMeta.height));
+                      }}
+                    >
+                      Reset Crop
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-12 border-violet-400/35 bg-white/[0.03] text-violet-100 hover:bg-violet-500/15"
+                      onClick={() => applyAutoSuggestion()}
+                    >
+                      <Wand2 className="mr-2 h-4 w-4" />
+                      Auto Suggest
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="vcb-glass rounded-2xl border border-violet-400/25 p-3">
+                  <p className="text-sm font-medium text-violet-100">Live Stacked 9:16 Preview</p>
+                  <p className="mt-1 text-xs text-violet-100/70">Wheel = zoom. Drag = pan top panel.</p>
+                  <div
+                    className="mt-3"
+                    onWheel={(event) => {
+                      event.preventDefault();
+                      const delta = event.deltaY > 0 ? -0.05 : 0.05;
+                      setSettings((prev) => ({ ...prev, previewZoom: clamp(prev.previewZoom + delta, 1, 2.5) }));
+                    }}
+                    onPointerDown={(event) => {
+                      setPanDragging({
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        startPanX: settings.previewPanX,
+                        startPanY: settings.previewPanY,
+                      });
+                    }}
+                    onPointerMove={(event) => {
+                      if (!panDragging) return;
+                      const dx = (event.clientX - panDragging.startX) / 220;
+                      const dy = (event.clientY - panDragging.startY) / 220;
+                      setSettings((prev) => ({
+                        ...prev,
+                        previewPanX: clamp(panDragging.startPanX + dx, -1, 1),
+                        previewPanY: clamp(panDragging.startPanY + dy, -1, 1),
+                      }));
+                    }}
+                    onPointerUp={() => setPanDragging(null)}
+                    onPointerLeave={() => setPanDragging(null)}
+                  >
+                    <div className="mx-auto w-full max-w-[320px]">
+                      <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                        <canvas ref={compositionCanvasRef} className="h-full w-full rounded-xl border border-violet-400/20 bg-black" />
+                        <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-violet-300/20" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Mobile adaptation: this swaps the right-side settings panel for a bottom drawer on small screens. */}
         {isMobile ? (
