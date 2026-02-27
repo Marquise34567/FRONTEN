@@ -79,7 +79,7 @@ export default function InitialSettingsPanel({
             className="rounded-xl border-white/15 bg-white/[0.08] px-5 text-slate-100 shadow-[0_12px_28px_-20px_rgba(15,23,42,0.82)] transition-all hover:-translate-y-0.5 hover:bg-white/[0.14]"
           >
             <ScissorsLineDashed className="h-4 w-4" />
-            Manual Timestamp Editor
+            Manual Timestamp Editor (override auto cuts & hook)
           </Button>
         </div>
       </CleanCard>

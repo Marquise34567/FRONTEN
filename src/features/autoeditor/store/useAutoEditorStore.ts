@@ -202,7 +202,6 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setUploadAnalysis: (payload) => {
     const detectedMode = payload.autoDetection.finalMode;
     const isVertical = detectedMode === "vertical";
-    const autoModeEnabled = get().autoModeEnabled;
     const profile = payload.autoDetection.editorProfile;
     const inferredPacing =
       profile?.pacingPreset === "aggressive"
@@ -225,7 +224,7 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       duration: payload.metadata.duration,
       autoDetection: payload.autoDetection,
       mode: detectedMode,
-      modeConfirmed: autoModeEnabled,
+      modeConfirmed: false,
       revealedSectionCount: 0,
       quickControls: resolvedQuickControls,
       manualTimestampModalOpen: false,
@@ -258,25 +257,11 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   },
 
   setAutoModeEnabled: (value) =>
-    set((state) => {
-      if (value && state.mode) {
-        return {
-          autoModeEnabled: value,
-          modeConfirmed: true,
-          mode: state.autoDetection?.finalMode || state.mode,
-        };
-      }
-      if (!value) {
-        return {
-          autoModeEnabled: value,
-          modeConfirmed: false,
-        };
-      }
-      return {
-        autoModeEnabled: value,
-      };
-    }),
-  setMode: (mode, confirmed = true) =>
+    set((state) => ({
+      autoModeEnabled: value,
+      mode: value ? state.autoDetection?.finalMode || state.mode : state.mode,
+    })),
+  setMode: (mode, confirmed = false) =>
     set((state) => {
       return {
         mode,

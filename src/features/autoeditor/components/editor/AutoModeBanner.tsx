@@ -70,8 +70,8 @@ export default function AutoModeBanner({
         className="mt-3"
         checked={autoModeEnabled}
         onCheckedChange={onAutoModeToggle}
-        label="Auto-confirm mode"
-        description="Keep detected mode locked until you switch to manual editing."
+        label="Auto-apply detected mode"
+        description="Preselect detected orientation while keeping manual confirmation in your control."
       />
     </motion.section>
   );

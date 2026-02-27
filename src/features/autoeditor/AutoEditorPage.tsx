@@ -441,12 +441,8 @@ export default function AutoEditorPage() {
 
   const handleAutoModeToggle = (value: boolean) => {
     setAutoModeEnabled(value);
-    if (!value) {
-      setModeConfirmed(false);
-      return;
-    }
-    if (autoDetection?.finalMode) {
-      setMode(autoDetection.finalMode, true);
+    if (value && autoDetection?.finalMode) {
+      setMode(autoDetection.finalMode, false);
       setSuggestedSubMode(autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode);
     }
   };
@@ -560,84 +556,88 @@ export default function AutoEditorPage() {
               onOpenManualTimestamp={() => setManualTimestampModalOpen(true)}
             />
 
-            <ModeSelector
-              mode={mode}
-              modeConfirmed={modeConfirmed}
-              autoModeEnabled={autoModeEnabled}
-              onSelectMode={handleModeSelect}
-            />
-
-            {modeConfirmed ? (
-              <StaggeredSettingsSections
-                revealedSectionCount={revealedSectionCount}
-                formatPreset={formatPreset}
-                onFormatPresetChange={setFormatPreset}
-                vibeChip={vibeChip}
-                onVibeChipChange={setVibeChip}
-                stylePreset={stylePreset}
-                onStylePresetChange={setStylePreset}
-                pacingValue={pacingValue}
-                onPacingValueChange={setPacingValue}
-                autoDetectBestMoments={autoDetectBestMoments}
-                onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
-                captionsEnabled={captionsEnabled}
-                onCaptionsEnabledChange={setCaptionsEnabled}
-                captionMode={captionMode}
-                onCaptionModeChange={setCaptionMode}
-                captionStyle={captionStyle}
-                onCaptionStyleChange={setCaptionStyle}
-                captionFont={captionFont}
-                onCaptionFontChange={setCaptionFont}
-                captionEffect={captionEffect}
-                onCaptionEffectChange={setCaptionEffect}
-                audioOption={audioOption}
-                onAudioOptionChange={setAudioOption}
-                audioDuckingEnabled={audioDuckingEnabled}
-                onAudioDuckingEnabledChange={setAudioDuckingEnabled}
-                audioCleanupEnabled={audioCleanupEnabled}
-                onAudioCleanupEnabledChange={setAudioCleanupEnabled}
-                audioMasteringEnabled={audioMasteringEnabled}
-                onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+            {!modeConfirmed ? (
+              <ModeSelector
+                mode={mode}
+                modeConfirmed={modeConfirmed}
+                autoModeEnabled={autoModeEnabled}
+                onSelectMode={handleModeSelect}
               />
             ) : null}
 
-            <CleanCard>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-100">Ready to render</p>
-                  <p className="text-xs text-slate-400">
-                    Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  onClick={handleStartRender}
-                  disabled={!renderPayload || isRendering}
-                  className="min-w-[190px] rounded-xl bg-blue-500 text-slate-100 shadow-[0_16px_36px_-24px_rgba(96,165,250,0.86)] transition-all hover:-translate-y-0.5 hover:bg-blue-400"
-                >
-                  {isRendering ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Rendering
-                    </span>
-                  ) : (
-                    "Render AutoEditor"
-                  )}
-                </Button>
-              </div>
+            {modeConfirmed ? (
+              <>
+                <StaggeredSettingsSections
+                  revealedSectionCount={revealedSectionCount}
+                  formatPreset={formatPreset}
+                  onFormatPresetChange={setFormatPreset}
+                  vibeChip={vibeChip}
+                  onVibeChipChange={setVibeChip}
+                  stylePreset={stylePreset}
+                  onStylePresetChange={setStylePreset}
+                  pacingValue={pacingValue}
+                  onPacingValueChange={setPacingValue}
+                  autoDetectBestMoments={autoDetectBestMoments}
+                  onAutoDetectBestMomentsChange={setAutoDetectBestMoments}
+                  captionsEnabled={captionsEnabled}
+                  onCaptionsEnabledChange={setCaptionsEnabled}
+                  captionMode={captionMode}
+                  onCaptionModeChange={setCaptionMode}
+                  captionStyle={captionStyle}
+                  onCaptionStyleChange={setCaptionStyle}
+                  captionFont={captionFont}
+                  onCaptionFontChange={setCaptionFont}
+                  captionEffect={captionEffect}
+                  onCaptionEffectChange={setCaptionEffect}
+                  audioOption={audioOption}
+                  onAudioOptionChange={setAudioOption}
+                  audioDuckingEnabled={audioDuckingEnabled}
+                  onAudioDuckingEnabledChange={setAudioDuckingEnabled}
+                  audioCleanupEnabled={audioCleanupEnabled}
+                  onAudioCleanupEnabledChange={setAudioCleanupEnabled}
+                  audioMasteringEnabled={audioMasteringEnabled}
+                  onAudioMasteringEnabledChange={setAudioMasteringEnabled}
+                />
 
-              {isRendering ? (
-                <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                    <span>Pipeline progress</span>
-                    <span>{Math.round(renderProgress)}%</span>
+                <CleanCard>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-100">Ready to render</p>
+                      <p className="text-xs text-slate-400">
+                        Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleStartRender}
+                      disabled={!renderPayload || isRendering}
+                      className="min-w-[190px] rounded-xl bg-blue-500 text-slate-100 shadow-[0_16px_36px_-24px_rgba(96,165,250,0.86)] transition-all hover:-translate-y-0.5 hover:bg-blue-400"
+                    >
+                      {isRendering ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Rendering
+                        </span>
+                      ) : (
+                        "Render AutoEditor"
+                      )}
+                    </Button>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-[#1b2233]">
-                    <div className="h-full bg-gradient-to-r from-slate-400 via-blue-400 to-slate-300" style={{ width: `${renderProgress}%` }} />
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Whisper + OpenCV + Claude retention scoring in progress.</p>
-                </div>
-              ) : null}
-            </CleanCard>
+
+                  {isRendering ? (
+                    <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                        <span>Pipeline progress</span>
+                        <span>{Math.round(renderProgress)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[#1b2233]">
+                        <div className="h-full bg-gradient-to-r from-slate-400 via-blue-400 to-slate-300" style={{ width: `${renderProgress}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">Whisper + OpenCV + Claude retention scoring in progress.</p>
+                    </div>
+                  ) : null}
+                </CleanCard>
+              </>
+            ) : null}
 
             {hasCompletedResult ? (
               <RetentionInsights

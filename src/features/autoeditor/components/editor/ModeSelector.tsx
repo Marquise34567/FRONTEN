@@ -20,10 +20,10 @@ export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onS
           <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-50">Choose Edit Layout</h3>
           <p className="mt-1 text-sm text-slate-400">
             {autoModeEnabled
-              ? "Auto-confirm is enabled. You can still override mode below."
+              ? "Detected mode is preselected. Confirm orientation to unlock Format & Platform."
               : modeConfirmed
               ? "Manual mode selected. Settings are now unlocked."
-              : "Pick a mode to reveal the editing pipeline."}
+              : "Pick Horizontal or Vertical to reveal the editing pipeline."}
           </p>
         </div>
 
