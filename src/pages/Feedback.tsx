@@ -7,7 +7,7 @@ import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
-import { ApiError, apiFetch } from "@/lib/api";
+import { API_URL, ApiError, apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { BarChart3, Loader2, Sparkles, WandSparkles } from "lucide-react";
 
@@ -159,6 +159,22 @@ type RealtimePredictionResponse = {
   videos: RealtimePredictionVideo[];
 };
 
+const resolvePredictionWsUrl = (token: string) => {
+  const encodedToken = encodeURIComponent(token);
+  if (API_URL) {
+    try {
+      const parsed = new URL(API_URL);
+      const protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${parsed.host}/ws?token=${encodedToken}`;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof window === "undefined") return null;
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws?token=${encodedToken}`;
+};
+
 const formatDuration = (seconds: number | null | undefined) => {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "Unknown";
   const safe = Math.max(0, Math.floor(seconds));
@@ -243,6 +259,8 @@ const Feedback = () => {
   const [realtimeGeneratedAt, setRealtimeGeneratedAt] = useState<string | null>(null);
   const [loadingRealtime, setLoadingRealtime] = useState(false);
   const realtimePredictionErrorRef = useRef(false);
+  const realtimeFetchInFlightRef = useRef(false);
+  const realtimeRefetchQueuedRef = useRef(false);
 
   const tier = String(me?.subscription?.tier || "free").toLowerCase();
   const isDev = Boolean(me?.flags?.dev);
@@ -284,8 +302,25 @@ const Feedback = () => {
   useEffect(() => {
     if (!accessToken || loadingMe || !isPremium) return;
     let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    let scheduledRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let nextAllowedRefreshAt = 0;
+
+    const clearScheduledRefresh = () => {
+      if (scheduledRefreshTimer) {
+        window.clearTimeout(scheduledRefreshTimer);
+        scheduledRefreshTimer = null;
+      }
+    };
 
     const loadRealtimePredictions = async (silent: boolean) => {
+      if (realtimeFetchInFlightRef.current) {
+        realtimeRefetchQueuedRef.current = true;
+        return;
+      }
+      realtimeFetchInFlightRef.current = true;
       try {
         if (!silent) setLoadingRealtime(true);
         const result = await apiFetch<RealtimePredictionResponse>("/api/feedback/realtime-predictions?limit=24", {
@@ -305,18 +340,99 @@ const Feedback = () => {
           });
         }
       } finally {
+        realtimeFetchInFlightRef.current = false;
         if (!cancelled && !silent) setLoadingRealtime(false);
+        if (!cancelled && realtimeRefetchQueuedRef.current) {
+          realtimeRefetchQueuedRef.current = false;
+          window.setTimeout(() => {
+            void loadRealtimePredictions(true);
+          }, 240);
+        }
       }
     };
 
+    const queueRefresh = (minDelayMs = 200) => {
+      if (cancelled) return;
+      const now = Date.now();
+      const delay = Math.max(minDelayMs, nextAllowedRefreshAt > now ? nextAllowedRefreshAt - now : 0);
+      clearScheduledRefresh();
+      scheduledRefreshTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        nextAllowedRefreshAt = Date.now() + 900;
+        void loadRealtimePredictions(true);
+      }, delay);
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connectSocket();
+      }, 2500);
+    };
+
+    const connectSocket = () => {
+      if (cancelled) return;
+      const wsUrl = resolvePredictionWsUrl(accessToken);
+      if (!wsUrl) return;
+      try {
+        socket = new WebSocket(wsUrl);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen = () => {
+        if (cancelled) return;
+        queueRefresh(120);
+      };
+
+      socket.onmessage = (event) => {
+        if (cancelled) return;
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(String(event.data || "{}"));
+        } catch {
+          parsed = null;
+        }
+        if (parsed?.type === "job:update") {
+          queueRefresh(180);
+        }
+      };
+
+      socket.onerror = () => {
+        if (cancelled) return;
+        try {
+          socket?.close();
+        } catch {
+          // ignore
+        }
+      };
+
+      socket.onclose = () => {
+        if (cancelled) return;
+        scheduleReconnect();
+      };
+    };
+
     void loadRealtimePredictions(false);
-    const timer = window.setInterval(() => {
+    fallbackTimer = window.setInterval(() => {
       void loadRealtimePredictions(true);
-    }, 4000);
+    }, 12000);
+    connectSocket();
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (fallbackTimer) window.clearInterval(fallbackTimer);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      clearScheduledRefresh();
+      realtimeFetchInFlightRef.current = false;
+      realtimeRefetchQueuedRef.current = false;
+      try {
+        socket?.close();
+      } catch {
+        // ignore
+      }
     };
   }, [accessToken, loadingMe, isPremium, toast]);
 
@@ -526,7 +642,7 @@ const Feedback = () => {
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-[#f3d77f]/85">Realtime Predictions</p>
               <p className="mt-1 text-sm text-slate-300">
-                Live outlook per unique uploaded video. Refreshes every 4 seconds.
+                Live outlook per unique uploaded video. Push updates trigger instantly with fallback polling every 12 seconds.
               </p>
             </div>
             <Badge className="border border-cyan-300/45 bg-cyan-500/15 text-cyan-100">
