@@ -50,6 +50,96 @@ const isAllowedUploadFile = (file: File) => {
   return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
 };
 
+type ConnectionLike = {
+  effectiveType?: string;
+  saveData?: boolean;
+  addEventListener?: (type: "change", listener: () => void) => void;
+  removeEventListener?: (type: "change", listener: () => void) => void;
+  addListener?: (listener: () => void) => void;
+  removeListener?: (listener: () => void) => void;
+};
+
+type RuntimeProfile = {
+  effectiveType: string | null;
+  saveData: boolean;
+  deviceMemoryGb: number | null;
+  hardwareConcurrency: number | null;
+  reducedMotion: boolean;
+  lowBandwidth: boolean;
+  lowPowerDevice: boolean;
+};
+
+const LOW_BANDWIDTH_TYPES = new Set(["slow-2g", "2g", "3g"]);
+
+const asPositiveNumber = (value: unknown) => {
+  const resolved = Number(value);
+  return Number.isFinite(resolved) && resolved > 0 ? resolved : null;
+};
+
+const getConnection = (): ConnectionLike | null => {
+  if (typeof navigator === "undefined") return null;
+  const nav = navigator as Navigator & {
+    connection?: ConnectionLike;
+    mozConnection?: ConnectionLike;
+    webkitConnection?: ConnectionLike;
+  };
+  return nav.connection ?? nav.mozConnection ?? nav.webkitConnection ?? null;
+};
+
+const readRuntimeProfile = (): RuntimeProfile => {
+  const connection = getConnection();
+  const effectiveType = String(connection?.effectiveType || "").trim().toLowerCase() || null;
+  const saveData = Boolean(connection?.saveData);
+  const deviceMemoryGb = typeof navigator !== "undefined"
+    ? asPositiveNumber((navigator as Navigator & { deviceMemory?: number }).deviceMemory)
+    : null;
+  const hardwareConcurrency = typeof navigator !== "undefined"
+    ? asPositiveNumber(navigator.hardwareConcurrency)
+    : null;
+  const reducedMotion = typeof window !== "undefined"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    : false;
+  const lowBandwidth = saveData || (effectiveType ? LOW_BANDWIDTH_TYPES.has(effectiveType) : false);
+  const lowPowerDevice =
+    (deviceMemoryGb !== null && deviceMemoryGb <= 2) ||
+    (hardwareConcurrency !== null && hardwareConcurrency <= 4);
+  return {
+    effectiveType,
+    saveData,
+    deviceMemoryGb,
+    hardwareConcurrency,
+    reducedMotion,
+    lowBandwidth,
+    lowPowerDevice,
+  };
+};
+
+const transferHasFiles = (transfer: DataTransfer | null | undefined) => {
+  if (!transfer) return false;
+  if (transfer.files && transfer.files.length > 0) return true;
+  if (!transfer.types) return false;
+  return Array.from(transfer.types).includes("Files");
+};
+
+const getTransferFileCount = (transfer: DataTransfer | null | undefined) => {
+  if (!transfer) return 0;
+  if (transfer.items && transfer.items.length > 0) {
+    const itemCount = Array.from(transfer.items).filter((item) => item.kind === "file").length;
+    if (itemCount > 0) return itemCount;
+  }
+  return transfer.files?.length ?? 0;
+};
+
+const getFirstTransferFile = (transfer: DataTransfer | null | undefined): File | null => {
+  if (!transfer) return null;
+  if (transfer.items && transfer.items.length > 0) {
+    const fileItem = Array.from(transfer.items).find((item) => item.kind === "file");
+    const maybeFile = fileItem?.getAsFile();
+    if (maybeFile) return maybeFile;
+  }
+  return transfer.files?.[0] ?? null;
+};
+
 const chunkSizeForFile = (size: number) => {
   if (size >= 2 * 1024 * MB) return 32 * MB;
   if (size >= 1024 * MB) return 24 * MB;
@@ -294,9 +384,29 @@ type EnergyMoment = {
   visual: number;
   facial: number;
 };
+type RetentionPointKind = "best" | "worst" | "skip_zone" | "hook" | "emotional_peak" | string;
 type RetentionPoint = {
   atSec: number;
   predicted: number;
+  kind?: RetentionPointKind | null;
+  label?: string | null;
+  description?: string | null;
+  watchedPct?: number | null;
+};
+type RetentionTimelineCategory = "best" | "skip_risk" | "weak" | "steady";
+type RetentionTimelineSegment = {
+  id: string;
+  startSec: number;
+  endSec: number;
+  midpointSec: number;
+  predicted: number;
+  dropFromPrevious: number;
+  category: RetentionTimelineCategory;
+  categoryLabel: string;
+  reason: string;
+  sourceKind: RetentionPointKind | null;
+  positionPct: number;
+  widthPct: number;
 };
 
 type PreviewPlaybackTelemetry = {
@@ -417,10 +527,10 @@ const stepKeyForStatus = (status?: JobStatus | string | null) => {
 
 const statusBadgeClass = (status?: JobStatus | string | null) => {
   const normalized = normalizeStatus(status);
-  if (normalized === "ready") return "bg-success/10 text-success border-success/30";
+  if (normalized === "ready") return "bg-primary/12 text-primary border-primary/35";
   if (normalized === "failed") return "bg-destructive/10 text-destructive border-destructive/30";
   if (normalized === "uploading") return "bg-warning/10 text-warning border-warning/30";
-  return "bg-muted/40 text-muted-foreground border-border/60";
+  return "bg-primary/8 text-muted-foreground border-primary/20";
 };
 
 const toFiniteNumber = (value: unknown): number | null => {
@@ -550,12 +660,97 @@ const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
       const atSec = firstFiniteNumber(item.atSec, item.timeSec, item.t, item.second, item.timestamp, index * 15);
       const predicted = firstFiniteNumber(item.predicted, item.value, item.retention, item.score, item.y);
       if (atSec === null || predicted === null) return null;
-      return { atSec: Math.max(0, atSec), predicted: toPercent(predicted, predicted) } as RetentionPoint;
+      const kind =
+        typeof item.type === "string"
+          ? item.type
+          : typeof item.kind === "string"
+            ? item.kind
+            : null;
+      const label = typeof item.label === "string" && item.label.trim() ? item.label.trim() : null;
+      const description =
+        typeof item.description === "string" && item.description.trim() ? item.description.trim() : null;
+      const watchedPct = firstFiniteNumber(item.watchedPct, item.watched_percent, item.watchPercent);
+      return {
+        atSec: Math.max(0, atSec),
+        predicted: toPercent(predicted, predicted),
+        kind,
+        label,
+        description,
+        watchedPct: watchedPct === null ? null : toPercent(watchedPct, watchedPct),
+      } as RetentionPoint;
     })
     .filter((item): item is RetentionPoint => Boolean(item))
     .slice(0, 40)
     .sort((a, b) => a.atSec - b.atSec);
 };
+
+const RETENTION_TIMELINE_CATEGORY_META: Record<
+  RetentionTimelineCategory,
+  {
+    label: string;
+    segmentClassName: string;
+    badgeClassName: string;
+    textClassName: string;
+  }
+> = {
+  best: {
+    label: "Best Part",
+    segmentClassName: "bg-primary/85 hover:bg-primary/70",
+    badgeClassName: "border-primary/40 bg-primary/15 text-foreground",
+    textClassName: "text-foreground",
+  },
+  skip_risk: {
+    label: "Likely Skip",
+    segmentClassName: "bg-rose-400/90 hover:bg-rose-300",
+    badgeClassName: "border-rose-500/40 bg-rose-500/15 text-rose-100",
+    textClassName: "text-rose-100",
+  },
+  weak: {
+    label: "Weaker Part",
+    segmentClassName: "bg-amber-400/90 hover:bg-amber-300",
+    badgeClassName: "border-amber-500/40 bg-amber-500/15 text-amber-100",
+    textClassName: "text-amber-100",
+  },
+  steady: {
+    label: "Steady",
+    segmentClassName: "bg-[hsl(var(--glow-secondary)/0.78)] hover:bg-[hsl(var(--glow-secondary)/0.62)]",
+    badgeClassName: "border-[hsl(var(--glow-secondary)/0.45)] bg-[hsl(var(--glow-secondary)/0.16)] text-foreground",
+    textClassName: "text-foreground/90",
+  },
+};
+
+const resolveRetentionTimelineCategory = ({
+  predicted,
+  dropFromPrevious,
+  pointKind,
+}: {
+  predicted: number;
+  dropFromPrevious: number;
+  pointKind: RetentionPointKind | null;
+}): { category: RetentionTimelineCategory; reason: string } => {
+  const normalizedKind = String(pointKind || "").trim().toLowerCase();
+  if (normalizedKind === "best" || normalizedKind === "hook" || normalizedKind === "emotional_peak") {
+    return { category: "best", reason: "High-performing retention anchor." };
+  }
+  if (normalizedKind === "skip_zone") {
+    return { category: "skip_risk", reason: "Model marked this range as skippable." };
+  }
+  if (normalizedKind === "worst") {
+    return { category: "weak", reason: "Largest drop-off window from model scoring." };
+  }
+  if (predicted >= 82 && dropFromPrevious <= 2) {
+    return { category: "best", reason: "Top retention window based on predicted watch rate." };
+  }
+  if (predicted <= 46 || dropFromPrevious >= 11) {
+    return { category: "skip_risk", reason: "Sharp retention drop; likely skip risk." };
+  }
+  if (predicted <= 62 || dropFromPrevious >= 6) {
+    return { category: "weak", reason: "Below-target retention momentum." };
+  }
+  return { category: "steady", reason: "Holding average retention." };
+};
+
+const toTimelineSegmentActionKey = (jobId: string, segmentId: string) => `${jobId}:${segmentId}`;
 
 const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelection => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -674,7 +869,10 @@ const Editor = () => {
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
   const [analyzeUnlockedByJob, setAnalyzeUnlockedByJob] = useState<Record<string, boolean>>({});
   const [creatorFeedbackSubmitting, setCreatorFeedbackSubmitting] = useState<CreatorFeedbackCategory | null>(null);
+  const [timelineSegmentActionByKey, setTimelineSegmentActionByKey] = useState<Record<string, "fix" | "remove">>({});
+  const [timelineSegmentActionSubmittingKey, setTimelineSegmentActionSubmittingKey] = useState<string | null>(null);
   const [mobilePipeline, setMobilePipeline] = useState(false);
+  const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile>(() => readRuntimeProfile());
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
@@ -691,6 +889,8 @@ const Editor = () => {
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const uploadDropZoneRef = useRef<HTMLDivElement | null>(null);
+  const dropDragDepthRef = useRef(0);
   const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
     strategy: false,
     targetPlatform: false,
@@ -709,6 +909,10 @@ const Editor = () => {
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
+  const lowBandwidthMode = runtimeProfile.lowBandwidth;
+  const lowPowerMode = runtimeProfile.lowPowerDevice;
+  const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
+  const previewPreload: "auto" | "metadata" = performanceConstrained ? "metadata" : "auto";
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -778,7 +982,6 @@ const Editor = () => {
     () => (outcomeAutomationProfile ? Number(outcomeAutomationProfile.expectedLift || 0) * 100 : 0),
     [outcomeAutomationProfile],
   );
-  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
@@ -1377,6 +1580,48 @@ const Editor = () => {
     [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
+  const handleQueueTimelineSegmentAction = useCallback(
+    async (segment: RetentionTimelineSegment, action: "fix" | "remove") => {
+      if (!activeJob?.id) return;
+      if (normalizeStatus(activeJob.status) !== "ready") {
+        toast({
+          title: "Render still processing",
+          description: "Timeline fixes unlock after rendering finishes.",
+        });
+        return;
+      }
+      const jobId = activeJob.id;
+      const actionKey = toTimelineSegmentActionKey(jobId, segment.id);
+      const timeRange = `${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`;
+      setTimelineSegmentActionSubmittingKey(actionKey);
+      if (action === "fix") {
+        setAModeEnabled(true);
+        setBingeModeEnabled(true);
+      } else {
+        setAutoCutBoringEnabled(true);
+        setMaxCutsRequested((prev) => clamp(prev + 2, MAX_CUTS_MIN, MAX_CUTS_MAX));
+      }
+      await postRetentionFeedback(
+        jobId,
+        {
+          source: "frontend_retention_timeline",
+          manualScore: action === "fix" ? 78 : 64,
+          watchPercent: Number((segment.predicted / 100).toFixed(4)),
+          completionPercent: Number((segment.predicted / 100).toFixed(4)),
+          notes: `${action === "fix" ? "Fix" : "Remove"} ${timeRange} (${segment.categoryLabel.toLowerCase()}) from timeline deep dive.`,
+        },
+        { force: true },
+      );
+      setTimelineSegmentActionByKey((prev) => ({ ...prev, [actionKey]: action }));
+      toast({
+        title: action === "fix" ? "Fix queued for redo" : "Removal queued for redo",
+        description: `${timeRange} saved. Run Redo Renderer to apply this change.`,
+      });
+      setTimelineSegmentActionSubmittingKey((current) => (current === actionKey ? null : current));
+    },
+    [activeJob?.id, activeJob?.status, postRetentionFeedback, toast],
+  );
+
   useEffect(() => {
     if (!accessToken) {
       setJobs([]);
@@ -1552,11 +1797,56 @@ const Editor = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const connection = getConnection();
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setRuntimeProfile(readRuntimeProfile());
+
+    sync();
+    window.addEventListener("resize", sync, { passive: true });
+    window.visualViewport?.addEventListener("resize", sync);
+    if (typeof reducedMotionQuery.addEventListener === "function") {
+      reducedMotionQuery.addEventListener("change", sync);
+    } else if (typeof reducedMotionQuery.addListener === "function") {
+      reducedMotionQuery.addListener(sync);
+    }
+    if (connection?.addEventListener) {
+      connection.addEventListener("change", sync);
+    } else if (connection?.addListener) {
+      connection.addListener(sync);
+    }
+
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
+      if (typeof reducedMotionQuery.removeEventListener === "function") {
+        reducedMotionQuery.removeEventListener("change", sync);
+      } else if (typeof reducedMotionQuery.removeListener === "function") {
+        reducedMotionQuery.removeListener(sync);
+      }
+      if (connection?.removeEventListener) {
+        connection.removeEventListener("change", sync);
+      } else if (connection?.removeListener) {
+        connection.removeListener(sync);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    root.dataset.network = runtimeProfile.effectiveType ?? "unknown";
+    root.dataset.saveData = runtimeProfile.saveData ? "true" : "false";
+    root.dataset.performance = performanceConstrained ? "constrained" : "standard";
+  }, [performanceConstrained, runtimeProfile.effectiveType, runtimeProfile.saveData]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const pointerQuery = window.matchMedia("(pointer: coarse)");
     // Mobile signal follows product spec: width <= 767 OR coarse pointer.
     const syncMobileSignal = () => {
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
       const isMobile =
-        window.innerWidth <= 767 ||
+        viewportWidth <= 767 ||
         pointerQuery.matches;
       setMobilePipeline(isMobile);
       document.documentElement.classList.toggle("mobile", isMobile);
@@ -1968,75 +2258,119 @@ const Editor = () => {
 
       // Attempt R2 multipart first (preferred for large files)
       const tryR2Multipart = async () => {
+        let abortContext: { uploadId: string; key: string } | null = null;
         try {
           const r2create = await apiFetch<{
-            uploadId: string
-            key: string
-            partSize: number
-            presignedParts: { partNumber: number; url: string }[]
+            uploadId: string;
+            key: string;
+            partSize: number;
+            presignedParts: { partNumber: number; url: string }[];
           }>(`/api/uploads/create`, {
-            method: 'POST',
+            method: "POST",
             body: JSON.stringify({ jobId: create.job.id, filename: file.name, contentType: file.type, sizeBytes: file.size }),
             token: accessToken,
-          })
+          });
 
-          const { uploadId, key, partSize, presignedParts } = r2create
-          if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error('invalid_r2_create')
+          const { uploadId, key, partSize, presignedParts } = r2create;
+          abortContext = { uploadId, key };
+          if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error("invalid_r2_create");
 
-          const total = file.size
-          const actualPartSize = partSize || 10 * MB
-          const parts: { ETag: string; PartNumber: number }[] = []
-          let uploaded = 0
-          jobFileSizeRef.current[create.job.id] = total
-          uploadStartRef.current[create.job.id] = Date.now()
+          const total = file.size;
+          const actualPartSize = partSize || chunkSizeForFile(total);
+          const parts: { ETag: string; PartNumber: number }[] = [];
+          const sortedPresignedParts = [...presignedParts].sort((left, right) => left.partNumber - right.partNumber);
+          let uploaded = 0;
+          jobFileSizeRef.current[create.job.id] = total;
+          uploadStartRef.current[create.job.id] = Date.now();
 
-          // presignedParts should be ordered by partNumber; iterate and upload corresponding slices
-          for (const p of presignedParts) {
-            const partNumber = p.partNumber
-            const start = (partNumber - 1) * actualPartSize
-            const end = Math.min(total, start + actualPartSize)
-            const chunk = file.slice(start, end)
-            const resp = await fetch(p.url, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk })
-            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`)
-            const etag = resp.headers.get('ETag') || resp.headers.get('etag')
+          const effectiveType = runtimeProfile.effectiveType ?? "";
+          const conservativeNetwork = runtimeProfile.saveData || effectiveType === "slow-2g" || effectiveType === "2g";
+          const moderateNetwork = effectiveType === "3g";
+          let parallelism = uploadParallelismForFile(total);
+          if (conservativeNetwork) parallelism = 1;
+          else if (moderateNetwork) parallelism = Math.min(parallelism, 2);
+          if (runtimeProfile.lowPowerDevice) parallelism = Math.min(parallelism, 2);
+          parallelism = clamp(parallelism, 1, 4);
+
+          const uploadPart = async (part: { partNumber: number; url: string }) => {
+            const partNumber = part.partNumber;
+            const start = (partNumber - 1) * actualPartSize;
+            const end = Math.min(total, start + actualPartSize);
+            const chunk = file.slice(start, end);
+            const resp = await fetch(part.url, {
+              method: "PUT",
+              headers: { "Content-Type": "application/octet-stream" },
+              body: chunk,
+            });
+            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`);
+            const etag = resp.headers.get("ETag") || resp.headers.get("etag");
             if (!etag) {
               throw new Error(
-                'missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads'
-              )
+                "missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads",
+              );
             }
-            parts.push({ ETag: etag, PartNumber: partNumber })
-            uploaded += chunk.size
-            setUploadBytesUploaded(uploaded)
-            setUploadBytesTotal(total)
-            setUploadProgress(Math.round((uploaded / total) * 100))
+            return { ETag: etag, PartNumber: partNumber, size: chunk.size };
+          };
+
+          if (parallelism <= 1 || sortedPresignedParts.length <= 1) {
+            for (const part of sortedPresignedParts) {
+              const result = await uploadPart(part);
+              parts.push({ ETag: result.ETag, PartNumber: result.PartNumber });
+              uploaded += result.size;
+              setUploadBytesUploaded(uploaded);
+              setUploadBytesTotal(total);
+              setUploadProgress(Math.round((uploaded / total) * 100));
+            }
+          } else {
+            let cursor = 0;
+            const workerCount = Math.min(parallelism, sortedPresignedParts.length);
+            const worker = async () => {
+              while (cursor < sortedPresignedParts.length) {
+                const current = cursor;
+                cursor += 1;
+                const result = await uploadPart(sortedPresignedParts[current]);
+                parts.push({ ETag: result.ETag, PartNumber: result.PartNumber });
+                uploaded += result.size;
+                setUploadBytesUploaded(uploaded);
+                setUploadBytesTotal(total);
+                setUploadProgress(Math.round((uploaded / total) * 100));
+              }
+            };
+            await Promise.all(Array.from({ length: workerCount }, () => worker()));
+            parts.sort((left, right) => left.PartNumber - right.PartNumber);
           }
 
           // Complete multipart upload on backend
-          await apiFetch('/api/uploads/complete', {
-            method: 'POST',
+          await apiFetch("/api/uploads/complete", {
+            method: "POST",
             body: JSON.stringify({ jobId: create.job.id, key, uploadId, parts }),
             token: accessToken,
-          })
+          });
 
-          setUploadProgress(100)
-          setUploadingJobId(null)
-          setUploadBytesUploaded(null)
-          setUploadBytesTotal(null)
-          fetchJobs()
-          toast({ title: 'Upload complete', description: 'Your job is now processing.' })
-          return true
+          setUploadProgress(100);
+          setUploadingJobId(null);
+          setUploadBytesUploaded(null);
+          setUploadBytesTotal(null);
+          fetchJobs();
+          toast({ title: "Upload complete", description: "Your job is now processing." });
+          return true;
         } catch (err) {
-          console.warn('R2 multipart upload failed', err)
+          console.warn("R2 multipart upload failed", err);
           // best-effort abort if we have uploadId
           try {
-            const maybe = err as any
-            if (maybe?.uploadId && maybe?.key) {
-              await apiFetch('/api/uploads/abort', { method: 'POST', body: JSON.stringify({ key: maybe.key, uploadId: maybe.uploadId }), token: accessToken })
+            if (abortContext?.uploadId && abortContext?.key) {
+              await apiFetch("/api/uploads/abort", {
+                method: "POST",
+                body: JSON.stringify({ key: abortContext.key, uploadId: abortContext.uploadId }),
+                token: accessToken,
+              });
             }
-          } catch (e) {}
-          return false
+          } catch (abortErr) {
+            console.warn("R2 multipart abort failed", abortErr);
+          }
+          return false;
         }
-      }
+      };
 
       // Try R2 multipart only when backend indicates direct object upload support.
       if (create.uploadUrl) {
@@ -2508,7 +2842,7 @@ const Editor = () => {
     });
   };
 
-  const handlePickFile = () => {
+  const handlePickFile = useCallback(() => {
     trackEditorEvent("new_project_clicked", {
       retentionProfile: retentionStrategyProfile,
       targetPlatform: retentionTargetPlatform,
@@ -2516,19 +2850,101 @@ const Editor = () => {
       metadata: { mode: isVerticalMode ? "vertical" : "horizontal" },
     });
     fileInputRef.current?.click();
-  };
+  }, [
+    activeSubtitlePreset,
+    isVerticalMode,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    trackEditorEvent,
+  ]);
 
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setIsDragging(false);
-    const file = event.dataTransfer.files?.[0];
-    if (!file) return;
+  const handleSelectedFile = useCallback((file: File, fileCount = 1) => {
+    if (fileCount > 1) {
+      toast({
+        title: "Multiple files detected",
+        description: "Using the first selected file.",
+      });
+    }
     if (isVerticalMode) {
       prepareVerticalFile(file);
       return;
     }
     void handleFile(file);
-  };
+  }, [handleFile, isVerticalMode, prepareVerticalFile, toast]);
+
+  const handleFileInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    const file = files?.[0];
+    if (file) handleSelectedFile(file, files?.length ?? 1);
+    if (event.target) event.target.value = "";
+  }, [handleSelectedFile]);
+
+  const handleDropZoneDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dropDragDepthRef.current += 1;
+    setIsDragging(true);
+  }, []);
+
+  const handleDropZoneDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    if (!isDragging) setIsDragging(true);
+  }, [isDragging]);
+
+  const handleDropZoneDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dropDragDepthRef.current = Math.max(0, dropDragDepthRef.current - 1);
+    if (dropDragDepthRef.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropDragDepthRef.current = 0;
+    setIsDragging(false);
+    const fileCount = getTransferFileCount(event.dataTransfer);
+    const file = getFirstTransferFile(event.dataTransfer);
+    if (!file) return;
+    handleSelectedFile(file, fileCount);
+  }, [handleSelectedFile]);
+
+  const handleDropZoneKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    handlePickFile();
+  }, [handlePickFile]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleWindowDragOver = (event: DragEvent) => {
+      if (!transferHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+    };
+
+    const handleWindowDrop = (event: DragEvent) => {
+      if (!transferHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      dropDragDepthRef.current = 0;
+      setIsDragging(false);
+      const targetNode = event.target instanceof Node ? event.target : null;
+      if (uploadDropZoneRef.current && targetNode && uploadDropZoneRef.current.contains(targetNode)) return;
+      const fileCount = getTransferFileCount(event.dataTransfer);
+      const file = getFirstTransferFile(event.dataTransfer);
+      if (!file) return;
+      handleSelectedFile(file, fileCount);
+    };
+
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("drop", handleWindowDrop);
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, [handleSelectedFile]);
 
   // If the landing page requested an automatic pick, open the file picker when user is signed in.
   useEffect(() => {
@@ -2549,7 +2965,7 @@ const Editor = () => {
     } catch (err) {
       // ignore
     }
-  }, [accessToken, navigate, searchParams, setSearchParams]);
+  }, [accessToken, handlePickFile, navigate, searchParams, setSearchParams]);
 
   const handleSelectJob = (jobId: string) => {
     const next = new URLSearchParams(searchParams);
@@ -3332,6 +3748,72 @@ const Editor = () => {
   const latestRetentionPoint = retentionCurvePoints.length > 0
     ? retentionCurvePoints[retentionCurvePoints.length - 1]
     : null;
+  const retentionTimelineDurationSec = useMemo(() => {
+    const lastCurveSec = retentionCurvePoints.length > 0
+      ? retentionCurvePoints[retentionCurvePoints.length - 1].atSec
+      : 0;
+    return Math.max(
+      60,
+      Math.round(Math.max(
+        estimatedTimelineDurationSec,
+        lastCurveSec + Math.max(8, Math.round(estimatedTimelineDurationSec * 0.08)),
+      )),
+    );
+  }, [retentionCurvePoints, estimatedTimelineDurationSec]);
+  const retentionTimelineSegments = useMemo<RetentionTimelineSegment[]>(() => {
+    if (retentionCurvePoints.length === 0) return [];
+    const minSegmentSec = Math.max(
+      6,
+      Math.round(retentionTimelineDurationSec / Math.max(10, retentionCurvePoints.length * 1.4)),
+    );
+    return retentionCurvePoints.map((point, index) => {
+      const nextAtSec = retentionCurvePoints[index + 1]?.atSec;
+      const startSec = clamp(point.atSec, 0, Math.max(0, retentionTimelineDurationSec - minSegmentSec));
+      const fallbackEndSec = startSec + minSegmentSec;
+      const rawEndSec = Number.isFinite(Number(nextAtSec)) ? Number(nextAtSec) : fallbackEndSec;
+      const endSec = clamp(
+        Math.max(startSec + 1, rawEndSec),
+        startSec + 1,
+        Math.max(startSec + 1, retentionTimelineDurationSec),
+      );
+      const previousPredicted = index > 0 ? retentionCurvePoints[index - 1].predicted : point.predicted;
+      const dropFromPrevious = Number((previousPredicted - point.predicted).toFixed(1));
+      const resolved = resolveRetentionTimelineCategory({
+        predicted: point.predicted,
+        dropFromPrevious,
+        pointKind: point.kind ?? null,
+      });
+      const positionPct = clamp((startSec / retentionTimelineDurationSec) * 100, 0, 99);
+      const widthPct = clamp(((endSec - startSec) / retentionTimelineDurationSec) * 100, 1.5, 100 - positionPct);
+      return {
+        id: `${index}-${Math.round(startSec * 10)}-${Math.round(endSec * 10)}`,
+        startSec,
+        endSec,
+        midpointSec: Number(((startSec + endSec) / 2).toFixed(3)),
+        predicted: point.predicted,
+        dropFromPrevious,
+        category: resolved.category,
+        categoryLabel: RETENTION_TIMELINE_CATEGORY_META[resolved.category].label,
+        reason: point.description || resolved.reason,
+        sourceKind: point.kind ?? null,
+        positionPct,
+        widthPct,
+      } satisfies RetentionTimelineSegment;
+    });
+  }, [retentionCurvePoints, retentionTimelineDurationSec]);
+  const bestRetentionSegments = useMemo(
+    () => retentionTimelineSegments.filter((segment) => segment.category === "best").slice(0, 3),
+    [retentionTimelineSegments],
+  );
+  const skipRiskRetentionSegments = useMemo(
+    () => retentionTimelineSegments.filter((segment) => segment.category === "skip_risk").slice(0, 3),
+    [retentionTimelineSegments],
+  );
+  const weakRetentionSegments = useMemo(
+    () => retentionTimelineSegments.filter((segment) => segment.category === "weak").slice(0, 3),
+    [retentionTimelineSegments],
+  );
+  const canQueueTimelineSegmentAction = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
@@ -4466,7 +4948,15 @@ const Editor = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="editor-landing-skin responsive-main mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12">
+      <main
+        className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
+          performanceConstrained ? "network-constrained" : ""
+        }`}
+        data-network={runtimeProfile.effectiveType ?? "unknown"}
+        data-save-data={runtimeProfile.saveData ? "true" : "false"}
+        data-low-power={lowPowerMode ? "true" : "false"}
+        data-performance={performanceConstrained ? "constrained" : "standard"}
+      >
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -4475,32 +4965,10 @@ const Editor = () => {
             </div>
             <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-              {me && (
-                <>
-                  {isDevAccount && (
-                    <Badge className="bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-orange-500/20 text-amber-200 border border-amber-400/40 uppercase tracking-[0.25em] text-[10px] px-3 py-1">
-                      Dev
-                    </Badge>
-                  )}
-                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {tierLabel} plan
-                  </Badge>
-                  {trialActive && (
-                    <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
-                      Trial {Math.max(1, trialDaysRemaining)}d left
-                    </Badge>
-                  )}
-                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {isDevAccount
-                      ? "Unlimited renders"
-                      : `${rendersRemaining ?? 0} renders left`}
-                  </Badge>
-                  <Badge variant="secondary" className="bg-muted/40 text-muted-foreground border-border/60">
-                    {isDevAccount
-                      ? "Unlimited re-renders"
-                      : `${rerendersRemainingToday ?? 0} re-renders left today`}
-                  </Badge>
-                </>
+              {me && trialActive && (
+                <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
+                  Trial {Math.max(1, trialDaysRemaining)}d left
+                </Badge>
               )}
                 <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                   <Button
@@ -4884,89 +5352,128 @@ const Editor = () => {
             type="file"
             accept={FILE_INPUT_ACCEPT}
             className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                if (isVerticalMode) {
-                  prepareVerticalFile(file);
-                } else {
-                  void handleFile(file);
-                }
-              }
-              if (e.target) e.target.value = "";
-            }}
+            onChange={handleFileInputChange}
           />
 
           <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
             {!hideJobsPanel ? (
-              <aside className="glass-card min-w-0 space-y-4 p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-foreground">Recent Jobs</h2>
-                <Badge variant="secondary" className="bg-muted/40 text-muted-foreground">
-                  {jobs.length}
-                </Badge>
-              </div>
-              {loadingJobs && <p className="text-xs text-muted-foreground">Loading jobs...</p>}
-              {!loadingJobs && jobs.length === 0 && (
-                <p className="text-xs text-muted-foreground">No jobs yet. Upload a video to get started.</p>
-              )}
-              <div className="space-y-2">
-                {jobs.map((job) => {
-                  const ready = normalizeStatus(job.status) === "ready";
-                  return (
-                    <button
-                      key={job.id}
-                      type="button"
-                      onClick={() => handleSelectJob(job.id)}
-                      className={`w-full text-left rounded-xl border px-3 py-3 transition ${
-                        highlightedJobId === job.id
-                          ? "ring-2 ring-primary/40 bg-primary/10 border-primary/40"
-                          : ready
-                            ? "border-success/50 bg-success/15 ring-1 ring-emerald-400/35 shadow-[0_0_20px_rgba(52,211,153,0.28)]"
-                            : selectedJobId === job.id
-                              ? "border-primary/40 bg-primary/10"
-                              : "border-border/50 hover:border-primary/30 hover:bg-muted/30"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          {ready ? <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" /> : null}
-                          <span className={`text-sm font-medium truncate ${ready ? "text-success" : "text-foreground"}`}>
-                            {displayName(job)}
+              <aside className="editor-job-list-shell min-w-0 space-y-4 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Pipeline Jobs</h2>
+                    <p className="text-[11px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
+                  </div>
+                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                    {jobs.length}
+                  </Badge>
+                </div>
+                {loadingJobs && <p className="text-xs text-muted-foreground">Loading jobs...</p>}
+                {!loadingJobs && jobs.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+                )}
+                <div className="space-y-2.5">
+                  {jobs.map((job) => {
+                    const normalizedJobStatus = normalizeStatus(job.status);
+                    const ready = normalizedJobStatus === "ready";
+                    const inFlight = !isTerminalStatus(job.status);
+                    const stageLabel =
+                      PIPELINE_STEPS.find((step) => step.key === stepKeyForStatus(job.status))?.label ??
+                      STATUS_LABELS[normalizedJobStatus] ??
+                      "Upload";
+                    const progressValue = clamp(Number(job.progress ?? 0), 0, 100);
+                    const visualProgress = inFlight ? Math.max(6, progressValue) : progressValue;
+                    return (
+                      <button
+                        key={job.id}
+                        type="button"
+                        onClick={() => handleSelectJob(job.id)}
+                        data-selected={selectedJobId === job.id ? "true" : "false"}
+                        data-ready={ready ? "true" : "false"}
+                        data-highlighted={highlightedJobId === job.id ? "true" : "false"}
+                        className="editor-job-card w-full text-left px-3 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className={`truncate text-sm font-semibold ${ready ? "text-success" : "text-foreground"}`}>
+                              {displayName(job)}
+                            </p>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                              Job {job.id.slice(0, 8)}
+                            </p>
+                          </div>
+                          {inFlight ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                              Live
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(job.status)}`}>
+                            {STATUS_LABELS[normalizedJobStatus] || "Queued"}
+                          </Badge>
+                          <Badge variant="outline" className="border-border/60 bg-muted/20 text-[10px] text-muted-foreground">
+                            Stage: {stageLabel}
+                          </Badge>
+                          <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
+                        </div>
+
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/70">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              normalizedJobStatus === "failed"
+                                ? "bg-gradient-to-r from-destructive/80 to-destructive"
+                                : ready
+                                  ? "bg-gradient-to-r from-emerald-300 to-emerald-500"
+                                  : "bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
+                            }`}
+                            style={{ width: `${visualProgress}%` }}
+                          />
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          <span className="truncate">
+                            {new Date(job.createdAt).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
                           </span>
-                        </span>
-                        <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(job.status)}`}>
-                          {STATUS_LABELS[normalizeStatus(job.status)] || "Queued"}
-                        </Badge>
-                      </div>
-                      {job.renderMode === "vertical" && (
-                        <p className="text-[10px] text-primary/90 mt-1 inline-flex items-center gap-1">
-                          <ScissorsSquare className="w-3 h-3" />
-                          Vertical clip job
-                        </p>
-                      )}
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        {new Date(job.createdAt).toLocaleString()}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-2 py-0.5">
+                            {job.renderMode === "vertical" ? (
+                              <>
+                                <ScissorsSquare className="h-3 w-3 text-primary" />
+                                Vertical
+                              </>
+                            ) : (
+                              "Standard"
+                            )}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </aside>
             ) : null}
 
             <section className="min-w-0 space-y-6">
               <div
-                className={`glass-card p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
+                ref={uploadDropZoneRef}
+                className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
                   isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
                 }`}
                 onClick={handlePickFile}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
+                onDragEnter={handleDropZoneDragEnter}
+                onDragOver={handleDropZoneDragOver}
+                onDragLeave={handleDropZoneDragLeave}
                 onDrop={handleDrop}
+                onKeyDown={handleDropZoneKeyDown}
+                role="button"
+                tabIndex={0}
+                aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
               >
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -4980,6 +5487,11 @@ const Editor = () => {
                       ? "Then place the webcam crop box for the top panel and preview the stacked 9:16 layout."
                       : "MP4, M4V, or MKV up to 2GB"}
                   </p>
+                  {performanceConstrained && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
+                    </p>
+                  )}
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -5110,6 +5622,7 @@ const Editor = () => {
                             <video
                               ref={verticalSourceVideoRef}
                               src={verticalPreviewUrl}
+                              preload={previewPreload}
                               controls
                               onLoadedMetadata={handleVerticalSourceMetadata}
                               className="h-full w-full object-contain"
@@ -5164,6 +5677,7 @@ const Editor = () => {
                           <video
                             ref={verticalCompositionVideoRef}
                             src={verticalPreviewUrl}
+                            preload="metadata"
                             muted
                             loop
                             playsInline
@@ -5264,6 +5778,7 @@ const Editor = () => {
                     <video
                       ref={previewVideoRef}
                       src={previewOutputUrl}
+                      preload={previewPreload}
                       controls
                       onLoadedMetadata={handlePreviewLoadedMetadata}
                       onTimeUpdate={handlePreviewTimeUpdate}
@@ -5313,42 +5828,69 @@ const Editor = () => {
                   </div>
                 ) : null}
 
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Pipeline</p>
-                    <p className="text-xs text-muted-foreground">Live status updates while your job runs</p>
+                <div className="editor-pipeline-shell rounded-2xl border px-3.5 py-3 sm:px-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Pipeline Console</p>
+                      <p className="text-xs text-muted-foreground">
+                        {activeJob
+                          ? "Status, stage, and full-scan progress for the selected render."
+                          : "Select a job to view its pipeline timeline."}
+                      </p>
+                    </div>
+                    {activeJob ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" className={`text-xs flex items-center gap-1.5 ${statusBadgeClass(activeJob.status)}`}>
+                          {normalizeStatus(activeJob.status) === "ready" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                          {activeStatusLabel}
+                        </Badge>
+                        <Badge variant="outline" className="border-border/60 bg-muted/20 text-xs text-muted-foreground">
+                          {Math.round(totalPipelineProgress)}%
+                        </Badge>
+                      </div>
+                    ) : null}
                   </div>
-                  {activeJob && (
-                    <Badge variant="outline" className={`text-xs flex items-center gap-1.5 ${statusBadgeClass(activeJob.status)}`}>
-                      {normalizeStatus(activeJob.status) === "ready" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
-                      {activeStatusLabel}
-                    </Badge>
-                  )}
+                  {activeJob ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-foreground">
+                        {displayName(activeJob)}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                        Stage: {activeStageLabel}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                        {activeJob.renderMode === "vertical" ? "Vertical job" : "Standard render"}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                        {activeJobCreatedAtLabel}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
 
                 {loadingJob && <p className="text-xs text-muted-foreground">Loading job details...</p>}
                 {!activeJob && !loadingJob && (
-                  <p className="text-xs text-muted-foreground">Select a job from the left to view its pipeline.</p>
+                  <p className="text-xs text-muted-foreground">Select a job to view its pipeline.</p>
                 )}
 
                 {activeJob && (
                   <>
                     <div className="space-y-1.5">
-                      <div className="h-2 overflow-hidden rounded-full bg-teal-950/50">
+                      <div className="h-2 overflow-hidden rounded-full bg-muted/70">
                         <motion.div
-                          className="h-full bg-gradient-to-r from-teal-400 via-cyan-300 to-teal-500"
+                          className="h-full bg-gradient-to-r from-primary via-primary/80 to-glow-secondary"
                           initial={{ width: 0 }}
                           animate={{ width: `${totalPipelineProgress}%` }}
                           transition={{ duration: 0.35, ease: "easeOut" }}
                         />
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span className="uppercase tracking-[0.16em] text-teal-100/90">Live Pipeline Progress</span>
+                        <span className="uppercase tracking-[0.16em]">Live Pipeline Progress</span>
                         <span>{Math.round(totalPipelineProgress)}%</span>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-teal-400/25 bg-teal-950/15 p-3 sm:p-4">
+                    <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
                       <div className="pipeline-scrollbar overflow-x-auto">
                         <ol className="flex min-w-[980px] items-center gap-2" aria-label="High-retention pipeline stages">
                           {pipelineRows.map((row, idx) => (
@@ -5359,25 +5901,25 @@ const Editor = () => {
                                     aria-current={row.state === "active" ? "step" : undefined}
                                     className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
                                       row.state === "done"
-                                        ? "border-teal-300/70 bg-teal-400/20 text-teal-100"
+                                        ? "border-primary/50 bg-primary/15 text-foreground"
                                         : row.state === "active"
-                                          ? "border-cyan-300/80 bg-cyan-300/20 text-cyan-100 shadow-[0_0_18px_rgba(45,212,191,0.35)]"
+                                          ? "border-primary/70 bg-primary/20 text-foreground shadow-[0_0_18px_hsl(var(--primary)/0.35)]"
                                           : row.state === "failed"
                                             ? "border-destructive/70 bg-destructive/20 text-destructive"
-                                            : "border-teal-900/60 bg-teal-950/35 text-teal-100/65"
+                                            : "border-border/60 bg-background/55 text-muted-foreground"
                                     }`}
                                   >
                                     {row.label}
                                   </div>
                                 </TooltipTrigger>
-                                <TooltipContent className="max-w-xs border-teal-500/35 bg-teal-950 text-teal-100">
+                                <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
                                   <p className="font-medium">{row.label}</p>
-                                  <p className="text-[11px] text-teal-100/80">{row.detail}</p>
-                                  <p className="mt-1 text-[11px] text-teal-100/70">{row.percent}% complete</p>
+                                  <p className="text-[11px] text-muted-foreground">{row.detail}</p>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">{row.percent}% complete</p>
                                 </TooltipContent>
                               </Tooltip>
                               {idx < pipelineRows.length - 1 ? (
-                                <span className="text-xs text-teal-200/80">→</span>
+                                <span className="text-xs text-muted-foreground">→</span>
                               ) : null}
                             </li>
                           ))}
@@ -5385,129 +5927,131 @@ const Editor = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-3 rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">Full Video Scan Progress</p>
-                        <Badge className="border-teal-300/35 bg-teal-400/15 text-teal-100">
-                          {Math.round(fullScanProgress)}%
-                        </Badge>
-                      </div>
-                      <Progress
-                        value={fullScanProgress}
-                        className="h-2 bg-teal-950/45 [&>div]:bg-gradient-to-r [&>div]:from-teal-400 [&>div]:via-cyan-300 [&>div]:to-teal-500"
-                      />
-                      <p className="text-[11px] text-teal-50/80">{fullScanProgressLabel}</p>
-
-                      <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                    {normalizedActiveStatus === "ready" && (
+                      <div className="space-y-3 rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Energy Timeline</p>
-                          <Badge className="border-teal-300/30 bg-teal-300/10 text-teal-100">0-100 score</Badge>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
+                          <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                            {Math.round(fullScanProgress)}%
+                          </Badge>
                         </div>
-                        <div className="relative mt-3 h-10">
-                          <div className="absolute inset-x-0 top-4 h-px bg-gradient-to-r from-teal-800/70 via-teal-300/80 to-teal-800/70" />
-                          {timelineEnergyMoments.map((moment, idx) => (
-                            <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="absolute top-0 -translate-x-1/2"
-                                  style={{ left: `${moment.positionPct}%` }}
-                                >
-                                  <Badge className="border-teal-300/45 bg-teal-400/20 px-1.5 py-0.5 text-[10px] text-teal-100">
-                                    {moment.energy}
-                                  </Badge>
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs border-teal-500/35 bg-teal-950 text-teal-100">
-                                <p className="text-[11px] font-medium">{moment.timestampLabel} energy {moment.energy}</p>
-                                <p className="text-[11px] text-teal-100/80">
-                                  Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
-                        </div>
-                      </div>
+                        <Progress
+                          value={fullScanProgress}
+                          className="h-2 bg-muted/70 [&>div]:bg-primary"
+                        />
+                        <p className="text-[11px] text-muted-foreground">{fullScanProgressLabel}</p>
 
-                      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                        <div className="rounded-lg border border-teal-400/25 bg-teal-950/20 p-3">
+                        <div className="rounded-lg border border-border/60 bg-background/50 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <Badge className="border-teal-300/40 bg-teal-300/15 text-teal-100">
-                              Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
-                            </Badge>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="text-[11px] text-teal-100 underline underline-offset-4"
-                                >
-                                  Details
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent className="border-teal-500/35 bg-teal-950 text-teal-100">
-                                {autoHookSummaryLine}
-                              </PopoverContent>
-                            </Popover>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Energy Timeline</p>
+                            <Badge className="border-border/60 bg-muted/30 text-muted-foreground">0-100 score</Badge>
                           </div>
-                          <p className="mt-2 text-xs text-teal-100/80">{autoHookSummaryLine}</p>
+                          <div className="relative mt-3 h-10">
+                            <div className="absolute inset-x-0 top-4 h-px bg-gradient-to-r from-border/60 via-primary/80 to-border/60" />
+                            {timelineEnergyMoments.map((moment, idx) => (
+                              <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="absolute top-0 -translate-x-1/2"
+                                    style={{ left: `${moment.positionPct}%` }}
+                                  >
+                                    <Badge className="border-primary/40 bg-primary/15 px-1.5 py-0.5 text-[10px] text-foreground">
+                                      {moment.energy}
+                                    </Badge>
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
+                                  <p className="text-[11px] font-medium">{moment.timestampLabel} energy {moment.energy}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ))}
+                          </div>
                         </div>
 
-                        <div className="rounded-lg border border-teal-400/25 bg-teal-950/20 p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs font-medium text-teal-100">Auto-Cut Boring/Silent/Pauses</p>
-                            <Switch
-                              checked={autoCutBoringEnabled}
-                              onCheckedChange={setAutoCutBoringEnabled}
-                              className="data-[state=checked]:bg-teal-500"
-                              aria-label="Auto-cut low engagement segments"
-                            />
+                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                                Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
+                              </Badge>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="text-[11px] text-primary underline underline-offset-4"
+                                  >
+                                    Details
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="border-border/60 bg-card text-foreground">
+                                  {autoHookSummaryLine}
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">{autoHookSummaryLine}</p>
                           </div>
-                          <p className="mt-2 text-xs text-teal-100/80">
-                            {autoCutBoringEnabled
-                              ? `Cut ${removedFillerPercent}% low-engagement filler`
-                              : "Auto-cut paused, low-engagement filler retained."}
-                          </p>
+
+                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-medium text-foreground">Auto-Cut Boring/Silent/Pauses</p>
+                              <Switch
+                                checked={autoCutBoringEnabled}
+                                onCheckedChange={setAutoCutBoringEnabled}
+                                className="data-[state=checked]:bg-primary"
+                                aria-label="Auto-cut low engagement segments"
+                              />
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              {autoCutBoringEnabled
+                                ? `Cut ${removedFillerPercent}% low-engagement filler`
+                                : "Auto-cut paused, low-engagement filler retained."}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
-                    <div className="space-y-3 rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
+                    <div className="space-y-3 rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">A-Mode</p>
-                          <p className="text-xs text-teal-50/75">Advanced retention automation (facial scan + binge logic)</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode</p>
+                          <p className="text-xs text-muted-foreground">Advanced retention automation (facial scan + binge logic)</p>
                         </div>
                         <Switch
                           checked={aModeEnabled}
                           onCheckedChange={setAModeEnabled}
-                          className="data-[state=checked]:bg-teal-500"
+                          className="data-[state=checked]:bg-primary"
                           aria-label="Toggle advanced AI retention mode"
                         />
                       </div>
 
                       {aModeEnabled ? (
                         <div className="space-y-3">
-                          <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Facial Scan Overlay</p>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Facial Scan Overlay</p>
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <button type="button" className="text-[11px] text-teal-100 underline underline-offset-4">
+                                  <button type="button" className="text-[11px] text-primary underline underline-offset-4">
                                     Suggestion
                                   </button>
                                 </PopoverTrigger>
-                                <PopoverContent className="border-teal-500/35 bg-teal-950 text-teal-100">
+                                <PopoverContent className="border-border/60 bg-card text-foreground">
                                   {`Facial Scan: Boost Retention +${facialRetentionBoostPct}% by focusing on high-engagement face at ${formatTimelineClock(facialFocusSec)}`}
                                 </PopoverContent>
                               </Popover>
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                               {facialHeatmapMoments.map((zone) => (
-                                <div key={`${zone.label}-${zone.at}`} className="rounded-md border border-teal-500/20 bg-teal-900/30 p-2">
-                                  <p className="text-[10px] text-teal-100/80">{zone.label} · {zone.at}</p>
-                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-teal-950/70">
+                                <div key={`${zone.label}-${zone.at}`} className="rounded-md border border-border/60 bg-background/55 p-2">
+                                  <p className="text-[10px] text-muted-foreground">{zone.label} · {zone.at}</p>
+                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted/70">
                                     <div
-                                      className="h-full rounded-full bg-gradient-to-r from-teal-400 to-cyan-300"
+                                      className="h-full rounded-full bg-gradient-to-r from-primary to-glow-secondary"
                                       style={{ width: `${zone.intensity}%` }}
                                     />
                                   </div>
@@ -5516,18 +6060,18 @@ const Editor = () => {
                             </div>
                           </div>
 
-                          <div className="rounded-lg border border-teal-500/25 bg-teal-950/25 p-3">
+                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-3">
                               <div>
-                                <p className="text-[11px] uppercase tracking-[0.16em] text-teal-100/90">Binge Mode</p>
-                                <p className="text-xs text-teal-100/70">
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge Mode</p>
+                                <p className="text-xs text-muted-foreground">
                                   Curiosity loops, cliffhangers, emotional arcs, dynamic pacing, and re-hooks.
                                 </p>
                               </div>
                               <Switch
                                 checked={bingeModeEnabled}
                                 onCheckedChange={setBingeModeEnabled}
-                                className="data-[state=checked]:bg-teal-500"
+                                className="data-[state=checked]:bg-primary"
                                 aria-label="Toggle binge optimization mode"
                               />
                             </div>
@@ -5536,53 +6080,53 @@ const Editor = () => {
                                 {bingeSuggestions.map((line, index) => (
                                   <Badge
                                     key={`binge-suggestion-${index}`}
-                                    className="border-teal-300/30 bg-teal-400/15 text-teal-50"
+                                    className="border-primary/30 bg-primary/10 text-foreground"
                                   >
                                     {line}
                                   </Badge>
                                 ))}
                               </div>
                             ) : (
-                              <p className="mt-2 text-xs text-teal-100/70">Binge optimizations are currently paused.</p>
+                              <p className="mt-2 text-xs text-muted-foreground">Binge optimizations are currently paused.</p>
                             )}
                           </div>
                         </div>
                       ) : (
-                        <p className="text-xs text-teal-100/75">
+                        <p className="text-xs text-muted-foreground">
                           Enable A-Mode to apply facial scan recognition and binge-flow suggestions.
                         </p>
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-teal-400/20 bg-teal-950/10 p-3 sm:p-4">
+                    <div className="rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-teal-100/90">Retention Prediction Graph</p>
-                        <Badge className={`border-teal-300/30 ${retentionGoalMet ? "bg-teal-400/20 text-teal-50" : "bg-amber-500/20 text-amber-100"}`}>
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Retention Prediction Graph</p>
+                        <Badge className={`${retentionGoalMet ? "border-success/35 bg-success/10 text-success" : "border-warning/35 bg-warning/10 text-warning"}`}>
                           {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
                         </Badge>
                       </div>
-                      <div className="mt-2 h-32 overflow-hidden rounded-lg border border-teal-500/20 bg-teal-950/35 p-2">
+                      <div className="mt-2 h-32 overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2">
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                           <line
                             x1="0"
                             y1={100 - RETENTION_GOAL_PERCENT}
                             x2="100"
                             y2={100 - RETENTION_GOAL_PERCENT}
-                            stroke="rgba(45,212,191,0.45)"
+                            stroke="hsl(var(--primary) / 0.45)"
                             strokeDasharray="3 3"
                             strokeWidth="1"
                           />
                           <polyline
                             points={retentionLinePoints}
                             fill="none"
-                            stroke="rgb(45,212,191)"
+                            stroke="hsl(var(--primary))"
                             strokeWidth="2.4"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
                         </svg>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-teal-100/80">
+                      <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                         <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
                         <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"}</span>
                       </div>
@@ -5778,6 +6322,195 @@ const Editor = () => {
                             </div>
                           )}
                         </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border/50 bg-background/35 p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Best parts, likely skips, weaker parts, and one-click fix/remove actions.
+                            </p>
+                          </div>
+                          <Badge className="border-border/50 bg-background/60 text-foreground/80">
+                            {Math.round(retentionTimelineDurationSec)}s scanned
+                          </Badge>
+                        </div>
+
+                        <div className="relative mt-3 h-4 overflow-hidden rounded-full border border-border/50 bg-muted/35">
+                          {retentionTimelineSegments.map((segment) => {
+                            const meta = RETENTION_TIMELINE_CATEGORY_META[segment.category];
+                            return (
+                              <Tooltip key={`timeline-segment-${segment.id}`}>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label={`${segment.categoryLabel} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
+                                    className={`absolute inset-y-0 rounded-sm transition-colors ${meta.segmentClassName}`}
+                                    style={{
+                                      left: `${segment.positionPct}%`,
+                                      width: `${segment.widthPct}%`,
+                                    }}
+                                  />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">
+                                  <p className="text-[11px] font-medium">
+                                    {segment.categoryLabel}: {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Predicted {segment.predicted}% retention
+                                    {segment.dropFromPrevious > 0 ? ` · drop ${segment.dropFromPrevious}%` : ""}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">{segment.reason}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(["best", "skip_risk", "weak", "steady"] as const).map((category) => {
+                            const meta = RETENTION_TIMELINE_CATEGORY_META[category];
+                            return (
+                              <Badge key={`retention-legend-${category}`} className={meta.badgeClassName}>
+                                {meta.label}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3">
+                          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-200">Best Parts</p>
+                            {bestRetentionSegments.length > 0 ? (
+                              <div className="mt-2 space-y-1.5">
+                                {bestRetentionSegments.map((segment) => (
+                                  <p key={`best-retention-${segment.id}`} className="text-xs text-emerald-100/90">
+                                    {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-emerald-100/75">No standout moments detected yet.</p>
+                            )}
+                          </div>
+
+                          <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-rose-100">Viewers May Skip</p>
+                            {skipRiskRetentionSegments.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {skipRiskRetentionSegments.map((segment) => {
+                                  const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
+                                  const queuedAction = timelineSegmentActionByKey[actionKey];
+                                  const submitting = timelineSegmentActionSubmittingKey === actionKey;
+                                  return (
+                                    <div key={`skip-risk-${segment.id}`} className="rounded border border-rose-400/25 bg-rose-950/20 p-2">
+                                      <p className="text-xs text-rose-100">
+                                        {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-rose-100/80">{segment.reason}</p>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[11px]"
+                                          disabled={!canQueueTimelineSegmentAction || submitting}
+                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
+                                        >
+                                          {submitting ? (
+                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Wand2 className="mr-1 h-3 w-3" />
+                                          )}
+                                          {queuedAction === "fix" ? "Fix queued" : "Fix part"}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[11px]"
+                                          disabled={!canQueueTimelineSegmentAction || submitting}
+                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
+                                        >
+                                          {submitting ? (
+                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Scissors className="mr-1 h-3 w-3" />
+                                          )}
+                                          {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-rose-100/75">No high skip-risk windows detected.</p>
+                            )}
+                          </div>
+
+                          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-amber-100">Weaker Parts</p>
+                            {weakRetentionSegments.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {weakRetentionSegments.map((segment) => {
+                                  const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
+                                  const queuedAction = timelineSegmentActionByKey[actionKey];
+                                  const submitting = timelineSegmentActionSubmittingKey === actionKey;
+                                  return (
+                                    <div key={`weak-retention-${segment.id}`} className="rounded border border-amber-400/25 bg-amber-950/20 p-2">
+                                      <p className="text-xs text-amber-100">
+                                        {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-amber-100/80">{segment.reason}</p>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[11px]"
+                                          disabled={!canQueueTimelineSegmentAction || submitting}
+                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
+                                        >
+                                          {submitting ? (
+                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Wand2 className="mr-1 h-3 w-3" />
+                                          )}
+                                          {queuedAction === "fix" ? "Fix queued" : "Fix part"}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[11px]"
+                                          disabled={!canQueueTimelineSegmentAction || submitting}
+                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
+                                        >
+                                          {submitting ? (
+                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Scissors className="mr-1 h-3 w-3" />
+                                          )}
+                                          {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-amber-100/75">No weaker windows detected.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          {canQueueTimelineSegmentAction
+                            ? "Queued actions are saved to retention feedback and applied when you run Redo Renderer."
+                            : "Actions unlock once the render is ready."}
+                        </p>
                       </div>
 
                       <div className="overflow-hidden rounded-lg border border-border/50 bg-background/30">
