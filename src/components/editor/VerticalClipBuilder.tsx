@@ -845,7 +845,6 @@ const VerticalClipBuilderInner = ({
               setSettings((prev) => ({ ...prev, autoCropWebcam: next }));
               if (next) applySmartCrop();
             }}
-            className="data-[state=checked]:bg-violet-500"
           />
         </div>
       </div>

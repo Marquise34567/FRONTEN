@@ -46,7 +46,6 @@ export default function SubtleToggle({
         <Switch
           checked={checked}
           onCheckedChange={onCheckedChange}
-          className="h-6 w-11 border border-white/10 bg-white/10 data-[state=checked]:bg-blue-500/65 data-[state=unchecked]:bg-slate-700/55"
         />
       </div>
     </motion.div>

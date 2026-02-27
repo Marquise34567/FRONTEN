@@ -1816,7 +1816,7 @@ const Editor = () => {
   const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
   const [tangentKiller, setTangentKiller] = useState(false);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
-  const [hideJobsPanel, setHideJobsPanel] = useState(false);
+  const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
@@ -7070,29 +7070,50 @@ const Editor = () => {
                 </>
               )}
                 <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant={onlyHookAndCut ? "default" : "outline"}
-                    className={`rounded-full ${
+                  <div
+                    className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3 py-1.5 ${
                       onlyHookAndCut
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                        : "border-border/60 text-muted-foreground hover:text-foreground"
+                        ? "border-violet-300/45 bg-violet-500/18 text-violet-100 shadow-[0_10px_28px_-22px_rgba(168,85,247,0.85)]"
+                        : "border-border/60 bg-background/35 text-muted-foreground"
                     }`}
-                    onClick={() => setOnlyHookAndCut((prev) => !prev)}
-                    aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
-                    title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
                   >
-                    <Scissors className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full rounded-full border-border/60 text-muted-foreground hover:text-foreground sm:w-auto"
-                    onClick={() => setHideJobsPanel((prev) => !prev)}
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-left text-xs font-medium transition hover:text-foreground"
+                      onClick={() => setOnlyHookAndCut((prev) => !prev)}
+                      aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
+                      title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
+                    >
+                      <Scissors className="h-3.5 w-3.5" />
+                      {onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
+                    </button>
+                    <Switch
+                      checked={onlyHookAndCut}
+                      onCheckedChange={setOnlyHookAndCut}
+                      aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
+                    />
+                  </div>
+                  <div
+                    className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3 py-1.5 ${
+                      hideJobsPanel
+                        ? "border-border/60 bg-background/35 text-muted-foreground"
+                        : "border-cyan-300/45 bg-cyan-500/14 text-cyan-100 shadow-[0_10px_28px_-22px_rgba(56,189,248,0.82)]"
+                    }`}
                   >
-                    {hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
-                  </Button>
+                    <button
+                      type="button"
+                      className="text-xs font-medium transition hover:text-foreground"
+                      onClick={() => setHideJobsPanel((prev) => !prev)}
+                      aria-label={hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
+                    >
+                      {hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
+                    </button>
+                    <Switch
+                      checked={!hideJobsPanel}
+                      onCheckedChange={(checked) => setHideJobsPanel(!checked)}
+                      aria-label={hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
+                    />
+                  </div>
                   <Button
                     type="button"
                     size="icon"
@@ -7751,7 +7772,6 @@ const Editor = () => {
                         <Switch
                           checked={verticalCaptionEnabled}
                           onCheckedChange={setVerticalCaptionEnabled}
-                          className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
                         />
                       </div>
                     </div>
@@ -7915,7 +7935,6 @@ const Editor = () => {
                             <Switch
                               checked={verticalCaptionShadowEnabled}
                               onCheckedChange={setVerticalCaptionShadowEnabled}
-                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
                             />
                           </label>
                           <label className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
@@ -7923,7 +7942,6 @@ const Editor = () => {
                             <Switch
                               checked={verticalCaptionBoxEnabled}
                               onCheckedChange={setVerticalCaptionBoxEnabled}
-                              className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
                             />
                           </label>
                         </div>
@@ -8052,7 +8070,6 @@ const Editor = () => {
                           <Switch
                             checked={verticalCaptionAutoGenerate}
                             onCheckedChange={setVerticalCaptionAutoGenerate}
-                            className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-violet-900/45"
                           />
                         </label>
 

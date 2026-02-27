@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -142,6 +143,7 @@ const ControlPanel = () => {
     loading,
   } = useLiveStats();
   const [drillMetric, setDrillMetric] = useState<DrillMetricKey | null>(null);
+  const [showRecentJobs, setShowRecentJobs] = useState(false);
 
   const lockedAdvanced = Boolean(teaserLocked && !access?.isDev);
 
@@ -228,11 +230,11 @@ const ControlPanel = () => {
         key: "recentJobs" as const,
         icon: Activity,
         title: "Recent Jobs",
-        value: compact(jobs.length),
-        sub: jobs[0] ? `Latest: ${jobs[0].status}` : "No recent jobs",
+        value: showRecentJobs ? compact(jobs.length) : "Hidden",
+        sub: showRecentJobs ? (jobs[0] ? `Latest: ${jobs[0].status}` : "No recent jobs") : "Toggle Jobs to reveal",
         tone: "from-indigo-500/25 to-blue-400/5",
-        tip: "Latest render jobs with status and duration.",
-        progress: Math.min(100, (jobs.length / 12) * 100),
+        tip: showRecentJobs ? "Latest render jobs with status and duration." : "Jobs telemetry is hidden by default.",
+        progress: showRecentJobs ? Math.min(100, (jobs.length / 12) * 100) : 0,
       },
     ],
     [
@@ -245,6 +247,7 @@ const ControlPanel = () => {
       renderMinutes,
       rendersToday,
       serverGauge,
+      showRecentJobs,
       topTrend,
       totalSubs,
       upgradedToday,
@@ -342,6 +345,22 @@ const ControlPanel = () => {
         </div>
       );
     }
+    if (!showRecentJobs) {
+      return (
+        <div className="rounded-xl border border-slate-700/70 bg-slate-900/45 p-4 text-sm text-slate-200">
+          <p className="font-semibold text-slate-100">Recent jobs are hidden by default.</p>
+          <p className="mt-1 text-xs text-slate-400">Enable the Jobs toggle to reveal live job telemetry.</p>
+          <Button
+            type="button"
+            size="sm"
+            className="mt-3 border border-cyan-300/35 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30"
+            onClick={() => setShowRecentJobs(true)}
+          >
+            Show Recent Jobs
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="max-h-80 overflow-auto rounded-lg border border-slate-700/70 bg-slate-900/45">
         <Table>
@@ -406,6 +425,21 @@ const ControlPanel = () => {
               </Badge>
               <Badge className="border-cyan-300/40 bg-cyan-500/15 px-3 py-1 text-cyan-100">Synced {lastSyncLabel}</Badge>
               {access?.isDev ? <Badge className="border-fuchsia-300/40 bg-fuchsia-500/15 px-3 py-1 text-fuchsia-100">DEV UNLOCK</Badge> : null}
+              <div
+                className={cn(
+                  "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1",
+                  showRecentJobs
+                    ? "border-cyan-300/45 bg-cyan-500/15 text-cyan-100"
+                    : "border-purple-300/30 bg-purple-500/10 text-purple-100",
+                )}
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">Jobs</span>
+                <Switch
+                  checked={showRecentJobs}
+                  onCheckedChange={setShowRecentJobs}
+                  aria-label={showRecentJobs ? "Hide recent jobs" : "Show recent jobs"}
+                />
+              </div>
               <Button
                 size="sm"
                 variant="secondary"
@@ -611,36 +645,56 @@ const ControlPanel = () => {
 
         <section className="mt-4">
           <GatedCard locked={lockedAdvanced} onUpgrade={() => navigate("/pricing")}>
-            <Card className="glass-card border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm">Recent Jobs</CardTitle>
-                <Badge className="border-purple-300/35 bg-purple-500/15 text-purple-100">{loading ? "Syncing..." : "Live table"}</Badge>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Job ID</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Started</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {jobs.map((job) => (
-                      <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/app/job/${job.id}`)}>
-                        <TableCell className="font-mono text-xs">{job.id.slice(0, 10)}</TableCell>
-                        <TableCell className="max-w-[220px] truncate">{job.user}</TableCell>
-                        <TableCell className={statusTone(job.status)}>{job.status}</TableCell>
-                        <TableCell>{job.durationSec.toFixed(1)}s</TableCell>
-                        <TableCell>{new Date(job.createdAt).toLocaleTimeString()}</TableCell>
+            {showRecentJobs ? (
+              <Card className="glass-card border-border/50">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm">Recent Jobs</CardTitle>
+                  <Badge className="border-purple-300/35 bg-purple-500/15 text-purple-100">{loading ? "Syncing..." : "Live table"}</Badge>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Job ID</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Started</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {jobs.map((job) => (
+                        <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/app/job/${job.id}`)}>
+                          <TableCell className="font-mono text-xs">{job.id.slice(0, 10)}</TableCell>
+                          <TableCell className="max-w-[220px] truncate">{job.user}</TableCell>
+                          <TableCell className={statusTone(job.status)}>{job.status}</TableCell>
+                          <TableCell>{job.durationSec.toFixed(1)}s</TableCell>
+                          <TableCell>{new Date(job.createdAt).toLocaleTimeString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="glass-card border-border/50">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm">Recent Jobs</CardTitle>
+                  <Badge className="border-cyan-300/35 bg-cyan-500/15 text-cyan-100">Hidden by default</Badge>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-slate-300">Jobs are hidden until you turn on the Jobs toggle above.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-fit border border-cyan-300/35 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30"
+                    onClick={() => setShowRecentJobs(true)}
+                  >
+                    Show Recent Jobs
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </GatedCard>
         </section>
 
