@@ -6,26 +6,23 @@ import type { RenderMode } from "@/features/autoeditor/types";
 
 type ModeSelectorProps = {
   mode: RenderMode | null;
-  modeConfirmed: boolean;
   autoModeEnabled: boolean;
   onSelectMode: (mode: RenderMode) => void;
 };
 
-export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onSelectMode }: ModeSelectorProps) {
+export default function ModeSelector({ mode, autoModeEnabled, onSelectMode }: ModeSelectorProps) {
   return (
     <section className="mx-auto w-full max-w-[960px]">
       <CleanCard>
         <div className="mb-4 text-center">
           <p className="ae-kicker">Mode Selection</p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight text-[#f8efe3]">Choose Edit Layout</h3>
-          <p className="mt-1 text-sm text-[#baafb1]">
-            {autoModeEnabled
-              ? "Detected mode is preselected. Confirm orientation to unlock Format & Platform."
-              : modeConfirmed
-              ? "Manual mode selected. Settings are now unlocked."
-              : "Pick Horizontal or Vertical to reveal the editing pipeline."}
-          </p>
-        </div>
+            <p className="mt-1 text-sm text-[#baafb1]">
+              {autoModeEnabled
+                ? "Detected mode is preselected. Confirm orientation to unlock Format & Platform."
+                : "Pick Horizontal or Vertical to reveal the editing pipeline."}
+            </p>
+          </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           {MODE_OPTIONS.map((option) => {

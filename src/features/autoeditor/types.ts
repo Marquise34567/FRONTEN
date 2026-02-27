@@ -38,6 +38,14 @@ export type QuickControlKey = "autoEdit" | "highlightReel" | "speedRamp" | "musi
 
 export type EditorSectionKey = "format" | "vibe" | "cuts" | "captions" | "audio";
 
+export type EditorFlowStep =
+  | "upload"
+  | "uploading"
+  | "mode_selection"
+  | "settings"
+  | "rendering"
+  | "post_render";
+
 export type CaptionEffect = "clean_fade" | "kinetic_pop" | "underline_sweep" | "none";
 
 export type PacingBand = "slow" | "balanced" | "fast";

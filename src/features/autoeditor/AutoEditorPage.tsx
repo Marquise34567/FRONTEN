@@ -97,6 +97,7 @@ export default function AutoEditorPage() {
   const [fileInputKey, setFileInputKey] = useState(0);
 
   const {
+    flowStep,
     isAnalyzingUpload,
     isRendering,
     renderJobId,
@@ -111,7 +112,6 @@ export default function AutoEditorPage() {
     autoDetection,
     autoModeEnabled,
     mode,
-    modeConfirmed,
     revealedSectionCount,
 
     quickControls,
@@ -155,7 +155,6 @@ export default function AutoEditorPage() {
 
     setAutoModeEnabled,
     setMode,
-    setModeConfirmed,
     setRevealedSectionCount,
 
     toggleQuickControl,
@@ -253,7 +252,7 @@ export default function AutoEditorPage() {
   }, [fetchRecentJobs]);
 
   useEffect(() => {
-    if (!modeConfirmed) {
+    if (flowStep !== "settings" && flowStep !== "rendering" && flowStep !== "post_render") {
       setRevealedSectionCount(0);
       return;
     }
@@ -269,7 +268,7 @@ export default function AutoEditorPage() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [modeConfirmed, mode, setRevealedSectionCount]);
+  }, [flowStep, mode, setRevealedSectionCount]);
 
   useEffect(() => {
     if (!recentDrawerOpen) return;
@@ -440,12 +439,11 @@ export default function AutoEditorPage() {
   const handleOpenFeedbackFromModal = () => {
     if (!latestResult?.jobId) return;
     setSuccessModalOpen(false);
-    navigate(`/feedback?jobId=${encodeURIComponent(latestResult.jobId)}&source=vibecut`);
+    navigate(`/analytics?jobId=${encodeURIComponent(latestResult.jobId)}&source=vibecut`);
   };
 
   const handleModeSelect = (nextMode: RenderMode) => {
     setMode(nextMode, true);
-    setModeConfirmed(true);
   };
 
   const handleAutoModeToggle = (value: boolean) => {
@@ -463,6 +461,8 @@ export default function AutoEditorPage() {
   };
 
   const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
+  const showModeSelector = flowStep === "mode_selection";
+  const showExpandedSettings = flowStep === "settings" || flowStep === "rendering" || flowStep === "post_render";
 
   return (
     <div className="autoeditor-root min-h-screen text-slate-100">
@@ -482,15 +482,17 @@ export default function AutoEditorPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setRecentDrawerOpen(true)}
-              className="rounded-xl border-white/20 bg-white/[0.08] text-[#f7efe3] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
-            >
-              <History className="h-4 w-4" />
-              Recent Jobs
-            </Button>
+            {recentJobs.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRecentDrawerOpen(true)}
+                className="rounded-xl border-white/20 bg-white/[0.08] text-[#f7efe3] transition-all hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12"
+              >
+                <History className="h-4 w-4" />
+                Recent Jobs
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -557,7 +559,6 @@ export default function AutoEditorPage() {
               mode={mode}
               autoModeEnabled={autoModeEnabled}
               onAutoModeToggle={handleAutoModeToggle}
-              onModeChange={handleModeSelect}
             />
           </div>
         ) : null}
@@ -571,16 +572,15 @@ export default function AutoEditorPage() {
               onOpenManualTimestamp={() => setManualTimestampModalOpen(true)}
             />
 
-            {!modeConfirmed ? (
+            {showModeSelector ? (
               <ModeSelector
                 mode={mode}
-                modeConfirmed={modeConfirmed}
                 autoModeEnabled={autoModeEnabled}
                 onSelectMode={handleModeSelect}
               />
             ) : null}
 
-            {modeConfirmed ? (
+            {showExpandedSettings ? (
               <>
                 <StaggeredSettingsSections
                   revealedSectionCount={revealedSectionCount}

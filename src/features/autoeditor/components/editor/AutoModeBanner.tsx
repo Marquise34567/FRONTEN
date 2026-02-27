@@ -9,7 +9,6 @@ type AutoModeBannerProps = {
   mode: RenderMode | null;
   autoModeEnabled: boolean;
   onAutoModeToggle: (value: boolean) => void;
-  onModeChange: (value: RenderMode) => void;
 };
 
 const modeText = (value: RenderMode | null) => (value === "vertical" ? "Vertical" : "Horizontal");
@@ -22,7 +21,6 @@ export default function AutoModeBanner({
   mode,
   autoModeEnabled,
   onAutoModeToggle,
-  onModeChange,
 }: AutoModeBannerProps) {
   return (
     <motion.section
@@ -40,30 +38,9 @@ export default function AutoModeBanner({
           <p className="mt-1 text-xs text-[#bcaeb0]">{autoDetection.bannerMessage || autoDetection.reason}</p>
         </div>
 
-        <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-[#111319]/80 p-1">
-          <button
-            type="button"
-            onClick={() => onModeChange("horizontal")}
-            className={`rounded-full border px-3 py-1.5 text-xs transition ${
-              mode === "horizontal"
-                ? "border-[#e6cfa9]/45 bg-[#d4b483]/20 text-[#fef2df] shadow-[0_10px_22px_-18px_rgba(212,180,131,0.86)]"
-                : "border-transparent bg-transparent text-[#cdc4c7] hover:border-white/15 hover:bg-white/[0.08]"
-            }`}
-          >
-            Horizontal 16:9
-          </button>
-          <button
-            type="button"
-            onClick={() => onModeChange("vertical")}
-            className={`rounded-full border px-3 py-1.5 text-xs transition ${
-              mode === "vertical"
-                ? "border-[#e6cfa9]/45 bg-[#d4b483]/20 text-[#fef2df] shadow-[0_10px_22px_-18px_rgba(212,180,131,0.86)]"
-                : "border-transparent bg-transparent text-[#cdc4c7] hover:border-white/15 hover:bg-white/[0.08]"
-            }`}
-          >
-            Vertical 9:16
-          </button>
-        </div>
+        <span className="rounded-full border border-white/15 bg-[#111319]/80 px-3 py-1 text-xs text-[#cec4c8]">
+          Edit mode: {modeText(mode)}
+        </span>
       </div>
 
       <SubtleToggle

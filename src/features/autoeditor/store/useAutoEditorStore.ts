@@ -10,6 +10,7 @@ import type {
   CaptionEffect,
   CaptionMode,
   CaptionStylePreset,
+  EditorFlowStep,
   FormatPreset,
   QuickControlKey,
   RenderJobResult,
@@ -30,6 +31,7 @@ const buildSegmentId = () => {
 };
 
 type AutoEditorState = {
+  flowStep: EditorFlowStep;
   isAnalyzingUpload: boolean;
   isRendering: boolean;
   renderJobId: string | null;
@@ -83,6 +85,7 @@ type AutoEditorState = {
   selectedThumbnailId: string | null;
 
   setUploadAnalyzing: (value: boolean) => void;
+  transitionFlow: (next: EditorFlowStep) => void;
   setRenderState: (input: { rendering: boolean; jobId?: string | null; progress?: number }) => void;
   setErrorMessage: (message: string | null) => void;
   setUploadAnalysis: (payload: UploadAnalysisResponse) => void;
@@ -133,6 +136,7 @@ type AutoEditorState = {
 };
 
 const initialState = {
+  flowStep: "upload" as EditorFlowStep,
   isAnalyzingUpload: false,
   isRendering: false,
   renderJobId: null,
@@ -188,15 +192,54 @@ const initialState = {
 
 const normalizePacingValue = (value: number) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
 
+const FLOW_TRANSITIONS: Record<EditorFlowStep, EditorFlowStep[]> = {
+  upload: ["uploading"],
+  uploading: ["upload", "mode_selection"],
+  mode_selection: ["upload", "uploading", "settings"],
+  settings: ["upload", "uploading", "mode_selection", "rendering", "post_render"],
+  rendering: ["upload", "uploading", "settings", "post_render"],
+  post_render: ["upload", "uploading", "settings"],
+};
+
+const canTransitionFlow = (from: EditorFlowStep, to: EditorFlowStep) => {
+  if (from === to) return true;
+  return FLOW_TRANSITIONS[from]?.includes(to) ?? false;
+};
+
+const resolveEditorFlow = (state: {
+  videoId: string | null;
+  modeConfirmed: boolean;
+  isAnalyzingUpload: boolean;
+  isRendering: boolean;
+  latestResult: RenderJobResult | null;
+}): EditorFlowStep => {
+  if (state.isAnalyzingUpload) return "uploading";
+  if (state.isRendering) return "rendering";
+  if (!state.videoId) return "upload";
+  if (state.latestResult?.status === "completed") return "post_render";
+  if (state.modeConfirmed) return "settings";
+  return "mode_selection";
+};
+
 export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   ...initialState,
 
-  setUploadAnalyzing: (value) => set({ isAnalyzingUpload: value }),
+  transitionFlow: (next) =>
+    set((state) => {
+      if (!canTransitionFlow(state.flowStep, next)) return state;
+      return { flowStep: next };
+    }),
+  setUploadAnalyzing: (value) =>
+    set((state) => ({
+      isAnalyzingUpload: value,
+      flowStep: value ? "uploading" : resolveEditorFlow({ ...state, isAnalyzingUpload: false }),
+    })),
   setRenderState: ({ rendering, jobId, progress }) =>
     set((state) => ({
       isRendering: rendering,
       renderJobId: jobId === undefined ? state.renderJobId : jobId,
       renderProgress: progress === undefined ? state.renderProgress : normalizePacingValue(progress),
+      flowStep: resolveEditorFlow({ ...state, isRendering: rendering }),
     })),
   setErrorMessage: (message) => set({ errorMessage: message }),
   setUploadAnalysis: (payload) => {
@@ -253,6 +296,9 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       renderJobId: null,
       renderProgress: 0,
       errorMessage: null,
+      isRendering: false,
+      isAnalyzingUpload: false,
+      flowStep: "mode_selection",
     });
   },
 
@@ -263,16 +309,22 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
     })),
   setMode: (mode, confirmed = false) =>
     set((state) => {
+      const nextModeConfirmed = confirmed ? true : state.modeConfirmed;
       return {
         mode,
-        modeConfirmed: confirmed,
+        modeConfirmed: nextModeConfirmed,
         formatPreset:
           mode === "vertical"
             ? state.formatPreset === "youtube" ? "tiktok" : state.formatPreset
             : state.formatPreset === "tiktok" ? "youtube" : state.formatPreset,
+        flowStep: nextModeConfirmed ? "settings" : "mode_selection",
       };
     }),
-  setModeConfirmed: (value) => set({ modeConfirmed: value }),
+  setModeConfirmed: (value) =>
+    set((state) => ({
+      modeConfirmed: value,
+      flowStep: value ? "settings" : resolveEditorFlow({ ...state, modeConfirmed: false }),
+    })),
   setRevealedSectionCount: (value) => set({ revealedSectionCount: Math.max(0, Math.min(5, value)) }),
 
   toggleQuickControl: (key) =>
@@ -346,11 +398,12 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
   setRetentionExpanded: (value) => set({ retentionExpanded: value }),
   setSuccessModalOpen: (value) => set({ successModalOpen: value }),
   setLatestResult: (value) =>
-    set({
+    set((state) => ({
       latestResult: value,
       selectedRetentionPointId: value?.retention.points?.[0]?.id || null,
       selectedThumbnailId: value?.thumbnails?.[0]?.id || null,
-    }),
+      flowStep: resolveEditorFlow({ ...state, latestResult: value }),
+    })),
   setSelectedRetentionPointId: (value) => set({ selectedRetentionPointId: value }),
   setSelectedThumbnailId: (value) => set({ selectedThumbnailId: value }),
 
