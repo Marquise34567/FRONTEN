@@ -381,7 +381,6 @@ export default function ManualTimestampModal({
                 )}
               </div>
             </div>
-          </div>
 
             <aside className="min-h-0 rounded-2xl border border-white/10 bg-black/35 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Actions</p>

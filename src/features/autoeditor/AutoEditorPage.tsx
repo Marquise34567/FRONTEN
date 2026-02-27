@@ -372,6 +372,7 @@ export default function AutoEditorPage() {
     setSuccessModalOpen(false);
     setRetentionExpanded(false);
     setLatestResult(null);
+    setRecentDrawerOpen(false);
 
     try {
       const payload = await uploadAnalyze({ file, token: accessToken });
@@ -448,6 +449,7 @@ export default function AutoEditorPage() {
   };
 
   const resetEverything = () => {
+    setRecentDrawerOpen(false);
     resetSession();
     setFileInputKey((value) => value + 1);
   };

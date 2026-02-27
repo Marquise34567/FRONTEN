@@ -28,7 +28,8 @@ const queryClient = new QueryClient({
 const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
-const Editor = lazy(() => import("./pages/Editor"));
+const AutoEditor = lazy(() => import("./pages/VibeCut"));
+const EditorLegacy = lazy(() => import("./pages/Editor"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -152,7 +153,7 @@ const App = () => {
                   path="/editor"
                   element={
                     <RequireAuth>
-                      <Editor />
+                      <AutoEditor />
                     </RequireAuth>
                   }
                 />
@@ -161,6 +162,14 @@ const App = () => {
                   element={
                     <RequireAuth>
                       <Navigate to="/editor" replace />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/editor-legacy"
+                  element={
+                    <RequireAuth>
+                      <EditorLegacy />
                     </RequireAuth>
                   }
                 />
