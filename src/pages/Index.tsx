@@ -382,7 +382,7 @@ const Index = () => {
           </motion.section>
 
           <motion.section
-            className="mt-14 grid gap-4 md:grid-cols-3"
+            className="mt-14 grid gap-4 md:grid-cols-3 md:items-start"
             initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}

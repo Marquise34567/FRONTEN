@@ -74,7 +74,8 @@ const buildScreenProfile = (): ScreenProfile => {
   const ratio = width / Math.max(1, height);
   const coarsePointer = hasCoarsePointer();
   const touchSignal = coarsePointer || hasTouchPoints();
-  const mobileSignal = innerWidth <= MOBILE_MAX_WIDTH || touchSignal;
+  // Only treat the layout as mobile at mobile viewport widths.
+  const mobileSignal = innerWidth <= MOBILE_MAX_WIDTH;
   const orientation: ScreenOrientation = width >= height ? "landscape" : "portrait";
   return {
     width,

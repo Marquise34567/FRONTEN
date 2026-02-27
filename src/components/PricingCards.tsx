@@ -179,7 +179,7 @@ const PricingCards = ({
 
   return (
     // Mobile-first: one full-width card per row under md, then progressive columns.
-    <div className={cn("grid grid-cols-1 gap-4 md:gap-5", showFounderCard ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
+    <div className={cn("grid grid-cols-1 items-start gap-4 md:gap-5", showFounderCard ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
       {planOrder.map((tier, index) => {
         const plan = PRICING_PLANS[tier];
         const isCurrent = isAuthenticated && currentPlan === tier;
@@ -245,7 +245,7 @@ const PricingCards = ({
             viewport={{ once: true, amount: 0.25 }}
             transition={{ duration: 0.44, ease: [0.4, 0, 0.2, 1], delay: index * 0.06 }}
             className={cn(
-              "pricing-neon-glow group relative flex h-full flex-col overflow-hidden rounded-2xl border border-purple-800/30 bg-[linear-gradient(160deg,rgba(17,17,30,0.88),rgba(22,22,39,0.82))] p-5 backdrop-blur-md shadow-[0_10px_40px_rgba(0,0,0,0.42)] transform-gpu [backface-visibility:hidden] [contain:paint]",
+              "pricing-neon-glow group relative flex self-start flex-col overflow-hidden rounded-2xl border border-purple-800/30 bg-[linear-gradient(160deg,rgba(17,17,30,0.88),rgba(22,22,39,0.82))] p-5 backdrop-blur-md shadow-[0_10px_40px_rgba(0,0,0,0.42)] transform-gpu [backface-visibility:hidden] [contain:paint]",
               plan.highlighted && "border-purple-500/45 ring-1 ring-purple-500/30",
             )}
           >

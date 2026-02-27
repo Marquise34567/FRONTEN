@@ -288,7 +288,7 @@
   }
 }
 
-@media (max-width: 767px), (pointer: coarse), (hover: none) {
+@media (max-width: 767px) {
   :where(button, [role='button'], [data-slot='button'], [type='button'], [type='submit'], [type='reset']) {
     min-height: 3rem;
     min-width: 3rem;
