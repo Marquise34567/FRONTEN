@@ -9,7 +9,7 @@ import RetentionLineGraph from "@/features/autoeditor/components/editor/Retentio
 import type { RetentionHeatCell, RetentionPoint } from "@/features/autoeditor/types";
 import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
-import { API_URL, ApiError, apiFetch } from "@/lib/api";
+import { API_URL, ApiError, apiFetch, resolveApiMediaUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { BarChart3, Loader2, PlayCircle, Sparkles, WandSparkles } from "lucide-react";
 
@@ -658,8 +658,10 @@ const Feedback = () => {
       if (sourceType === "vibecut") {
         const result = await apiFetch<any>(`/api/vibecut/jobs/${jobId}`, { token: accessToken });
         const previewUrl =
-          (typeof result?.outputVideoUrl === "string" && result.outputVideoUrl) ||
-          (Array.isArray(result?.clipUrls) && typeof result.clipUrls[0] === "string" ? result.clipUrls[0] : null);
+          resolveApiMediaUrl(
+            (typeof result?.outputVideoUrl === "string" && result.outputVideoUrl) ||
+              (Array.isArray(result?.clipUrls) && typeof result.clipUrls[0] === "string" ? result.clipUrls[0] : null),
+          ) || null;
         const points = buildVibecutRetentionPoints(result);
         setSourceDetail({ previewUrl, points, heatmap: buildHeatmapFromPoints(points) });
         return;
@@ -680,7 +682,7 @@ const Feedback = () => {
         }
       }
       const points = buildClassicRetentionPoints(payload);
-      setSourceDetail({ previewUrl: previewUrl || null, points, heatmap: buildHeatmapFromPoints(points) });
+      setSourceDetail({ previewUrl: resolveApiMediaUrl(previewUrl || "") || null, points, heatmap: buildHeatmapFromPoints(points) });
     } catch {
       setSourceDetail({ previewUrl: null, points: [], heatmap: [] });
     } finally {

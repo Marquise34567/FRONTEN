@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, ChevronDown, ChevronUp, MessageSquareText, RotateCcw, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  MessageSquareText,
+  RotateCcw,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +26,7 @@ import {
   isGoodRetention,
 } from "@/features/autoeditor/lib/retentionQuality";
 import type { InsightTooltip, RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
+import { resolveApiMediaUrl } from "@/lib/api";
 
 const tooltipFromPoint = (point: RetentionPoint): InsightTooltip => {
   if (point.type === "best") {
@@ -48,6 +57,12 @@ const tooltipFromPoint = (point: RetentionPoint): InsightTooltip => {
   };
 };
 
+const EXPORT_RESOLUTION_OPTIONS = [
+  { label: "720p", detail: "Faster uploads" },
+  { label: "1080p", detail: "Balanced quality", recommended: true },
+  { label: "4K", detail: "Maximum detail" },
+] as const;
+
 type PostRenderModalProps = {
   open: boolean;
   onOpenChange: (value: boolean) => void;
@@ -77,10 +92,22 @@ export default function PostRenderModal({
   const [tooltip, setTooltip] = useState<InsightTooltip | null>(null);
   const [processingLogExpanded, setProcessingLogExpanded] = useState(false);
 
-  const thumbnails = useMemo(() => result?.thumbnails?.slice(0, 6) || [], [result]);
+  const thumbnails = useMemo(
+    () =>
+      (result?.thumbnails?.slice(0, 6) || []).map((thumbnail) => ({
+        ...thumbnail,
+        url: resolveApiMediaUrl(thumbnail.url),
+      })),
+    [result?.thumbnails],
+  );
+  const outputVideoUrl = useMemo(() => resolveApiMediaUrl(result?.outputVideoUrl), [result?.outputVideoUrl]);
   const retentionScore = useMemo(() => getRetentionScore(result), [result]);
   const goodRetention = useMemo(() => isGoodRetention(retentionScore), [retentionScore]);
   const advice = useMemo(() => buildRetentionAdvice(result), [result]);
+  const floatingPreviewThumbnail = useMemo(
+    () => thumbnails.find((thumbnail) => thumbnail.id === selectedThumbnailId) || thumbnails[0] || null,
+    [thumbnails, selectedThumbnailId],
+  );
 
   useEffect(() => {
     if (!tooltip) return;
@@ -119,39 +146,86 @@ export default function PostRenderModal({
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="relative mb-4 overflow-hidden rounded-2xl border border-emerald-300/38 bg-emerald-500/12 p-3"
+                className="export-ready-card relative mb-4 overflow-hidden rounded-2xl border border-emerald-300/38 bg-emerald-500/12 p-3"
               >
                 <motion.div
                   className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(16,185,129,0.24),transparent_52%),radial-gradient(circle_at_80%_70%,rgba(110,231,183,0.18),transparent_50%)]"
                   animate={{ opacity: [0.35, 0.7, 0.35], scale: [1, 1.02, 1] }}
                   transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                 />
-                <div className="relative flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-50">
-                      <Sparkles className="h-4 w-4" />
-                      Amazing retention: {retentionScore.toFixed(1)} / 100
-                    </p>
-                    <p className="mt-1 text-xs text-emerald-200/95">
-                      50+ is strong. This cut is ready for export.
-                    </p>
+                <div className="relative z-[2]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 md:pr-28">
+                    <div>
+                      <p className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-50">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Video ready to export
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-200/95">
+                        Amazing retention: {retentionScore.toFixed(1)} / 100. Export package is complete.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl border-emerald-200/35 bg-emerald-500/12 text-emerald-50 hover:border-emerald-200/55 hover:bg-emerald-500/22"
+                        onClick={onOpenFeedback}
+                      >
+                        <MessageSquareText className="h-4 w-4" />
+                        Feedback
+                      </Button>
+                      {outputVideoUrl ? (
+                        <Button asChild className="rounded-xl bg-emerald-500/80 text-white hover:bg-emerald-400">
+                          <a href={outputVideoUrl} target="_blank" rel="noreferrer" download>
+                            Continue to Export
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button disabled className="rounded-xl bg-emerald-500/50 text-white">
+                          Export unavailable
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-xl border-emerald-200/35 bg-emerald-500/12 text-emerald-50 hover:border-emerald-200/55 hover:bg-emerald-500/22"
-                      onClick={onOpenFeedback}
-                    >
-                      <MessageSquareText className="h-4 w-4" />
-                      Feedback
-                    </Button>
-                    <Button asChild className="rounded-xl bg-emerald-500/80 text-white hover:bg-emerald-400">
-                      <a href={result.outputVideoUrl} target="_blank" rel="noreferrer">
-                        Continue to Export
-                      </a>
-                    </Button>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {EXPORT_RESOLUTION_OPTIONS.map((option) => (
+                      <div
+                        key={option.label}
+                        className={`rounded-xl border px-2.5 py-2 text-xs ${
+                          option.recommended
+                            ? "border-emerald-200/45 bg-emerald-400/14 text-emerald-50"
+                            : "border-emerald-200/25 bg-emerald-500/10 text-emerald-100"
+                        }`}
+                      >
+                        <p className="font-semibold">
+                          {option.label}
+                          {option.recommended ? " Recommended" : ""}
+                        </p>
+                        <p className="text-[11px] text-emerald-100/85">{option.detail}</p>
+                      </div>
+                    ))}
                   </div>
+                  <p className="mt-2 text-xs text-emerald-100/88">
+                    Choose your resolution and export now for TikTok, Reels, Shorts, or YouTube.
+                  </p>
+                </div>
+
+                <div className="export-ready-float pointer-events-none absolute -right-2 top-3 hidden w-28 overflow-hidden rounded-xl border border-emerald-200/35 bg-[#0a1712]/75 shadow-[0_18px_36px_-20px_rgba(6,95,70,0.95)] backdrop-blur-sm md:block">
+                  {floatingPreviewThumbnail ? (
+                    <img
+                      src={floatingPreviewThumbnail.url}
+                      alt={`${floatingPreviewThumbnail.label} preview`}
+                      className="aspect-[9/16] w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-[9/16] w-full items-center justify-center bg-emerald-500/10 text-[11px] text-emerald-100/85">
+                      Preview
+                    </div>
+                  )}
+                  <p className="border-t border-emerald-200/20 px-2 py-1 text-center text-[10px] uppercase tracking-[0.11em] text-emerald-100/85">
+                    Floating preview
+                  </p>
                 </div>
               </motion.div>
             ) : (
@@ -195,11 +269,17 @@ export default function PostRenderModal({
                     <MessageSquareText className="h-4 w-4" />
                     Feedback
                   </Button>
-                  <Button asChild variant="outline" className="rounded-xl border-white/20 bg-white/[0.08] text-[#f6ede1] hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12">
-                    <a href={result.outputVideoUrl} target="_blank" rel="noreferrer">
-                      Continue Export
-                    </a>
-                  </Button>
+                  {outputVideoUrl ? (
+                    <Button asChild variant="outline" className="rounded-xl border-white/20 bg-white/[0.08] text-[#f6ede1] hover:border-[#e6cfa9]/45 hover:bg-[#d4b483]/12">
+                      <a href={outputVideoUrl} target="_blank" rel="noreferrer" download>
+                        Continue Export
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button disabled variant="outline" className="rounded-xl border-white/20 bg-white/[0.08] text-[#f6ede1]">
+                      Export unavailable
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -221,28 +301,28 @@ export default function PostRenderModal({
                     key={thumbnail.id}
                     type="button"
                     whileHover={{ scale: 1.02 }}
-                  transition={{ type: "spring", stiffness: 240, damping: 22 }}
-                  onClick={() => onSelectedThumbnailIdChange(thumbnail.id)}
-                  className={`overflow-hidden rounded-xl border p-1 text-left transition ${
-                    selected
-                      ? "border-[#e6cfa9]/45 bg-[#d4b483]/15 shadow-[0_14px_30px_-22px_rgba(212,180,131,0.78)]"
-                      : "border-white/15 bg-black/25 hover:border-white/25 hover:bg-black/35"
-                  }`}
-                >
-                  <img src={thumbnail.url} alt={thumbnail.label} className="aspect-video w-full rounded-lg object-cover" />
-                  <p className="mt-1 px-1 text-xs text-[#d7cccf]">Option {index + 1}</p>
-                </motion.button>
-              );
-            })}
-          </div>
-        </section>
+                    transition={{ type: "spring", stiffness: 240, damping: 22 }}
+                    onClick={() => onSelectedThumbnailIdChange(thumbnail.id)}
+                    className={`overflow-hidden rounded-xl border p-1 text-left transition ${
+                      selected
+                        ? "border-[#e6cfa9]/45 bg-[#d4b483]/15 shadow-[0_14px_30px_-22px_rgba(212,180,131,0.78)]"
+                        : "border-white/15 bg-black/25 hover:border-white/25 hover:bg-black/35"
+                    }`}
+                  >
+                    <img src={thumbnail.url} alt={thumbnail.label} className="aspect-video w-full rounded-lg object-cover" />
+                    <p className="mt-1 px-1 text-xs text-[#d7cccf]">Option {index + 1}</p>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </section>
 
           <aside className="overflow-y-auto bg-black/15 p-4 lg:p-5">
             <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[#bcaeb2]">Looping Preview</p>
             <div className="overflow-hidden rounded-2xl border border-white/15 bg-black shadow-[0_26px_64px_-36px_rgba(0,0,0,0.96)]">
               <video
                 ref={previewRef}
-                src={result.outputVideoUrl}
+                src={outputVideoUrl}
                 controls
                 autoPlay
                 loop
@@ -286,9 +366,9 @@ export default function PostRenderModal({
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                  className="overflow-hidden"
-                >
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
                   {result.ffmpegCommands.length > 0 ? (
                       <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/15 bg-black/45 p-2 font-mono text-[11px] text-[#ddd3d6]">
                         {result.ffmpegCommands.map((command, index) => (

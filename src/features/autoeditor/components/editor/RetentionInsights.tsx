@@ -11,6 +11,7 @@ import {
   isGoodRetention,
 } from "@/features/autoeditor/lib/retentionQuality";
 import type { InsightTooltip, RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
+import { resolveApiMediaUrl } from "@/lib/api";
 
 const pointInsight = (point: RetentionPoint): InsightTooltip => {
   switch (point.type) {
@@ -71,6 +72,10 @@ export default function RetentionInsights({
     if (!result?.retention.points.length) return null;
     return result.retention.points.find((point) => point.id === selectedPointId) || result.retention.points[0];
   }, [result, selectedPointId]);
+  const outputVideoUrl = useMemo(
+    () => resolveApiMediaUrl(result?.outputVideoUrl || result?.clipUrls?.[0] || ""),
+    [result?.clipUrls, result?.outputVideoUrl],
+  );
   const retentionScore = useMemo(() => getRetentionScore(result), [result]);
   const goodRetention = useMemo(() => isGoodRetention(retentionScore), [retentionScore]);
   const advice = useMemo(() => buildRetentionAdvice(result), [result]);
@@ -201,7 +206,7 @@ export default function RetentionInsights({
                 <div className="overflow-hidden rounded-xl border border-white/15 bg-black shadow-[0_22px_50px_-34px_rgba(0,0,0,0.95)]">
                   <video
                     ref={previewRef}
-                    src={result.outputVideoUrl}
+                    src={outputVideoUrl}
                     controls
                     loop
                     className="aspect-[9/16] w-full object-cover"

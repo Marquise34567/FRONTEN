@@ -31,6 +31,11 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false,
       },
+      "/outputs": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:4000",
+        changeOrigin: true,
+        secure: false,
+      },
     },
     fs: {
       allow: [".."],

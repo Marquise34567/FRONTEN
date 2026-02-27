@@ -14,6 +14,7 @@ const normalizeApiUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
+const DEV_PROXY_TARGET = normalizeApiUrl(import.meta.env.VITE_API_PROXY_TARGET || "").replace(/\/$/, "");
 const PUBLIC_API_PREFIXES = ["/api/public/"];
 const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping", "/api/audio-assets"]);
 const isControlPanelPath = (path: string) =>
@@ -24,6 +25,25 @@ let lastSeenAccessToken: string | null = null;
 
 const isPublicApiPath = (path: string) =>
   PUBLIC_API_EXACT.has(path) || PUBLIC_API_PREFIXES.some((prefix) => path.startsWith(prefix));
+
+export const resolveApiMediaUrl = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+
+  const inBrowser = typeof window !== "undefined";
+  const isLocalHost =
+    inBrowser && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const localDevFallback = isLocalHost
+    ? DEV_PROXY_TARGET || `${window.location.protocol}//${window.location.hostname}:4000`
+    : "";
+  const browserOrigin = inBrowser ? window.location.origin : "";
+  const base = API_URL || localDevFallback || browserOrigin;
+  if (!base) return raw;
+
+  if (raw.startsWith("/")) return `${base}${raw}`;
+  return `${base}/${raw.replace(/^\.?\//, "")}`;
+};
 
 export class ApiError extends Error {
   status: number;
