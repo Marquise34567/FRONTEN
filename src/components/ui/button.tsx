@@ -92,6 +92,20 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       [errorToast, isLoading, onClick, successToast],
     );
 
+    if (asChild) {
+      return (
+        <Comp
+          className={cn(buttonVariants({ variant, size, className }))}
+          ref={ref}
+          onClick={handleClick}
+          aria-busy={isLoading}
+          {...props}
+        >
+          {children}
+        </Comp>
+      );
+    }
+
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
