@@ -883,7 +883,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
   );
 
   return (
-    <AppShell title="AutoEditor Studio" rightRail={rightRail}>
+    <AppShell title="AutoEditor Studio" rightRail={rightRail} showSidebar>
       <div className="space-y-4">
         <PremiumCard className="p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
