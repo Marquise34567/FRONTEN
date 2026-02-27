@@ -28,6 +28,7 @@ const queryClient = new QueryClient({
 const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Editor = lazy(() => import("./pages/Editor"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const Jobs = lazy(() => import("./pages/Jobs"));
@@ -146,7 +147,23 @@ const App = () => {
                   path="/app"
                   element={
                     <RequireAuth>
-                      <Navigate to="/editor" replace />
+                      <Navigate to="/dashboard" replace />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <RequireAuth>
+                      <Dashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/dashed-board"
+                  element={
+                    <RequireAuth>
+                      <Navigate to="/dashboard" replace />
                     </RequireAuth>
                   }
                 />

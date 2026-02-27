@@ -7,17 +7,19 @@ import { cn } from "@/lib/utils";
 
 type TopHeaderProps = {
   title?: string;
+  withSidebar?: boolean;
   className?: string;
   rightSlot?: ReactNode;
 };
 
-export default function TopHeader({ title = "AutoEditor", className, rightSlot }: TopHeaderProps) {
+export default function TopHeader({ title = "AutoEditor", withSidebar = false, className, rightSlot }: TopHeaderProps) {
   const { t } = useTranslation("common");
 
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#07080d]/85 px-4 backdrop-blur-md lg:pl-28 lg:pr-6",
+        "sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#07080d]/85 px-4 backdrop-blur-md",
+        withSidebar ? "lg:pl-28 lg:pr-6" : "lg:px-6",
         className,
       )}
     >

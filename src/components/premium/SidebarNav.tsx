@@ -16,7 +16,7 @@ type SidebarNavProps = {
 };
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, to: "/" },
+  { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "Editor", icon: Clapperboard, to: "/editor" },
   { label: "Analytics", icon: BarChart3, to: "/analytics" },
   { label: "Jobs", icon: FileVideo2, to: "/jobs" },

@@ -14,6 +14,7 @@ import {
   Wand2,
   Workflow,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
@@ -195,6 +196,8 @@ const normalizeRenderJobUrls = (job: RenderJobResult): RenderJobResult => {
 
 export default function Editor() {
   const { accessToken } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedJobId = searchParams.get("jobId");
   const { toast } = useToast();
   const [fileInputKey, setFileInputKey] = useState(0);
   const [activePipelineJobId, setActivePipelineJobId] = useState<string | null>(null);
@@ -203,6 +206,7 @@ export default function Editor() {
   const [uploadingFileName, setUploadingFileName] = useState("");
   const [uploadStatus, setUploadStatus] = useState<UploadStatusState>("idle");
   const uploadStatusTimeoutRef = useRef<number | null>(null);
+  const handledRequestedJobIdRef = useRef<string | null>(null);
 
   const {
     flowStep,
@@ -500,6 +504,51 @@ export default function Editor() {
   useEffect(() => {
     void fetchRecentJobs();
   }, [fetchRecentJobs]);
+
+  useEffect(() => {
+    if (!requestedJobId) {
+      handledRequestedJobIdRef.current = null;
+      return;
+    }
+    if (!accessToken) return;
+    if (handledRequestedJobIdRef.current === requestedJobId) return;
+    handledRequestedJobIdRef.current = requestedJobId;
+
+    setActivePipelineJobId(requestedJobId);
+    setJobActionPendingId(requestedJobId);
+    void (async () => {
+      try {
+        const detail = jobResultCache[requestedJobId] || (await fetchDetailedJob(requestedJobId));
+        if (detail.status === "completed") {
+          setLatestResult(detail);
+          setSuccessModalOpen(true);
+          setRetentionExpanded(false);
+        } else {
+          const isStillRunning = detail.status === "queued" || detail.status === "processing";
+          setRenderState({
+            rendering: isStillRunning,
+            jobId: detail.jobId,
+            progress: toProgressPercent(detail.progress),
+          });
+        }
+      } catch (error: any) {
+        const message = error instanceof ApiError ? error.message : "Could not load requested job.";
+        setErrorMessage(message);
+      } finally {
+        setJobActionPendingId((current) => (current === requestedJobId ? null : current));
+      }
+    })();
+  }, [
+    accessToken,
+    fetchDetailedJob,
+    jobResultCache,
+    requestedJobId,
+    setErrorMessage,
+    setLatestResult,
+    setRenderState,
+    setRetentionExpanded,
+    setSuccessModalOpen,
+  ]);
 
   useEffect(() => {
     if (renderJobId) {
