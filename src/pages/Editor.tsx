@@ -216,12 +216,16 @@ const Editor = () => {
   const [authError, setAuthError] = useState(false);
 
   const fetchJobs = useCallback(async () => {
+    if (!accessToken) {
+      setJobs([]);
+      setLoadingJobs(false);
+      return;
+    }
     try {
-      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs");
+      const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        // Stop further polling and surface a clear message
         setAuthError(true);
         toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
         try {
@@ -235,7 +239,7 @@ const Editor = () => {
     } finally {
       setLoadingJobs(false);
     }
-  }, [toast, signOut]);
+  }, [accessToken, toast, signOut]);
 
   const fetchJob = useCallback(
     async (jobId: string) => {
@@ -264,12 +268,24 @@ const Editor = () => {
         setLoadingJob(false);
       }
     },
-    [accessToken, toast],
+    [accessToken, toast, signOut],
   );
 
   useEffect(() => {
+    if (!accessToken) {
+      setJobs([]);
+      setActiveJob(null);
+      setLoadingJobs(false);
+      return;
+    }
+    if (authError) return;
+    setLoadingJobs(true);
     fetchJobs();
-  }, [fetchJobs]);
+  }, [accessToken, authError, fetchJobs]);
+
+  useEffect(() => {
+    if (accessToken) setAuthError(false);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -279,11 +295,23 @@ const Editor = () => {
     }
     apiFetch('/api/billing/entitlements', { token: accessToken })
       .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
-      .catch(() => setEntitlements(null));
+      .catch(async (err) => {
+        setEntitlements(null);
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try { await signOut() } catch (e) {}
+        }
+      });
     apiFetch('/api/settings', { token: accessToken })
       .then((d) => setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload)))
-      .catch(() => setAutoDownloadEnabled(null));
-  }, [accessToken]);
+      .catch(async (err) => {
+        setAutoDownloadEnabled(null);
+        if (err instanceof ApiError && err.status === 401) {
+          setAuthError(true);
+          try { await signOut() } catch (e) {}
+        }
+      });
+  }, [accessToken, signOut]);
 
   useEffect(() => {
     const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
@@ -309,30 +337,30 @@ const Editor = () => {
   }, [jobs, searchParams, selectedJobId, setSearchParams]);
 
   useEffect(() => {
-    if (!selectedJobId) {
+    if (!selectedJobId || !accessToken || authError) {
       setActiveJob(null);
       return;
     }
     fetchJob(selectedJobId);
     setExportOpen(false);
-  }, [selectedJobId, fetchJob]);
+  }, [selectedJobId, accessToken, authError, fetchJob]);
 
   useEffect(() => {
-    if (!hasActiveJobs || authError) return;
+    if (!accessToken || !hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
     }, 2500);
     return () => clearInterval(timer);
-  }, [hasActiveJobs, fetchJobs, authError]);
+  }, [accessToken, hasActiveJobs, fetchJobs, authError]);
 
   useEffect(() => {
-    if (!activeJob || !selectedJobId) return;
+    if (!accessToken || authError || !activeJob || !selectedJobId) return;
     if (isTerminalStatus(activeJob.status)) return;
     const timer = setInterval(() => {
       fetchJob(selectedJobId);
     }, 2500);
     return () => clearInterval(timer);
-  }, [activeJob, selectedJobId, fetchJob]);
+  }, [accessToken, authError, activeJob, selectedJobId, fetchJob]);
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
