@@ -54,7 +54,7 @@ const ControlPanelInfrastructure = () => {
   const health = healthQuery.data
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_80%_-10%,hsl(36_100%_55%/0.13),transparent_42%),radial-gradient(120%_120%_at_16%_14%,hsl(201_95%_58%/0.14),transparent_46%),linear-gradient(180deg,hsl(210_30%_9%)_0%,hsl(223_34%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

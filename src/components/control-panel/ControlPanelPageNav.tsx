@@ -1,5 +1,17 @@
 import { motion } from "framer-motion"
-import { Bot, ChevronDown, Cpu, Flame, Globe2, Landmark, LayoutDashboard, ShieldAlert, TrendingUp, Wrench, KeyRound } from "lucide-react"
+import {
+  Bot,
+  Cpu,
+  Flame,
+  Globe2,
+  KeyRound,
+  Landmark,
+  LayoutDashboard,
+  ShieldAlert,
+  TrendingUp,
+  Wrench
+} from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { useLocation, useNavigate } from "react-router-dom"
 
 type ControlPanelPage = {
@@ -35,6 +47,7 @@ type ControlPanelPageNavProps = {
 }
 
 const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
+  const { t } = useTranslation("common")
   const location = useLocation()
   const navigate = useNavigate()
   const current = resolveCurrentPath(location.pathname)
@@ -44,47 +57,47 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36, ease: "easeOut" }}
-      className="relative overflow-hidden rounded-2xl border border-sky-400/20 bg-[radial-gradient(130%_140%_at_85%_-10%,hsl(204_95%_58%/0.26),transparent_48%),linear-gradient(160deg,hsl(216_30%_9%/0.88)_0%,hsl(216_35%_6%/0.94)_100%)] p-4 backdrop-blur-xl"
+      className="control-panel-nav-shell relative overflow-hidden rounded-3xl p-4 sm:p-5"
     >
-      <div className="pointer-events-none absolute -left-10 top-6 h-28 w-28 rounded-full bg-sky-500/20 blur-2xl" />
-      <div className="pointer-events-none absolute right-8 top-2 h-16 w-16 rounded-full bg-cyan-400/20 blur-2xl" />
-      <button
-        type="button"
-        onClick={() => navigate("/x-quantum-control-9")}
-        className="absolute right-3 top-3 inline-flex h-8 items-center gap-1 rounded-full border border-fuchsia-300/40 bg-fuchsia-500/15 px-2.5 text-[11px] font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/25 focus-visible:border-fuchsia-200/60 focus-visible:bg-fuchsia-500/25"
-        aria-label="Open operator deck"
-        title="Operator deck"
-      >
-        <KeyRound className="h-3.5 w-3.5" />
-        Secret Panel
-      </button>
-
-      <div className="relative flex flex-col gap-3">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div className="relative flex flex-col gap-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-sky-200/80">Control Panel</p>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-100">{title}</h2>
-            <p className="text-sm text-slate-300/80">{subtitle}</p>
+            <div className="mb-2 inline-flex items-center gap-2">
+              <p className="text-lg font-semibold tracking-tight text-slate-50">AutoEditor</p>
+              <span className="pill-badge px-2 py-0.5 text-[10px]">
+                <svg className="sparkle mr-1 inline-block h-3 w-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                  <path d="M12 2l1.902 4.26L18.5 8l-4.598 1.74L12 14l-1.902-4.26L6.5 8l4.598-1.74L12 2z" fill="currentColor" />
+                </svg>
+                {t("brand.beta")}
+              </span>
+            </div>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-slate-300/70">Operator Command Center</p>
+            <h2 className="font-['Sora'] text-2xl font-semibold tracking-tight text-slate-50 sm:text-[1.9rem]">{title}</h2>
+            <p className="max-w-2xl text-sm text-slate-300/85">{subtitle}</p>
           </div>
-          <label className="relative inline-flex h-11 min-w-[220px] items-center overflow-hidden rounded-xl border border-sky-300/20 bg-slate-900/60 px-3 text-sm text-slate-100">
-            <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-300/70">Page</span>
-            <select
-              value={current.path}
-              onChange={(event) => navigate(event.target.value)}
-              className="h-full w-full cursor-pointer appearance-none bg-transparent pr-6 text-sm text-slate-100 outline-none"
-              aria-label="Control panel page selector"
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-3 text-[11px] font-semibold text-emerald-50">
+              <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.9)]" />
+              Live sync
+            </div>
+            <div className="inline-flex h-8 items-center rounded-full border border-cyan-200/25 bg-cyan-300/10 px-3 text-[11px] uppercase tracking-[0.16em] text-cyan-100/90">
+              {current.label}
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/x-quantum-control-9")}
+              className="inline-flex h-8 items-center gap-1 rounded-full border border-amber-200/35 bg-amber-400/14 px-3 text-[11px] font-semibold text-amber-100 transition hover:bg-amber-400/22 focus-visible:border-amber-100/55"
+              aria-label="Open operator deck"
+              title="Operator deck"
             >
-              {CONTROL_PANEL_PAGES.map((page) => (
-                <option key={page.key} value={page.path} className="bg-slate-900 text-slate-100">
-                  {page.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-300" />
-          </label>
+              <KeyRound className="h-3.5 w-3.5" />
+              Secret Panel
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {CONTROL_PANEL_PAGES.map((page) => {
             const active = page.path === current.path
             return (
@@ -92,11 +105,8 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
                 key={page.key}
                 type="button"
                 onClick={() => navigate(page.path)}
-                className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm transition ${
-                  active
-                    ? "border-sky-300/50 bg-sky-400/20 text-sky-100 shadow-[0_0_18px_hsl(201_96%_46%/0.25)]"
-                    : "border-slate-700/80 bg-slate-900/40 text-slate-300 hover:border-sky-300/40 hover:text-slate-100"
-                }`}
+                data-active={active ? "true" : "false"}
+                className="control-panel-nav-chip inline-flex h-10 snap-start items-center gap-2 rounded-xl px-3.5 text-sm"
               >
                 <page.Icon className="h-4 w-4" />
                 {page.label}

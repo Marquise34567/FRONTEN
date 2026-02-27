@@ -683,7 +683,7 @@ const ControlPanelAlgorithm = () => {
   const liveDotClass = canLoad ? "bg-emerald-400" : "bg-slate-500"
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_140%_at_80%_-15%,hsl(206_98%_56%/0.24),transparent_50%),radial-gradient(120%_130%_at_15%_100%,hsl(189_94%_48%/0.16),transparent_45%),linear-gradient(180deg,hsl(218_30%_8%)_0%,hsl(218_34%_5%)_100%)] text-foreground">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

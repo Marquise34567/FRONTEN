@@ -565,7 +565,7 @@ const ControlPanelBlacksite = () => {
   }, [errorsQuery.data?.items, streamErrors])
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(135%_120%_at_82%_-12%,hsl(44_98%_57%/0.18),transparent_43%),radial-gradient(130%_120%_at_12%_16%,hsl(194_96%_58%/0.2),transparent_48%),linear-gradient(180deg,hsl(219_36%_8%)_0%,hsl(224_38%_5%)_100%)] text-foreground">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

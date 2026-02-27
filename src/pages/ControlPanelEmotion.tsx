@@ -177,7 +177,7 @@ const ControlPanelEmotion = () => {
     emotionPower >= 75 ? "hsl(351 98% 63%)" : emotionPower >= 50 ? "hsl(34 96% 58%)" : "hsl(193 92% 58%)"
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(125%_120%_at_12%_8%,hsl(344_92%_60%/0.2),transparent_44%),radial-gradient(120%_120%_at_84%_20%,hsl(25_98%_58%/0.18),transparent_40%),linear-gradient(180deg,hsl(234_40%_8%)_0%,hsl(238_46%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

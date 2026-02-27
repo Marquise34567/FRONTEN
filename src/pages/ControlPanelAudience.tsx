@@ -100,7 +100,7 @@ const ControlPanelAudience = () => {
   const hasPlanMix = planPie.some((item) => item.value > 0)
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_100%_at_14%_6%,hsl(201_98%_62%/0.18),transparent_45%),radial-gradient(130%_110%_at_90%_14%,hsl(177_82%_48%/0.14),transparent_42%),linear-gradient(180deg,hsl(219_34%_9%)_0%,hsl(225_36%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

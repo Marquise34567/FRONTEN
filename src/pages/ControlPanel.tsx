@@ -5,16 +5,12 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
-  Cpu,
   Crown,
   Flame,
-  Gauge,
-  KeyRound,
   Lock,
   RefreshCcw,
   Server,
   Sparkles,
-  TrendingUp,
   Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -33,6 +29,7 @@ import {
   YAxis,
 } from "recharts";
 import Navbar from "@/components/Navbar";
+import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav";
 import { useLiveStats } from "@/providers/LiveStatsProvider";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -65,7 +62,16 @@ type DrillMetricKey =
   | "serverLoad"
   | "recentJobs";
 
-const PIE_COLORS = ["#A855F7", "#C084FC", "#67E8F9", "#38BDF8", "#4ADE80"];
+const PIE_COLORS = ["#2AD07B", "#6BE9A4", "#53D8E5", "#2EA2F4", "#F9C461"];
+const CHART_GRID_COLOR = "rgba(125, 148, 139, 0.2)";
+const CHART_AXIS_COLOR = "#9EB7AC";
+const CHART_TOOLTIP_STYLE = {
+  background: "#081119",
+  border: "1px solid rgba(110, 231, 183, 0.35)",
+  borderRadius: "0.75rem",
+};
+const CHART_LINE_COLOR = "#4AE59D";
+const CHART_BAR_COLOR = "#2EC97A";
 
 const compact = (value: number) =>
   new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(
@@ -90,13 +96,13 @@ const statusTone = (status: string) => {
   if (normalized === "completed") return "text-emerald-300";
   if (normalized === "failed") return "text-rose-300";
   if (normalized === "rendering" || normalized === "queued") return "text-amber-300";
-  return "text-cyan-300";
+  return "text-sky-300";
 };
 
 const LockedOverlay = ({ onUpgrade }: { onUpgrade: () => void }) => (
-  <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl border border-purple-300/40 bg-[#101225]/76 p-4 backdrop-blur-md">
+  <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl border border-emerald-200/25 bg-[#060d15]/78 p-4 backdrop-blur-md">
     <div className="max-w-xs text-center">
-      <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-purple-300/40 bg-purple-500/20 px-3 py-1 text-xs font-semibold text-purple-100">
+      <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-emerald-200/40 bg-emerald-400/20 px-3 py-1 text-xs font-semibold text-emerald-50">
         <Lock className="h-3.5 w-3.5" />
         Premium Insight
       </div>
@@ -182,7 +188,7 @@ const ControlPanel = () => {
         title: "Active Users",
         value: compact(activeUsers),
         sub: `${compact(upgradedToday)} upgrades today`,
-        tone: "from-cyan-400/25 to-sky-400/5",
+        tone: "from-emerald-400/25 to-teal-300/5",
         tip: "Real-time active users from websocket + SSE fallback.",
         progress: Math.min(100, (activeUsers / 800) * 100),
       },
@@ -192,7 +198,7 @@ const ControlPanel = () => {
         title: "Renders Today",
         value: compact(rendersToday),
         sub: `${renderMinutes.toFixed(1)} mins used`,
-        tone: "from-violet-500/25 to-fuchsia-400/5",
+        tone: "from-cyan-400/25 to-blue-300/5",
         tip: "Completed renders and consumed minutes for today.",
         progress: Math.min(100, (rendersToday / 450) * 100),
       },
@@ -202,7 +208,7 @@ const ControlPanel = () => {
         title: "Trending Niches",
         value: topTrend ? topTrend.label : "No trend yet",
         sub: topTrend ? `${topTrend.changePct > 0 ? "+" : ""}${topTrend.changePct.toFixed(1)}% shift` : "Collecting signal",
-        tone: "from-pink-500/25 to-rose-400/5",
+        tone: "from-amber-300/25 to-orange-300/5",
         tip: "Top moving content niches from recent render behavior.",
         progress: topTrend ? Math.min(100, Math.abs(topTrend.changePct)) : 0,
       },
@@ -212,7 +218,7 @@ const ControlPanel = () => {
         title: "Subscription Metrics",
         value: compact(totalSubs),
         sub: `${money(mrr)} MRR • ${pct(churn)} churn`,
-        tone: "from-emerald-500/25 to-lime-400/5",
+        tone: "from-lime-400/25 to-emerald-300/5",
         tip: "Total subscriptions, churn rate, and monthly recurring revenue.",
         progress: Math.min(100, (totalSubs / 1000) * 100),
       },
@@ -222,7 +228,7 @@ const ControlPanel = () => {
         title: "Server Load",
         value: `${serverGauge.toFixed(0)}%`,
         sub: `CPU ${pct(cpu)} • RAM ${pct(ram)}`,
-        tone: "from-orange-500/25 to-amber-400/5",
+        tone: "from-sky-400/25 to-cyan-300/5",
         tip: "Runtime pressure from CPU and memory utilization.",
         progress: serverGauge,
       },
@@ -232,7 +238,7 @@ const ControlPanel = () => {
         title: "Recent Jobs",
         value: showRecentJobs ? compact(jobs.length) : "Hidden",
         sub: showRecentJobs ? (jobs[0] ? `Latest: ${jobs[0].status}` : "No recent jobs") : "Toggle Jobs to reveal",
-        tone: "from-indigo-500/25 to-blue-400/5",
+        tone: "from-slate-300/20 to-slate-100/5",
         tip: showRecentJobs ? "Latest render jobs with status and duration." : "Jobs telemetry is hidden by default.",
         progress: showRecentJobs ? Math.min(100, (jobs.length / 12) * 100) : 0,
       },
@@ -270,11 +276,11 @@ const ControlPanel = () => {
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={activeSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.16)" />
-              <XAxis dataKey="t" tickFormatter={timeTick} stroke="#A5B4FC" />
-              <YAxis stroke="#A5B4FC" />
-              <ChartTooltip contentStyle={{ background: "#111827", border: "1px solid rgba(167,139,250,0.35)" }} />
-              <Line dataKey="v" stroke="#67E8F9" strokeWidth={2} dot={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+              <XAxis dataKey="t" tickFormatter={timeTick} stroke={CHART_AXIS_COLOR} />
+              <YAxis stroke={CHART_AXIS_COLOR} />
+              <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} />
+              <Line dataKey="v" stroke={CHART_LINE_COLOR} strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -285,11 +291,11 @@ const ControlPanel = () => {
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={tierBars}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.16)" />
-              <XAxis dataKey="tier" stroke="#A5B4FC" />
-              <YAxis stroke="#A5B4FC" />
-              <ChartTooltip contentStyle={{ background: "#111827", border: "1px solid rgba(167,139,250,0.35)" }} />
-              <Bar dataKey="renders" fill="#A855F7" radius={[8, 8, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+              <XAxis dataKey="tier" stroke={CHART_AXIS_COLOR} />
+              <YAxis stroke={CHART_AXIS_COLOR} />
+              <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} />
+              <Bar dataKey="renders" fill={CHART_BAR_COLOR} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -320,7 +326,7 @@ const ControlPanel = () => {
                   <Cell key={`${row.tier}-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                 ))}
               </Pie>
-              <ChartTooltip contentStyle={{ background: "#111827", border: "1px solid rgba(167,139,250,0.35)" }} />
+              <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -353,7 +359,7 @@ const ControlPanel = () => {
           <Button
             type="button"
             size="sm"
-            className="mt-3 border border-cyan-300/35 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30"
+            className="mt-3 border border-emerald-200/30 bg-emerald-400/16 text-emerald-50 hover:bg-emerald-400/24"
             onClick={() => setShowRecentJobs(true)}
           >
             Show Recent Jobs
@@ -388,49 +394,47 @@ const ControlPanel = () => {
   };
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[linear-gradient(160deg,#0F0F1A_0%,#12121F_65%,#141425_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">
         <motion.div
-          className="absolute left-[8%] top-[10%] h-80 w-80 rounded-full bg-purple-500/14 blur-3xl"
+          className="absolute left-[8%] top-[10%] h-80 w-80 rounded-full bg-emerald-400/16 blur-3xl"
           animate={{ scale: [1, 1.08, 1], opacity: [0.2, 0.36, 0.2] }}
           transition={{ duration: 8, repeat: Infinity }}
         />
         <motion.div
-          className="absolute right-[10%] top-[25%] h-72 w-72 rounded-full bg-cyan-400/12 blur-3xl"
+          className="absolute right-[10%] top-[25%] h-72 w-72 rounded-full bg-cyan-300/12 blur-3xl"
           animate={{ scale: [1.08, 1, 1.08], opacity: [0.16, 0.3, 0.16] }}
           transition={{ duration: 9, repeat: Infinity }}
         />
       </div>
 
       <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+        <ControlPanelPageNav
+          title="Real-Time Control Panel"
+          subtitle="Live operational intelligence across users, renders, subscriptions, and infrastructure."
+        />
+
         <motion.section
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="rounded-3xl border border-purple-300/25 bg-[linear-gradient(145deg,rgba(15,15,26,0.72),rgba(18,18,31,0.8))] p-5 shadow-[0_28px_80px_-38px_rgba(168,85,247,0.85)] backdrop-blur-xl"
+          className="mt-4 rounded-2xl border border-border/50 bg-card/60 p-4 backdrop-blur-xl"
         >
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-purple-200/80">AutoEditorControlMaster v2026</p>
-              <h1 className="bg-gradient-to-r from-[#A855F7] via-[#C084FC] to-[#67E8F9] bg-clip-text text-3xl font-bold text-transparent sm:text-4xl">
-                Real-Time Control Panel
-              </h1>
-              <p className="mt-1 text-sm text-slate-300">Live operational intelligence across users, renders, subscriptions, and infrastructure.</p>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className={cn("border px-3 py-1 text-xs", connected ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-100" : "border-amber-300/40 bg-amber-500/15 text-amber-100")}>
+              <Badge className={cn("border px-3 py-1 text-xs", connected ? "border-emerald-200/45 bg-emerald-400/15 text-emerald-50" : "border-amber-200/40 bg-amber-400/15 text-amber-50")}>
                 {liveStatusLabel}
               </Badge>
-              <Badge className="border-cyan-300/40 bg-cyan-500/15 px-3 py-1 text-cyan-100">Synced {lastSyncLabel}</Badge>
-              {access?.isDev ? <Badge className="border-fuchsia-300/40 bg-fuchsia-500/15 px-3 py-1 text-fuchsia-100">DEV UNLOCK</Badge> : null}
+              <Badge className="border-cyan-200/35 bg-cyan-300/12 px-3 py-1 text-cyan-50">Synced {lastSyncLabel}</Badge>
+              {access?.isDev ? <Badge className="border-teal-200/35 bg-teal-300/12 px-3 py-1 text-teal-50">DEV UNLOCK</Badge> : null}
               <div
                 className={cn(
                   "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1",
                   showRecentJobs
-                    ? "border-cyan-300/45 bg-cyan-500/15 text-cyan-100"
-                    : "border-purple-300/30 bg-purple-500/10 text-purple-100",
+                    ? "border-emerald-200/45 bg-emerald-400/15 text-emerald-50"
+                    : "border-slate-200/20 bg-slate-200/10 text-slate-100",
                 )}
               >
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">Jobs</span>
@@ -447,19 +451,10 @@ const ControlPanel = () => {
                 loadingText="Syncing"
                 successToast="Live stats refreshed"
                 errorToast="Refresh failed"
-                className="border border-purple-300/35 bg-purple-500/20 text-purple-100 hover:bg-purple-500/30"
+                className="border border-emerald-200/30 bg-emerald-400/15 text-emerald-50 hover:bg-emerald-400/24"
               >
                 <RefreshCcw className="h-4 w-4" />
                 Refresh
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => navigate("/dev/control-panel/blacksite")}
-                className="border border-fuchsia-300/35 bg-fuchsia-500/20 text-fuchsia-100 hover:bg-fuchsia-500/30"
-              >
-                <KeyRound className="h-4 w-4" />
-                Secret Panel
               </Button>
             </div>
           </div>
@@ -470,12 +465,12 @@ const ControlPanel = () => {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.28, delay: 0.04 }}
-            className="mt-4 rounded-2xl border border-purple-300/30 bg-purple-500/10 p-4"
+            className="mt-4 rounded-2xl border border-emerald-200/30 bg-emerald-400/12 p-4"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-purple-100">{teaserMessage || "Premium analytics locked on Free."}</p>
-                <p className="text-xs text-purple-200/90">Unlock subscription intelligence, server diagnostics, and unblurred job telemetry.</p>
+                <p className="text-sm font-semibold text-emerald-50">{teaserMessage || "Premium analytics locked on Free."}</p>
+                <p className="text-xs text-emerald-50/85">Unlock subscription intelligence, server diagnostics, and unblurred job telemetry.</p>
               </div>
               <Button onClick={() => navigate("/pricing")} className="sm:w-auto">
                 Upgrade for Real-Time Insights
@@ -501,14 +496,14 @@ const ControlPanel = () => {
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center justify-between text-sm">
                     <span className="inline-flex items-center gap-2">
-                      <card.icon className="h-4 w-4 text-purple-200" />
+                      <card.icon className="h-4 w-4 text-emerald-200" />
                       {card.title}
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Sparkles className="h-3.5 w-3.5 text-slate-400" />
                       </TooltipTrigger>
-                      <TooltipContent className="max-w-xs border-purple-300/30 bg-[#121426] text-slate-100">{card.tip}</TooltipContent>
+                      <TooltipContent className="max-w-xs border-emerald-200/30 bg-[#0b151f] text-slate-100">{card.tip}</TooltipContent>
                     </Tooltip>
                   </CardTitle>
                 </CardHeader>
@@ -530,11 +525,11 @@ const ControlPanel = () => {
             <CardContent className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={activeSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.16)" />
-                  <XAxis dataKey="t" tickFormatter={timeTick} stroke="#A5B4FC" />
-                  <YAxis stroke="#A5B4FC" />
-                  <ChartTooltip contentStyle={{ background: "#111827", border: "1px solid rgba(167,139,250,0.35)" }} />
-                  <Line dataKey="v" stroke="#67E8F9" strokeWidth={2} dot={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                  <XAxis dataKey="t" tickFormatter={timeTick} stroke={CHART_AXIS_COLOR} />
+                  <YAxis stroke={CHART_AXIS_COLOR} />
+                  <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                  <Line dataKey="v" stroke={CHART_LINE_COLOR} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
@@ -547,11 +542,11 @@ const ControlPanel = () => {
             <CardContent className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={tierBars}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.16)" />
-                  <XAxis dataKey="tier" stroke="#A5B4FC" />
-                  <YAxis stroke="#A5B4FC" />
-                  <ChartTooltip contentStyle={{ background: "#111827", border: "1px solid rgba(167,139,250,0.35)" }} />
-                  <Bar dataKey="renders" fill="#A855F7" radius={[8, 8, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                  <XAxis dataKey="tier" stroke={CHART_AXIS_COLOR} />
+                  <YAxis stroke={CHART_AXIS_COLOR} />
+                  <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                  <Bar dataKey="renders" fill={CHART_BAR_COLOR} radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -569,7 +564,7 @@ const ControlPanel = () => {
                   key={item.label}
                   type="button"
                   onClick={() => setDrillMetric("trendingNiches")}
-                  className="flex w-full items-center justify-between rounded-lg border border-slate-700/70 bg-slate-900/45 px-3 py-2 text-sm transition hover:border-purple-300/40"
+                  className="flex w-full items-center justify-between rounded-lg border border-slate-600/60 bg-slate-900/45 px-3 py-2 text-sm transition hover:border-emerald-200/35"
                 >
                   <span className="text-left text-slate-100">{item.label}</span>
                   <span className={cn("inline-flex items-center gap-1 font-semibold", item.direction === "up" ? "text-emerald-300" : "text-rose-300")}>
@@ -623,7 +618,7 @@ const ControlPanel = () => {
                 <CardTitle className="text-sm">Server Load</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="mx-auto h-40 w-40 rounded-full p-3" style={{ background: `conic-gradient(#A855F7 0% ${serverGauge}%, #24243a ${serverGauge}% 100%)` }}>
+                <div className="mx-auto h-40 w-40 rounded-full p-3" style={{ background: `conic-gradient(#2ec97a 0% ${serverGauge}%, #1a2434 ${serverGauge}% 100%)` }}>
                   <div className="flex h-full w-full items-center justify-center rounded-full border border-slate-700/70 bg-[#101225] text-xl font-semibold text-slate-100">
                     {serverGauge.toFixed(0)}%
                   </div>
@@ -649,7 +644,7 @@ const ControlPanel = () => {
               <Card className="glass-card border-border/50">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm">Recent Jobs</CardTitle>
-                  <Badge className="border-purple-300/35 bg-purple-500/15 text-purple-100">{loading ? "Syncing..." : "Live table"}</Badge>
+                  <Badge className="border-emerald-200/35 bg-emerald-400/14 text-emerald-50">{loading ? "Syncing..." : "Live table"}</Badge>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
                   <Table>
@@ -680,14 +675,14 @@ const ControlPanel = () => {
               <Card className="glass-card border-border/50">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm">Recent Jobs</CardTitle>
-                  <Badge className="border-cyan-300/35 bg-cyan-500/15 text-cyan-100">Hidden by default</Badge>
+                  <Badge className="border-slate-200/20 bg-slate-200/10 text-slate-200">Hidden by default</Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-slate-300">Jobs are hidden until you turn on the Jobs toggle above.</p>
                   <Button
                     type="button"
                     size="sm"
-                    className="w-fit border border-cyan-300/35 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30"
+                    className="w-fit border border-emerald-200/30 bg-emerald-400/16 text-emerald-50 hover:bg-emerald-400/24"
                     onClick={() => setShowRecentJobs(true)}
                   >
                     Show Recent Jobs
@@ -700,11 +695,11 @@ const ControlPanel = () => {
 
         {access?.isDev ? (
           <section className="mt-4 grid items-start gap-4 md:grid-cols-3">
-            <Card className="glass-card border-purple-300/35 bg-purple-500/10">
+            <Card className="glass-card border-emerald-200/35 bg-emerald-400/12">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase tracking-[0.2em] text-purple-100">Debug</CardTitle>
+                <CardTitle className="text-xs uppercase tracking-[0.2em] text-emerald-50">Debug</CardTitle>
               </CardHeader>
-              <CardContent className="text-xs text-purple-100">
+              <CardContent className="text-xs text-emerald-50">
                 <p>WS clients: {snapshot?.debug?.wsClients ?? 0}</p>
                 <p>DB telemetry: {snapshot?.debug?.dbOk ? "ok" : "fallback"}</p>
                 <p>Transport: {transport}</p>
@@ -720,8 +715,8 @@ const ControlPanel = () => {
                         className={cn(
                           "h-7 px-2 text-[10px]",
                           transportPreference === option.value
-                            ? "border border-purple-200/50 bg-purple-400/30 text-purple-50"
-                            : "border border-purple-200/25 text-purple-100 hover:bg-purple-400/15"
+                            ? "border border-emerald-200/55 bg-emerald-400/25 text-emerald-50"
+                            : "border border-emerald-200/30 text-emerald-100 hover:bg-emerald-400/14"
                         )}
                         onClick={() => setTransportPreference(option.value)}
                       >
@@ -732,21 +727,21 @@ const ControlPanel = () => {
                 ) : null}
               </CardContent>
             </Card>
-            <Card className="glass-card border-cyan-300/35 bg-cyan-500/10">
+            <Card className="glass-card border-cyan-200/30 bg-cyan-300/12">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase tracking-[0.2em] text-cyan-100">Runtime</CardTitle>
+                <CardTitle className="text-xs uppercase tracking-[0.2em] text-cyan-50">Runtime</CardTitle>
               </CardHeader>
-              <CardContent className="text-xs text-cyan-100">
+              <CardContent className="text-xs text-cyan-50">
                 <p>CPU: {pct(cpu)}</p>
                 <p>RAM: {pct(ram)}</p>
                 <p>Last sync: {lastSyncLabel}</p>
               </CardContent>
             </Card>
-            <Card className="glass-card border-emerald-300/35 bg-emerald-500/10">
+            <Card className="glass-card border-amber-200/35 bg-amber-300/12">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase tracking-[0.2em] text-emerald-100">Business</CardTitle>
+                <CardTitle className="text-xs uppercase tracking-[0.2em] text-amber-50">Business</CardTitle>
               </CardHeader>
-              <CardContent className="text-xs text-emerald-100">
+              <CardContent className="text-xs text-amber-50">
                 <p>MRR: {money(mrr)}</p>
                 <p>Churn: {pct(churn)}</p>
                 <p>Upgrades today: {compact(upgradedToday)}</p>
@@ -757,7 +752,7 @@ const ControlPanel = () => {
       </main>
 
       <Dialog open={Boolean(drillMetric)} onOpenChange={(open) => setDrillMetric(open ? drillMetric : null)}>
-        <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-auto border border-purple-300/30 bg-[#0f1222]/95 p-4 text-slate-100 backdrop-blur-xl sm:max-w-4xl sm:p-6">
+        <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-auto border border-emerald-200/30 bg-[#081019]/95 p-4 text-slate-100 backdrop-blur-xl sm:max-w-4xl sm:p-6">
           <DialogHeader>
             <DialogTitle>{drillTitle}</DialogTitle>
             <DialogDescription className="text-slate-300">

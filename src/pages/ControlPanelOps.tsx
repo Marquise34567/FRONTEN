@@ -248,7 +248,7 @@ const ControlPanelOps = () => {
   const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown"
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
       <main className="control-panel-main relative mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav

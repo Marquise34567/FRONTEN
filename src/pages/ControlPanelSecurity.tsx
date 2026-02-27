@@ -58,7 +58,7 @@ const ControlPanelSecurity = () => {
   const tokenAbuseBars = (abuse?.tokenAbuseSignals || []).slice(0, 8)
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_14%_8%,hsl(359_95%_60%/0.15),transparent_42%),radial-gradient(130%_120%_at_84%_18%,hsl(33_100%_55%/0.12),transparent_42%),linear-gradient(180deg,hsl(223_34%_9%)_0%,hsl(232_42%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

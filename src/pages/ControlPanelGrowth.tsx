@@ -63,7 +63,7 @@ const ControlPanelGrowth = () => {
   )
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_22%_5%,hsl(155_84%_52%/0.16),transparent_42%),radial-gradient(135%_110%_at_82%_16%,hsl(194_98%_60%/0.14),transparent_42%),linear-gradient(180deg,hsl(171_34%_9%)_0%,hsl(216_35%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

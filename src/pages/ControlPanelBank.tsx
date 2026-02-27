@@ -168,7 +168,7 @@ const ControlPanelBank = () => {
   }
 
   return (
-    <div className="control-panel-viewport relative min-h-screen overflow-hidden bg-[radial-gradient(130%_120%_at_75%_-20%,hsl(45_96%_56%/0.16),transparent_40%),radial-gradient(140%_120%_at_20%_110%,hsl(162_72%_45%/0.18),transparent_44%),linear-gradient(180deg,hsl(195_28%_8%)_0%,hsl(207_30%_5%)_100%)]">
+    <div className="control-panel-viewport relative min-h-screen overflow-hidden text-foreground">
       <Navbar />
 
       <div className="pointer-events-none absolute inset-0">

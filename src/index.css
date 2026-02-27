@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@500;600;700;800&family=Sora:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -54,6 +54,11 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+    --cp-accent: 258 84% 67%;
+    --cp-accent-2: 217 92% 66%;
+    --cp-surface: 236 26% 8%;
+    --cp-surface-elevated: 234 21% 11%;
+    --cp-line: 246 34% 76%;
 
     --ae-main-px: 1rem;
     --ae-base-font-size: 1rem;
@@ -83,6 +88,9 @@
   }
 
   .premium-trial-banner::after,
+  .export-ready-card::before,
+  .export-ready-card::after,
+  .export-ready-float,
   .animate-panel-float,
   .animate-panel-float-delayed,
   .animate-alert-glow,
@@ -137,6 +145,51 @@
     contain: paint;
   }
 
+  .export-ready-card {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .export-ready-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      120deg,
+      rgb(167 243 208 / 0.75) 0%,
+      rgb(34 211 238 / 0.58) 35%,
+      rgb(16 185 129 / 0.9) 68%,
+      rgb(167 243 208 / 0.8) 100%
+    );
+    background-size: 220% 220%;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+    animation: export-outline-shift 4.5s linear infinite;
+  }
+
+  .export-ready-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(circle at 80% 22%, rgb(52 211 153 / 0.22), transparent 58%);
+    z-index: 1;
+    animation: export-outline-pulse 3.6s ease-in-out infinite;
+  }
+
+  .export-ready-float {
+    animation: export-preview-float 4.4s ease-in-out infinite;
+    will-change: transform;
+  }
+
   .premium-trial-banner::after {
     content: "";
     position: absolute;
@@ -163,6 +216,40 @@
   }
   100% {
     transform: translate3d(120%, 0, 0);
+  }
+}
+
+@keyframes export-outline-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes export-outline-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes export-preview-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -8px, 0);
   }
 }
 
@@ -854,29 +941,29 @@
   @keyframes controlPanelAuroraDrift {
     0%, 100% {
       transform: translate3d(0, 0, 0) scale(1);
-      opacity: 0.46;
+      opacity: 0.5;
     }
     50% {
-      transform: translate3d(1.8%, -2.1%, 0) scale(1.03);
-      opacity: 0.66;
+      transform: translate3d(2.2%, -2.8%, 0) scale(1.04);
+      opacity: 0.72;
     }
   }
 
-  @keyframes controlPanelGridPan {
+  @keyframes controlPanelContourDrift {
     0% {
       transform: translate3d(0, 0, 0);
     }
     100% {
-      transform: translate3d(46px, 28px, 0);
+      transform: translate3d(58px, 38px, 0);
     }
   }
 
   @keyframes glassEdgeSweep {
     0% {
       opacity: 0;
-      transform: translate3d(-120%, 0, 0);
+      transform: translate3d(-125%, 0, 0);
     }
-    18% {
+    20% {
       opacity: 1;
     }
     100% {
@@ -887,6 +974,7 @@
 
   .control-panel-viewport {
     isolation: isolate;
+    background-color: #05060d;
   }
 
   .control-panel-viewport::before {
@@ -896,9 +984,10 @@
     pointer-events: none;
     z-index: 0;
     background:
-      radial-gradient(65% 48% at 12% 10%, hsl(192 92% 66% / 0.18), transparent 70%),
-      radial-gradient(50% 44% at 86% 18%, hsl(156 90% 54% / 0.14), transparent 72%),
-      radial-gradient(58% 45% at 58% 86%, hsl(39 95% 61% / 0.13), transparent 76%);
+      radial-gradient(64% 50% at 10% 6%, hsl(var(--cp-accent) / 0.2), transparent 72%),
+      radial-gradient(56% 44% at 88% 10%, hsl(var(--cp-accent-2) / 0.14), transparent 74%),
+      radial-gradient(52% 46% at 48% 98%, hsl(266 68% 64% / 0.08), transparent 76%),
+      linear-gradient(160deg, rgba(6, 8, 16, 0.76), rgba(5, 7, 14, 0.94));
     animation: controlPanelAuroraDrift 18s ease-in-out infinite;
   }
 
@@ -908,13 +997,67 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background-image:
-      linear-gradient(hsl(210 35% 92% / 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(210 35% 92% / 0.05) 1px, transparent 1px);
-    background-size: 26px 26px, 26px 26px;
-    mask-image: radial-gradient(80% 70% at 52% 36%, black 0%, transparent 100%);
+    background:
+      repeating-linear-gradient(110deg, hsl(var(--cp-line) / 0.05) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(20deg, hsl(var(--cp-accent) / 0.035) 0 1px, transparent 1px 28px);
+    mask-image: radial-gradient(90% 74% at 51% 34%, black 0%, transparent 98%);
     opacity: 0.26;
-    animation: controlPanelGridPan 22s linear infinite;
+    mix-blend-mode: normal;
+    animation: controlPanelContourDrift 32s linear infinite;
+  }
+
+  .control-panel-nav-shell {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid hsl(0 0% 100% / 0.12);
+    background:
+      radial-gradient(76% 90% at 0% 0%, hsl(var(--cp-accent) / 0.16), transparent 70%),
+      linear-gradient(156deg, rgba(10, 13, 27, 0.9), rgba(9, 12, 24, 0.84) 58%, rgba(8, 11, 21, 0.9));
+    box-shadow:
+      0 28px 76px -58px hsl(var(--cp-accent) / 0.78),
+      inset 0 1px 0 hsl(0 0% 100% / 0.09);
+    backdrop-filter: blur(16px) saturate(122%);
+  }
+
+  .control-panel-nav-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(72% 86% at 90% -8%, hsl(var(--cp-accent-2) / 0.14), transparent 74%),
+      linear-gradient(104deg, transparent 22%, hsl(0 0% 100% / 0.08) 50%, transparent 82%);
+    opacity: 0.55;
+    z-index: 0;
+  }
+
+  .control-panel-nav-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .control-panel-nav-chip {
+    border: 1px solid hsl(0 0% 100% / 0.12);
+    background: linear-gradient(155deg, rgba(10, 14, 26, 0.86), rgba(10, 14, 26, 0.68));
+    color: rgb(204 214 235 / 0.92);
+    transition: all 220ms ease;
+  }
+
+  .control-panel-nav-chip:hover {
+    border-color: hsl(var(--cp-accent) / 0.42);
+    color: rgb(245 248 255 / 0.97);
+    transform: translate3d(0, -1px, 0);
+  }
+
+  .control-panel-nav-chip[data-active="true"] {
+    border-color: hsl(var(--cp-accent) / 0.7);
+    color: rgb(247 248 255 / 0.98);
+    background:
+      radial-gradient(88% 90% at 8% 12%, hsl(var(--cp-accent) / 0.24), transparent 78%),
+      linear-gradient(150deg, rgba(11, 14, 30, 0.96), rgba(12, 18, 34, 0.9));
+    box-shadow:
+      0 0 0 1px hsl(var(--cp-accent) / 0.18),
+      0 14px 32px -24px hsl(var(--cp-accent) / 0.78);
   }
 
   .control-panel-main {
@@ -925,13 +1068,28 @@
   .control-panel-main .glass-card {
     position: relative;
     overflow: hidden;
-    transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
+    border-color: hsl(0 0% 100% / 0.11);
+    background-color: hsl(var(--cp-surface) / 0.78);
+    backdrop-filter: blur(14px) saturate(120%);
+    transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1), border-color 260ms ease, box-shadow 260ms ease;
     box-shadow:
-      0 18px 44px -34px hsl(206 95% 62% / 0.42),
-      inset 0 1px 0 hsl(0 0% 100% / 0.04);
+      0 24px 58px -42px hsl(var(--cp-accent-2) / 0.42),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
     transform: translate3d(0, 0, 0);
     backface-visibility: hidden;
     contain: paint;
+  }
+
+  .control-panel-main .glass-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(84% 72% at 10% -16%, hsl(var(--cp-accent) / 0.12), transparent 74%),
+      radial-gradient(62% 54% at 94% -4%, hsl(var(--cp-accent-2) / 0.1), transparent 70%);
+    opacity: 0.86;
+    z-index: 0;
   }
 
   .control-panel-main .glass-card::after {
@@ -940,20 +1098,25 @@
     top: 0;
     bottom: 0;
     left: -120%;
-    width: 58%;
+    width: 56%;
     pointer-events: none;
-    background: linear-gradient(120deg, transparent 20%, hsl(0 0% 100% / 0.13) 50%, transparent 80%);
+    background: linear-gradient(118deg, transparent 20%, hsl(var(--cp-accent) / 0.2) 48%, transparent 80%);
     opacity: 0;
     transform: translate3d(0, 0, 0);
     will-change: transform, opacity;
+    z-index: 0;
   }
 
   .control-panel-main .glass-card:hover {
-    transform: translate3d(0, -2px, 0);
+    transform: translate3d(0, -3px, 0);
+    border-color: hsl(var(--cp-accent) / 0.35);
+    box-shadow:
+      0 30px 66px -46px hsl(var(--cp-accent) / 0.72),
+      inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 
   .control-panel-main .glass-card:hover::after {
-    animation: glassEdgeSweep 620ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: glassEdgeSweep 760ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .control-panel-main .glass-card > * {
@@ -967,7 +1130,7 @@
   }
 
   .control-panel-main > section {
-    animation: panelReveal 0.52s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation: panelReveal 0.54s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
 
   .control-panel-main > section:nth-of-type(1) { animation-delay: 0.02s; }
@@ -987,7 +1150,7 @@
 
   .control-panel-chart-swipe {
     scrollbar-width: thin;
-    scrollbar-color: rgba(168, 85, 247, 0.75) rgba(15, 15, 26, 0.6);
+    scrollbar-color: hsl(var(--cp-accent) / 0.88) rgba(8, 10, 18, 0.72);
   }
 
   .control-panel-chart-swipe::-webkit-scrollbar {
@@ -995,13 +1158,13 @@
   }
 
   .control-panel-chart-swipe::-webkit-scrollbar-track {
-    background: rgba(17, 19, 37, 0.7);
+    background: rgba(8, 10, 18, 0.72);
     border-radius: 999px;
   }
 
   .control-panel-chart-swipe::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: linear-gradient(90deg, rgba(168, 85, 247, 0.95), rgba(103, 232, 249, 0.95));
+    background: linear-gradient(90deg, hsl(var(--cp-accent) / 0.96), hsl(var(--cp-accent-2) / 0.92));
   }
 
   @media (max-width: 640px) {
