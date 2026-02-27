@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  CheckCircle2,
+  Clock3,
+  Download,
+  Eye,
   History,
   Loader2,
   RefreshCcw,
@@ -8,6 +12,7 @@ import {
   Sparkles,
   Upload,
   Wand2,
+  Workflow,
 } from "lucide-react";
 
 import AppShell from "@/components/premium/AppShell";
@@ -17,11 +22,10 @@ import AccentPillToggle from "@/components/premium/AccentPillToggle";
 import SettingsCardGroup from "@/components/premium/SettingsCardGroup";
 import SliderWithPurpleThumb from "@/components/premium/SliderWithPurpleThumb";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/providers/AuthProvider";
-import { API_URL, ApiError, apiFetch } from "@/lib/api";
+import { API_URL, ApiError, apiFetch, resolveApiMediaUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import AutoModeBanner from "@/features/autoeditor/components/editor/AutoModeBanner";
 import ManualTimestampModal from "@/features/autoeditor/components/editor/ManualTimestampModal";
@@ -95,11 +99,110 @@ const MODE_OPTIONS: Array<{ value: RenderMode; label: string; subtitle: string }
   { value: "vertical", label: "Vertical", subtitle: "9:16" },
 ];
 
+const PIPELINE_STAGES = [
+  { key: "upload", label: "Upload", minProgress: 0, detail: "Source accepted and queued." },
+  { key: "analyze", label: "Analyze", minProgress: 12, detail: "Scene and retention profiling running." },
+  { key: "hook", label: "Hook", minProgress: 26, detail: "Hook candidate ranking and selection." },
+  { key: "cut", label: "Cut", minProgress: 42, detail: "Timeline trims and pacing edits applied." },
+  { key: "caption", label: "Caption", minProgress: 58, detail: "Caption and audio pass in progress." },
+  { key: "render", label: "Render", minProgress: 76, detail: "Final encode and quality checks." },
+  { key: "ready", label: "Ready", minProgress: 100, detail: "Export package is complete." },
+] as const;
+
+const UPLOAD_STATUS_STEPS = [
+  {
+    id: "uploading",
+    title: "Uploading video",
+    detail: "Sending footage into the processing pipeline.",
+  },
+  {
+    id: "analyzing",
+    title: "Getting analyzed",
+    detail: "Scanning scenes, motion, and retention signals.",
+  },
+  {
+    id: "applying",
+    title: "Edits being applied",
+    detail: "Applying smart mode and pacing defaults.",
+  },
+] as const;
+
+type UploadStatusStep = (typeof UPLOAD_STATUS_STEPS)[number]["id"];
+type UploadStatusState = UploadStatusStep | "idle" | "failed";
+
+const UPLOAD_STATUS_INDEX: Record<UploadStatusState, number> = {
+  idle: -1,
+  uploading: 0,
+  analyzing: 1,
+  applying: 2,
+  failed: 2,
+};
+
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+const toProgressPercent = (value: number) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+
+const modeLabel = (value: RenderMode | null | undefined) => (value === "vertical" ? "Vertical" : "Horizontal");
+
+const statusLabel = (status: string) => {
+  if (status === "completed") return "Completed";
+  if (status === "processing") return "Processing";
+  if (status === "queued") return "Queued";
+  if (status === "failed") return "Failed";
+  return "Unknown";
+};
+
+const statusBadgeClass = (status: string) => {
+  if (status === "completed") return "border-emerald-300/45 bg-emerald-500/15 text-emerald-100";
+  if (status === "processing") return "border-cyan-300/45 bg-cyan-500/15 text-cyan-100";
+  if (status === "failed") return "border-rose-300/45 bg-rose-500/15 text-rose-100";
+  return "border-amber-300/45 bg-amber-500/15 text-amber-100";
+};
+
+const getPipelineStageIndex = (status: string, progress: number) => {
+  const normalizedProgress = toProgressPercent(progress);
+  if (status === "completed") return PIPELINE_STAGES.length - 1;
+  const maxInFlightIndex = PIPELINE_STAGES.length - 2;
+  let stageIndex = 0;
+  for (let index = 0; index < PIPELINE_STAGES.length; index += 1) {
+    if (normalizedProgress >= PIPELINE_STAGES[index].minProgress) {
+      stageIndex = index;
+    }
+  }
+  if (status === "failed") return Math.min(stageIndex, maxInFlightIndex);
+  if (status === "queued") return 0;
+  return Math.min(stageIndex, maxInFlightIndex);
+};
+
+const normalizeRenderJobUrls = (job: RenderJobResult): RenderJobResult => {
+  const normalizedClipUrls = Array.isArray(job.clipUrls)
+    ? job.clipUrls.map((url) => resolveApiMediaUrl(url)).filter(Boolean)
+    : [];
+  const normalizedOutputVideoUrl = resolveApiMediaUrl(job.outputVideoUrl || normalizedClipUrls[0] || "");
+
+  return {
+    ...job,
+    outputVideoUrl: normalizedOutputVideoUrl,
+    clipUrls: normalizedClipUrls,
+    thumbnails: Array.isArray(job.thumbnails)
+      ? job.thumbnails.map((thumbnail) => ({
+          ...thumbnail,
+          url: resolveApiMediaUrl(thumbnail.url),
+        }))
+      : [],
+  };
+};
+
 export default function Editor() {
   const { accessToken } = useAuth();
   const { toast } = useToast();
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [activePipelineJobId, setActivePipelineJobId] = useState<string | null>(null);
+  const [jobResultCache, setJobResultCache] = useState<Record<string, RenderJobResult>>({});
+  const [jobActionPendingId, setJobActionPendingId] = useState<string | null>(null);
   const [uploadingFileName, setUploadingFileName] = useState("");
+  const [uploadStatus, setUploadStatus] = useState<UploadStatusState>("idle");
+  const uploadStatusTimeoutRef = useRef<number | null>(null);
 
   const {
     flowStep,
@@ -182,6 +285,33 @@ export default function Editor() {
     resetSession,
   } = useAutoEditorStore();
 
+  const clearUploadStatusTimer = useCallback(() => {
+    if (uploadStatusTimeoutRef.current !== null) {
+      window.clearTimeout(uploadStatusTimeoutRef.current);
+      uploadStatusTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearUploadStatusTimer(), [clearUploadStatusTimer]);
+
+  const uploadInputId = `editor-upload-input-${fileInputKey}`;
+  const uploadStatusIndex = UPLOAD_STATUS_INDEX[uploadStatus];
+  const uploadStatusProgress = useMemo(() => {
+    if (uploadStatus === "uploading") return 24;
+    if (uploadStatus === "analyzing") return 58;
+    if (uploadStatus === "applying") return 90;
+    if (uploadStatus === "failed") return 100;
+    return 0;
+  }, [uploadStatus]);
+
+  const currentUploadStatusText = useMemo(() => {
+    if (uploadStatus === "uploading") return `Uploading ${uploadingFileName || "video"}...`;
+    if (uploadStatus === "analyzing") return "Video is being analyzed...";
+    if (uploadStatus === "applying") return "Applying edit defaults...";
+    if (uploadStatus === "failed") return "Upload process failed.";
+    return "";
+  }, [uploadStatus, uploadingFileName]);
+
   const renderPayload = useMemo<AutoEditorRenderPayload | null>(() => {
     if (!videoId || !mode) return null;
 
@@ -220,6 +350,143 @@ export default function Editor() {
     vibeChip,
   ]);
 
+  const fetchDetailedJob = useCallback(
+    async (jobId: string) => {
+      if (!accessToken) {
+        throw new ApiError("Sign in required.", 401, "unauthorized");
+      }
+      const result = await fetchJobByIdApi(accessToken, jobId);
+      const normalized = normalizeRenderJobUrls(result);
+      setJobResultCache((prev) => ({ ...prev, [jobId]: normalized }));
+      return normalized;
+    },
+    [accessToken],
+  );
+
+  const triggerExportDownload = useCallback((url: string) => {
+    const safeUrl = resolveApiMediaUrl(url);
+    if (!safeUrl) return;
+    const anchor = document.createElement("a");
+    anchor.href = safeUrl;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.download = "";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  }, []);
+
+  const handleOpenJob = useCallback(
+    async (jobId: string) => {
+      setActivePipelineJobId(jobId);
+      setJobActionPendingId(jobId);
+      try {
+        const detail = jobResultCache[jobId] || (await fetchDetailedJob(jobId));
+        if (detail.status === "completed") {
+          setLatestResult(detail);
+          setSuccessModalOpen(true);
+          setRetentionExpanded(false);
+          toast({ title: "Loaded render", description: "Opened the selected completed job." });
+          return;
+        }
+        const isStillRunning = detail.status === "queued" || detail.status === "processing";
+        setRenderState({
+          rendering: isStillRunning,
+          jobId: detail.jobId,
+          progress: toProgressPercent(detail.progress),
+        });
+        toast({
+          title: "Job synced",
+          description: isStillRunning
+            ? `${statusLabel(detail.status)} • ${toProgressPercent(detail.progress)}%`
+            : "Job status refreshed.",
+        });
+      } catch (error: any) {
+        const message = error instanceof ApiError ? error.message : "Could not open this job.";
+        setErrorMessage(message);
+      } finally {
+        setJobActionPendingId((current) => (current === jobId ? null : current));
+      }
+    },
+    [
+      fetchDetailedJob,
+      jobResultCache,
+      setErrorMessage,
+      setLatestResult,
+      setRenderState,
+      setRetentionExpanded,
+      setSuccessModalOpen,
+      toast,
+    ],
+  );
+
+  const handleExportJob = useCallback(
+    async (jobId: string) => {
+      setActivePipelineJobId(jobId);
+      setJobActionPendingId(jobId);
+      try {
+        const detail = jobResultCache[jobId] || (await fetchDetailedJob(jobId));
+        if (detail.status !== "completed") {
+          toast({ title: "Export not ready", description: "This job is still processing." });
+          return;
+        }
+        const exportUrl = resolveApiMediaUrl(detail.outputVideoUrl || detail.clipUrls?.[0] || "");
+        if (!exportUrl) {
+          setErrorMessage("No export file was found for this job.");
+          return;
+        }
+        triggerExportDownload(exportUrl);
+      } catch (error: any) {
+        const message = error instanceof ApiError ? error.message : "Could not export this job.";
+        setErrorMessage(message);
+      } finally {
+        setJobActionPendingId((current) => (current === jobId ? null : current));
+      }
+    },
+    [fetchDetailedJob, jobResultCache, setErrorMessage, toast, triggerExportDownload],
+  );
+
+  const activePipelineJob = useMemo(() => {
+    const preferredJobId = activePipelineJobId || renderJobId || latestResult?.jobId || recentJobs[0]?.id || null;
+    if (!preferredJobId) return null;
+
+    const recent = recentJobs.find((job) => job.id === preferredJobId);
+    const cached = jobResultCache[preferredJobId];
+    const isActiveLiveJob = renderJobId === preferredJobId && isRendering;
+    const status = cached?.status || recent?.status || (isActiveLiveJob ? "processing" : "queued");
+    const progress = isActiveLiveJob
+      ? renderProgress
+      : cached?.progress ?? recent?.progress ?? (status === "completed" ? 100 : 0);
+
+    return {
+      id: preferredJobId,
+      status,
+      progress: toProgressPercent(progress),
+      fileName: recent?.fileName || fileName || "Render Job",
+      mode: (recent?.mode || cached?.mode || mode || "horizontal") as RenderMode,
+      createdAt: recent?.createdAt || null,
+    };
+  }, [
+    activePipelineJobId,
+    fileName,
+    isRendering,
+    jobResultCache,
+    latestResult?.jobId,
+    mode,
+    recentJobs,
+    renderJobId,
+    renderProgress,
+  ]);
+
+  const activePipelineStageIndex = useMemo(() => {
+    if (!activePipelineJob) return 0;
+    return getPipelineStageIndex(activePipelineJob.status, activePipelineJob.progress);
+  }, [activePipelineJob]);
+
+  const activePipelineStage = useMemo(() => {
+    return PIPELINE_STAGES[activePipelineStageIndex] || PIPELINE_STAGES[0];
+  }, [activePipelineStageIndex]);
+
   const fetchRecentJobs = useCallback(async () => {
     if (!accessToken) return;
     try {
@@ -233,6 +500,31 @@ export default function Editor() {
   useEffect(() => {
     void fetchRecentJobs();
   }, [fetchRecentJobs]);
+
+  useEffect(() => {
+    if (renderJobId) {
+      setActivePipelineJobId(renderJobId);
+      return;
+    }
+
+    if (latestResult?.jobId && !activePipelineJobId) {
+      setActivePipelineJobId(latestResult.jobId);
+      return;
+    }
+
+    if (!activePipelineJobId && recentJobs[0]?.id) {
+      setActivePipelineJobId(recentJobs[0].id);
+      return;
+    }
+
+    if (
+      activePipelineJobId &&
+      activePipelineJobId !== latestResult?.jobId &&
+      !recentJobs.some((job) => job.id === activePipelineJobId)
+    ) {
+      setActivePipelineJobId(recentJobs[0]?.id || null);
+    }
+  }, [activePipelineJobId, latestResult?.jobId, recentJobs, renderJobId]);
 
   useEffect(() => {
     const shouldRevealEditorSettings =
@@ -273,9 +565,10 @@ export default function Editor() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const job = await fetchJobByIdApi(accessToken, renderJobId);
+        const job = normalizeRenderJobUrls(await fetchJobByIdApi(accessToken, renderJobId));
         if (cancelled) return;
-        const progress = Number.isFinite(Number(job.progress)) ? Number(job.progress) : 0;
+        setJobResultCache((prev) => ({ ...prev, [job.jobId]: job }));
+        const progress = toProgressPercent(job.progress);
         const stillRunning = job.status === "queued" || job.status === "processing";
         setRenderState({ rendering: stillRunning, jobId: job.jobId, progress });
 
@@ -327,29 +620,48 @@ export default function Editor() {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
+    clearUploadStatusTimer();
     setUploadingFileName(file.name || "video");
+    setUploadStatus("uploading");
+    uploadStatusTimeoutRef.current = window.setTimeout(() => {
+      setUploadStatus((current) => (current === "uploading" ? "analyzing" : current));
+      uploadStatusTimeoutRef.current = null;
+    }, 900);
     setUploadAnalyzing(true);
     setErrorMessage(null);
     setSuccessModalOpen(false);
     setRetentionExpanded(false);
     setLatestResult(null);
     setRecentDrawerOpen(false);
+    setActivePipelineJobId(null);
+    setJobResultCache({});
 
     try {
       const payload = await uploadAnalyze({ file, token: accessToken });
+      clearUploadStatusTimer();
+      setUploadStatus("analyzing");
+      await wait(260);
+      setUploadStatus("applying");
       setUploadAnalysis(payload);
       setSuggestedSubMode(
         payload.autoDetection.editorProfile?.suggestedSubMode ||
           payload.autoDetection.suggestedSubMode ||
           (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
       );
+      await wait(520);
       toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
       void fetchRecentJobs();
     } catch (error: any) {
+      clearUploadStatusTimer();
+      setUploadStatus("failed");
       const message = error instanceof ApiError ? error.message : "Upload analysis failed.";
       setErrorMessage(message);
+      await wait(320);
     } finally {
+      clearUploadStatusTimer();
       setUploadAnalyzing(false);
+      setUploadStatus("idle");
+      setUploadingFileName("");
       setFileInputKey((value) => value + 1);
     }
   };
@@ -364,6 +676,8 @@ export default function Editor() {
     setRetentionExpanded(false);
     setSuccessModalOpen(false);
     setLatestResult(null);
+    setActivePipelineJobId(null);
+    setJobResultCache({});
 
     try {
       const response = await apiFetch<{ jobId: string; status: string; progress: number }>("/api/vibecut/render", {
@@ -372,7 +686,9 @@ export default function Editor() {
         body: JSON.stringify(renderPayload),
       });
       setRenderState({ rendering: true, progress: response.progress || 10, jobId: response.jobId });
+      setActivePipelineJobId(response.jobId);
       toast({ title: "Render started", description: "Retention-first pipeline is running." });
+      void fetchRecentJobs();
     } catch (error: any) {
       const message = error instanceof ApiError ? error.message : "Could not start render.";
       setRenderState({ rendering: false, progress: 0, jobId: null });
@@ -396,7 +712,13 @@ export default function Editor() {
   };
 
   const resetEverything = () => {
+    clearUploadStatusTimer();
+    setUploadStatus("idle");
     setRecentDrawerOpen(false);
+    setActivePipelineJobId(null);
+    setJobResultCache({});
+    setJobActionPendingId(null);
+    setUploadingFileName("");
     resetSession();
     setFileInputKey((value) => value + 1);
   };
@@ -417,13 +739,28 @@ export default function Editor() {
         </div>
       </PremiumCard>
       <PremiumCard className="p-4">
-        <p className="text-xs uppercase tracking-[0.13em] text-purple-200">Vertical Default Pipeline</p>
-        <ul className="mt-2 space-y-1 text-sm text-slate-300">
-          <li>• Highlight Mode</li>
-          <li>• 3 best clips (15-30s)</li>
-          <li>• Mandatory 3s hook</li>
-          <li>• Retention-optimized zoom cadence</li>
-        </ul>
+        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+          <Workflow className="h-3.5 w-3.5" />
+          Pipeline Watch
+        </p>
+        {activePipelineJob ? (
+          <>
+            <p className="mt-2 text-sm text-slate-200">{activePipelineJob.fileName || "Render job"}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {modeLabel(activePipelineJob.mode)} • {statusLabel(activePipelineJob.status)}
+            </p>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3">
+              <p className="text-xs text-slate-300">{activePipelineStage.detail}</p>
+              <div className="mt-2 flex items-center justify-between text-xs text-slate-300">
+                <span>{activePipelineStage.label}</span>
+                <span>{activePipelineJob.progress}%</span>
+              </div>
+              <Progress value={activePipelineJob.progress} className="mt-2 h-2 bg-white/10" />
+            </div>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-slate-300">Start a render to see live pipeline stage tracking here.</p>
+        )}
       </PremiumCard>
     </>
   );
@@ -462,41 +799,249 @@ export default function Editor() {
           </div>
         </PremiumCard>
 
+        <SettingsCardGroup
+          title="Editor Pipeline + Jobs"
+          description="Track each pipeline stage and jump between different renders without leaving this page."
+        >
+          <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-slate-100">
+                  {activePipelineJob?.fileName || "No active job selected"}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {activePipelineJob
+                    ? `${modeLabel(activePipelineJob.mode)} • ${
+                        activePipelineJob.createdAt ? new Date(activePipelineJob.createdAt).toLocaleString() : "Live pipeline"
+                      }`
+                    : "Run a render to populate pipeline stages and export actions."}
+                </p>
+              </div>
+              {activePipelineJob ? (
+                <span
+                  className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(activePipelineJob.status)}`}
+                >
+                  {statusLabel(activePipelineJob.status)}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-7">
+              {PIPELINE_STAGES.map((stage, index) => {
+                const done = activePipelineJob ? index < activePipelineStageIndex : false;
+                const active = activePipelineJob ? index === activePipelineStageIndex : index === 0;
+                return (
+                  <div
+                    key={stage.key}
+                    className={`rounded-xl border px-2 py-2 transition ${
+                      done
+                        ? "border-emerald-300/35 bg-emerald-500/12 text-emerald-100"
+                        : active
+                          ? "border-cyan-300/40 bg-cyan-500/14 text-cyan-100"
+                          : "border-white/10 bg-black/35 text-slate-400"
+                    }`}
+                  >
+                    <p className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.12em]">
+                      {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                      {stage.label}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            {activePipelineJob ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/35 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
+                  <span>{activePipelineStage.detail}</span>
+                  <span>{activePipelineJob.progress}%</span>
+                </div>
+                <Progress value={activePipelineJob.progress} className="h-2 bg-white/10" />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            {recentJobs.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/15 bg-black/25 px-4 py-6 text-sm text-slate-400">
+                No jobs yet. Upload and render a clip to start tracking.
+              </div>
+            ) : (
+              recentJobs.slice(0, 6).map((job) => {
+                const isSelected = activePipelineJob?.id === job.id;
+                const isBusy = jobActionPendingId === job.id;
+                return (
+                  <article
+                    key={job.id}
+                    className={`rounded-2xl border px-3 py-3 transition ${
+                      isSelected
+                        ? "border-cyan-300/35 bg-cyan-500/12"
+                        : "border-white/10 bg-black/30 hover:border-white/20 hover:bg-black/40"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-100">{job.fileName || "Untitled render"}</p>
+                        <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-400">
+                          <Clock3 className="h-3 w-3" />
+                          {new Date(job.createdAt).toLocaleString()} • {modeLabel(job.mode)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(job.status)}`}>
+                          {statusLabel(job.status)}
+                        </span>
+                        <span className="text-xs text-slate-300">{toProgressPercent(job.progress)}%</span>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActivePipelineJobId(job.id)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-black/35 px-3 py-1.5 text-xs text-slate-200 hover:border-cyan-300/40"
+                      >
+                        <Workflow className="h-3.5 w-3.5" />
+                        Focus Pipeline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenJob(job.id)}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-black/35 px-3 py-1.5 text-xs text-slate-200 hover:border-white/30 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                        {job.status === "completed" ? "Open Result" : "Track Job"}
+                      </button>
+                      {job.status === "completed" ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleExportJob(job.id)}
+                          disabled={isBusy}
+                          className="inline-flex items-center gap-1 rounded-xl border border-emerald-300/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-100 hover:border-emerald-300/50 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                          Export
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </SettingsCardGroup>
+
         <SettingsCardGroup title="Upload Video" description="Upload your source clip to start AI analysis and profile setup.">
-          <div className="flex flex-wrap items-center gap-3">
-            <Input
-              key={fileInputKey}
-              type="file"
-              accept="video/mp4,video/quicktime,video/x-matroska"
-              onChange={handleUploadChange}
-              className="max-w-[430px] border-white/15 bg-black/40 text-slate-100 file:mr-3 file:rounded-xl file:border-0 file:bg-purple-500/85 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
-            />
-            <span className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
-              <Upload className="h-3.5 w-3.5 text-purple-300" />
-              Metadata + OpenCV scan + retention profile
-            </span>
+          <div className="relative overflow-hidden rounded-[26px] border border-purple-300/25 bg-[radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_48%),linear-gradient(140deg,rgba(11,15,26,0.96),rgba(7,10,18,0.92))] p-4">
+            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-purple-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute bottom-0 left-0 h-24 w-1/2 bg-gradient-to-r from-fuchsia-500/10 to-transparent" />
+
+            <div className="relative flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-purple-200/90">Upload Gateway</p>
+                <p className="mt-1 text-sm font-medium text-slate-100">Drop in footage and prep your timeline instantly.</p>
+                <p className="mt-1 text-xs text-slate-300/85">Supports MP4, MOV, MKV with metadata scan and retention profiling.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id={uploadInputId}
+                  key={fileInputKey}
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/x-matroska"
+                  onChange={handleUploadChange}
+                  disabled={isAnalyzingUpload}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor={uploadInputId}
+                  className={`inline-flex min-h-11 items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                    isAnalyzingUpload
+                      ? "cursor-not-allowed border-white/15 bg-white/5 text-slate-400"
+                      : "cursor-pointer border-purple-200/40 bg-gradient-to-r from-purple-500/30 to-fuchsia-500/25 text-white hover:border-purple-200/70 hover:from-purple-500/40 hover:to-fuchsia-500/35"
+                  }`}
+                >
+                  <Upload className="h-4 w-4" />
+                  {isAnalyzingUpload ? "Processing..." : "Choose Video"}
+                </label>
+              </div>
+            </div>
+
+            <div className="relative mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Metadata extract
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Scene analysis
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Smart edit profile
+              </span>
+            </div>
           </div>
 
           {isAnalyzingUpload ? (
-            <div className="mt-3 space-y-2">
-              <div className="rounded-2xl border border-purple-300/30 bg-purple-500/12 px-3 py-2">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="mt-3 rounded-2xl border border-purple-300/30 bg-gradient-to-b from-purple-500/12 to-slate-900/45 px-3 py-3"
+            >
+              <div className="flex items-center justify-between gap-3">
                 <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-100">
                   <Loader2 className="h-4 w-4 animate-spin text-purple-200" />
-                  Uploading {uploadingFileName}...
+                  {currentUploadStatusText}
                 </p>
-                <p className="mt-1 text-xs text-slate-300">Auto mode detection will start as soon as upload completes.</p>
+                <span className="text-xs font-medium text-purple-100">{Math.round(uploadStatusProgress)}%</span>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Skeleton className="h-16 rounded-2xl bg-white/5" />
-                <Skeleton className="h-16 rounded-2xl bg-white/5" />
-                <Skeleton className="h-16 rounded-2xl bg-white/5" />
+
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <motion.div
+                  className="h-full rounded-full bg-gradient-to-r from-purple-300/90 via-fuchsia-300/95 to-cyan-300/90"
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${uploadStatusProgress}%` }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                />
               </div>
-            </div>
+
+              <div className="mt-3 space-y-2">
+                {UPLOAD_STATUS_STEPS.map((step, index) => {
+                  const isComplete = index < uploadStatusIndex;
+                  const isActive = index === uploadStatusIndex;
+                  const textClass = isComplete ? "text-emerald-200" : isActive ? "text-slate-100" : "text-slate-400";
+
+                  return (
+                    <div
+                      key={step.id}
+                      className={`flex items-start gap-2 rounded-xl border px-2.5 py-2 transition ${
+                        isComplete
+                          ? "border-emerald-300/30 bg-emerald-500/10"
+                          : isActive
+                            ? "border-purple-300/35 bg-purple-500/12"
+                            : "border-white/10 bg-white/[0.03]"
+                      }`}
+                    >
+                      {isComplete ? (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
+                      ) : isActive ? (
+                        <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-purple-200" />
+                      ) : (
+                        <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/35 bg-transparent" />
+                      )}
+                      <div>
+                        <p className={`text-sm font-medium ${textClass}`}>{step.title}</p>
+                        <p className="text-xs text-slate-400">{step.detail}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
           ) : null}
 
           {videoId ? (
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-slate-200">
-              {fileName || "Uploaded clip"} {duration ? `• ${Math.round(duration)}s` : ""}
+            <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+              <span className="inline-flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                {fileName || "Uploaded clip"} {duration ? `• ${Math.round(duration)}s` : ""}
+              </span>
             </div>
           ) : null}
 
@@ -645,6 +1190,10 @@ export default function Editor() {
                         <span>{Math.round(renderProgress)}%</span>
                       </div>
                       <Progress value={renderProgress} className="h-2 bg-white/10" />
+                      <p className="mt-2 inline-flex items-center gap-2 text-xs text-slate-300">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-200" />
+                        Edits are being applied to your timeline.
+                      </p>
                     </div>
                   ) : null}
                 </SettingsCardGroup>
