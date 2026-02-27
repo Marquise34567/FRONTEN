@@ -203,6 +203,20 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
     const detectedMode = payload.autoDetection.finalMode;
     const isVertical = detectedMode === "vertical";
     const autoModeEnabled = get().autoModeEnabled;
+    const profile = payload.autoDetection.editorProfile;
+    const inferredPacing =
+      profile?.pacingPreset === "aggressive"
+        ? 80
+        : profile?.pacingPreset === "chill"
+          ? 34
+          : profile?.pacingPreset === "cinematic"
+            ? 38
+            : undefined;
+    const resolvedQuickControls = {
+      ...DEFAULT_QUICK_CONTROLS,
+      ...(profile?.quickControls || {}),
+      highlightReel: typeof profile?.quickControls?.highlightReel === "boolean" ? profile.quickControls.highlightReel : isVertical,
+    };
 
     set({
       videoId: payload.videoId,
@@ -213,22 +227,25 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       mode: detectedMode,
       modeConfirmed: autoModeEnabled,
       revealedSectionCount: 0,
-      quickControls: {
-        ...DEFAULT_QUICK_CONTROLS,
-        highlightReel: isVertical,
-      },
+      quickControls: resolvedQuickControls,
       manualTimestampModalOpen: false,
       scrubberTime: 0,
       manualSegments: [],
-      formatPreset: isVertical ? "tiktok" : "youtube",
-      pacingValue: isVertical ? DEFAULT_PACING_VALUE.vertical : DEFAULT_PACING_VALUE.horizontal,
-      autoDetectBestMoments: true,
-      captionsEnabled: true,
-      captionMode: "ai",
-      captionStyle: isVertical ? "impact" : "subtle",
-      captionEffect: isVertical ? "kinetic_pop" : "clean_fade",
-      audioOption: "auto_sync_tracks",
-      suggestedSubMode: isVertical ? "highlight_mode" : "standard_mode",
+      formatPreset: profile?.formatPreset || (isVertical ? "tiktok" : "youtube"),
+      vibeChip: profile?.vibeChip || (isVertical ? "energetic" : "cinematic"),
+      stylePreset: profile?.stylePreset || (isVertical ? "bold" : "clean"),
+      pacingValue: profile?.pacingValue ?? inferredPacing ?? (isVertical ? DEFAULT_PACING_VALUE.vertical : DEFAULT_PACING_VALUE.horizontal),
+      autoDetectBestMoments:
+        typeof profile?.autoDetectBestMoments === "boolean"
+          ? profile.autoDetectBestMoments
+          : isVertical,
+      captionsEnabled: profile ? profile.captionMode !== "manual" : true,
+      captionMode: profile?.captionMode || "ai",
+      captionStyle: profile?.captionStyle || (isVertical ? "impact" : "subtle"),
+      captionFont: profile?.captionFont || "Inter",
+      captionEffect: profile?.captionEffect || (isVertical ? "kinetic_pop" : "clean_fade"),
+      audioOption: profile?.audioOption || "auto_sync_tracks",
+      suggestedSubMode: profile?.suggestedSubMode || payload.autoDetection.suggestedSubMode || (isVertical ? "highlight_mode" : "standard_mode"),
       retentionExpanded: false,
       successModalOpen: false,
       latestResult: null,
@@ -261,20 +278,13 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
     }),
   setMode: (mode, confirmed = true) =>
     set((state) => {
-      const isVertical = mode === "vertical";
       return {
         mode,
         modeConfirmed: confirmed,
-        quickControls: {
-          ...state.quickControls,
-          highlightReel: isVertical ? true : state.quickControls.highlightReel,
-        },
         formatPreset:
           mode === "vertical"
             ? state.formatPreset === "youtube" ? "tiktok" : state.formatPreset
             : state.formatPreset === "tiktok" ? "youtube" : state.formatPreset,
-        pacingValue: isVertical ? Math.max(state.pacingValue, 64) : Math.min(state.pacingValue, 72),
-        suggestedSubMode: isVertical ? "highlight_mode" : "standard_mode",
       };
     }),
   setModeConfirmed: (value) => set({ modeConfirmed: value }),

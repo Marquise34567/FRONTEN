@@ -29,7 +29,6 @@ import type {
   RenderJobResult,
   RenderJobSummary,
   RenderMode,
-  SuggestedSubMode,
   UploadAnalysisResponse,
   ZoomEffect,
 } from "@/features/autoeditor/types";
@@ -79,7 +78,8 @@ const fetchJobByIdApi = async (token: string, jobId: string): Promise<RenderJobR
 
 const mapPacingPreset = (value: number) => {
   if (value >= 72) return "aggressive";
-  if (value <= 38) return "chill";
+  if (value <= 30) return "chill";
+  if (value <= 45) return "cinematic";
   return "balanced";
 };
 
@@ -135,6 +135,7 @@ export default function AutoEditorPage() {
     audioCleanupEnabled,
     audioMasteringEnabled,
 
+    suggestedSubMode,
     recentJobs,
     recentDrawerOpen,
     lastRecentInteractionAt,
@@ -198,21 +199,16 @@ export default function AutoEditorPage() {
   const renderPayload = useMemo<AutoEditorRenderPayload | null>(() => {
     if (!videoId || !mode) return null;
 
-    const suggestedSubMode: SuggestedSubMode = mode === "vertical" ? "highlight_mode" : "standard_mode";
-
     return {
       videoId,
       mode,
-      quickControls: {
-        ...quickControls,
-        highlightReel: mode === "vertical" ? true : quickControls.highlightReel,
-      },
+      quickControls,
       manualSegments,
       formatPreset,
       vibeChip,
       stylePreset,
       pacing: mapPacingPreset(pacingValue),
-      autoDetectBestMoments: mode === "vertical" ? true : autoDetectBestMoments,
+      autoDetectBestMoments,
       captionMode: captionsEnabled ? captionMode : "manual",
       captionStyle,
       captionFont,
@@ -235,6 +231,7 @@ export default function AutoEditorPage() {
     stylePreset,
     vibeChip,
     videoId,
+    suggestedSubMode,
   ]);
 
   const selectedMode = mode || "horizontal";
@@ -379,7 +376,11 @@ export default function AutoEditorPage() {
     try {
       const payload = await uploadAnalyze({ file, token: accessToken });
       setUploadAnalysis(payload);
-      setSuggestedSubMode(payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode");
+      setSuggestedSubMode(
+        payload.autoDetection.editorProfile?.suggestedSubMode ||
+          payload.autoDetection.suggestedSubMode ||
+          (payload.autoDetection.finalMode === "vertical" ? "highlight_mode" : "standard_mode"),
+      );
       toast({ title: "Auto-detection ready", description: payload.autoDetection.bannerMessage });
       void fetchRecentJobs();
     } catch (error: any) {
@@ -402,6 +403,7 @@ export default function AutoEditorPage() {
     setErrorMessage(null);
     setRetentionExpanded(false);
     setSuccessModalOpen(false);
+    setLatestResult(null);
 
     try {
       const response = await apiFetch<{ jobId: string; status: string; progress: number }>("/api/vibecut/render", {
@@ -419,6 +421,19 @@ export default function AutoEditorPage() {
     }
   };
 
+  const handleRerenderFromModal = () => {
+    setSuccessModalOpen(false);
+    void handleStartRender();
+  };
+
+  const handleOpenInsightsFromModal = () => {
+    setSuccessModalOpen(false);
+    setRetentionExpanded(true);
+    window.setTimeout(() => {
+      document.getElementById("retention-insights")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  };
+
   const handleModeSelect = (nextMode: RenderMode) => {
     setMode(nextMode, true);
     setModeConfirmed(true);
@@ -432,6 +447,7 @@ export default function AutoEditorPage() {
     }
     if (autoDetection?.finalMode) {
       setMode(autoDetection.finalMode, true);
+      setSuggestedSubMode(autoDetection.editorProfile?.suggestedSubMode || autoDetection.suggestedSubMode);
     }
   };
 
@@ -439,6 +455,8 @@ export default function AutoEditorPage() {
     resetSession();
     setFileInputKey((value) => value + 1);
   };
+
+  const hasCompletedResult = Boolean(latestResult && latestResult.status === "completed" && !isRendering);
 
   return (
     <div className="autoeditor-root min-h-screen bg-[#0f1117] text-slate-100">
@@ -588,9 +606,7 @@ export default function AutoEditorPage() {
                 <div>
                   <p className="text-sm font-medium text-slate-100">Ready to render</p>
                   <p className="text-xs text-slate-400">
-                    {selectedMode === "vertical"
-                      ? "Vertical pipeline defaults to Highlight Mode with 3 auto-extracted moments and first-3s hook pressure."
-                      : "Horizontal pipeline focuses on continuity, pacing, and clean long-form storytelling."}
+                    Adaptive pipeline applies per-video orientation, vibe, pacing, captions, and audio profile.
                   </p>
                 </div>
                 <Button
@@ -623,13 +639,15 @@ export default function AutoEditorPage() {
               ) : null}
             </CleanCard>
 
-            <RetentionInsights
-              result={latestResult}
-              expanded={retentionExpanded}
-              onExpandedChange={setRetentionExpanded}
-              selectedPointId={selectedRetentionPointId}
-              onSelectedPointIdChange={setSelectedRetentionPointId}
-            />
+            {hasCompletedResult ? (
+              <RetentionInsights
+                result={latestResult}
+                expanded={retentionExpanded}
+                onExpandedChange={setRetentionExpanded}
+                selectedPointId={selectedRetentionPointId}
+                onSelectedPointIdChange={setSelectedRetentionPointId}
+              />
+            ) : null}
           </div>
         ) : null}
       </main>
@@ -663,6 +681,8 @@ export default function AutoEditorPage() {
         onSelectedPointIdChange={setSelectedRetentionPointId}
         selectedThumbnailId={selectedThumbnailId}
         onSelectedThumbnailIdChange={setSelectedThumbnailId}
+        onRerender={handleRerenderFromModal}
+        onOpenInsightsGraph={handleOpenInsightsFromModal}
       />
     </div>
   );

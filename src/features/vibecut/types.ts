@@ -70,6 +70,25 @@ export type AutoDetection = {
   suggestedSubModes: SuggestedSubMode[];
   bannerMessage: string;
   frameScan: FrameScanSummary;
+  editorProfile?: AutoDetectedEditorProfile;
+};
+
+export type AutoDetectedEditorProfile = {
+  formatPreset: FormatPreset;
+  vibeChip: VibeChip;
+  stylePreset: StylePreset;
+  pacingPreset: PacingPreset;
+  pacingValue: number;
+  autoDetectBestMoments: boolean;
+  captionMode: CaptionMode;
+  captionStyle: CaptionStylePreset;
+  captionFont: string;
+  captionEffect: "clean_fade" | "kinetic_pop" | "underline_sweep" | "none";
+  audioOption: AudioOption;
+  quickControls: Record<QuickControlKey, boolean>;
+  suggestedSubMode: SuggestedSubMode;
+  confidence: number;
+  rationale: string[];
 };
 
 export type UploadAnalysisResponse = {
