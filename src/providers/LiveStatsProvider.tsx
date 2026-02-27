@@ -107,6 +107,23 @@ type LiveStatsContextValue = {
 
 const LiveStatsContext = createContext<LiveStatsContextValue | undefined>(undefined);
 const DEV_TRANSPORT_STORAGE_KEY = "ae_live_transport_preference";
+const NOOP_ASYNC = async () => undefined;
+const DEFAULT_LIVE_STATS_CONTEXT: LiveStatsContextValue = {
+  access: null,
+  snapshot: null,
+  pulse: null,
+  teaserLocked: false,
+  teaserMessage: null,
+  upgradeCta: null,
+  loading: false,
+  connected: false,
+  transport: "disconnected",
+  transportPreference: "auto",
+  canControlTransport: false,
+  setTransportPreference: () => undefined,
+  lastUpdated: null,
+  refresh: NOOP_ASYNC,
+};
 
 const normalizeTransportPreference = (value: unknown): LiveStatsTransportPreference => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -424,6 +441,5 @@ export const LiveStatsProvider = ({ children }: { children: ReactNode }) => {
 
 export const useLiveStats = () => {
   const ctx = useContext(LiveStatsContext);
-  if (!ctx) throw new Error("useLiveStats must be used within LiveStatsProvider");
-  return ctx;
+  return ctx || DEFAULT_LIVE_STATS_CONTEXT;
 };
