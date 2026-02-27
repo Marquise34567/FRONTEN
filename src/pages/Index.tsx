@@ -99,30 +99,6 @@ const Index = () => {
     <GlowBackdrop>
       <Navbar />
       <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
-        <div className="landing-royal-tv-bg" aria-hidden="true">
-          <div className="landing-royal-tv-scene">
-            <div className="landing-retro-tv">
-              <span className="landing-retro-tv-antenna landing-retro-tv-antenna-left" />
-              <span className="landing-retro-tv-antenna landing-retro-tv-antenna-right" />
-              <div className="landing-retro-tv-screen">
-                <div className="landing-retro-tv-static" />
-              </div>
-              <div className="landing-retro-tv-speaker">
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-              <div className="landing-retro-tv-knobs">
-                <span />
-                <span />
-              </div>
-            </div>
-
-            <div className="landing-retro-tv-stand" />
-          </div>
-        </div>
-
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center">
           {/* Hero */}
           <motion.div

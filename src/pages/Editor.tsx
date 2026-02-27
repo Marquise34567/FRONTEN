@@ -2530,6 +2530,27 @@ const Editor = () => {
     void handleFile(file);
   };
 
+  // If the landing page requested an automatic pick, open the file picker when user is signed in.
+  useEffect(() => {
+    try {
+      if (!searchParams.get("autopick")) return;
+      if (!accessToken) {
+        const target = `/editor?autopick=1`;
+        navigate(`/login?next=${encodeURIComponent(target)}`);
+        return;
+      }
+      const t = window.setTimeout(() => {
+        handlePickFile();
+        const next = new URLSearchParams(searchParams);
+        next.delete("autopick");
+        setSearchParams(next, { replace: true });
+      }, 250);
+      return () => window.clearTimeout(t);
+    } catch (err) {
+      // ignore
+    }
+  }, [accessToken, navigate, searchParams, setSearchParams]);
+
   const handleSelectJob = (jobId: string) => {
     const next = new URLSearchParams(searchParams);
     next.set("jobId", jobId);
@@ -2792,6 +2813,17 @@ const Editor = () => {
       ? "Canceled"
       : STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued"
     : "Queued";
+  const activeStageLabel = activeJob
+    ? PIPELINE_STEPS.find((step) => step.key === stepKeyForStatus(activeJob.status))?.label || "Upload"
+    : "Upload";
+  const activeJobCreatedAtLabel = activeJob
+    ? new Date(activeJob.createdAt).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
   const canCancelJob = Boolean(activeJob && !isTerminalStatus(activeJob.status));
   const cancelButtonLabel =
     normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading"
