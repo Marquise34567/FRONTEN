@@ -920,13 +920,17 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
           title="Editor Pipeline + Jobs"
           description="Track each pipeline stage and jump between different renders without leaving this page."
         >
-          <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="relative overflow-hidden rounded-[26px] border border-cyan-300/25 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.22),transparent_44%),radial-gradient(circle_at_bottom_left,rgba(168,85,247,0.16),transparent_56%),linear-gradient(140deg,rgba(9,13,24,0.97),rgba(7,10,18,0.93))] p-4">
+            <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-cyan-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-12 left-0 h-28 w-1/2 bg-gradient-to-r from-fuchsia-500/15 to-transparent" />
+
+            <div className="relative flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-100">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/85">Pipeline Deck</p>
+                <p className="mt-1 truncate text-sm font-medium text-slate-100">
                   {activePipelineJob?.fileName || "No active job selected"}
                 </p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-slate-300/85">
                   {activePipelineJob
                     ? `${modeLabel(activePipelineJob.mode)} • ${
                         activePipelineJob.createdAt ? new Date(activePipelineJob.createdAt).toLocaleString() : "Live pipeline"
@@ -934,51 +938,85 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                     : "Run a render to populate pipeline stages and export actions."}
                 </p>
               </div>
-              {activePipelineJob ? (
-                <span
-                  className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(activePipelineJob.status)}`}
-                >
-                  {statusLabel(activePipelineJob.status)}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-200">
+                  Stage: {activePipelineStage.label}
                 </span>
-              ) : null}
+                {activePipelineJob ? (
+                  <span
+                    className={`rounded-full border px-2 py-1 text-[11px] ${statusBadgeClass(activePipelineJob.status)}`}
+                  >
+                    {statusLabel(activePipelineJob.status)}
+                  </span>
+                ) : null}
+              </div>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-7">
+
+            <div className="relative mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                7-stage processing
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Live progress sync
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                Multi-job focus
+              </span>
+            </div>
+
+            <div className="relative mt-3 grid gap-2 md:grid-cols-7">
               {PIPELINE_STAGES.map((stage, index) => {
                 const done = activePipelineJob ? index < activePipelineStageIndex : false;
                 const active = activePipelineJob ? index === activePipelineStageIndex : index === 0;
                 return (
                   <div
                     key={stage.key}
-                    className={`rounded-xl border px-2 py-2 transition ${
+                    className={`rounded-2xl border px-2.5 py-2.5 transition ${
                       done
                         ? "border-emerald-300/35 bg-emerald-500/12 text-emerald-100"
                         : active
-                          ? "border-cyan-300/40 bg-cyan-500/14 text-cyan-100"
-                          : "border-white/10 bg-black/35 text-slate-400"
+                          ? "border-cyan-200/45 bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/16 text-cyan-100"
+                          : "border-white/10 bg-white/[0.04] text-slate-400"
                     }`}
                   >
-                    <p className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.12em]">
-                      {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                    <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em]">
+                      {done ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full border ${
+                            active ? "border-cyan-100/70 bg-cyan-200/70" : "border-white/35 bg-transparent"
+                          }`}
+                        />
+                      )}
                       {stage.label}
                     </p>
                   </div>
                 );
               })}
             </div>
+
             {activePipelineJob ? (
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/35 px-3 py-3">
-                <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
+              <div className="mt-3 rounded-2xl border border-cyan-300/30 bg-gradient-to-r from-cyan-500/12 via-fuchsia-500/10 to-slate-900/60 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-200">
                   <span>{activePipelineStage.detail}</span>
-                  <span>{activePipelineJob.progress}%</span>
+                  <span>{toProgressPercent(activePipelineJob.progress)}%</span>
                 </div>
-                <Progress value={activePipelineJob.progress} className="h-2 bg-white/10" />
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-300/90 via-fuchsia-300/95 to-purple-300/90"
+                    initial={{ width: "0%" }}
+                    animate={{ width: `${toProgressPercent(activePipelineJob.progress)}%` }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                  />
+                </div>
               </div>
             ) : null}
           </div>
 
           <div className="grid gap-2">
             {recentJobs.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/15 bg-black/25 px-4 py-6 text-sm text-slate-400">
+              <div className="rounded-2xl border border-dashed border-cyan-200/25 bg-gradient-to-br from-cyan-500/10 to-fuchsia-500/5 px-4 py-6 text-sm text-slate-300">
                 No jobs yet. Upload and render a clip to start tracking.
               </div>
             ) : (
@@ -990,8 +1028,8 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                     key={job.id}
                     className={`rounded-2xl border px-3 py-3 transition ${
                       isSelected
-                        ? "border-cyan-300/35 bg-cyan-500/12"
-                        : "border-white/10 bg-black/30 hover:border-white/20 hover:bg-black/40"
+                        ? "border-cyan-300/40 bg-[linear-gradient(145deg,rgba(34,211,238,0.2),rgba(168,85,247,0.16))]"
+                        : "border-white/10 bg-[linear-gradient(155deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] hover:border-cyan-200/30 hover:bg-[linear-gradient(155deg,rgba(34,211,238,0.12),rgba(255,255,255,0.03))]"
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1013,7 +1051,7 @@ export default function Editor({ verticalModeExperience = false }: EditorProps) 
                       <button
                         type="button"
                         onClick={() => setActivePipelineJobId(job.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-black/35 px-3 py-1.5 text-xs text-slate-200 hover:border-cyan-300/40"
+                        className="inline-flex items-center gap-1 rounded-xl border border-cyan-200/35 bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 px-3 py-1.5 text-xs text-cyan-100 hover:border-cyan-100/60"
                       >
                         <Workflow className="h-3.5 w-3.5" />
                         Focus Pipeline
