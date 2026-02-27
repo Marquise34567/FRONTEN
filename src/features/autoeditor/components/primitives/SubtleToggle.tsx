@@ -23,15 +23,32 @@ export default function SubtleToggle({
       layout
       initial={false}
       className={cn(
-        "flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#1a1f2e]/45 px-3 py-2.5",
+        "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-3.5 py-3",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
         className,
       )}
     >
       <div>
-        <p className="text-sm font-medium text-slate-100">{label}</p>
-        {description ? <p className="text-xs text-slate-400">{description}</p> : null}
+        <p className="text-sm font-medium tracking-tight text-slate-100">{label}</p>
+        {description ? <p className="mt-0.5 text-xs text-slate-400">{description}</p> : null}
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <div className="inline-flex items-center gap-2">
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] transition",
+            checked
+              ? "border-blue-300/35 bg-blue-400/15 text-blue-100"
+              : "border-white/10 bg-white/5 text-slate-400",
+          )}
+        >
+          {checked ? "On" : "Off"}
+        </span>
+        <Switch
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          className="h-6 w-11 border border-white/10 bg-white/10 data-[state=checked]:bg-blue-500/65 data-[state=unchecked]:bg-slate-700/55"
+        />
+      </div>
     </motion.div>
   );
 }

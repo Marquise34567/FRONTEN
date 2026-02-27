@@ -15,7 +15,7 @@ export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onS
   return (
     <section className="mx-auto w-full max-w-3xl">
       <CleanCard>
-        <div className="mb-3 text-center">
+        <div className="mb-4 text-center">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Mode Selection</p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-50">Choose Edit Layout</h3>
           <p className="mt-1 text-sm text-slate-400">
@@ -34,19 +34,19 @@ export default function ModeSelector({ mode, modeConfirmed, autoModeEnabled, onS
               <motion.button
                 key={option.value}
                 type="button"
-                whileHover={{ scale: 1.03 }}
+                whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.99 }}
-                transition={{ type: "spring", stiffness: 250, damping: 20 }}
+                transition={{ type: "spring", stiffness: 230, damping: 22 }}
                 onClick={() => onSelectMode(option.value)}
                 className={`rounded-2xl border p-4 text-left transition-all ${
                   active
-                    ? "border-blue-300/40 bg-blue-500/12 shadow-[0_20px_40px_-28px_rgba(59,130,246,0.75)]"
-                    : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-black/35"
+                    ? "border-blue-300/40 bg-blue-500/12 shadow-[0_18px_40px_-28px_rgba(96,165,250,0.72)]"
+                    : "border-white/10 bg-black/26 hover:border-white/20 hover:bg-black/40"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <option.icon className={`h-5 w-5 ${active ? "text-blue-200" : "text-slate-400"}`} />
-                  <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-xs text-slate-300">
+                  <span className="rounded-full border border-white/10 bg-black/25 px-2.5 py-0.5 text-xs text-slate-300">
                     {option.ratio}
                   </span>
                 </div>

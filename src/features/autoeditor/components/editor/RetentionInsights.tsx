@@ -86,14 +86,14 @@ export default function RetentionInsights({
   return (
     <CleanCard className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
-        <p className="text-sm font-medium text-slate-100">Retention Details</p>
+        <p className="text-sm font-medium tracking-tight text-slate-100">Retention Details</p>
         <Button
           type="button"
           variant="outline"
           onClick={() => onExpandedChange(!expanded)}
-          className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+          className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.14]"
         >
-          {expanded ? "Hide Retention Insights" : "View Retention Insights"}
+          {expanded ? "Collapse Retention Insights" : "Expand Retention Insights"}
         </Button>
       </div>
 
@@ -107,7 +107,7 @@ export default function RetentionInsights({
             transition={{ duration: 0.24, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)] lg:p-5">
+            <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,1fr)] lg:p-5">
               <div>
                 <RetentionLineGraph
                   points={result.retention.points}
@@ -118,9 +118,9 @@ export default function RetentionInsights({
                 <p className="mt-3 text-sm text-slate-300">{result.retention.summary}</p>
               </div>
 
-              <aside className="rounded-2xl border border-white/10 bg-black/35 p-3">
+              <aside className="rounded-2xl border border-white/10 bg-black/35 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-slate-400">Preview</p>
-                <div className="overflow-hidden rounded-xl border border-white/10 bg-black">
+                <div className="overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_22px_50px_-34px_rgba(2,6,23,0.95)]">
                   <video
                     ref={previewRef}
                     src={result.outputVideoUrl}
@@ -149,7 +149,7 @@ export default function RetentionInsights({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
-            className="pointer-events-none fixed bottom-6 left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-xl border border-white/15 bg-black/70 px-4 py-3 backdrop-blur-lg"
+            className="pointer-events-none fixed bottom-6 left-1/2 z-40 w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border border-white/15 bg-black/70 px-4 py-3 shadow-[0_28px_56px_-34px_rgba(2,6,23,0.98)] backdrop-blur-lg"
           >
             <p className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.12em] text-slate-300">
               <PlayCircle className="h-3.5 w-3.5" />

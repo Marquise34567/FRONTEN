@@ -11,7 +11,7 @@ export default function ElegantTooltip({ content, children }: ElegantTooltipProp
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
         sideOffset={8}
-        className="rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-xs text-slate-100 backdrop-blur-md"
+        className="max-w-[220px] rounded-2xl border border-white/10 bg-black/68 px-3 py-2 text-xs text-slate-100 shadow-[0_18px_36px_-22px_rgba(15,23,42,0.95)] backdrop-blur-md"
       >
         {content}
       </TooltipContent>

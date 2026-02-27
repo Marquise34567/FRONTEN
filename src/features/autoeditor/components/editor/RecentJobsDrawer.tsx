@@ -30,11 +30,11 @@ export default function RecentJobsDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-[420px] border-l border-white/10 bg-[#0f1117]/90 p-0 text-slate-100 backdrop-blur-xl"
+        className="w-[420px] border-l border-white/10 bg-[#0f1117]/86 p-0 text-slate-100 shadow-[0_30px_80px_-34px_rgba(2,6,23,0.96)] backdrop-blur-xl"
         onMouseMove={onInteract}
         onKeyDown={onInteract}
       >
-        <SheetHeader className="border-b border-white/10 px-4 py-4 text-left">
+        <SheetHeader className="border-b border-white/10 bg-black/20 px-4 py-4 text-left">
           <SheetTitle className="text-lg tracking-tight text-slate-50">Recent Jobs</SheetTitle>
           <SheetDescription className="text-slate-400">
             Auto-closes after {inactivitySeconds}s inactivity.
@@ -51,7 +51,7 @@ export default function RecentJobsDrawer({
               {jobs.map((job) => (
                 <article
                   key={job.id}
-                  className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 transition hover:border-white/20"
+                  className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition hover:border-white/20 hover:bg-black/45"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium text-slate-100">{job.fileName || "Untitled"}</p>

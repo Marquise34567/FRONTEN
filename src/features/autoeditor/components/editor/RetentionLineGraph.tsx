@@ -1,14 +1,14 @@
 import { motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
-import type { RetentionHeatCell, RetentionPoint } from "@/features/vibecut/types";
+import type { RetentionHeatCell, RetentionPoint } from "@/features/autoeditor/types";
 
 const pointColor: Record<RetentionPoint["type"], string> = {
   best: "#22c55e",
   worst: "#ef4444",
   skip_zone: "#f59e0b",
   hook: "#94a3b8",
-  emotional_peak: "#8b5cf6",
+  emotional_peak: "#38bdf8",
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -51,16 +51,16 @@ export default function RetentionLineGraph({
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/35 p-2">
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/35 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-[290px] w-full">
           <defs>
             <linearGradient id="autoeditor-retention-line" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#94a3b8" />
-              <stop offset="45%" stopColor="#8b5cf6" />
+              <stop offset="0%" stopColor="#cbd5e1" />
+              <stop offset="45%" stopColor="#93c5fd" />
               <stop offset="100%" stopColor="#64748b" />
             </linearGradient>
             <linearGradient id="autoeditor-heat" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgba(139,92,246,0.16)" />
+              <stop offset="0%" stopColor="rgba(96,165,250,0.18)" />
               <stop offset="100%" stopColor="rgba(15,17,23,0)" />
             </linearGradient>
           </defs>
@@ -133,7 +133,7 @@ export default function RetentionLineGraph({
               title={`${cell.timestamp.toFixed(1)}s`}
               className="h-2 rounded-sm"
               style={{
-                backgroundColor: `rgba(148,163,184,${clamp(cell.intensity, 0.1, 1)})`,
+                backgroundColor: `rgba(148,163,184,${clamp(cell.intensity, 0.14, 1)})`,
               }}
             />
           ))}

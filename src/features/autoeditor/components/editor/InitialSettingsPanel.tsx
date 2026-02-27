@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { WandSparkles } from "lucide-react";
+import { ScissorsLineDashed, WandSparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { QUICK_CONTROL_CONFIG } from "@/features/autoeditor/data/options";
@@ -24,11 +24,11 @@ export default function InitialSettingsPanel({
     <motion.section
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.28, ease: "easeOut" }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
       className="mx-auto w-full max-w-4xl"
     >
-      <CleanCard className="p-4 sm:p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <CleanCard className="p-5 sm:p-7">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Initial Editor Settings</p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-50">Quick Controls</h2>
@@ -41,7 +41,7 @@ export default function InitialSettingsPanel({
           ) : null}
         </div>
 
-        <div className="grid gap-2 rounded-xl border border-white/10 bg-[#141a29]/55 p-2 sm:grid-cols-4">
+        <div className="grid gap-2 rounded-2xl border border-white/10 bg-black/35 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:grid-cols-4">
           {QUICK_CONTROL_CONFIG.map((control) => {
             const active = quickControls[control.key];
             return (
@@ -51,8 +51,8 @@ export default function InitialSettingsPanel({
                   onClick={() => onToggleQuickControl(control.key)}
                   className={`group rounded-xl border px-3 py-3 text-left transition-all duration-300 ${
                     active
-                      ? "border-blue-300/35 bg-blue-500/15 text-slate-100 shadow-[0_12px_28px_-18px_rgba(59,130,246,0.75)]"
-                      : "border-transparent bg-black/20 text-slate-300 hover:border-white/15 hover:bg-black/35"
+                      ? "border-blue-300/35 bg-blue-500/16 text-slate-100 shadow-[0_16px_36px_-24px_rgba(96,165,250,0.68)]"
+                      : "border-transparent bg-black/25 text-slate-300 hover:border-white/15 hover:bg-black/45"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -70,14 +70,15 @@ export default function InitialSettingsPanel({
           })}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-400">Manual control available for frame-accurate segment timing.</p>
           <Button
             type="button"
             variant="outline"
             onClick={onOpenManualTimestamp}
-            className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+            className="rounded-xl border-white/15 bg-white/[0.08] px-5 text-slate-100 shadow-[0_12px_28px_-20px_rgba(15,23,42,0.82)] transition-all hover:-translate-y-0.5 hover:bg-white/[0.14]"
           >
+            <ScissorsLineDashed className="h-4 w-4" />
             Manual Timestamp Editor
           </Button>
         </div>

@@ -457,16 +457,16 @@ export default function AutoEditorPage() {
               type="button"
               variant="outline"
               onClick={() => setRecentDrawerOpen(true)}
-              className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+              className="rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition-all hover:-translate-y-0.5 hover:bg-white/[0.14]"
             >
               <History className="h-4 w-4" />
-              Recent
+              Recent Jobs
             </Button>
             <Button
               type="button"
               variant="ghost"
               onClick={resetEverything}
-              className="text-slate-300 hover:bg-white/10"
+              className="rounded-xl text-slate-300 hover:bg-white/[0.08]"
             >
               <RefreshCcw className="h-4 w-4" />
               Reset
@@ -485,7 +485,7 @@ export default function AutoEditorPage() {
               type="file"
               accept="video/mp4,video/quicktime,video/x-matroska"
               onChange={handleUploadChange}
-              className="max-w-[340px] border-white/10 bg-black/35 text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-blue-500 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100"
+              className="max-w-[360px] border-white/10 bg-black/35 text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-500 file:px-3.5 file:py-1.5 file:text-xs file:font-medium file:text-slate-100"
             />
           </div>
 
@@ -597,7 +597,7 @@ export default function AutoEditorPage() {
                   type="button"
                   onClick={handleStartRender}
                   disabled={!renderPayload || isRendering}
-                  className="min-w-[190px] bg-blue-500 text-slate-100 hover:bg-blue-400"
+                  className="min-w-[190px] rounded-xl bg-blue-500 text-slate-100 shadow-[0_16px_36px_-24px_rgba(96,165,250,0.86)] transition-all hover:-translate-y-0.5 hover:bg-blue-400"
                 >
                   {isRendering ? (
                     <span className="inline-flex items-center gap-2">

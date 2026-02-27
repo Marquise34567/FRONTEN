@@ -35,7 +35,7 @@ const sectionMotion = {
   initial: { opacity: 0, y: 10 },
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.22, ease: "easeOut" },
+  transition: { duration: 0.24, ease: "easeInOut" },
 };
 
 type StaggeredSettingsSectionsProps = {
@@ -123,8 +123,8 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
                         active
-                          ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20",
+                          ? "border-blue-300/40 bg-blue-500/15 text-blue-100 shadow-[0_12px_26px_-20px_rgba(96,165,250,0.78)]"
+                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
                       )}
                     >
                       <platform.icon className="h-3.5 w-3.5" />
@@ -154,7 +154,7 @@ export default function StaggeredSettingsSections({
                         "shrink-0 rounded-full border px-3 py-1.5 text-sm transition",
                         active
                           ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20",
+                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
                       )}
                     >
                       {chip.label}
@@ -174,8 +174,8 @@ export default function StaggeredSettingsSections({
                       className={cn(
                         "rounded-xl border p-2 text-left transition-all",
                         active
-                          ? "border-blue-300/35 bg-blue-500/12"
-                          : "border-white/10 bg-black/20 hover:border-white/20",
+                          ? "border-blue-300/35 bg-blue-500/12 shadow-[0_14px_30px_-24px_rgba(96,165,250,0.7)]"
+                          : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-black/35",
                       )}
                     >
                       <div className={`h-14 rounded-lg bg-gradient-to-br ${preset.preview}`} />
@@ -241,7 +241,7 @@ export default function StaggeredSettingsSections({
                             "rounded-full border px-3 py-1.5 text-sm transition",
                             active
                               ? "border-blue-300/40 bg-blue-500/15 text-blue-100"
-                              : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20",
+                              : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/[0.08]",
                           )}
                         >
                           {modeOption.label}
@@ -254,7 +254,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Caption Style</p>
                   <Select value={captionStyle} onValueChange={(value) => onCaptionStyleChange(value as CaptionStylePreset)}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100">
+                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
                       <SelectValue placeholder="Select style" />
                     </SelectTrigger>
                     <SelectContent>
@@ -270,7 +270,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Font</p>
                   <Select value={captionFont} onValueChange={onCaptionFontChange}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100">
+                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
                       <SelectValue placeholder="Select font" />
                     </SelectTrigger>
                     <SelectContent>
@@ -286,7 +286,7 @@ export default function StaggeredSettingsSections({
                 <div>
                   <p className="mb-1 text-xs text-slate-400">Effect</p>
                   <Select value={captionEffect} onValueChange={(value) => onCaptionEffectChange(value as CaptionEffect)}>
-                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100">
+                    <SelectTrigger className="border-white/10 bg-black/35 text-slate-100 hover:border-white/20">
                       <SelectValue placeholder="Select effect" />
                     </SelectTrigger>
                     <SelectContent>

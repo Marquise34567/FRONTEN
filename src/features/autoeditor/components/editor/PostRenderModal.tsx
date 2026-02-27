@@ -84,7 +84,7 @@ export default function PostRenderModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[95vh] w-[97vw] max-w-none overflow-hidden border-white/10 bg-[#0f1117]/94 p-0 text-slate-100 backdrop-blur-xl">
+      <DialogContent className="ae-modal-content h-[95vh] w-[97vw] max-w-none overflow-hidden border-white/10 bg-[#0f1117]/94 p-0 text-slate-100 shadow-[0_38px_110px_-40px_rgba(2,6,23,0.98)] backdrop-blur-xl">
         <div className="grid h-full grid-cols-1 overflow-hidden lg:grid-cols-[60%_40%]">
           <section className="overflow-y-auto border-b border-white/10 p-4 lg:border-b-0 lg:border-r lg:border-white/10 lg:p-5">
             <DialogHeader className="mb-4">
@@ -94,7 +94,7 @@ export default function PostRenderModal({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+            <div className="rounded-2xl border border-white/10 bg-black/35 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <RetentionLineGraph
                 points={result.retention.points}
                 heatmap={result.retention.heatmap}
@@ -115,8 +115,8 @@ export default function PostRenderModal({
                     onClick={() => onSelectedThumbnailIdChange(thumbnail.id)}
                     className={`overflow-hidden rounded-xl border p-1 text-left transition ${
                       selected
-                        ? "border-blue-300/45 bg-blue-500/12"
-                        : "border-white/10 bg-black/25 hover:border-white/20"
+                        ? "border-blue-300/45 bg-blue-500/12 shadow-[0_14px_30px_-22px_rgba(96,165,250,0.8)]"
+                        : "border-white/10 bg-black/25 hover:border-white/20 hover:bg-black/35"
                     }`}
                   >
                     <img src={thumbnail.url} alt={thumbnail.label} className="aspect-video w-full rounded-lg object-cover" />
@@ -127,9 +127,9 @@ export default function PostRenderModal({
             </div>
           </section>
 
-          <aside className="overflow-y-auto p-4 lg:p-5">
+          <aside className="overflow-y-auto bg-black/15 p-4 lg:p-5">
             <p className="mb-2 text-xs uppercase tracking-[0.14em] text-slate-400">Looping Preview</p>
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-black">
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-[0_26px_64px_-36px_rgba(2,6,23,0.96)]">
               <video
                 ref={previewRef}
                 src={result.outputVideoUrl}
@@ -156,7 +156,7 @@ export default function PostRenderModal({
             <Button
               type="button"
               variant="outline"
-              className="mt-3 w-full border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+              className="mt-3 w-full rounded-xl border-white/15 bg-white/[0.08] text-slate-100 transition hover:-translate-y-0.5 hover:bg-white/[0.14]"
               onClick={() => onOpenChange(false)}
             >
               Close Review
@@ -170,7 +170,7 @@ export default function PostRenderModal({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              className="pointer-events-none fixed bottom-6 left-1/2 z-[80] w-[min(90vw,420px)] -translate-x-1/2 rounded-xl border border-white/15 bg-black/70 px-4 py-3 backdrop-blur-lg"
+              className="pointer-events-none fixed bottom-6 left-1/2 z-[80] w-[min(90vw,420px)] -translate-x-1/2 rounded-2xl border border-white/15 bg-black/70 px-4 py-3 shadow-[0_28px_56px_-34px_rgba(2,6,23,0.98)] backdrop-blur-lg"
             >
               <p className="text-xs uppercase tracking-[0.12em] text-slate-300">{tooltip.title}</p>
               <p className="mt-1 text-sm text-slate-100">{tooltip.description}</p>
