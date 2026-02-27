@@ -29,7 +29,8 @@ const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
 const Editor = lazy(() => import("./pages/Editor"));
-const Analytics = lazy(() => import("./pages/Feedback"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Jobs = lazy(() => import("./pages/Jobs"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -198,6 +199,14 @@ const App = () => {
                   element={
                     <RequireAuth>
                       <Settings />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/jobs"
+                  element={
+                    <RequireAuth>
+                      <Jobs />
                     </RequireAuth>
                   }
                 />

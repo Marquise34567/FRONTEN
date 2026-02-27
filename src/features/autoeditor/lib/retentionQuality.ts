@@ -1,6 +1,6 @@
 import type { RenderJobResult, RetentionPoint } from "@/features/autoeditor/types";
 
-export const GOOD_RETENTION_THRESHOLD = 50;
+export const GOOD_RETENTION_THRESHOLD = 70;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
