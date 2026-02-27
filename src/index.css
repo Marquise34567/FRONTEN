@@ -263,6 +263,16 @@
     }
   }
 
+  @keyframes landingCrownFloatInline {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-4deg);
+    }
+    50% {
+      transform: translateY(-4px) rotate(2deg);
+    }
+  }
+
   @keyframes landingCrownShine {
     0% {
       transform: translateX(-140%);
@@ -334,6 +344,11 @@
     aspect-ratio: 8 / 10;
     opacity: 0.72;
     transform: none;
+  }
+
+  .landing-king-word {
+    position: relative;
+    display: inline-block;
   }
 
   .landing-royal-crown {
@@ -408,6 +423,38 @@
     border: 1px solid hsl(336 80% 30% / 0.68);
     background: radial-gradient(circle at 30% 30%, hsl(330 95% 86%), hsl(336 78% 54%) 55%, hsl(336 72% 35%) 100%);
     box-shadow: 0 0 8px hsl(336 88% 60% / 0.65);
+  }
+
+  .landing-royal-crown-inline {
+    left: 0.14em;
+    top: -0.5em;
+    bottom: auto;
+    width: 0.62em;
+    height: 0.42em;
+    transform: none;
+    animation: landingCrownFloatInline 2.7s ease-in-out infinite;
+    filter: drop-shadow(0 4px 7px hsl(40 95% 55% / 0.28));
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .landing-royal-crown-inline .landing-royal-crown-spike {
+    bottom: 24%;
+    border-left-width: 0.08em;
+    border-right-width: 0.08em;
+    border-bottom-width: 0.21em;
+  }
+
+  .landing-royal-crown-inline .landing-royal-crown-spike-mid {
+    border-left-width: 0.1em;
+    border-right-width: 0.1em;
+    border-bottom-width: 0.26em;
+  }
+
+  .landing-royal-crown-inline .landing-royal-crown-gem {
+    width: 0.1em;
+    height: 0.1em;
+    bottom: 32%;
   }
 
   .landing-retro-tv {
