@@ -23,7 +23,7 @@ export default function SubtleToggle({
       layout
       initial={false}
       className={cn(
-        "flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-black/28 px-3.5 py-3",
+        "flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-[rgba(9,9,14,0.72)] px-3.5 py-3",
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
         className,
       )}
@@ -37,7 +37,7 @@ export default function SubtleToggle({
           className={cn(
             "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] transition",
             checked
-              ? "border-[#e6cfa9]/45 bg-[#d4b483]/18 text-[#fff4e4]"
+              ? "border-[rgba(212,175,55,0.48)] bg-[rgba(212,175,55,0.14)] text-[#fff4e4]"
               : "border-white/15 bg-white/5 text-[#b9b1b2]",
           )}
         >

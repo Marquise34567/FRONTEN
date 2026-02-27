@@ -6,9 +6,11 @@ import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
+import ExclusiveToggle from "@/components/premium/ExclusiveToggle";
+import GoldAccentButton from "@/components/premium/GoldAccentButton";
+import VIPBadge from "@/components/premium/VIPBadge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Progress } from "@/components/ui/progress";
+import MetallicProgress from "@/components/premium/MetallicProgress";
 import { CreditCard, Flame, Gauge, Shield, Sparkles, WandSparkles, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import UpgradeModal from "@/components/UpgradeModal";
@@ -334,10 +336,13 @@ const Settings = () => {
       <Navbar />
       <main className="responsive-main mx-auto min-h-screen max-w-6xl px-4 pt-24 pb-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.28),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.22),transparent_48%),linear-gradient(145deg,rgba(10,12,24,0.92),rgba(18,20,34,0.9))] p-6 shadow-[0_28px_80px_-48px_rgba(99,102,241,0.9)]">
+          <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-[rgba(212,175,55,0.24)] bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.22),transparent_44%),radial-gradient(circle_at_bottom_right,rgba(192,132,252,0.2),transparent_48%),linear-gradient(145deg,rgba(7,8,16,0.94),rgba(14,16,28,0.92))] p-6 shadow-[0_28px_80px_-48px_rgba(212,175,55,0.42)]">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
               <div>
-                <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-3xl font-bold font-display text-foreground">Settings</h1>
+                  <VIPBadge label="Elite Mode" />
+                </div>
               </div>
               <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 md:min-w-[440px]">
                 <div className="rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5">
@@ -358,34 +363,34 @@ const Settings = () => {
             </div>
           </div>
 
-          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-primary" />
+                <div className="w-10 h-10 rounded-xl bg-[rgba(212,175,55,0.12)] flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-[var(--gold-accent)]" />
                 </div>
                 <div>
                   <h2 className="font-semibold text-foreground">Current Plan</h2>
                   <p className="text-sm text-muted-foreground">Manage your subscription</p>
                 </div>
               </div>
-              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+              <Badge variant="secondary" className="bg-[rgba(212,175,55,0.12)] text-[#f6da8a] border-[rgba(212,175,55,0.35)]">
                 {isDevAccount ? "dev" : isFounderPlan ? "Founder (Lifetime)" : tier}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
-              <Button onClick={() => handleCheckout("starter")} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg gap-2">
+              <GoldAccentButton onClick={() => handleCheckout("starter")} className="rounded-lg gap-2">
                 <CreditCard className="w-4 h-4" /> Upgrade plan
-              </Button>
+              </GoldAccentButton>
               <Button onClick={handlePortal} variant="ghost" className="text-muted-foreground hover:text-foreground rounded-lg">
                 Manage Billing
               </Button>
             </div>
           </div>
 
-          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
-              <Shield className="w-5 h-5 text-slate-300" />
+              <Shield className="w-5 h-5 text-[var(--gold-accent)]" />
               <h2 className="font-semibold text-foreground">{dailyLimited ? "Daily Usage" : "Monthly Usage"}</h2>
             </div>
             {isFounderPlan ? (
@@ -404,7 +409,7 @@ const Settings = () => {
                         {rendersUsed} / {maxRendersPerMonth} this month
                       </span>
                     </div>
-                    <Progress value={rendersUsagePercent} className="mt-2" />
+                    <MetallicProgress value={rendersUsagePercent} className="mt-2" />
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
@@ -432,7 +437,7 @@ const Settings = () => {
                       ? `Used ${rendersUsedToday} / ${maxRendersPerDay} today`
                       : `Used ${rendersUsed} / ${maxRendersPerMonth} this month`}
                   </p>
-                  <Progress value={rendersUsagePercent} className="mt-2" />
+                  <MetallicProgress value={rendersUsagePercent} className="mt-2" />
                 </div>
                 <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4">
                   <p className="text-muted-foreground mb-1">Minutes Used</p>
@@ -447,9 +452,9 @@ const Settings = () => {
             )}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
+          <div className="mb-6 rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-4">
-              <Gauge className="w-5 h-5 text-primary" />
+              <Gauge className="w-5 h-5 text-[var(--gold-accent)]" />
               <div>
                 <h2 className="font-semibold text-foreground">Editor Features</h2>
                 <p className="text-sm text-muted-foreground">Customize subtitles, auto zoom, and effects.</p>
@@ -470,7 +475,7 @@ const Settings = () => {
                         Remove boring sections only. No hook move, pacing, zoom, transitions, jump cuts, or effects.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.onlyCuts}
                       onCheckedChange={(checked) => {
                         mergeSettings({ onlyCuts: checked });
@@ -742,7 +747,7 @@ const Settings = () => {
                         Blend neighboring clips with smooth transition fades.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.transitions}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -761,7 +766,7 @@ const Settings = () => {
                         Use tighter, high-energy cut boundaries on active moments.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.jumpCuts}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -780,7 +785,7 @@ const Settings = () => {
                         Track faces and keep subjects centered during zoom moments.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.smartZoom}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -799,7 +804,7 @@ const Settings = () => {
                         Add punch/whoosh accents on energetic cuts.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.soundFx}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -818,7 +823,7 @@ const Settings = () => {
                         Lower music bed under low-energy speech to keep voice clear.
                       </p>
                     </div>
-                    <Switch
+                    <ExclusiveToggle
                       checked={resolvedSettings.musicDuck}
                       disabled={onlyCutsEnabled}
                       onCheckedChange={(checked) => {
@@ -849,7 +854,7 @@ const Settings = () => {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Emotional Boost</span>
-                      <Switch
+                      <ExclusiveToggle
                         checked={resolvedSettings.emotionalBoost}
                         disabled={advancedLocked || onlyCutsEnabled}
                         onCheckedChange={(checked) => {
@@ -867,19 +872,19 @@ const Settings = () => {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button
+                  <GoldAccentButton
                     onClick={handleSaveSettings}
                     disabled={savingSettings || !editorSettings}
-                    className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
+                    className="rounded-lg"
                   >
                     {savingSettings ? "Saving..." : "Save changes"}
-                  </Button>
+                  </GoldAccentButton>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(148,163,184,0.9)] backdrop-blur-xl">
+          <div className="rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_60px_-44px_rgba(212,175,55,0.56)] backdrop-blur-xl">
             <h2 className="font-semibold text-foreground mb-4">Account</h2>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
@@ -936,7 +941,7 @@ const Settings = () => {
                 </div>
               ) : (
                 <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-                  <Switch
+                  <ExclusiveToggle
                     checked={trialActive ? true : useStarterTrial}
                     onCheckedChange={setUseStarterTrial}
                     disabled={trialActive}
@@ -986,3 +991,4 @@ const Settings = () => {
 };
 
 export default Settings;
+

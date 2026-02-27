@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['Space Grotesk', 'Inter', 'sans-serif'],
+        sans: ['Manrope', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Sora', 'Manrope', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -58,6 +58,10 @@ export default {
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+        },
+        gold: {
+          DEFAULT: "var(--gold-accent)",
+          foreground: "#1a1509",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

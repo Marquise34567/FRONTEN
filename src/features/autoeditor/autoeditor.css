@@ -1,16 +1,16 @@
 .autoeditor-root {
-  --ae-bg: #0f1116;
-  --ae-bg-soft: #171b23;
+  --ae-bg: #05050a;
+  --ae-bg-soft: #111118;
   --ae-text: #f7f2ea;
   --ae-subtext: #bfb4b3;
   --ae-border: rgba(255, 255, 255, 0.14);
-  --ae-kicker: #ddc8a8;
-  --ae-accent: #d8b885;
+  --ae-kicker: #f4d479;
+  --ae-accent: #d4af37;
   --ae-grid: rgba(255, 255, 255, 0.03);
   --ae-backdrop:
-    radial-gradient(1120px 620px at 14% -12%, rgba(216, 184, 133, 0.22), transparent 64%),
-    radial-gradient(900px 480px at 86% -14%, rgba(116, 152, 208, 0.18), transparent 70%),
-    linear-gradient(162deg, #0f1116 0%, #141924 45%, #0f1218 100%);
+    radial-gradient(1120px 620px at 14% -12%, rgba(212, 175, 55, 0.22), transparent 64%),
+    radial-gradient(900px 480px at 86% -14%, rgba(192, 132, 252, 0.18), transparent 70%),
+    linear-gradient(162deg, #05050a 0%, #0a0a11 45%, #06060b 100%);
   --ae-shadow:
     0 40px 84px -46px rgba(0, 0, 0, 0.88),
     0 14px 26px -18px rgba(0, 0, 0, 0.62),

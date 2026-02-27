@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppThemeId = "dark-premium" | "light-minimal" | "neon-2026" | "holographic-glass";
+export type AppThemeId = "dark-premium" | "vip-gold" | "light-minimal" | "neon-2026" | "holographic-glass";
 
 export type AppThemeOption = {
   id: AppThemeId;
@@ -12,6 +12,7 @@ const STORAGE_KEY = "autoeditor-theme";
 
 export const APP_THEME_OPTIONS: AppThemeOption[] = [
   { id: "dark-premium", label: "Dark Premium", description: "Deep dark surfaces with violet accents." },
+  { id: "vip-gold", label: "VIP Gold", description: "Ultra-dark metallic glass with elite gold accents." },
   { id: "light-minimal", label: "Light Minimal", description: "Bright editorial canvas for daytime workflows." },
   { id: "neon-2026", label: "Neon 2026", description: "Electric glows and high-energy signal visuals." },
   { id: "holographic-glass", label: "Holographic Glass", description: "Refraction-heavy glass and chromatic depth." },

@@ -32,11 +32,11 @@ const Navbar = () => {
   }, [location.pathname]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/30 bg-background/50 px-[max(env(safe-area-inset-left),var(--ae-main-px,1rem))] py-3 backdrop-blur-md md:py-4">
+    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-[var(--ae-border)] bg-[color:color-mix(in_srgb,var(--ae-shell)_82%,black_24%)] px-[max(env(safe-area-inset-left),var(--ae-main-px,1rem))] py-3 backdrop-blur-xl md:py-4">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2">
         <Link to="/" className="flex items-center gap-2">
           <span className="text-lg font-bold font-display text-foreground sm:text-xl">AutoEditor</span>
-          <span className="pill-badge text-[10px] py-0.5 px-2">
+          <span className="vip-badge text-[10px] py-0.5 px-2">
             <svg className="sparkle w-3 h-3 mr-1 inline-block" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
               <path d="M12 2l1.902 4.26L18.5 8l-4.598 1.74L12 14l-1.902-4.26L6.5 8l4.598-1.74L12 2z" fill="currentColor" />
             </svg>

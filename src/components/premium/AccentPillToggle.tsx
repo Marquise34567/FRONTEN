@@ -22,7 +22,7 @@ export default function AccentPillToggle<T extends string>({
   className,
 }: AccentPillToggleProps<T>) {
   return (
-    <div className={cn("inline-flex rounded-full border border-white/10 bg-black/50 p-1", className)}>
+    <div className={cn("inline-flex rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(8,8,12,0.72)] p-1", className)}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -38,8 +38,8 @@ export default function AccentPillToggle<T extends string>({
             {active ? (
               <motion.span
                 layoutId="accent-pill"
-                className="absolute inset-0 rounded-full border border-purple-300/40 bg-gradient-to-r from-[#a855f7]/80 to-[#d946ef]/80 shadow-[0_0_22px_rgba(217,70,239,0.35)]"
-                transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                className="absolute inset-0 rounded-full border border-[rgba(212,175,55,0.52)] bg-[linear-gradient(120deg,rgba(212,175,55,0.82),rgba(192,132,252,0.78))] shadow-[0_0_22px_rgba(212,175,55,0.28)]"
+                transition={{ type: "spring", stiffness: 180, damping: 22 }}
               />
             ) : null}
             <span className="relative z-10">{option.label}</span>

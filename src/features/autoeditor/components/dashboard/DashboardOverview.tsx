@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import AppShell from "@/components/premium/AppShell";
 import PremiumCard from "@/components/premium/PremiumCard";
 import RetentionGraphCard, { type RetentionGraphPoint } from "@/components/premium/RetentionGraphCard";
+import VIPBadge from "@/components/premium/VIPBadge";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { fetchJobByIdApi, fetchRecentJobsApi } from "@/features/autoeditor/lib/jobApi";
@@ -117,23 +118,25 @@ export default function DashboardOverview() {
   const rightRail = (
     <>
       <PremiumCard className="p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
           <Crown className="h-3.5 w-3.5" />
-          Subscription
+          VIP Membership
         </p>
         <p className="mt-2 text-lg font-semibold text-slate-100">{String(me?.subscription?.tier || "free")}</p>
         <p className="text-sm text-slate-300">Status: {String(me?.subscription?.status || "free")}</p>
+        <p className="mt-2 text-xs text-slate-400">Used by Top 1% Creators</p>
       </PremiumCard>
       <PremiumCard className="space-y-2 p-4">
-        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+        <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
           <Sparkles className="h-3.5 w-3.5" />
           Metadata Pulse
         </p>
-        {metadataStats.slice(0, 3).map((stat) => (
-          <div key={stat.id} className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+        {metadataStats.slice(0, 3).map((stat, index) => (
+          <div key={stat.id} className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.72)] px-3 py-2">
             <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
             <p className="text-sm font-semibold text-slate-100">{stat.value}</p>
             <p className="text-xs text-slate-400">{stat.detail}</p>
+            {index === 0 ? <VIPBadge label="Exclusive Signal" className="mt-2" /> : null}
           </div>
         ))}
       </PremiumCard>
@@ -142,28 +145,35 @@ export default function DashboardOverview() {
 
   return (
     <AppShell title="AutoEditor Dashboard" showSidebar rightRail={rightRail}>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
           <PremiumCard className="relative overflow-hidden p-6">
-            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-purple-500/15 blur-3xl" />
-            <h1 className="text-2xl font-semibold text-slate-100">Dashboard Overview</h1>
-            <p className="mt-2 text-sm text-slate-300">
-              Every job now carries unique retention predictions, metadata stats, and hook rationale tuned for watch-time.
-            </p>
+            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[rgba(212,175,55,0.18)] blur-3xl" />
+            <div className="pointer-events-none absolute -left-10 bottom-0 h-36 w-56 bg-gradient-to-r from-[rgba(192,132,252,0.16)] to-transparent blur-2xl" />
+            <div className="relative flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--gold-accent)]">Dashboard Overview</p>
+                <h1 className="mt-2 text-3xl font-semibold text-slate-100">Your Elite Avg. Retention: {predictedAverageRetention.toFixed(1)}%</h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Every job now carries unique retention predictions, metadata stats, and hook rationale tuned for watch-time.
+                </p>
+              </div>
+              <VIPBadge label="Top 1% Creators" />
+            </div>
           </PremiumCard>
         </motion.section>
 
         <section className="grid gap-4 md:grid-cols-3">
           <PremiumCard className="p-4">
-            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
               <Target className="h-3.5 w-3.5" />
               Predicted Avg Retention
             </p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-300">{predictedAverageRetention.toFixed(1)}%</p>
+            <p className="mt-2 text-3xl font-semibold text-[#f6da8a]">{predictedAverageRetention.toFixed(1)}%</p>
             <p className="text-xs text-slate-400">Target benchmark: 70%+</p>
           </PremiumCard>
           <PremiumCard className="p-4">
-            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
               <BarChart3 className="h-3.5 w-3.5" />
               Active Jobs
             </p>
@@ -171,7 +181,7 @@ export default function DashboardOverview() {
             <p className="text-xs text-slate-400">Queued + processing renders</p>
           </PremiumCard>
           <PremiumCard className="p-4">
-            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-purple-200">
+            <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.13em] text-[var(--gold-accent)]">
               <Sparkles className="h-3.5 w-3.5" />
               Retention Signal
             </p>
@@ -194,13 +204,13 @@ export default function DashboardOverview() {
                   onClick={() => setSelectedJobId(job.id)}
                   className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
                     selectedJobId === job.id
-                      ? "border-purple-300/35 bg-purple-500/10"
-                      : "border-white/10 bg-black/30 hover:border-white/20"
+                      ? "border-[rgba(212,175,55,0.38)] bg-[linear-gradient(120deg,rgba(212,175,55,0.18),rgba(192,132,252,0.14))]"
+                      : "border-white/10 bg-black/30 hover:border-[rgba(212,175,55,0.35)]"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium text-slate-100">{job.fileName || "Untitled clip"}</p>
-                    <span className="text-xs text-slate-300">{Math.round(job.progress)}%</span>
+                    <span className="rounded-full border border-[rgba(212,175,55,0.36)] bg-[rgba(212,175,55,0.12)] px-2 py-0.5 text-xs text-[#f6da8a]">{Math.round(job.progress)}%</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
                     {job.mode} • {job.status} • {new Date(job.createdAt).toLocaleString()}
@@ -216,13 +226,16 @@ export default function DashboardOverview() {
           </PremiumCard>
 
           <PremiumCard className="p-4">
-            <h2 className="text-base font-semibold text-slate-100">Edit Insights</h2>
-            <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-slate-100">Trend Feed</h2>
+              <VIPBadge label="Exclusive Scroll" />
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {editInsights.map((insight) => (
-                <div key={insight.id} className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                <div key={insight.id} className="min-w-[220px] rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(7,7,12,0.7)] px-3 py-3">
                   <p className="text-sm font-medium text-slate-100">{insight.headline}</p>
                   <p className="mt-1 text-xs text-slate-400">{insight.detail}</p>
-                  <p className="mt-1 text-[11px] text-purple-200">
+                  <p className="mt-1 text-[11px] text-[#f6da8a]">
                     {insight.timestamp.toFixed(1)}s • Predicted {insight.predictedRetention}%
                   </p>
                 </div>

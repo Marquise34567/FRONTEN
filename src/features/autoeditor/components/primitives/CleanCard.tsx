@@ -17,12 +17,12 @@ export default function CleanCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-[1.4rem] border border-white/15",
-        "bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.05)_40%,rgba(255,255,255,0.02)_100%)] backdrop-blur-[14px]",
+        "group relative overflow-hidden rounded-[1.4rem] border border-[rgba(255,255,255,0.14)]",
+        "exclusive-glass backdrop-blur-[20px]",
         "shadow-[0_34px_64px_-44px_rgba(0,0,0,0.9),0_14px_24px_-18px_rgba(0,0,0,0.74),inset_0_1px_0_rgba(255,255,255,0.1)]",
         padded && "p-4 sm:p-5",
         hoverable &&
-          "transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[#e6cfa9]/45 hover:shadow-[0_42px_72px_-48px_rgba(212,180,131,0.45)]",
+          "transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[rgba(212,175,55,0.45)] hover:shadow-[0_42px_72px_-48px_rgba(212,175,55,0.35)]",
         className,
       )}
       {...props}

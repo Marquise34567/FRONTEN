@@ -15,13 +15,13 @@ export default function ThemeSwitcher() {
 
   return (
     <Select value={theme} onValueChange={(value) => setTheme(value as typeof theme)}>
-      <SelectTrigger className="h-10 w-[178px] rounded-2xl border-white/10 bg-black/40 text-xs text-slate-100 hover:border-purple-300/35">
+      <SelectTrigger className="h-10 w-[188px] rounded-2xl border-[rgba(212,175,55,0.26)] bg-[rgba(8,8,13,0.75)] text-xs text-slate-100 hover:border-[rgba(212,175,55,0.46)]">
         <span className="inline-flex items-center gap-2">
-          <Palette className="h-3.5 w-3.5 text-purple-200" />
+          <Palette className="h-3.5 w-3.5 text-[var(--gold-accent)]" />
           <SelectValue placeholder="Theme" />
         </span>
       </SelectTrigger>
-      <SelectContent className="border-white/15 bg-[#0b0d15]/96 text-slate-100 backdrop-blur-xl">
+      <SelectContent className="border-[rgba(212,175,55,0.24)] bg-[#0b0b11]/96 text-slate-100 backdrop-blur-xl">
         {APP_THEME_OPTIONS.map((option) => (
           <SelectItem key={option.id} value={option.id} className="py-2">
             <div className="flex flex-col">
