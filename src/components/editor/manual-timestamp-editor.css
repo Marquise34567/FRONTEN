@@ -51,6 +51,38 @@
     0 16px 30px -24px rgba(56, 189, 248, 0.55);
 }
 
+.manual-editor-split-monitor-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: minmax(0, 1fr);
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.manual-editor-split-pane {
+  min-height: 9rem;
+}
+
+.manual-editor-split-label {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 2;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(2, 6, 23, 0.76);
+  padding: 0.14rem 0.5rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+@media (min-width: 640px) {
+  .manual-editor-split-monitor-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
 .manual-editor-live-monitor-overlay {
   backdrop-filter: blur(3px);
 }

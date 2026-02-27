@@ -932,6 +932,22 @@ const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
   "pacing",
   "story",
 ]);
+const LIVE_SETTINGS_SYNC_STATUSES = new Set([
+  "pacing",
+  "story",
+  "subtitling",
+  "audio",
+  "retention",
+  "rendering",
+]);
+const AI_PREVIEW_READY_STATUSES = new Set([
+  "story",
+  "subtitling",
+  "audio",
+  "retention",
+  "rendering",
+  "ready",
+]);
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -1626,6 +1642,48 @@ const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   return "auto";
 };
 
+const resolveSelectedHookFromAnalysis = (analysis: any): HookCandidate | null => {
+  const source = analysis && typeof analysis === "object" ? analysis : {};
+  const hookStartSec = Number(source?.hook_start_time ?? source?.hook?.start ?? NaN);
+  const hookEndSec = Number(
+    source?.hook_end_time ??
+    (Number.isFinite(hookStartSec) ? hookStartSec + Number(source?.hook?.duration ?? 0) : NaN),
+  );
+  const hookText = typeof source?.hook_text === "string" ? source.hook_text : "";
+  const hookReason = typeof source?.hook_reason === "string" ? source.hook_reason : "";
+  if (Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec) && hookEndSec > hookStartSec) {
+    return {
+      start: hookStartSec,
+      duration: Math.max(0.1, hookEndSec - hookStartSec),
+      score: Number.isFinite(Number(source?.hook_score)) ? Number(source?.hook_score) : 0,
+      auditScore: Number.isFinite(Number(source?.hook_audit_score))
+        ? Number(source?.hook_audit_score)
+        : Number.isFinite(Number(source?.hook_score))
+          ? Number(source?.hook_score)
+          : 0,
+      auditPassed: Boolean(source?.hook_audit_passed ?? true),
+      text: hookText,
+      reason: hookReason,
+      synthetic: Boolean(source?.hook_synthetic),
+    };
+  }
+
+  const selectedFromPipeline = normalizeHookCandidates(
+    source?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
+      ? [source.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
+      : [],
+  )[0] ?? null;
+  if (selectedFromPipeline) return selectedFromPipeline;
+
+  const fallbackPool: unknown[] = [];
+  if (source?.preferred_hook) fallbackPool.push(source.preferred_hook);
+  if (Array.isArray(source?.hook_variants)) fallbackPool.push(...source.hook_variants);
+  if (Array.isArray(source?.hook_candidates)) fallbackPool.push(...source.hook_candidates);
+  if (Array.isArray(source?.editPlan?.hookVariants)) fallbackPool.push(...source.editPlan.hookVariants);
+  if (Array.isArray(source?.editPlan?.hookCandidates)) fallbackPool.push(...source.editPlan.hookCandidates);
+  return normalizeHookCandidates(fallbackPool)[0] ?? null;
+};
+
 const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
   for (const tier of PLAN_TIERS) {
     const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
@@ -1800,6 +1858,8 @@ const Editor = () => {
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const [proxyPreviewUrlByJob, setProxyPreviewUrlByJob] = useState<Record<string, string>>({});
+  const [proxyPreviewRefreshNonceByJob, setProxyPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
   const [manualMode, setManualMode] = useState(false);
   const [manualAutoAssist, setManualAutoAssist] = useState(false);
   const [manualMarkersByJob, setManualMarkersByJob] = useState<Record<string, ManualTimestampMarker[]>>({});
@@ -1830,6 +1890,8 @@ const Editor = () => {
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
   const manualHydratedSignatureByJobRef = useRef<Record<string, string>>({});
+  const liveSettingsSyncSignatureByJobRef = useRef<Record<string, string>>({});
+  const liveSettingsSyncInFlightRef = useRef<Record<string, boolean>>({});
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const successToastShownRef = useRef(false);
@@ -2827,12 +2889,8 @@ const Editor = () => {
   useEffect(() => {
     if (!activeJob?.id) return;
     const jobId = activeJob.id;
-    const nextMode: HookSelectionMode = manualMode ? "manual" : "auto";
-    setDefaultHookSelectionMode(nextMode);
-    setHookSelectionModeByJob((prev) => (prev[jobId] === nextMode ? prev : { ...prev, [jobId]: nextMode }));
-    if (!manualMode) {
-      setSelectedHookByJob((prev) => (prev[jobId] ? { ...prev, [jobId]: null } : prev));
-    }
+    if (!manualMode) return;
+    setHookSelectionModeByJob((prev) => (prev[jobId] === "manual" ? prev : { ...prev, [jobId]: "manual" }));
   }, [activeJob?.id, manualMode]);
 
   useEffect(() => {
@@ -4213,6 +4271,138 @@ const Editor = () => {
     };
   }, [activeJob, isVerticalMode, manualAutoAssist, manualMarkersByJob, manualMode, manualSuggestionsByJob, previewDurationByJob]);
 
+  const buildLiveRenderSettingsPayload = useCallback((job: JobDetail) => {
+    const editorModeForJob = mapEditorModeForBackend(editorMode);
+    const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
+    const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
+    const preferredHook = selectedHookByJob[job.id] || resolveSelectedHookFromAnalysis(job.analysis || {}) || null;
+    const hookSelectionModeForJob =
+      hookSelectionModeByJob[job.id] ??
+      normalizeHookSelectionMode(
+        (job.analysis as any)?.hook_selection_mode ??
+        (job.analysis as any)?.hookSelectionMode ??
+        (job.analysis as any)?.hook_mode ??
+        (job.analysis as any)?.hookMode,
+      );
+    const manualTimestampPayload = buildManualTimestampPayload(job.id);
+    const payload: Record<string, unknown> = {
+      retentionAggressionLevel: STRATEGY_TO_AGGRESSION[retentionStrategyProfile],
+      retentionStrategyProfile,
+      retentionTargetPlatform,
+      platformProfile: retentionTargetPlatform,
+      onlyHookAndCut,
+      maxCuts: maxCutsRequested,
+      editorMode: editorModeForJob,
+      hookSelectionMode: hookSelectionModeForJob,
+      longFormPreset,
+      longFormAggression,
+      longFormClarityVsSpeed,
+      tangentKiller,
+      smartZoom: smartZoomEnabled,
+      transitions: transitionsEnabled,
+      soundFx: soundFxEnabled,
+      autoCaptions: autoCaptionsEnabled,
+      subtitleStyle: subtitleStyleForJob,
+      subtitles: {
+        enabled: autoCaptionsEnabled,
+        preset: subtitlePresetForJob,
+        style: subtitleStyleForJob,
+      },
+      ...(manualTimestampPayload
+        ? {
+            manualTimestamp: manualTimestampPayload,
+            manualTimestampEditor: manualTimestampPayload.enabled,
+          }
+        : {}),
+    };
+    if (manualTimestampPayload?.enabled) {
+      payload.hookSelectionMode = "manual";
+    }
+    if (preferredHook && hookSelectionModeForJob !== "auto") {
+      payload.preferredHook = {
+        start: preferredHook.start,
+        duration: preferredHook.duration,
+      };
+    }
+    if (job.renderMode === "vertical") {
+      const verticalEffects = deriveVerticalModeEffects({
+        selectionMode: verticalSelectionMode,
+        zoomProfile: verticalZoomProfile,
+        zoomIntensity: verticalZoomIntensity,
+      });
+      payload.smartZoom = verticalEffects.smartZoom;
+      payload.transitions = verticalEffects.transitions;
+      payload.soundFx = verticalEffects.soundFx;
+      payload.autoZoomMax = verticalEffects.autoZoomMax;
+      payload.verticalClipCount = verticalClipCountTouched ? verticalClipCount : 0;
+      payload.verticalMode = {
+        enabled: true,
+        selectionMode: verticalSelectionMode,
+        zoomProfile: verticalZoomProfile,
+        zoomIntensity: Number((clamp(verticalZoomIntensity, 0, 100) / 100).toFixed(3)),
+      };
+      payload.verticalCaptionText = verticalCaptionsForJob.text;
+      payload.verticalCaptions = verticalCaptionsForJob;
+    }
+    return payload;
+  }, [
+    autoCaptionsEnabled,
+    buildManualTimestampPayload,
+    editorMode,
+    hookSelectionModeByJob,
+    longFormAggression,
+    longFormClarityVsSpeed,
+    longFormPreset,
+    maxCutsRequested,
+    onlyHookAndCut,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    selectedHookByJob,
+    smartZoomEnabled,
+    soundFxEnabled,
+    subtitleStyleDraft,
+    tangentKiller,
+    transitionsEnabled,
+    verticalCaptionsForJob,
+    verticalClipCount,
+    verticalClipCountTouched,
+    verticalSelectionMode,
+    verticalZoomIntensity,
+    verticalZoomProfile,
+  ]);
+
+  useEffect(() => {
+    if (!accessToken || !activeJob?.id) return;
+    const status = normalizeStatus(activeJob.status);
+    if (!LIVE_SETTINGS_SYNC_STATUSES.has(status)) return;
+    const payload = buildLiveRenderSettingsPayload(activeJob);
+    const signature = JSON.stringify(payload);
+    const jobId = activeJob.id;
+    if (liveSettingsSyncSignatureByJobRef.current[jobId] === signature) return;
+    const timer = setTimeout(() => {
+      if (liveSettingsSyncInFlightRef.current[jobId]) return;
+      liveSettingsSyncInFlightRef.current[jobId] = true;
+      void apiFetch(`/api/jobs/${jobId}/live-settings`, {
+        method: "PATCH",
+        token: accessToken,
+        body: JSON.stringify(payload),
+      })
+        .then(() => {
+          liveSettingsSyncSignatureByJobRef.current[jobId] = signature;
+        })
+        .catch((err: any) => {
+          if (err instanceof ApiError && (err.status === 404 || err.status === 409 || err.status === 403)) {
+            return;
+          }
+          console.warn("live settings sync failed", err);
+        })
+        .finally(() => {
+          liveSettingsSyncInFlightRef.current[jobId] = false;
+        });
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [accessToken, activeJob, buildLiveRenderSettingsPayload]);
+
   const handleRedoRender = useCallback(
     async (job: JobDetail) => {
       if (!accessToken || !job?.id) return false;
@@ -4232,7 +4422,7 @@ const Editor = () => {
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
-        const preferredHook = selectedHookByJob[job.id] || null;
+        const preferredHook = selectedHookByJob[job.id] || resolveSelectedHookFromAnalysis(job.analysis || {}) || null;
         const useFastModeRetry = /ffmpeg_failed_signal_sigkill/i.test(String(job.error || ""));
         const hookSelectionModeForJob =
           hookSelectionModeByJob[job.id] ??
@@ -4663,29 +4853,7 @@ const Editor = () => {
       ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
       : [])
   ).slice(0, 3);
-  const selectedHookFromPipeline =
-    normalizeHookCandidates(
-      activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
-        ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
-        : [],
-    )[0] ?? null;
-  const selectedHookFromAnalysis: HookCandidate | null =
-    Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec) && hookEndSec > hookStartSec
-      ? {
-          start: hookStartSec,
-          duration: Math.max(0.1, hookEndSec - hookStartSec),
-          score: Number.isFinite(Number(activeAnalysis?.hook_score)) ? Number(activeAnalysis?.hook_score) : 0,
-          auditScore: Number.isFinite(Number(activeAnalysis?.hook_audit_score))
-            ? Number(activeAnalysis?.hook_audit_score)
-            : Number.isFinite(Number(activeAnalysis?.hook_score))
-              ? Number(activeAnalysis?.hook_score)
-              : 0,
-          auditPassed: Boolean(activeAnalysis?.hook_audit_passed ?? true),
-          text: hookText,
-          reason: hookReason,
-          synthetic: Boolean(activeAnalysis?.hook_synthetic),
-        }
-      : selectedHookFromPipeline;
+  const selectedHookFromAnalysis = resolveSelectedHookFromAnalysis(activeAnalysis);
   const selectedHookCandidate =
     (activeJob ? selectedHookByJob[activeJob.id] : null) ||
     (() => {
@@ -5105,6 +5273,25 @@ const Editor = () => {
   })();
   const manualStructuredPlanRetentionPoints = parseManualRetentionImpactPoints(manualOverridePlan?.retentionImpact);
   const manualRetentionDisplay = manualStructuredPlanRetentionPoints ?? manualRetentionDeltaEstimate;
+  const aiRetentionDisplay = retentionScoreDeltaDisplay;
+  const manualVsAiRetentionDelta =
+    manualRetentionDisplay !== null && aiRetentionDisplay !== null
+      ? Number((manualRetentionDisplay - aiRetentionDisplay).toFixed(1))
+      : null;
+  const activeManualHookMarker =
+    activeManualMarkers.find((marker) => marker.type === "hook" && marker.source === "user")
+    || activeManualMarkers.find((marker) => marker.type === "hook")
+    || null;
+  const selectedHookSourceRangeLabel = selectedHookCandidate
+    ? formatHookRange(selectedHookCandidate.start, selectedHookCandidate.start + selectedHookCandidate.duration)
+    : Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
+      ? formatHookRange(hookStartSec, hookEndSec)
+      : null;
+  const pinnedHookSourceRangeLabel =
+    manualMode && activeManualHookMarker
+      ? formatHookRange(activeManualHookMarker.start, activeManualHookMarker.end)
+      : selectedHookSourceRangeLabel;
+  const hookPinnedToOpening = Boolean(pinnedHookSourceRangeLabel);
   const manualLivePreviewPlan = buildManualPreviewPlan({
     enabled: manualMode,
     markers: activeManualMarkers,
@@ -5112,9 +5299,16 @@ const Editor = () => {
   });
   const manualLivePreviewSegments = manualLivePreviewPlan?.segments || [];
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const activeProxyPreviewUrl = activeJob ? (proxyPreviewUrlByJob[activeJob.id] || "") : "";
+  const canShowAiProgressPreview = Boolean(
+    activeJob && AI_PREVIEW_READY_STATUSES.has(normalizedActiveStatus || ""),
+  );
+  const previewFallbackUrl = activeProxyPreviewUrl || activeInputPreviewUrl || "";
   const manualLivePreviewEnabled = false;
-  const previewVideoUrl = manualMode ? previewOutputUrl : "";
-  const showVideo = Boolean(activeJob && manualMode && previewVideoUrl);
+  const previewVideoUrl = previewOutputUrl || (canShowAiProgressPreview ? previewFallbackUrl : "");
+  const previewUsesProxy = Boolean(activeProxyPreviewUrl && previewVideoUrl === activeProxyPreviewUrl);
+  const activeProxyPreviewRefreshNonce = activeJob ? (proxyPreviewRefreshNonceByJob[activeJob.id] || 0) : 0;
+  const showVideo = Boolean(activeJob && previewVideoUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -5319,6 +5513,40 @@ const Editor = () => {
     canShowRealtimeHookSelector,
     hookPreviewRefreshNonce,
     hookSelectorOpen,
+  ]);
+  useEffect(() => {
+    if (!activeJob?.id || !accessToken) return;
+    if (!canShowAiProgressPreview) return;
+    if (previewOutputUrl) return;
+    const jobId = activeJob.id;
+    if (proxyPreviewUrlByJob[jobId]) return;
+    let canceled = false;
+    void apiFetch<{ url?: string }>(`/api/jobs/${jobId}/proxy-url`, {
+      method: "POST",
+      token: accessToken,
+    })
+      .then((response) => {
+        if (canceled) return;
+        const nextUrl = typeof response?.url === "string" ? response.url.trim() : "";
+        if (!nextUrl) return;
+        setProxyPreviewUrlByJob((prev) => ({ ...prev, [jobId]: nextUrl }));
+      })
+      .catch((error: any) => {
+        if (canceled) return;
+        if (!(error instanceof ApiError && error.status === 404)) {
+          console.warn("proxy preview url failed", error);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [
+    accessToken,
+    activeJob?.id,
+    activeProxyPreviewRefreshNonce,
+    canShowAiProgressPreview,
+    previewOutputUrl,
+    proxyPreviewUrlByJob,
   ]);
   useEffect(() => {
     if (!activeJob?.id || !accessToken) return;
@@ -5794,13 +6022,21 @@ const Editor = () => {
     };
     if (activeJob?.id) {
       setPreviewPlayingByJob((prev) => ({ ...prev, [activeJob.id]: false }));
+      if (previewUsesProxy) {
+        setProxyPreviewUrlByJob((prev) => ({ ...prev, [activeJob.id]: "" }));
+        setProxyPreviewRefreshNonceByJob((prev) => ({
+          ...prev,
+          [activeJob.id]: (prev[activeJob.id] || 0) + 1,
+        }));
+      }
     }
     console.error("Preview video failed to load", details);
+    if (previewUsesProxy) return;
     toast({
       title: "Preview failed",
       description: "Could not load the edited video. Check network/output URL.",
     });
-  }, [activeJob?.id, previewVideoUrl, toast]);
+  }, [activeJob?.id, previewUsesProxy, previewVideoUrl, toast]);
 
   const handleManualPreviewSeek = useCallback((seconds: number) => {
     if (!activeJob?.id) return;
@@ -7960,7 +8196,11 @@ const Editor = () => {
                     <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/90">Manual Output Preview</p>
                       <span className="text-[10px] text-muted-foreground">
-                        {!manualMode ? "Manual mode off" : previewOutputUrl ? "Manual output ready" : "No manual output yet"}
+                        {previewOutputUrl
+                          ? "Final output ready"
+                          : canShowAiProgressPreview
+                            ? (previewVideoUrl ? "AI progress preview" : "Preparing AI preview")
+                            : "Preview unlocks after pacing"}
                       </span>
                     </div>
                     <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
@@ -7982,7 +8222,7 @@ const Editor = () => {
                           <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
                           <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
                             <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-                              {!manualMode ? (
+                              {!activeJob ? (
                                 <CircleOff className="w-6 h-6 text-muted-foreground" />
                               ) : activeJob && !isTerminalStatus(activeJob.status) ? (
                                 <Loader2 className="w-6 h-6 text-primary animate-spin" />
@@ -7991,17 +8231,15 @@ const Editor = () => {
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              {!manualMode
-                                ? "Enable Manual Mode to view manual output preview."
-                                : activeJob
-                                ? normalizedActiveStatus === "ready"
-                                  ? "Ready to export"
-                                  : normalizedActiveStatus === "failed"
-                                    ? activeJob.error === "queue_canceled_by_user"
-                                      ? "Job canceled"
-                                      : "Job failed"
-                                    : "Processing your edit..."
-                                : "Select a job to preview"}
+                              {!activeJob
+                                ? "Select a job to preview."
+                                : normalizedActiveStatus === "failed"
+                                  ? activeJob.error === "queue_canceled_by_user"
+                                    ? "Job canceled"
+                                    : "Job failed"
+                                  : canShowAiProgressPreview
+                                    ? "Preparing AI edit preview..."
+                                    : "Preview becomes available after hook, cuts, and pacing."}
                             </p>
                           </div>
                         </>
@@ -8371,6 +8609,9 @@ const Editor = () => {
                           <p className="font-semibold uppercase tracking-[0.16em]">Manual Override Plan</p>
                           <p>
                             Manual Mode: ON | Hook: {manualOverridePlan?.hook || (activeManualMarkers.some((marker) => marker.type === "hook") ? "user-set" : manualAutoAssist ? "AI-suggested" : "none")}
+                            {(activeManualHookMarker || (manualOverridePlan?.hook && !manualOverridePlan.hook.toLowerCase().includes("none")))
+                              ? " | Opening: pinned to 00:00"
+                              : ""}
                           </p>
                           <div className="space-y-1 text-violet-100/90">
                             <p className="font-medium">User Cuts:</p>
@@ -8426,27 +8667,50 @@ const Editor = () => {
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="rounded-lg border border-border/50 bg-background/40 p-3">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
-                          {retentionScoreDeltaDisplay !== null ? (
-                            <motion.p
-                              key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className={`mt-1 font-premium text-3xl font-semibold tracking-tight ${
-                                retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
-                              }`}
-                            >
-                              {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
-                              <span className="ml-1 text-lg align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
-                            </motion.p>
-                          ) : !isTerminalStatus(activeJob.status) ? (
-                            <div className="mt-2 h-9 w-28 animate-pulse rounded-md bg-muted/50" />
-                          ) : (
-                            <p className="mt-1 text-sm text-muted-foreground">Pending</p>
-                          )}
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
+                              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Manual</p>
+                              {manualRetentionDisplay !== null ? (
+                                <p className={`mt-1 text-xl font-semibold ${manualRetentionDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
+                                  {manualRetentionDisplay > 0 ? "+" : ""}{manualRetentionDisplay.toFixed(1)}
+                                </p>
+                              ) : (
+                                <p className="mt-1 text-sm text-muted-foreground">n/a</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
+                              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">AI</p>
+                              {retentionScoreDeltaDisplay !== null ? (
+                                <motion.p
+                                  key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className={`mt-1 text-xl font-semibold ${
+                                    retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
+                                  }`}
+                                >
+                                  {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
+                                  <span className="ml-1 text-sm align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
+                                </motion.p>
+                              ) : !isTerminalStatus(activeJob.status) ? (
+                                <div className="mt-2 h-6 w-20 animate-pulse rounded-md bg-muted/50" />
+                              ) : (
+                                <p className="mt-1 text-sm text-muted-foreground">Pending</p>
+                              )}
+                            </div>
+                          </div>
+                          {manualVsAiRetentionDelta !== null ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Manual vs AI delta: {manualVsAiRetentionDelta >= 0 ? "+" : ""}{manualVsAiRetentionDelta.toFixed(1)} pts
+                            </p>
+                          ) : null}
                           <p className="mt-2 break-words text-xs text-foreground/90">
-                            Hook chosen: {hookWindowLabel}
+                            Hook source: {pinnedHookSourceRangeLabel || hookWindowLabel}
                             {hookText ? ` — ${hookText}` : ""}
                           </p>
+                          {hookPinnedToOpening ? (
+                            <p className="mt-1 text-xs text-muted-foreground">Opening placement: pinned to 00:00 in the edited timeline.</p>
+                          ) : null}
                           {hookReason ? (
                             <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
                           ) : null}
@@ -8694,10 +8958,12 @@ const Editor = () => {
               playbackRate={activeManualPlaybackRate}
               autoAssist={manualAutoAssist}
               aiSuggestLoading={manualAiSuggestLoadingJobId === activeJob.id}
-              retentionDelta={manualRetentionDisplay}
+              manualRetentionDelta={manualRetentionDisplay}
+              aiRetentionDelta={aiRetentionDisplay}
               removeRatio={manualRemovalRatio}
               microHookSuggestions={manualMicroHookSuggestions}
               warning={manualWarnings[0] || null}
+              beforeEditUrl={activeInputPreviewUrl}
               editedUrl={previewOutputUrl}
               onTogglePlay={handleManualTogglePlay}
               onSeek={handleManualPreviewSeek}

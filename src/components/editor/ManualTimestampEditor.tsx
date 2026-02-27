@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Check, ChevronLeft, ChevronRight, Gauge, Maximize2, Pause, Play, Sparkles, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Gauge, Maximize2, MousePointer2, Pause, Play, Scissors, Sparkles, Trash2, Volume2, VolumeX, X } from "lucide-react";
 
 import "./manual-timestamp-editor.css";
 
@@ -34,6 +34,7 @@ export type ManualTimestampSuggestion = {
 
 type DragBoundary = "start" | "end";
 type RetentionAreaLevel = "best" | "weak" | "low";
+type TimelineInteractionMode = "select" | "seek";
 
 type ManualTimestampEditorProps = {
   markers: ManualTimestampMarker[];
@@ -44,10 +45,12 @@ type ManualTimestampEditorProps = {
   playbackRate: number;
   autoAssist: boolean;
   aiSuggestLoading: boolean;
-  retentionDelta: number | null;
+  manualRetentionDelta: number | null;
+  aiRetentionDelta: number | null;
   removeRatio: number;
   microHookSuggestions: Array<{ start: number; end: number }>;
   warning: string | null;
+  beforeEditUrl?: string;
   editedUrl: string;
   onTogglePlay: () => void;
   onSeek: (seconds: number) => void;
@@ -98,6 +101,12 @@ const labelByType: Record<ManualMarkerType, string> = {
   hook: "Hook",
 };
 
+const toolHintByType: Record<ManualMarkerType, string> = {
+  keep: "Mark the moments that must stay in the final edit.",
+  remove: "Mark low-energy moments that should be cut.",
+  hook: "Mark the opener window that should lead the video.",
+};
+
 type RetentionArea = {
   id: string;
   start: number;
@@ -130,10 +139,12 @@ const ManualTimestampEditor = ({
   playbackRate,
   autoAssist,
   aiSuggestLoading,
-  retentionDelta,
+  manualRetentionDelta,
+  aiRetentionDelta,
   removeRatio,
   microHookSuggestions,
   warning,
+  beforeEditUrl = "",
   editedUrl,
   onTogglePlay,
   onSeek,
@@ -151,12 +162,17 @@ const ManualTimestampEditor = ({
   hasUnsavedChanges,
 }: ManualTimestampEditorProps) => {
   const [pendingMarker, setPendingMarker] = useState<{ type: ManualMarkerType; start: number } | null>(null);
+  const [activeTool, setActiveTool] = useState<ManualMarkerType>("remove");
+  const [timelineMode, setTimelineMode] = useState<TimelineInteractionMode>("select");
   const [zoom, setZoom] = useState(1.5);
   const [liveMonitorMuted, setLiveMonitorMuted] = useState(true);
+  const [beforeMonitorReady, setBeforeMonitorReady] = useState(false);
+  const [beforeMonitorErrored, setBeforeMonitorErrored] = useState(false);
   const [liveMonitorReady, setLiveMonitorReady] = useState(false);
   const [liveMonitorErrored, setLiveMonitorErrored] = useState(false);
   const [dragState, setDragState] = useState<{ id: string; boundary: DragBoundary } | null>(null);
   const timelineInnerRef = useRef<HTMLDivElement | null>(null);
+  const beforeMonitorVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveMonitorVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveMonitorFrameRef = useRef<HTMLDivElement | null>(null);
   const scrubDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,32 +201,38 @@ const ManualTimestampEditor = ({
   );
 
   useEffect(() => {
-    const video = liveMonitorVideoRef.current;
-    if (!video) return;
-    try {
-      if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.05) {
-        video.currentTime = currentTimeSec;
+    const syncVideo = (video: HTMLVideoElement | null) => {
+      if (!video) return;
+      try {
+        if (Number.isFinite(currentTimeSec) && Math.abs(video.currentTime - currentTimeSec) > 0.05) {
+          video.currentTime = currentTimeSec;
+        }
+      } catch (_error) {
+        // ignore drift updates for preview-only monitor.
       }
-    } catch (_error) {
-      // ignore drift updates for preview-only monitor.
-    }
-    if (Math.abs(video.playbackRate - playbackRate) > 0.001) {
-      video.playbackRate = playbackRate;
-    }
-    if (video.muted !== liveMonitorMuted) {
-      video.muted = liveMonitorMuted;
-    }
-    if (isPlaying) {
-      void video.play().catch(() => undefined);
-      return;
-    }
-    video.pause();
+      if (Math.abs(video.playbackRate - playbackRate) > 0.001) {
+        video.playbackRate = playbackRate;
+      }
+      if (video.muted !== liveMonitorMuted) {
+        video.muted = liveMonitorMuted;
+      }
+      if (isPlaying) {
+        void video.play().catch(() => undefined);
+        return;
+      }
+      video.pause();
+    };
+
+    syncVideo(beforeMonitorVideoRef.current);
+    syncVideo(liveMonitorVideoRef.current);
   }, [currentTimeSec, isPlaying, liveMonitorMuted, playbackRate]);
 
   useEffect(() => {
+    setBeforeMonitorReady(false);
+    setBeforeMonitorErrored(false);
     setLiveMonitorReady(false);
     setLiveMonitorErrored(false);
-  }, [editedUrl]);
+  }, [beforeEditUrl, editedUrl]);
 
   useEffect(() => () => {
     if (scrubDebounceTimerRef.current) {
@@ -264,14 +286,11 @@ const ManualTimestampEditor = ({
     }, 18);
   }, [durationSec, flushScrubSeek]);
 
-  const createMarker = useCallback((type: ManualMarkerType) => {
+  const addMarker = useCallback((type: ManualMarkerType, startTime: number, endTime: number) => {
     if (durationSec <= 0) return;
-    if (!pendingMarker || pendingMarker.type !== type) {
-      setPendingMarker({ type, start: currentTimeSec });
-      return;
-    }
-    const start = clamp(Math.min(pendingMarker.start, currentTimeSec), 0, durationSec);
-    const end = clamp(Math.max(pendingMarker.start, currentTimeSec), start + 0.05, durationSec);
+    const safeMaxStart = Math.max(0, durationSec - 0.05);
+    const start = clamp(Math.min(startTime, endTime), 0, safeMaxStart);
+    const end = clamp(Math.max(startTime, endTime, start + 0.05), start + 0.05, durationSec);
     const marker: ManualTimestampMarker = {
       id: `${type}_${Date.now()}_${Math.round(Math.random() * 10000)}`,
       type,
@@ -280,8 +299,22 @@ const ManualTimestampEditor = ({
       source: "user",
     };
     onMarkersChange([...markers, marker]);
+  }, [durationSec, markers, onMarkersChange]);
+
+  const createMarker = useCallback((type: ManualMarkerType, anchorTime: number) => {
+    if (durationSec <= 0) return;
+    const clampedAnchor = clamp(anchorTime, 0, durationSec);
+    if (!pendingMarker || pendingMarker.type !== type) {
+      setPendingMarker({ type, start: clampedAnchor });
+      return;
+    }
+    addMarker(type, pendingMarker.start, clampedAnchor);
     setPendingMarker(null);
-  }, [currentTimeSec, durationSec, markers, onMarkersChange, pendingMarker]);
+  }, [addMarker, durationSec, pendingMarker]);
+
+  const clearPendingMarker = useCallback(() => {
+    setPendingMarker(null);
+  }, []);
 
   const removeMarker = useCallback((id: string) => {
     onMarkersChange(markers.filter((marker) => marker.id !== id));
@@ -329,8 +362,14 @@ const ManualTimestampEditor = ({
   const timelineCursorPercent = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
   const timelineWidthPercent = clamp(Math.round(zoom * 100), 100, 800);
   const removalPercent = clamp(removeRatio * 100, 0, 100);
-  const retentionLabel =
-    retentionDelta === null ? "n/a" : `${retentionDelta >= 0 ? "+" : ""}${retentionDelta.toFixed(1)} pts`;
+  const manualRetentionLabel =
+    manualRetentionDelta === null ? "n/a" : `${manualRetentionDelta >= 0 ? "+" : ""}${manualRetentionDelta.toFixed(1)} pts`;
+  const aiRetentionLabel =
+    aiRetentionDelta === null ? "n/a" : `${aiRetentionDelta >= 0 ? "+" : ""}${aiRetentionDelta.toFixed(1)} pts`;
+  const retentionDeltaGap =
+    manualRetentionDelta !== null && aiRetentionDelta !== null
+      ? Number((manualRetentionDelta - aiRetentionDelta).toFixed(1))
+      : null;
   const markedPercent = durationSec > 0 ? clamp((markedDuration / durationSec) * 100, 0, 100) : 0;
   const primaryHookMarker =
     sortedMarkers.find((marker) => marker.type === "hook" && marker.source === "user")
@@ -420,26 +459,17 @@ const ManualTimestampEditor = ({
     const markerDensityBonus = clamp(sortedMarkers.length * 1.6, 0, 12);
 
     let hookBonus = -8;
-    let hookMessage = "Set a hook in the first 8 seconds to stabilize early retention.";
+    let hookMessage = "Set a hook marker. It will be pinned to 0:00 in the edited opener.";
     if (primaryHookMarker) {
-      const hookStart = primaryHookMarker.start;
       const hookLength = Math.max(0.05, primaryHookMarker.end - primaryHookMarker.start);
-      if (hookStart <= 8) {
-        hookBonus = 10;
-        hookMessage =
-          hookLength >= 3 && hookLength <= 8
-            ? "Hook placement is strong: early and inside the 3-8s window."
-            : "Hook starts early. Try a 3-8 second hook span for stronger hold.";
-      } else if (hookStart <= 14) {
-        hookBonus = 3;
-        hookMessage = "Hook is slightly late. Move it closer to 0-8 seconds.";
-      } else {
-        hookBonus = -6;
-        hookMessage = "Hook is late; viewers can churn before the opener lands.";
-      }
+      hookBonus = hookLength >= 3 && hookLength <= 8 ? 10 : 8;
+      hookMessage =
+        hookLength >= 3 && hookLength <= 8
+          ? "Hook marker selected: this range is pinned to the opening (0:00)."
+          : "Hook marker selected and pinned to 0:00. Try a 3-8 second span for best hold.";
     }
 
-    const estimateBias = retentionDelta === null ? 0 : retentionDelta * 3.2;
+    const estimateBias = aiRetentionDelta === null ? 0 : aiRetentionDelta * 3.2;
     const baseline = clamp(60 + estimateBias, 0, 100);
     const score = clamp(
       averageAreaScore * 0.72 + baseline * 0.28 + removalBalanceBonus + markerDensityBonus + hookBonus - 10,
@@ -465,7 +495,94 @@ const ManualTimestampEditor = ({
       weakAreas,
       lowAreas,
     };
-  }, [durationSec, microHookSuggestions, primaryHookMarker, removalPercent, retentionDelta, sortedMarkers]);
+  }, [aiRetentionDelta, durationSec, microHookSuggestions, primaryHookMarker, removalPercent, sortedMarkers]);
+
+  const recommendedHook = useMemo(() => {
+    if (durationSec <= 0) return null;
+    const maxEarlyStart = Math.min(12, durationSec);
+    const minimumSpan = Math.min(0.6, Math.max(durationSec, 0.05));
+    const maxStart = Math.max(0, durationSec - minimumSpan);
+
+    const normalizeRange = (startRaw: number, endRaw: number) => {
+      const start = clamp(startRaw, 0, maxStart);
+      const end = clamp(Math.max(endRaw, start + minimumSpan), start + minimumSpan, durationSec);
+      return {
+        start: Number(start.toFixed(3)),
+        end: Number(end.toFixed(3)),
+      };
+    };
+
+    const earlyMicroHook = [...microHookSuggestions]
+      .map((segment) => normalizeRange(segment.start, segment.end))
+      .filter((segment) => segment.start <= maxEarlyStart)
+      .sort((a, b) => a.start - b.start)[0];
+
+    if (earlyMicroHook) {
+      return {
+        ...earlyMicroHook,
+        source: "micro" as const,
+        reason: "AI micro-hook signal is strong here and lands early.",
+      };
+    }
+
+    const earlyBestArea = retentionSnapshot.bestAreas
+      .filter((area) => area.start <= maxEarlyStart)
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (earlyBestArea) {
+      const centered = normalizeRange(
+        earlyBestArea.start,
+        Math.min(earlyBestArea.end, earlyBestArea.start + 5.5),
+      );
+      return {
+        ...centered,
+        source: "retention" as const,
+        reason: earlyBestArea.reason,
+      };
+    }
+
+    return {
+      ...normalizeRange(0, Math.min(durationSec, 4.5)),
+      source: "fallback" as const,
+      reason: "Use a concise opener in the first 5 seconds to create immediate context.",
+    };
+  }, [durationSec, microHookSuggestions, retentionSnapshot.bestAreas]);
+
+  const isRecommendedHookActive = useMemo(() => {
+    if (!recommendedHook || !primaryHookMarker) return false;
+    return (
+      Math.abs(primaryHookMarker.start - recommendedHook.start) <= 0.15
+      && Math.abs(primaryHookMarker.end - recommendedHook.end) <= 0.15
+    );
+  }, [primaryHookMarker, recommendedHook]);
+
+  const applyRecommendedHook = useCallback(() => {
+    if (!recommendedHook) return;
+    const filtered = markers.filter((marker) => marker.type !== "hook");
+    const nextHook: ManualTimestampMarker = {
+      id: `hook_${Date.now()}_${Math.round(Math.random() * 10000)}`,
+      type: "hook",
+      start: recommendedHook.start,
+      end: recommendedHook.end,
+      source: "user",
+      rationale: recommendedHook.reason,
+    };
+    onMarkersChange([...filtered, nextHook]);
+    setActiveTool("hook");
+    setTimelineMode("select");
+    setPendingMarker(null);
+    flushScrubSeek(recommendedHook.start);
+  }, [flushScrubSeek, markers, onMarkersChange, recommendedHook]);
+
+  const handleTimelineRailClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (durationSec <= 0 || !timelineInnerRef.current) return;
+    const rect = timelineInnerRef.current.getBoundingClientRect();
+    const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    const targetTime = Number((ratio * durationSec).toFixed(3));
+    flushScrubSeek(targetTime);
+    if (timelineMode === "seek") return;
+    createMarker(activeTool, targetTime);
+  }, [activeTool, createMarker, durationSec, flushScrubSeek, timelineMode]);
 
   const timelineMarkerNodes = useMemo(
     () =>
@@ -582,6 +699,7 @@ const ManualTimestampEditor = ({
     [onAcceptSuggestion, onRejectSuggestion, suggestions],
   );
 
+  const beforeMonitorSrc = beforeEditUrl;
   const liveMonitorSrc = editedUrl;
 
   return (
@@ -592,7 +710,7 @@ const ManualTimestampEditor = ({
             Premium Timeline
           </p>
           <p className="text-base font-semibold text-slate-100 sm:text-lg">Manual Timestamp Editor</p>
-          <p className="text-xs text-slate-300">Two-tap markers: first tap sets start, second tap sets end.</p>
+          <p className="text-xs text-slate-300">Choose Keep/Remove/Hook, then click the timeline to set start and end.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge
@@ -612,7 +730,7 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="manual-editor-top-grid grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(260px,320px)_minmax(0,1.2fr)]">
+      <div className="manual-editor-top-grid grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,520px)_minmax(0,1.2fr)]">
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Playhead</p>
           <p className="mt-1 text-xl font-semibold text-slate-100">{formatTimelineTime(currentTimeSec)}</p>
@@ -624,36 +742,87 @@ const ManualTimestampEditor = ({
 
         <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Live Monitor</p>
-            <span className="text-[10px] text-slate-400">Muted by default</span>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Split Monitor</p>
+            <span className="text-[10px] text-slate-400">Before vs realtime edit</span>
           </div>
           <div
             ref={liveMonitorFrameRef}
-            className="manual-editor-live-monitor group relative mx-auto aspect-video w-full min-w-[260px] max-w-[320px] overflow-hidden rounded-xl border border-cyan-300/30 bg-[#03050c]"
+            className="manual-editor-live-monitor group relative overflow-hidden rounded-xl border border-cyan-300/30 bg-[#03050c]"
           >
-            {liveMonitorSrc ? (
-              <video
-                ref={liveMonitorVideoRef}
-                src={liveMonitorSrc}
-                muted={liveMonitorMuted}
-                playsInline
-                preload="metadata"
-                onLoadedData={() => {
-                  setLiveMonitorReady(true);
-                  setLiveMonitorErrored(false);
-                }}
-                onError={() => {
-                  setLiveMonitorReady(false);
-                  setLiveMonitorErrored(true);
-                }}
-                className="manual-editor-video h-full w-full bg-black object-contain"
-                aria-label="Live timeline monitor"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center px-3 text-center text-xs text-slate-400">
-                Manual output unavailable. Save and render to preview.
+            <div className="manual-editor-split-monitor-grid">
+              <div className="manual-editor-split-pane relative aspect-video overflow-hidden bg-black/70">
+                <div className="manual-editor-split-label">Before Edit</div>
+                {beforeMonitorSrc ? (
+                  <video
+                    ref={beforeMonitorVideoRef}
+                    src={beforeMonitorSrc}
+                    muted={liveMonitorMuted}
+                    playsInline
+                    preload="metadata"
+                    onLoadedData={() => {
+                      setBeforeMonitorReady(true);
+                      setBeforeMonitorErrored(false);
+                    }}
+                    onError={() => {
+                      setBeforeMonitorReady(false);
+                      setBeforeMonitorErrored(true);
+                    }}
+                    className="manual-editor-video h-full w-full bg-black object-contain"
+                    aria-label="Before edit monitor"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-3 text-center text-xs text-slate-400">
+                    Original source unavailable.
+                  </div>
+                )}
+                {beforeMonitorSrc && !beforeMonitorReady && !beforeMonitorErrored ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
+                    <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300/80" />
+                  </div>
+                ) : null}
+                {beforeMonitorErrored ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/65 px-3 text-center text-[11px] text-rose-100">
+                    Before preview unavailable
+                  </div>
+                ) : null}
               </div>
-            )}
+              <div className="manual-editor-split-pane relative aspect-video overflow-hidden bg-black/70">
+                <div className="manual-editor-split-label">Realtime Edit</div>
+                {liveMonitorSrc ? (
+                  <video
+                    ref={liveMonitorVideoRef}
+                    src={liveMonitorSrc}
+                    muted={liveMonitorMuted}
+                    playsInline
+                    preload="metadata"
+                    onLoadedData={() => {
+                      setLiveMonitorReady(true);
+                      setLiveMonitorErrored(false);
+                    }}
+                    onError={() => {
+                      setLiveMonitorReady(false);
+                      setLiveMonitorErrored(true);
+                    }}
+                    className="manual-editor-video h-full w-full bg-black object-contain"
+                    aria-label="Live timeline monitor"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-3 text-center text-xs text-slate-400">
+                    Manual output unavailable. Save and render to preview.
+                  </div>
+                )}
+                {liveMonitorSrc && !liveMonitorReady && !liveMonitorErrored ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
+                    <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300/80" />
+                  </div>
+                ) : null}
+                {liveMonitorErrored ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/65 px-3 text-center text-[11px] text-rose-100">
+                    Realtime preview unavailable
+                  </div>
+                ) : null}
+              </div>
+            </div>
             <div className="manual-editor-live-monitor-overlay absolute inset-0 flex items-end justify-between bg-gradient-to-t from-black/70 via-black/10 to-transparent p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
               <div className="flex items-center gap-1">
                 <button
@@ -707,16 +876,6 @@ const ManualTimestampEditor = ({
                 </button>
               </div>
             </div>
-            {!liveMonitorReady && !liveMonitorErrored ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
-                <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300/80" />
-              </div>
-            ) : null}
-            {liveMonitorErrored ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/65 px-3 text-center text-[11px] text-rose-100">
-                Preview unavailable
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -778,40 +937,93 @@ const ManualTimestampEditor = ({
 
           <Separator className="my-3 bg-white/10" />
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => createMarker("keep")}
-              className={cn(
-                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
-                pendingMarker?.type === "keep" && "border-emerald-300/55 bg-emerald-500/15 text-emerald-100",
-              )}
-            >
-              <p className="font-semibold">Keep</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">Protect this section</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => createMarker("remove")}
-              className={cn(
-                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
-                pendingMarker?.type === "remove" && "border-rose-300/55 bg-rose-500/15 text-rose-100",
-              )}
-            >
-              <p className="font-semibold">Remove</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">Cut this section</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => createMarker("hook")}
-              className={cn(
-                "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
-                pendingMarker?.type === "hook" && "border-cyan-300/55 bg-cyan-500/15 text-cyan-100",
-              )}
-            >
-              <p className="font-semibold">Hook</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">Anchor the opener</p>
-            </button>
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool("keep");
+                  setTimelineMode("select");
+                }}
+                className={cn(
+                  "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                  activeTool === "keep" && "border-emerald-300/55 bg-emerald-500/15 text-emerald-100",
+                )}
+              >
+                <p className="font-semibold">Keep Tool</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to preserve</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool("remove");
+                  setTimelineMode("select");
+                }}
+                className={cn(
+                  "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                  activeTool === "remove" && "border-rose-300/55 bg-rose-500/15 text-rose-100",
+                )}
+              >
+                <p className="font-semibold">Cut Tool</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to remove</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool("hook");
+                  setTimelineMode("select");
+                }}
+                className={cn(
+                  "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
+                  activeTool === "hook" && "border-cyan-300/55 bg-cyan-500/15 text-cyan-100",
+                )}
+              >
+                <p className="font-semibold">Hook Tool</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select the opening hook window</p>
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={() => createMarker(activeTool, currentTimeSec)}
+              >
+                <Scissors className="h-3.5 w-3.5" />
+                {pendingMarker?.type === activeTool ? "Set End @ Playhead" : "Set Start @ Playhead"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={timelineMode === "select" ? "secondary" : "ghost"}
+                className="h-8 gap-1.5"
+                onClick={() => setTimelineMode("select")}
+              >
+                <MousePointer2 className="h-3.5 w-3.5" />
+                Selector Mode
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={timelineMode === "seek" ? "secondary" : "ghost"}
+                className="h-8"
+                onClick={() => {
+                  setTimelineMode("seek");
+                  clearPendingMarker();
+                }}
+              >
+                Seek Mode
+              </Button>
+              {pendingMarker ? (
+                <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearPendingMarker}>
+                  Cancel Start
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Active tool: <span className="text-slate-200">{labelByType[activeTool]}</span>. {toolHintByType[activeTool]}
+            </p>
           </div>
         </div>
       </div>
@@ -833,8 +1045,8 @@ const ManualTimestampEditor = ({
 
       {pendingMarker ? (
         <div className="rounded-lg border border-cyan-300/35 bg-cyan-500/10 px-2.5 py-2 text-xs text-cyan-100">
-          {labelByType[pendingMarker.type]} start set at {formatTimelineTime(pendingMarker.start)}. Press the same button
-          again to place the end.
+          {labelByType[pendingMarker.type]} start set at {formatTimelineTime(pendingMarker.start)}. Click another point on
+          the timeline (or set end at playhead) to finish this range.
         </div>
       ) : null}
 
@@ -846,6 +1058,12 @@ const ManualTimestampEditor = ({
             <span>{formatTimelineTime(durationSec)}</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full border border-cyan-300/35 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-100">
+              {timelineMode === "select" ? "Selector mode" : "Seek mode"}
+            </span>
+            <span className="rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[10px] text-slate-100">
+              Tool: {labelByType[activeTool]}
+            </span>
             <span className="rounded-full border border-emerald-300/40 bg-emerald-500/12 px-2 py-0.5 text-[10px] text-emerald-100">Keep</span>
             <span className="rounded-full border border-rose-300/40 bg-rose-500/12 px-2 py-0.5 text-[10px] text-rose-100">Remove</span>
             <span className="rounded-full border border-cyan-300/40 bg-cyan-500/12 px-2 py-0.5 text-[10px] text-cyan-100">Hook</span>
@@ -876,14 +1094,12 @@ const ManualTimestampEditor = ({
         <div className="manual-editor-timeline-scroll mt-3 overflow-x-auto rounded-lg border border-white/10 bg-black/35">
           <div
             ref={timelineInnerRef}
-            className="manual-editor-timeline-inner relative h-24 min-w-full cursor-pointer"
+            className={cn(
+              "manual-editor-timeline-inner relative h-24 min-w-full",
+              timelineMode === "select" ? "cursor-crosshair" : "cursor-pointer",
+            )}
             style={{ width: `${timelineWidthPercent}%` }}
-            onClick={(event) => {
-              if (durationSec <= 0 || !timelineInnerRef.current) return;
-              const rect = timelineInnerRef.current.getBoundingClientRect();
-              const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
-              flushScrubSeek(Number((ratio * durationSec).toFixed(3)));
-            }}
+            onClick={handleTimelineRailClick}
           >
             <div className="manual-editor-timeline-track absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full" />
             {timelineMarkerNodes}
@@ -944,6 +1160,49 @@ const ManualTimestampEditor = ({
             </Badge>
           </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Hook recommendation</p>
+              <Badge
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px]",
+                  isRecommendedHookActive
+                    ? "border-emerald-300/40 bg-emerald-500/12 text-emerald-100"
+                    : "border-cyan-300/40 bg-cyan-500/12 text-cyan-100",
+                )}
+              >
+                {isRecommendedHookActive ? "Applied" : "Suggested"}
+              </Badge>
+            </div>
+            {recommendedHook ? (
+              <>
+                <p className="text-sm font-semibold text-slate-100">{formatRange(recommendedHook.start, recommendedHook.end)}</p>
+                <p className="mt-1 text-[11px] text-slate-300">{recommendedHook.reason}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => flushScrubSeek(recommendedHook.start)}
+                  >
+                    Jump to range
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    disabled={isRecommendedHookActive}
+                    onClick={applyRecommendedHook}
+                  >
+                    Use as hook
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] text-slate-400">Load preview to generate a hook recommendation.</p>
+            )}
+          </div>
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Live retention score</p>
             <div className="mt-1 flex items-end justify-between gap-2">
               <p className="text-2xl font-semibold text-slate-100">
@@ -953,7 +1212,13 @@ const ManualTimestampEditor = ({
               <p className="text-[11px] text-slate-400">Baseline {retentionSnapshot.baseline.toFixed(1)}</p>
             </div>
             <Progress value={retentionSnapshot.score} className="manual-editor-progress mt-2 h-2 bg-white/10" />
-            <p className="mt-2 text-xs text-slate-200">Projected retention delta: {retentionLabel}</p>
+            <p className="mt-2 text-xs text-slate-200">Manual retention delta: {manualRetentionLabel}</p>
+            <p className="mt-1 text-xs text-slate-300">AI retention delta: {aiRetentionLabel}</p>
+            {retentionDeltaGap !== null ? (
+              <p className="mt-1 text-xs text-slate-300">
+                Manual vs AI delta: {retentionDeltaGap >= 0 ? "+" : ""}{retentionDeltaGap.toFixed(1)} pts
+              </p>
+            ) : null}
             <p className="mt-1 text-xs text-cyan-100/90">{retentionSnapshot.hookMessage}</p>
           </div>
           <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
