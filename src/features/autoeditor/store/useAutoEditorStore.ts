@@ -243,7 +243,9 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
     })),
   setErrorMessage: (message) => set({ errorMessage: message }),
   setUploadAnalysis: (payload) => {
-    const detectedMode = payload.autoDetection.finalMode;
+    const metadataDetectedMode: RenderMode =
+      Number(payload.metadata?.width || 0) > Number(payload.metadata?.height || 0) ? "horizontal" : "vertical";
+    const detectedMode = payload.autoDetection?.finalMode || metadataDetectedMode;
     const isVertical = detectedMode === "vertical";
     const profile = payload.autoDetection.editorProfile;
     const inferredPacing =
@@ -266,8 +268,9 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       fileName: payload.fileName,
       duration: payload.metadata.duration,
       autoDetection: payload.autoDetection,
+      autoModeEnabled: true,
       mode: detectedMode,
-      modeConfirmed: false,
+      modeConfirmed: true,
       revealedSectionCount: 0,
       quickControls: resolvedQuickControls,
       manualTimestampModalOpen: false,
@@ -298,7 +301,7 @@ export const useAutoEditorStore = create<AutoEditorState>((set, get) => ({
       errorMessage: null,
       isRendering: false,
       isAnalyzingUpload: false,
-      flowStep: "mode_selection",
+      flowStep: "settings",
     });
   },
 

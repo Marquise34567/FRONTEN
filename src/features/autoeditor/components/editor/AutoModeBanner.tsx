@@ -48,7 +48,7 @@ export default function AutoModeBanner({
         checked={autoModeEnabled}
         onCheckedChange={onAutoModeToggle}
         label="Auto-apply detected mode"
-        description="Preselect detected orientation while keeping manual confirmation in your control."
+        description="Detected orientation is applied on upload; you can still switch mode manually anytime."
       />
     </motion.section>
   );
