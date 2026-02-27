@@ -266,10 +266,10 @@
   @keyframes landingCrownFloatInline {
     0%,
     100% {
-      transform: translateY(0) rotate(-4deg);
+      transform: translateX(-50%) translateY(0) rotate(-4deg);
     }
     50% {
-      transform: translateY(-4px) rotate(2deg);
+      transform: translateX(-50%) translateY(-4px) rotate(2deg);
     }
   }
 
@@ -351,6 +351,11 @@
     display: inline-block;
   }
 
+  .landing-king-initial {
+    position: relative;
+    display: inline-block;
+  }
+
   .landing-royal-crown {
     position: absolute;
     left: 50%;
@@ -426,12 +431,12 @@
   }
 
   .landing-royal-crown-inline {
-    left: 0.06em;
+    left: 50%;
     top: -0.42em;
     bottom: auto;
     width: 0.46em;
     height: 0.31em;
-    transform: none;
+    transform: translateX(-50%);
     animation: landingCrownFloatInline 2.7s ease-in-out infinite;
     filter: drop-shadow(0 3px 6px hsl(40 95% 55% / 0.28));
     overflow: visible;

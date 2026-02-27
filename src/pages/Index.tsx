@@ -7,6 +7,28 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/providers/AuthProvider";
+
+const UploadCTA = () => {
+  const navigate = useNavigate();
+  const { accessToken } = useAuth();
+  const target = "/editor?autopick=1";
+  const handleClick = () => {
+    if (!accessToken) {
+      navigate(`/login?next=${encodeURIComponent(target)}`);
+      return;
+    }
+    navigate(target);
+  };
+
+  return (
+    <Button variant="outline" size="lg" onClick={handleClick} className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
+      <Upload className="w-4 h-4" />
+      Upload File
+    </Button>
+  );
+};
 
 const demoSteps = [
   {
@@ -127,13 +149,16 @@ const Index = () => {
             >
               Retention Is{" "}
               <span className="landing-king-word">
-                <span className="landing-royal-crown landing-royal-crown-inline" aria-hidden="true">
-                  <span className="landing-royal-crown-spike landing-royal-crown-spike-left" />
-                  <span className="landing-royal-crown-spike landing-royal-crown-spike-mid" />
-                  <span className="landing-royal-crown-spike landing-royal-crown-spike-right" />
-                  <span className="landing-royal-crown-gem" />
+                <span className="landing-king-initial">
+                  <span className="landing-royal-crown landing-royal-crown-inline" aria-hidden="true">
+                    <span className="landing-royal-crown-spike landing-royal-crown-spike-left" />
+                    <span className="landing-royal-crown-spike landing-royal-crown-spike-mid" />
+                    <span className="landing-royal-crown-spike landing-royal-crown-spike-right" />
+                    <span className="landing-royal-crown-gem" />
+                  </span>
+                  K
                 </span>
-                King
+                ing
               </span>{" "}
               — We Built the Tools to Rule It
             </motion.h1>
@@ -159,17 +184,9 @@ const Index = () => {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <Link to="/pricing" className="w-full sm:w-auto">
-                <Button variant="ghost" size="lg" className="w-full rounded-full px-8 text-muted-foreground hover:text-foreground sm:w-auto">
-                  View Pricing
-                </Button>
-              </Link>
-              <Link to="/editor?mode=vertical" className="w-full sm:w-auto">
-                <Button variant="outline" size="lg" className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
-                  <ScissorsSquare className="w-4 h-4" />
-                  Vertical Mode
-                </Button>
-              </Link>
+              <div className="w-full sm:w-auto">
+                <UploadCTA />
+              </div>
             </motion.div>
           </motion.div>
 
