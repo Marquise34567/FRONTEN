@@ -59,7 +59,8 @@
 }
 
 .manual-editor-split-pane {
-  min-height: 9rem;
+  aspect-ratio: 16 / 7.2;
+  min-height: 6.75rem;
 }
 
 .manual-editor-split-label {
@@ -80,6 +81,11 @@
 @media (min-width: 640px) {
   .manual-editor-split-monitor-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .manual-editor-split-pane {
+    aspect-ratio: 16 / 6.8;
+    min-height: 6.25rem;
   }
 }
 

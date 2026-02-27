@@ -127,6 +127,13 @@ const overlapDuration = (aStart: number, aEnd: number, bStart: number, bEnd: num
 
 const formatRange = (start: number, end: number) => `${formatTimelineTime(start)}-${formatTimelineTime(end)}`;
 
+const isTextEntryTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target.closest("[contenteditable='true']")) return true;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+};
+
 const PLAYBACK_RATE_OPTIONS = [1, 1.25, 1.5, 2] as const;
 const FRAME_STEP_SECONDS = 1 / 30;
 
@@ -316,6 +323,20 @@ const ManualTimestampEditor = ({
     setPendingMarker(null);
   }, []);
 
+  const setActiveToolAndSelect = useCallback((tool: ManualMarkerType) => {
+    setActiveTool(tool);
+    setTimelineMode("select");
+  }, []);
+
+  const activateSelectorMode = useCallback(() => {
+    setTimelineMode("select");
+  }, []);
+
+  const activateSeekMode = useCallback(() => {
+    setTimelineMode("seek");
+    clearPendingMarker();
+  }, [clearPendingMarker]);
+
   const removeMarker = useCallback((id: string) => {
     onMarkersChange(markers.filter((marker) => marker.id !== id));
   }, [markers, onMarkersChange]);
@@ -358,6 +379,105 @@ const ManualTimestampEditor = ({
     const next = clamp(currentTimeSec + direction * FRAME_STEP_SECONDS, 0, durationSec);
     flushScrubSeek(next);
   }, [currentTimeSec, durationSec, flushScrubSeek]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (isTextEntryTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+      const isSaveChord = (event.ctrlKey || event.metaKey) && key === "s";
+
+      if (isSaveChord) {
+        event.preventDefault();
+        if (!saveDisabled && !saving) onSave();
+        return;
+      }
+
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+      if (event.repeat && (event.code === "Space" || key === "p" || key === "k" || key === "c" || key === "h")) {
+        return;
+      }
+
+      if (event.code === "Space" || key === "p") {
+        event.preventDefault();
+        onTogglePlay();
+        return;
+      }
+
+      if (key === "k" || key === "1") {
+        event.preventDefault();
+        setActiveToolAndSelect("keep");
+        return;
+      }
+
+      if (key === "c" || key === "2") {
+        event.preventDefault();
+        setActiveToolAndSelect("remove");
+        return;
+      }
+
+      if (key === "h" || key === "3") {
+        event.preventDefault();
+        setActiveToolAndSelect("hook");
+        return;
+      }
+
+      if (key === "m") {
+        event.preventDefault();
+        createMarker(activeTool, currentTimeSec);
+        return;
+      }
+
+      if (key === "v") {
+        event.preventDefault();
+        activateSelectorMode();
+        return;
+      }
+
+      if (key === "b") {
+        event.preventDefault();
+        activateSeekMode();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearPendingMarker();
+        return;
+      }
+
+      if (event.key === "ArrowLeft" || key === "[") {
+        event.preventDefault();
+        handleStepFrame(-1);
+        return;
+      }
+
+      if (event.key === "ArrowRight" || key === "]") {
+        event.preventDefault();
+        handleStepFrame(1);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [
+    activeTool,
+    activateSeekMode,
+    activateSelectorMode,
+    clearPendingMarker,
+    createMarker,
+    currentTimeSec,
+    handleStepFrame,
+    onSave,
+    onTogglePlay,
+    saveDisabled,
+    saving,
+    setActiveToolAndSelect,
+  ]);
 
   const timelineCursorPercent = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
   const timelineWidthPercent = clamp(Math.round(zoom * 100), 100, 800);
@@ -703,14 +823,15 @@ const ManualTimestampEditor = ({
   const liveMonitorSrc = editedUrl;
 
   return (
-    <section className="manual-editor-shell space-y-4 rounded-2xl border border-cyan-200/20 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="manual-editor-shell space-y-3 rounded-2xl border border-cyan-200/20 p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="manual-editor-eyebrow text-[11px] uppercase tracking-[0.18em] text-cyan-200/85">
             Premium Timeline
           </p>
           <p className="text-base font-semibold text-slate-100 sm:text-lg">Manual Timestamp Editor</p>
           <p className="text-xs text-slate-300">Choose Keep/Remove/Hook, then click the timeline to set start and end.</p>
+          <p className="mt-1 text-[11px] text-slate-400">Shortcuts: K keep, C cut, H hook, Space/P play-pause, M mark</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge
@@ -730,8 +851,8 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="manual-editor-top-grid grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,520px)_minmax(0,1.2fr)]">
-        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
+      <div className="manual-editor-top-grid grid gap-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,520px)_minmax(0,1.2fr)]">
+        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-2.5">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Playhead</p>
           <p className="mt-1 text-xl font-semibold text-slate-100">{formatTimelineTime(currentTimeSec)}</p>
           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
@@ -740,7 +861,7 @@ const ManualTimestampEditor = ({
           </div>
         </div>
 
-        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
+        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Split Monitor</p>
             <span className="text-[10px] text-slate-400">Before vs realtime edit</span>
@@ -750,7 +871,7 @@ const ManualTimestampEditor = ({
             className="manual-editor-live-monitor group relative overflow-hidden rounded-xl border border-cyan-300/30 bg-[#03050c]"
           >
             <div className="manual-editor-split-monitor-grid">
-              <div className="manual-editor-split-pane relative aspect-video overflow-hidden bg-black/70">
+              <div className="manual-editor-split-pane relative overflow-hidden bg-black/70">
                 <div className="manual-editor-split-label">Before Edit</div>
                 {beforeMonitorSrc ? (
                   <video
@@ -786,7 +907,7 @@ const ManualTimestampEditor = ({
                   </div>
                 ) : null}
               </div>
-              <div className="manual-editor-split-pane relative aspect-video overflow-hidden bg-black/70">
+              <div className="manual-editor-split-pane relative overflow-hidden bg-black/70">
                 <div className="manual-editor-split-label">Realtime Edit</div>
                 {liveMonitorSrc ? (
                   <video
@@ -830,7 +951,7 @@ const ManualTimestampEditor = ({
                   className="manual-editor-monitor-btn"
                   onClick={() => handleStepFrame(-1)}
                   aria-label="Step back one frame"
-                  title="Step back"
+                  title="Step back ([ / Left)"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
@@ -839,7 +960,7 @@ const ManualTimestampEditor = ({
                   className="manual-editor-monitor-btn"
                   onClick={onTogglePlay}
                   aria-label={isPlaying ? "Pause preview" : "Play preview"}
-                  title={isPlaying ? "Pause" : "Play"}
+                  title={isPlaying ? "Pause (Space/P)" : "Play (Space/P)"}
                 >
                   {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                 </button>
@@ -848,7 +969,7 @@ const ManualTimestampEditor = ({
                   className="manual-editor-monitor-btn"
                   onClick={() => handleStepFrame(1)}
                   aria-label="Step forward one frame"
-                  title="Step forward"
+                  title="Step forward (] / Right)"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
@@ -879,12 +1000,12 @@ const ManualTimestampEditor = ({
           </div>
         </div>
 
-        <div className="manual-editor-toolbar rounded-xl border border-white/10 bg-black/25 p-3">
+        <div className="manual-editor-toolbar rounded-xl border border-white/10 bg-black/25 p-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" size="sm" variant="outline" onClick={onTogglePlay} className="gap-1.5">
                 {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                {isPlaying ? "Pause" : "Play"}
+                {isPlaying ? "Pause (Space/P)" : "Play (Space/P)"}
               </Button>
               <Button
                 type="button"
@@ -896,7 +1017,7 @@ const ManualTimestampEditor = ({
                 className="gap-1.5"
               >
                 <Check className="h-3.5 w-3.5" />
-                Save
+                Save (Ctrl/Cmd+S)
               </Button>
               <Button
                 type="button"
@@ -942,8 +1063,7 @@ const ManualTimestampEditor = ({
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTool("keep");
-                  setTimelineMode("select");
+                  setActiveToolAndSelect("keep");
                 }}
                 className={cn(
                   "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
@@ -951,13 +1071,12 @@ const ManualTimestampEditor = ({
                 )}
               >
                 <p className="font-semibold">Keep Tool</p>
-                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to preserve</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to preserve (K / 1)</p>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTool("remove");
-                  setTimelineMode("select");
+                  setActiveToolAndSelect("remove");
                 }}
                 className={cn(
                   "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
@@ -965,13 +1084,12 @@ const ManualTimestampEditor = ({
                 )}
               >
                 <p className="font-semibold">Cut Tool</p>
-                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to remove</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select parts to remove (C / 2)</p>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTool("hook");
-                  setTimelineMode("select");
+                  setActiveToolAndSelect("hook");
                 }}
                 className={cn(
                   "manual-editor-action-chip rounded-lg border px-3 py-2 text-left text-xs text-slate-200",
@@ -979,7 +1097,7 @@ const ManualTimestampEditor = ({
                 )}
               >
                 <p className="font-semibold">Hook Tool</p>
-                <p className="mt-0.5 text-[10px] text-slate-400">Select the opening hook window</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">Select the opening hook window (H / 3)</p>
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -991,33 +1109,30 @@ const ManualTimestampEditor = ({
                 onClick={() => createMarker(activeTool, currentTimeSec)}
               >
                 <Scissors className="h-3.5 w-3.5" />
-                {pendingMarker?.type === activeTool ? "Set End @ Playhead" : "Set Start @ Playhead"}
+                {pendingMarker?.type === activeTool ? "Set End @ Playhead (M)" : "Set Start @ Playhead (M)"}
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant={timelineMode === "select" ? "secondary" : "ghost"}
                 className="h-8 gap-1.5"
-                onClick={() => setTimelineMode("select")}
+                onClick={activateSelectorMode}
               >
                 <MousePointer2 className="h-3.5 w-3.5" />
-                Selector Mode
+                Selector Mode (V)
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant={timelineMode === "seek" ? "secondary" : "ghost"}
                 className="h-8"
-                onClick={() => {
-                  setTimelineMode("seek");
-                  clearPendingMarker();
-                }}
+                onClick={activateSeekMode}
               >
-                Seek Mode
+                Seek Mode (B)
               </Button>
               {pendingMarker ? (
                 <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearPendingMarker}>
-                  Cancel Start
+                  Cancel Start (Esc)
                 </Button>
               ) : null}
             </div>
@@ -1029,14 +1144,14 @@ const ManualTimestampEditor = ({
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
+        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-2.5">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Markers</p>
           <p className="mt-1 text-lg font-semibold text-slate-100">{sortedMarkers.length}</p>
           <p className="text-[11px] text-slate-400">
             {markerCounts.keep} keep • {markerCounts.remove} remove • {markerCounts.hook} hook
           </p>
         </div>
-        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-3">
+        <div className="manual-editor-stat rounded-xl border border-white/10 bg-black/30 p-2.5">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Coverage</p>
           <p className="mt-1 text-lg font-semibold text-slate-100">{markedPercent.toFixed(1)}%</p>
           <p className="text-[11px] text-slate-400">{formatTimelineTime(markedDuration)} tagged</p>
@@ -1044,13 +1159,13 @@ const ManualTimestampEditor = ({
       </div>
 
       {pendingMarker ? (
-        <div className="rounded-lg border border-cyan-300/35 bg-cyan-500/10 px-2.5 py-2 text-xs text-cyan-100">
+        <div className="rounded-lg border border-cyan-300/35 bg-cyan-500/10 px-2 py-1.5 text-xs text-cyan-100">
           {labelByType[pendingMarker.type]} start set at {formatTimelineTime(pendingMarker.start)}. Click another point on
           the timeline (or set end at playhead) to finish this range.
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
           <div className="flex items-center gap-2">
             <span>{formatTimelineTime(currentTimeSec)}</span>
@@ -1108,14 +1223,14 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+      <div className="grid gap-2 lg:grid-cols-2">
+        <div className="rounded-xl border border-white/10 bg-black/25 p-2.5">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-medium text-slate-100">Markers</p>
             <Badge className="border-white/15 bg-white/5 text-slate-100">{sortedMarkers.length}</Badge>
           </div>
           {sortedMarkers.length > 0 ? (
-            <ScrollArea className="max-h-44 pr-2">
+            <ScrollArea className="max-h-40 pr-2">
               <div className="space-y-2">{markerListNodes}</div>
             </ScrollArea>
           ) : (
@@ -1123,7 +1238,7 @@ const ManualTimestampEditor = ({
           )}
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+        <div className="rounded-xl border border-white/10 bg-black/25 p-2.5">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-medium text-slate-100">AI Suggestions</p>
             <Button type="button" size="sm" variant="ghost" onClick={onApplyAllSuggestions} disabled={suggestions.length === 0}>
@@ -1131,7 +1246,7 @@ const ManualTimestampEditor = ({
             </Button>
           </div>
           {suggestions.length > 0 ? (
-            <ScrollArea className="max-h-44 pr-2">
+            <ScrollArea className="max-h-40 pr-2">
               <div className="space-y-2">{suggestionListNodes}</div>
             </ScrollArea>
           ) : (
@@ -1140,8 +1255,8 @@ const ManualTimestampEditor = ({
         </div>
       </div>
 
-      <div className="grid gap-3">
-        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+      <div className="grid gap-2">
+        <div className="rounded-xl border border-white/10 bg-black/25 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
               <Gauge className="h-4 w-4 text-cyan-200" />
@@ -1159,7 +1274,7 @@ const ManualTimestampEditor = ({
               {retentionSnapshot.deltaFromBaseline.toFixed(1)}
             </Badge>
           </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+          <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Hook recommendation</p>
               <Badge
@@ -1202,7 +1317,7 @@ const ManualTimestampEditor = ({
               <p className="text-[11px] text-slate-400">Load preview to generate a hook recommendation.</p>
             )}
           </div>
-          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Live retention score</p>
             <div className="mt-1 flex items-end justify-between gap-2">
               <p className="text-2xl font-semibold text-slate-100">
@@ -1221,7 +1336,7 @@ const ManualTimestampEditor = ({
             ) : null}
             <p className="mt-1 text-xs text-cyan-100/90">{retentionSnapshot.hookMessage}</p>
           </div>
-          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
             <div className="flex items-center justify-between text-xs text-slate-200">
               <span>Removal ratio</span>
               <span>{removalPercent.toFixed(1)}%</span>
@@ -1229,7 +1344,7 @@ const ManualTimestampEditor = ({
             <Progress value={removalPercent} className="manual-editor-progress mt-2 h-2 bg-white/10" />
             <p className="mt-1 text-[11px] text-slate-400">Micro-hook hints: {microHookSuggestions.length}</p>
           </div>
-          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Retention map</p>
             {retentionSnapshot.areaMap.length > 0 ? (
               <div className="manual-editor-retention-strip mt-1.5">
@@ -1330,7 +1445,7 @@ const ManualTimestampEditor = ({
             </div>
           </div>
           {warning ? (
-            <p className="mt-2 rounded-lg border border-amber-300/35 bg-amber-500/12 px-2.5 py-2 text-xs text-amber-100">
+            <p className="mt-2 rounded-lg border border-amber-300/35 bg-amber-500/12 px-2 py-1.5 text-xs text-amber-100">
               {warning}
             </p>
           ) : null}
