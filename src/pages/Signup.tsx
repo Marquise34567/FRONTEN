@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,16 @@ import { Label } from "@/components/ui/label";
 import { Mail, ArrowRight, Lock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
+
+const resolveNextPath = (nextParam: string | null, location: ReturnType<typeof useLocation>) => {
+  if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) return nextParam;
+  const state = location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null;
+  const from = state?.from;
+  if (from?.pathname && from.pathname.startsWith("/")) {
+    return `${from.pathname}${from.search || ""}${from.hash || ""}`;
+  }
+  return "/editor";
+};
 
 const Signup = () => {
   const [email, setEmail] = useState("");
@@ -19,6 +29,9 @@ const Signup = () => {
   const { signUp } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const nextPath = resolveNextPath(searchParams.get("next"), location);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +56,7 @@ const Signup = () => {
       setEmailSent(true);
       return;
     }
-    navigate("/editor");
+    navigate(nextPath, { replace: true });
   };
 
   return (

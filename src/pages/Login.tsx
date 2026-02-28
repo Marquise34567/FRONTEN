@@ -7,8 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowRight, Lock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+
+const resolveNextPath = (nextParam: string | null, location: ReturnType<typeof useLocation>) => {
+  if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) return nextParam;
+  const state = location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null;
+  const from = state?.from;
+  if (from?.pathname && from.pathname.startsWith("/")) {
+    return `${from.pathname}${from.search || ""}${from.hash || ""}`;
+  }
+  return "/editor";
+};
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -19,7 +29,10 @@ const Login = () => {
   const [resending, setResending] = useState(false);
   const { signIn, resendConfirmation } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const nextPath = resolveNextPath(searchParams.get("next"), location);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +49,7 @@ const Login = () => {
       toast({ title: "Login failed", description: result.error });
       return;
     }
-    navigate("/editor");
+    navigate(nextPath, { replace: true });
   };
 
   const canResendConfirmation =
@@ -127,7 +140,7 @@ const Login = () => {
               ) : null}
               <p className="text-xs text-muted-foreground text-center">
                 New here?{" "}
-                <Link to="/signup" className="text-primary hover:text-primary/80">
+                <Link to={`/signup?next=${encodeURIComponent(nextPath)}`} className="text-primary hover:text-primary/80">
                   Create an account
                 </Link>
               </p>

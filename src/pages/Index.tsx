@@ -5,27 +5,115 @@ import { Progress } from "@/components/ui/progress";
 import PricingCards from "@/components/PricingCards";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/providers/AuthProvider";
+import { useToast } from "@/hooks/use-toast";
+
+const ALLOWED_UPLOAD_EXTENSIONS = [".mp4", ".m4v", ".mkv"];
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  "video/mp4",
+  "application/mp4",
+  "video/m4v",
+  "video/x-m4v",
+  "video/x-matroska",
+]);
+
+const transferHasFiles = (transfer: DataTransfer | null | undefined) => {
+  if (!transfer) return false;
+  if (transfer.files && transfer.files.length > 0) return true;
+  if (!transfer.types) return false;
+  return Array.from(transfer.types).includes("Files");
+};
+
+const getFirstTransferFile = (transfer: DataTransfer | null | undefined): File | null => {
+  if (!transfer) return null;
+  if (transfer.items && transfer.items.length > 0) {
+    const fileItem = Array.from(transfer.items).find((item) => item.kind === "file");
+    const maybeFile = fileItem?.getAsFile();
+    if (maybeFile) return maybeFile;
+  }
+  return transfer.files?.[0] ?? null;
+};
+
+const isAllowedUploadFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  if (ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) return true;
+  const normalizedType = String(file.type || "").toLowerCase();
+  return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
+};
 
 const UploadCTA = () => {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
+  const { toast } = useToast();
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepthRef = useRef(0);
   const target = "/editor?autopick=1";
-  const handleClick = () => {
+  const routeToEditor = useCallback(() => {
     if (!accessToken) {
       navigate(`/login?next=${encodeURIComponent(target)}`);
       return;
     }
     navigate(target);
-  };
+  }, [accessToken, navigate]);
+
+  const handleClick = useCallback(() => {
+    routeToEditor();
+  }, [routeToEditor]);
+
+  const handleDragEnter = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragging(true);
+  }, []);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    if (!isDragging) setIsDragging(true);
+  }, [isDragging]);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    if (!transferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDragging(false);
+    const file = getFirstTransferFile(event.dataTransfer);
+    if (!file) return;
+    if (!isAllowedUploadFile(file)) {
+      toast({ title: "Unsupported file type", description: "Drop an MP4, M4V, or MKV video file." });
+      return;
+    }
+    routeToEditor();
+  }, [routeToEditor, toast]);
 
   return (
-    <Button variant="outline" size="lg" onClick={handleClick} className="w-full gap-2 rounded-full border-border/60 px-8 sm:w-auto">
+    <Button
+      variant="outline"
+      size="lg"
+      onClick={handleClick}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`w-full gap-2 rounded-full border-border/60 px-8 transition-colors sm:w-auto ${
+        isDragging ? "border-primary/70 bg-primary/10 text-foreground" : ""
+      }`}
+      aria-label="Drop a video file to upload"
+    >
       <Upload className="w-4 h-4" />
-      Upload File
+      Drop Or Upload File
     </Button>
   );
 };
@@ -154,9 +242,9 @@ const Index = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.65, duration: 0.6 }}
             >
-              <Link to="/editor" className="w-full sm:w-auto">
+              <Link to="/pricing" className="w-full sm:w-auto">
                 <Button size="lg" className="w-full gap-2 rounded-full bg-primary px-8 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto">
-                  Get Started Free
+                  Start Free Trial
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
