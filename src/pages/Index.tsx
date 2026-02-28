@@ -698,6 +698,10 @@ const Index = () => {
     };
   }, []);
 
+  // Check document-level performance flag set earlier to avoid heavy animations
+  const isPerformanceConstrained = typeof document !== "undefined" &&
+    document.documentElement.getAttribute("data-performance") === "constrained";
+
   // Detect low-power / low-capacity devices and toggle performance flags
   useEffect(() => {
     try {
@@ -1095,6 +1099,8 @@ const Index = () => {
 
   useEffect(() => {
     if (demoPhase !== "idle" || demoUploadFile) return;
+    // Skip demo RAF loop on low-power / constrained devices
+    if (isPerformanceConstrained) return;
     let rafId = 0;
     let last = performance.now();
     let acc = 0;
@@ -1150,7 +1156,7 @@ const Index = () => {
           <div className="relative z-10">
             <Navbar />
             <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
-        <ViralBackdrop />
+        {showBackdrop && !isPerformanceConstrained ? <ViralBackdrop /> : null}
         <AnimatePresence>
           {isTrialHoverTakeoverActive ? (
             <>

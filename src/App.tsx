@@ -23,7 +23,6 @@ import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
 import ControlPanelOps from "./pages/ControlPanelOps";
 import ControlPanelSecurity from "./pages/ControlPanelSecurity";
 import ControlPanelAnalytics from "./pages/ControlPanelAnalytics";
-import PreviewFinalRender from "./pages/PreviewFinalRender";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
@@ -219,7 +218,6 @@ const App = () => {
                   </RequireAuth>
                 }
               />
-              <Route path="/preview/final-render" element={<PreviewFinalRender />} />
               <Route
                 path="/dev/control-panel/emotion"
                 element={

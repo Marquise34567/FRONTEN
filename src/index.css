@@ -977,6 +977,19 @@ html[data-performance='constrained'] .trial-takeover-active * {
     0% {
       transform: translate3d(0, 0, 0);
     }
+    25% {
+      transform: translate3d(1px, -1px, 0);
+    }
+    50% {
+      transform: translate3d(-1px, 1px, 0);
+    }
+    75% {
+      transform: translate3d(1px, 1px, 0);
+    }
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+  }
 
     /* Navbar animations & helpers */
     @keyframes navPop {
@@ -1229,19 +1242,6 @@ html[data-performance='constrained'] .trial-takeover-active * {
     .nav-pop .pill-badge {
       transform-origin: left center;
     }
-    25% {
-      transform: translate3d(1px, -1px, 0);
-    }
-    50% {
-      transform: translate3d(-1px, 1px, 0);
-    }
-    75% {
-      transform: translate3d(1px, 1px, 0);
-    }
-    100% {
-      transform: translate3d(0, 0, 0);
-    }
-  }
 
   .landing-royal-tv-bg {
     position: absolute;
