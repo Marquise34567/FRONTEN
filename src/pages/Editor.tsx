@@ -1197,6 +1197,7 @@ const Editor = () => {
   const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile>(() => readRuntimeProfile());
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
+  const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
@@ -3623,7 +3624,7 @@ const Editor = () => {
   );
 
   const handleDownload = async (clipIndex = 0) => {
-    if (!accessToken || !activeJob) return;
+    if (!accessToken || !activeJob) return false;
     try {
       const clipParam = clipIndex + 1;
       let downloadUrl = "";
@@ -3672,8 +3673,10 @@ const Editor = () => {
         document.body.removeChild(link);
       }
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
+      return true;
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
+      return false;
     }
   };
 
@@ -5059,22 +5062,13 @@ const Editor = () => {
     handlePickFile();
   };
 
-  const openVideoStatsSummary = useCallback((options?: { closeExport?: boolean }) => {
-    if (options?.closeExport) setExportOpen(false);
+  const openVideoStatsSummary = useCallback(() => {
+    setVideoAnalysisOpen(true);
     setRetentionDetailsOpen(true);
     if (analyzeUnlockedForActiveJob) {
       setShowAdvancedDebug(true);
     }
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        fullAnalysisSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    });
   }, [analyzeUnlockedForActiveJob]);
-
-  const handleViewFullAnalysisFromExport = () => {
-    openVideoStatsSummary({ closeExport: true });
-  };
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
@@ -7038,15 +7032,17 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <div ref={fullAnalysisSectionRef} className="retention-summary-shell space-y-3 rounded-2xl p-3 sm:p-4">
+                    <Dialog open={videoAnalysisOpen} onOpenChange={setVideoAnalysisOpen}>
+                      <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-3 backdrop-blur-xl sm:max-w-5xl sm:p-4">
+                        <div ref={fullAnalysisSectionRef} className="retention-summary-shell glass-card space-y-3 rounded-2xl p-3 sm:p-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Video Stats Summary</p>
+                        <p className="pill-badge text-[10px]">Video Stats Summary</p>
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="retention-summary-feedback-btn h-8 px-2.5 text-[11px]"
+                            className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
                             onClick={() => openVideoStatsSummary()}
                           >
                             <MessageCircle className="mr-1 h-3.5 w-3.5" />
@@ -7068,7 +7064,7 @@ const Editor = () => {
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="retention-summary-card rounded-xl p-3">
+                        <div className="retention-summary-card glass-card rounded-xl p-3">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
                           {retentionScoreDeltaDisplay !== null ? (
                             <motion.p
@@ -7095,7 +7091,7 @@ const Editor = () => {
                             <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
                           ) : null}
                         </div>
-                        <div className="retention-summary-card rounded-xl p-3">
+                        <div className="retention-summary-card glass-card rounded-xl p-3">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
                           {retentionBeforeBar !== null && retentionAfterBar !== null ? (
                             <div className="mt-2 space-y-2">
@@ -7137,7 +7133,7 @@ const Editor = () => {
                         </div>
                       </div>
 
-                      <div className="retention-summary-card retention-summary-timeline-block rounded-xl p-3">
+                      <div className="retention-summary-card retention-summary-timeline-block glass-card rounded-xl p-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
@@ -7504,7 +7500,7 @@ const Editor = () => {
                         ) : null}
                       </div>
 
-                      <div className="editor-pipeline-log-shell overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
+                        <div className="editor-pipeline-log-shell overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
                         <button
                           type="button"
                           aria-expanded={pipelineLogOpen}
@@ -7538,8 +7534,10 @@ const Editor = () => {
                             )}
                           </div>
                         ) : null}
+                        </div>
                       </div>
-                    </div>
+                    </DialogContent>
+                  </Dialog>
                   </>
                 )}
               </div>
@@ -7757,11 +7755,16 @@ const Editor = () => {
       <Dialog
         open={exportOpen}
         onOpenChange={(open) => {
-          setExportOpen(open);
-          if (!open) setExportFeedbackOpen(false);
+          if (open) {
+            setExportOpen(true);
+          }
         }}
       >
-        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+        <DialogContent
+          className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -7772,28 +7775,43 @@ const Editor = () => {
                     : "Choose your quality and download the final MP4."}
                 </p>
               </div>
-              {activeJob && normalizeStatus(activeJob.status) === "ready" ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="h-9 w-9 border-border/60 bg-card/40"
-                      onClick={() => setExportFeedbackOpen((prev) => !prev)}
-                    >
-                      {creatorFeedbackSubmitting !== null ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MessageCircle className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="border-border/60 bg-card text-foreground">
-                    Leave render feedback
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {activeJob && normalizeStatus(activeJob.status) === "ready" ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-9 w-9 border-border/60 bg-card/40"
+                        onClick={() => setExportFeedbackOpen((prev) => !prev)}
+                      >
+                        {creatorFeedbackSubmitting !== null ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MessageCircle className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="border-border/60 bg-card text-foreground">
+                      Leave render feedback
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 border-border/60 bg-card/40"
+                  aria-label="Close export popup"
+                  onClick={() => {
+                    setExportFeedbackOpen(false);
+                    setExportOpen(false);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </DialogHeader>
           <div className="space-y-4">
@@ -7849,7 +7867,12 @@ const Editor = () => {
                             size="sm"
                             variant="secondary"
                             className="gap-2"
-                            onClick={() => handleDownload(idx)}
+                            onClick={async () => {
+                              const didStartDownload = await handleDownload(idx);
+                              if (didStartDownload) {
+                                setExportOpen(false);
+                              }
+                            }}
                           >
                             <Download className="w-4 h-4" />
                             Clip {clipNumber}
@@ -7903,20 +7926,29 @@ const Editor = () => {
                 </p>
               ) : null}
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setExportOpen(false)}>
-                Close
-              </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   type="button"
                   variant="outline"
                   className="w-full sm:w-auto"
-                  onClick={handleViewFullAnalysisFromExport}
+                  onClick={() => {
+                    setExportFeedbackOpen(false);
+                    setExportOpen(false);
+                    openVideoStatsSummary();
+                  }}
                 >
-                  Open Feedback
+                  Open Video Analysis
                 </Button>
-                <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
+                <Button
+                  className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                  onClick={async () => {
+                    const didStartDownload = await handleDownload(0);
+                    if (didStartDownload) {
+                      setExportOpen(false);
+                    }
+                  }}
+                >
                   <Download className="w-4 h-4" />
                   {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
                 </Button>

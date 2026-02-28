@@ -1,8 +1,8 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import { Progress } from "@/components/ui/progress";
-import { Fragment, lazy, Suspense } from "react";
-const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
+import { lazy, Suspense } from "react";
+import GlowBackdrop from "@/components/GlowBackdrop";
 const PricingCards = lazy(() => import("@/components/PricingCards"));
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -1181,12 +1181,9 @@ const Index = () => {
               ? "Rendering Final Output..."
               : "Upload";
 
-  const BackdropWrapper = showBackdrop ? GlowBackdrop : Fragment;
-
   return (
-    <Suspense fallback={null}>
-      <BackdropWrapper>
-        <div className={`relative min-h-screen overflow-hidden${showBackdrop ? "" : " bg-background"}`}>
+    <GlowBackdrop>
+        <div className="relative min-h-screen overflow-hidden">
           <div className="relative z-10">
             <Navbar />
             <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
@@ -1951,8 +1948,7 @@ const Index = () => {
             </main>
           </div>
         </div>
-      </BackdropWrapper>
-    </Suspense>
+    </GlowBackdrop>
   );
 };
 
