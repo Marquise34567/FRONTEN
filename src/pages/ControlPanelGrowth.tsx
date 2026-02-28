@@ -20,12 +20,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
 import { chartTick, CommandCenterResponse, EmptyStateNote, formatCompactNumber, formatShortTime } from "./control-panel/shared"
+import { useAdminRealtimeStream } from "./control-panel/useAdminRealtimeStream"
 
 const pct = (value: number) => `${(Number.isFinite(value) ? value : 0).toFixed(1)}%`
 
 const ControlPanelGrowth = () => {
   const { accessToken } = useAuth()
   const canLoad = Boolean(accessToken)
+  const realtime = useAdminRealtimeStream(accessToken, 4000)
 
   const commandCenterQuery = useQuery({
     queryKey: ["control-panel-growth-command-center"],
@@ -38,6 +40,7 @@ const ControlPanelGrowth = () => {
   const conversionIntel = commandCenterQuery.data?.conversionIntelligence
   const feedbackIntel = commandCenterQuery.data?.feedbackIntelligence
   const generatedAt = commandCenterQuery.data?.generatedAt
+  const realtimeSnapshot = realtime.payload
 
   const funnelSeries = useMemo(
     () =>
@@ -71,7 +74,7 @@ const ControlPanelGrowth = () => {
         />
       </div>
 
-      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Growth Intelligence"
           subtitle="Funnel movement, conversion efficiency, and feature demand pressure."
@@ -82,6 +85,50 @@ const ControlPanelGrowth = () => {
             <EmptyStateNote text="Sign in to load growth telemetry." />
           </div>
         ) : null}
+        {canLoad ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Live stream: {realtime.streamError ? "warning" : realtime.connected ? "connected" : "connecting"}{" "}
+            {realtimeSnapshot?.t ? `• ${formatShortTime(realtimeSnapshot.t)}` : ""}
+          </p>
+        ) : null}
+
+        <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Realtime Users</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{formatCompactNumber(realtimeSnapshot?.activeUsers || 0)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Queue Depth</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{formatCompactNumber(realtimeSnapshot?.jobsInQueue || 0)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Failed Jobs (24h)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{formatCompactNumber(realtimeSnapshot?.jobsFailed24h || 0)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Impressions (5m)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{formatCompactNumber(realtimeSnapshot?.websiteImpressions5m || 0)}</p>
+            </CardContent>
+          </Card>
+        </section>
 
         <section className="mt-4 grid gap-4 xl:grid-cols-6">
           <Card className="glass-card border-border/60 xl:col-span-1">

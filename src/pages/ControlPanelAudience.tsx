@@ -30,6 +30,7 @@ import {
   LiveGeoResponse,
   SiteLiveResponse
 } from "./control-panel/shared"
+import { useAdminRealtimeStream } from "./control-panel/useAdminRealtimeStream"
 
 const PLAN_COLORS = [
   "hsl(206 100% 62%)",
@@ -42,6 +43,7 @@ const PLAN_COLORS = [
 const ControlPanelAudience = () => {
   const { accessToken } = useAuth()
   const canLoad = Boolean(accessToken)
+  const realtime = useAdminRealtimeStream(accessToken, 4000)
 
   const commandCenterQuery = useQuery({
     queryKey: ["control-panel-audience-command-center"],
@@ -67,9 +69,19 @@ const ControlPanelAudience = () => {
   const liveUsers = commandCenterQuery.data?.liveUsers
   const audienceIntel = commandCenterQuery.data?.userIntelligencePanel
   const siteLive = siteLiveQuery.data
+  const realtimeLiveUsers = realtime.payload?.liveUsers
 
   const globePoints = liveGeoQuery.data?.geoHeatmap || audienceIntel?.geoHeatmap || []
-  const activeUsers = liveGeoQuery.data?.activeUsers ?? siteLive?.activeUsers ?? audienceIntel?.activeUsers ?? 0
+  const activeUsers =
+    realtime.payload?.activeUsers ??
+    liveGeoQuery.data?.activeUsers ??
+    siteLive?.activeUsers ??
+    audienceIntel?.activeUsers ??
+    0
+  const renderingUsers = realtimeLiveUsers?.usersRendering ?? liveUsers?.usersRendering ?? 0
+  const exportingUsers = realtimeLiveUsers?.usersExporting ?? liveUsers?.usersExporting ?? 0
+  const averageSessionMinutes = realtimeLiveUsers?.averageSessionMinutes ?? liveUsers?.averageSessionMinutes ?? 0
+  const impressionsLast5m = realtime.payload?.websiteImpressions5m ?? siteLive?.impressionsLast5m ?? 0
 
   const countryRollup = useMemo(() => {
     const byCountry = new Map<string, { country: string; sessions: number; users: number }>()
@@ -114,7 +126,7 @@ const ControlPanelAudience = () => {
         />
       </div>
 
-      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Audience Intel"
           subtitle="Live user behavior, watch quality, geo concentration, and demand by plan."
@@ -124,6 +136,12 @@ const ControlPanelAudience = () => {
           <div className="mt-4">
             <EmptyStateNote text="Sign in to load audience telemetry." />
           </div>
+        ) : null}
+        {canLoad ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Stream: {realtime.streamError ? "warning" : realtime.connected ? "connected" : "connecting"}{" "}
+            {realtime.payload?.t ? `• ${formatShortTime(realtime.payload.t)}` : ""}
+          </p>
         ) : null}
 
         <section className="mt-4 grid gap-4 xl:grid-cols-5">
@@ -147,7 +165,7 @@ const ControlPanelAudience = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold">{formatCompactNumber(liveUsers?.usersRendering || 0)}</p>
+              <p className="text-3xl font-semibold">{formatCompactNumber(renderingUsers)}</p>
             </CardContent>
           </Card>
 
@@ -159,7 +177,7 @@ const ControlPanelAudience = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold">{formatCompactNumber(liveUsers?.usersExporting || 0)}</p>
+              <p className="text-3xl font-semibold">{formatCompactNumber(exportingUsers)}</p>
             </CardContent>
           </Card>
 
@@ -171,7 +189,7 @@ const ControlPanelAudience = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold">{(liveUsers?.averageSessionMinutes || 0).toFixed(1)}m</p>
+              <p className="text-3xl font-semibold">{averageSessionMinutes.toFixed(1)}m</p>
             </CardContent>
           </Card>
 
@@ -183,7 +201,7 @@ const ControlPanelAudience = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold">{formatCompactNumber(siteLive?.impressionsLast5m || 0)}</p>
+              <p className="text-3xl font-semibold">{formatCompactNumber(impressionsLast5m)}</p>
             </CardContent>
           </Card>
         </section>

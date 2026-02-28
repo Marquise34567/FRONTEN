@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -419,7 +419,31 @@ type PreviewPlaybackTelemetry = {
   lastTimeSec: number;
   lastDispatchProgress: number;
 };
+type PreviewCompareMode = "before" | "after";
 type CreatorFeedbackCategory = "bad_hook" | "too_fast" | "too_generic" | "great_edit";
+type CreatorFeedbackHistoryEntry = {
+  category: string;
+  source: string | null;
+  notes: string | null;
+  submittedAt: string | null;
+};
+type RetentionFeedbackHistoryEntry = {
+  sourceType: "platform" | "internal";
+  source: string | null;
+  notes: string | null;
+  submittedAt: string | null;
+  watchPercent: number | null;
+  hookHoldPercent: number | null;
+  completionPercent: number | null;
+  manualScore: number | null;
+};
+type ExportFeedbackEntry = {
+  id: string;
+  at: string | null;
+  sourceType: "creator" | "retention";
+  label: string;
+  detail: string;
+};
 
 const CREATOR_FEEDBACK_ACTIONS: Array<{ category: CreatorFeedbackCategory; label: string }> = [
   { category: "bad_hook", label: "Hook weak" },
@@ -427,6 +451,20 @@ const CREATOR_FEEDBACK_ACTIONS: Array<{ category: CreatorFeedbackCategory; label
   { category: "too_generic", label: "Generic" },
   { category: "great_edit", label: "Great edit" },
 ];
+
+const CREATOR_FEEDBACK_LABELS: Record<CreatorFeedbackCategory, string> = {
+  bad_hook: "Hook weak",
+  too_fast: "Too fast",
+  too_generic: "Generic",
+  great_edit: "Great edit",
+};
+
+const CREATOR_FEEDBACK_RETENTION_SCORES: Record<CreatorFeedbackCategory, { manualScore: number; note: string }> = {
+  bad_hook: { manualScore: 52, note: "Hook did not hold attention in opening seconds." },
+  too_fast: { manualScore: 58, note: "Pacing felt too aggressive and rushed." },
+  too_generic: { manualScore: 60, note: "Edit felt generic and needs stronger variation." },
+  great_edit: { manualScore: 92, note: "Edit quality was strong and worth reinforcing." },
+};
 
 const PIPELINE_STEPS = [
   { key: "uploading", label: "Upload" },
@@ -621,22 +659,216 @@ const formatTimelineClock = (seconds: number) => {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 };
 
+const normalizeFeedbackPercent = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return clamp01(numeric <= 1 ? numeric : numeric / 100);
+};
+
+const normalizeFeedbackTimestamp = (value: unknown) => {
+  const parsed = new Date(String(value || ""));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+};
+
+const formatFeedbackTimestamp = (iso: string | null) => {
+  if (!iso) return "Unknown time";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "Unknown time";
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const normalizeCreatorFeedbackHistory = (analysis: any): CreatorFeedbackHistoryEntry[] => {
+  const historyRaw = Array.isArray(analysis?.creator_feedback_history) ? analysis.creator_feedback_history : [];
+  const current = analysis?.creator_feedback && typeof analysis.creator_feedback === "object"
+    ? [analysis.creator_feedback]
+    : [];
+  const merged = [...historyRaw, ...current];
+  const seen = new Set<string>();
+  const rows: CreatorFeedbackHistoryEntry[] = [];
+  for (const item of merged) {
+    const categoryRaw = String((item as any)?.category || (item as any)?.feedback || "").trim().toLowerCase();
+    if (!categoryRaw) continue;
+    const submittedAt = normalizeFeedbackTimestamp((item as any)?.submittedAt ?? (item as any)?.submitted_at);
+    const source = String((item as any)?.source || "").trim().toLowerCase() || null;
+    const notes = String((item as any)?.notes || "").trim() || null;
+    const dedupeKey = `${categoryRaw}|${submittedAt || "none"}|${source || "none"}|${notes || "none"}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    rows.push({
+      category: categoryRaw,
+      source,
+      notes,
+      submittedAt,
+    });
+  }
+  return rows.sort((a, b) => {
+    const left = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+    const right = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+    return right - left;
+  });
+};
+
+const normalizeRetentionFeedbackHistory = (analysis: any): RetentionFeedbackHistoryEntry[] => {
+  const historyRaw = Array.isArray(analysis?.retention_feedback_history) ? analysis.retention_feedback_history : [];
+  const current = analysis?.retention_feedback && typeof analysis.retention_feedback === "object"
+    ? [analysis.retention_feedback]
+    : [];
+  const merged = [...historyRaw, ...current];
+  const seen = new Set<string>();
+  const rows: RetentionFeedbackHistoryEntry[] = [];
+  for (const item of merged) {
+    const watchPercent = normalizeFeedbackPercent((item as any)?.watchPercent ?? (item as any)?.watch_percent);
+    const hookHoldPercent = normalizeFeedbackPercent((item as any)?.hookHoldPercent ?? (item as any)?.hook_hold_percent);
+    const completionPercent = normalizeFeedbackPercent((item as any)?.completionPercent ?? (item as any)?.completion_percent);
+    const manualScore = normalizeFeedbackPercent((item as any)?.manualScore ?? (item as any)?.manual_score);
+    const hasSignal = watchPercent !== null || hookHoldPercent !== null || completionPercent !== null || manualScore !== null;
+    if (!hasSignal) continue;
+    const submittedAt = normalizeFeedbackTimestamp((item as any)?.submittedAt ?? (item as any)?.submitted_at);
+    const sourceRaw = String((item as any)?.source || "").trim().toLowerCase();
+    const source = sourceRaw || null;
+    const sourceTypeRaw = String((item as any)?.sourceType || (item as any)?.source_type || "").trim().toLowerCase();
+    const sourceType: "platform" | "internal" = sourceTypeRaw === "platform" ? "platform" : "internal";
+    const notes = String((item as any)?.notes || "").trim() || null;
+    const dedupeKey = `${submittedAt || "none"}|${sourceType}|${source || "none"}|${watchPercent}|${hookHoldPercent}|${completionPercent}|${manualScore}|${notes || "none"}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    rows.push({
+      sourceType,
+      source,
+      notes,
+      submittedAt,
+      watchPercent,
+      hookHoldPercent,
+      completionPercent,
+      manualScore,
+    });
+  }
+  return rows.sort((a, b) => {
+    const left = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+    const right = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+    return right - left;
+  });
+};
+
+const buildExportFeedbackEntries = (analysis: any): ExportFeedbackEntry[] => {
+  const creatorHistory = normalizeCreatorFeedbackHistory(analysis);
+  const retentionHistory = normalizeRetentionFeedbackHistory(analysis);
+  const creatorEntries: ExportFeedbackEntry[] = creatorHistory.map((entry, index) => {
+    const knownLabel = (CREATOR_FEEDBACK_LABELS as Record<string, string>)[entry.category];
+    const label = knownLabel || formatNicheLabel(entry.category);
+    return {
+      id: `creator-${index}-${entry.submittedAt || "none"}-${entry.category}`,
+      at: entry.submittedAt,
+      sourceType: "creator",
+      label: `Creator: ${label}`,
+      detail: entry.notes || entry.source || "Submitted from editor feedback controls.",
+    };
+  });
+  const retentionEntries: ExportFeedbackEntry[] = retentionHistory.map((entry, index) => {
+    const metrics = [
+      entry.watchPercent !== null ? `watch ${Math.round(entry.watchPercent * 100)}%` : null,
+      entry.hookHoldPercent !== null ? `hook ${Math.round(entry.hookHoldPercent * 100)}%` : null,
+      entry.completionPercent !== null ? `completion ${Math.round(entry.completionPercent * 100)}%` : null,
+      entry.manualScore !== null ? `manual ${Math.round(entry.manualScore * 100)}%` : null,
+    ].filter((part): part is string => Boolean(part));
+    return {
+      id: `retention-${index}-${entry.submittedAt || "none"}-${entry.sourceType}`,
+      at: entry.submittedAt,
+      sourceType: "retention",
+      label: entry.sourceType === "platform" ? "Platform feedback" : "Retention feedback",
+      detail: entry.notes || `${metrics.join(" • ")}${entry.source ? ` • ${entry.source}` : ""}`.trim(),
+    };
+  });
+  return [...creatorEntries, ...retentionEntries]
+    .sort((a, b) => {
+      const left = a.at ? new Date(a.at).getTime() : 0;
+      const right = b.at ? new Date(b.at).getTime() : 0;
+      return right - left;
+    })
+    .slice(0, 12);
+};
+
+const ENERGY_TIMELINE_POINT_LIMIT = 16;
+const ENERGY_MERGE_WINDOW_SEC = 0.45;
+
+const toOptionalPercent = (value: number | null) => {
+  if (value === null || !Number.isFinite(value)) return null;
+  const normalized = value <= 1 ? value * 100 : value;
+  return clamp(Math.round(normalized), 0, 100);
+};
+
+const averageOptionalNumbers = (...values: Array<number | null>) => {
+  const finite = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return finite.reduce((sum, value) => sum + value, 0) / finite.length;
+};
+
+const computeEnergyComposite = (moment: Pick<EnergyMoment, "motion" | "audio" | "visual" | "facial">) =>
+  clamp(
+    Math.round(
+      (moment.motion * 0.32) +
+      (moment.audio * 0.28) +
+      (moment.visual * 0.22) +
+      (moment.facial * 0.18),
+    ),
+    0,
+    100,
+  );
+
+const sampleTimelineEnergyMoments = (moments: EnergyMoment[], maxCount: number) => {
+  if (moments.length <= maxCount) return moments;
+  const limit = Math.max(2, maxCount);
+  const step = (moments.length - 1) / (limit - 1);
+  const sampledIndices = Array.from({ length: limit }, (_, index) => Math.round(index * step));
+  const peakIndex = moments.reduce((best, current, index, list) => (current.energy > list[best].energy ? index : best), 0);
+  if (!sampledIndices.includes(peakIndex)) {
+    let replaceAt = 1;
+    let smallestDistance = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < sampledIndices.length - 1; i += 1) {
+      const distance = Math.abs(sampledIndices[i] - peakIndex);
+      if (distance < smallestDistance) {
+        smallestDistance = distance;
+        replaceAt = i;
+      }
+    }
+    sampledIndices[replaceAt] = peakIndex;
+  }
+  const uniqueSortedIndices = Array.from(new Set(sampledIndices)).sort((a, b) => a - b);
+  return uniqueSortedIndices.slice(0, limit).map((index) => moments[index]);
+};
+
 const normalizeEnergyMoments = (raw: unknown): EnergyMoment[] => {
   if (!Array.isArray(raw)) return [];
-  return raw
+  const parsed = raw
     .map((entry) => {
       const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null;
       if (!item) return null;
       const timestampSec = firstFiniteNumber(item.timestampSec, item.timestamp, item.timeSec, item.time, item.start, item.atSec);
-      const energy = firstFiniteNumber(item.energy, item.energyScore, item.score, item.value);
-      if (timestampSec === null || energy === null) return null;
-      const motion = toPercent(firstFiniteNumber(item.motion, item.motionScore, item.motion_energy), energy);
-      const audio = toPercent(firstFiniteNumber(item.audio, item.audioScore, item.audio_energy), energy);
-      const visual = toPercent(firstFiniteNumber(item.visual, item.visualScore, item.visual_energy), energy);
-      const facial = toPercent(firstFiniteNumber(item.facial, item.facialScore, item.facial_engagement), energy);
+      if (timestampSec === null) return null;
+      const rawEnergy = toOptionalPercent(firstFiniteNumber(item.energy, item.energyScore, item.score, item.value));
+      const motionRaw = toOptionalPercent(firstFiniteNumber(item.motion, item.motionScore, item.motion_energy));
+      const audioRaw = toOptionalPercent(firstFiniteNumber(item.audio, item.audioScore, item.audio_energy));
+      const visualRaw = toOptionalPercent(firstFiniteNumber(item.visual, item.visualScore, item.visual_energy));
+      const facialRaw = toOptionalPercent(firstFiniteNumber(item.facial, item.facialScore, item.facial_engagement));
+      const componentsAverage = averageOptionalNumbers(motionRaw, audioRaw, visualRaw, facialRaw);
+      const blendedEnergy =
+        rawEnergy !== null && componentsAverage !== null
+          ? clamp(Math.round((rawEnergy * 0.58) + (componentsAverage * 0.42)), 0, 100)
+          : rawEnergy ?? componentsAverage;
+      if (blendedEnergy === null) return null;
+      const motion = motionRaw ?? blendedEnergy;
+      const audio = audioRaw ?? blendedEnergy;
+      const visual = visualRaw ?? blendedEnergy;
+      const facial = facialRaw ?? blendedEnergy;
       return {
         timestampSec: Math.max(0, timestampSec),
-        energy: toPercent(energy, energy),
+        energy: blendedEnergy,
         motion,
         audio,
         visual,
@@ -644,8 +876,43 @@ const normalizeEnergyMoments = (raw: unknown): EnergyMoment[] => {
       } as EnergyMoment;
     })
     .filter((item): item is EnergyMoment => Boolean(item))
-    .slice(0, 14)
     .sort((a, b) => a.timestampSec - b.timestampSec);
+  if (parsed.length === 0) return [];
+
+  const merged = parsed.reduce<Array<EnergyMoment & { sampleCount: number }>>((acc, moment) => {
+    const previous = acc[acc.length - 1];
+    if (previous && Math.abs(moment.timestampSec - previous.timestampSec) <= ENERGY_MERGE_WINDOW_SEC) {
+      const sampleCount = previous.sampleCount + 1;
+      previous.timestampSec = Number(((previous.timestampSec * previous.sampleCount + moment.timestampSec) / sampleCount).toFixed(3));
+      previous.energy = Math.round((previous.energy * previous.sampleCount + moment.energy) / sampleCount);
+      previous.motion = Math.round((previous.motion * previous.sampleCount + moment.motion) / sampleCount);
+      previous.audio = Math.round((previous.audio * previous.sampleCount + moment.audio) / sampleCount);
+      previous.visual = Math.round((previous.visual * previous.sampleCount + moment.visual) / sampleCount);
+      previous.facial = Math.round((previous.facial * previous.sampleCount + moment.facial) / sampleCount);
+      previous.sampleCount = sampleCount;
+      return acc;
+    }
+    acc.push({ ...moment, sampleCount: 1 });
+    return acc;
+  }, []);
+
+  const smoothed = merged.map((moment, index) => {
+    const previous = merged[Math.max(0, index - 1)] ?? moment;
+    const next = merged[Math.min(merged.length - 1, index + 1)] ?? moment;
+    const trendEnergy = Math.round((previous.energy * 0.22) + (moment.energy * 0.56) + (next.energy * 0.22));
+    const componentEnergy = computeEnergyComposite(moment);
+    const energy = clamp(Math.round((trendEnergy * 0.64) + (componentEnergy * 0.36)), 0, 100);
+    return {
+      timestampSec: moment.timestampSec,
+      energy,
+      motion: moment.motion,
+      audio: moment.audio,
+      visual: moment.visual,
+      facial: moment.facial,
+    } as EnergyMoment;
+  });
+
+  return sampleTimelineEnergyMoments(smoothed, ENERGY_TIMELINE_POINT_LIMIT);
 };
 
 const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
@@ -816,6 +1083,7 @@ const Editor = () => {
   const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -889,6 +1157,9 @@ const Editor = () => {
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const [previewCompareMode, setPreviewCompareMode] = useState<PreviewCompareMode>("after");
+  const [beforePreviewUrlByJob, setBeforePreviewUrlByJob] = useState<Record<string, string>>({});
+  const [beforePreviewLoadingJobId, setBeforePreviewLoadingJobId] = useState<string | null>(null);
   const uploadDropZoneRef = useRef<HTMLDivElement | null>(null);
   const dropDragDepthRef = useRef(0);
   const menuTouchedRef = useRef<{ strategy: boolean; targetPlatform: boolean; editorMode: boolean }>({
@@ -1528,45 +1799,82 @@ const Editor = () => {
   );
 
   const submitCreatorFeedback = useCallback(
-    async (category: CreatorFeedbackCategory) => {
+    async (category: CreatorFeedbackCategory, source: "details_panel" | "export_popup" = "details_panel") => {
       if (!activeJob?.id || !accessToken) return;
-      if (!paidTier) {
-        toast({
-          title: "Paid feature",
-          description: "Creator correction feedback is available on paid plans.",
-        });
-        return;
-      }
+      const sourceLabel = source === "export_popup" ? "frontend_export_popup" : "frontend_creator";
+      const fallbackConfig = CREATOR_FEEDBACK_RETENTION_SCORES[category];
+      const persistFallbackFeedback = async () => {
+        await postRetentionFeedback(
+          activeJob.id,
+          {
+            source: sourceLabel,
+            manualScore: fallbackConfig.manualScore,
+            notes: fallbackConfig.note,
+          },
+          { force: true },
+        );
+      };
+
       setCreatorFeedbackSubmitting(category);
       try {
-        await apiFetch(`/api/jobs/${activeJob.id}/creator-feedback`, {
-          method: "POST",
-          token: accessToken,
-          body: JSON.stringify({
-            category,
-            source: "frontend_creator",
-          }),
-        });
+        if (!paidTier) {
+          await persistFallbackFeedback();
+        } else {
+          await apiFetch(`/api/jobs/${activeJob.id}/creator-feedback`, {
+            method: "POST",
+            token: accessToken,
+            body: JSON.stringify({
+              category,
+              source: sourceLabel,
+            }),
+          });
+          await fetchJob(activeJob.id);
+        }
+
         trackEditorEvent("creator_feedback_submitted", {
           category: "feedback",
           jobId: activeJob.id,
           retentionProfile: retentionStrategyProfile,
           targetPlatform: retentionTargetPlatform,
           captionStyle: activeSubtitlePreset,
-          metadata: { category },
+          metadata: {
+            category,
+            source,
+            mode: paidTier ? "creator_feedback" : "retention_feedback",
+          },
         });
         setAnalyzeUnlockedByJob((prev) => (prev[activeJob.id] ? prev : { ...prev, [activeJob.id]: true }));
-        await fetchJob(activeJob.id);
         toast({
           title: "Feedback saved",
           description: "Analyze view is now unlocked for this render.",
         });
       } catch (err: any) {
         if (err instanceof ApiError && err.status === 403) {
-          toast({
-            title: "Upgrade required",
-            description: "This correction control is for paid plans.",
-          });
+          try {
+            await persistFallbackFeedback();
+            trackEditorEvent("creator_feedback_submitted", {
+              category: "feedback",
+              jobId: activeJob.id,
+              retentionProfile: retentionStrategyProfile,
+              targetPlatform: retentionTargetPlatform,
+              captionStyle: activeSubtitlePreset,
+              metadata: {
+                category,
+                source,
+                mode: "retention_feedback_fallback",
+              },
+            });
+            setAnalyzeUnlockedByJob((prev) => (prev[activeJob.id] ? prev : { ...prev, [activeJob.id]: true }));
+            toast({
+              title: "Feedback saved",
+              description: "Saved to retention telemetry for this render.",
+            });
+          } catch (fallbackErr: any) {
+            toast({
+              title: "Feedback failed",
+              description: fallbackErr?.message || err?.message || "Please try again.",
+            });
+          }
         } else {
           toast({
             title: "Feedback failed",
@@ -1577,7 +1885,7 @@ const Editor = () => {
         setCreatorFeedbackSubmitting(null);
       }
     },
-    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
+    [accessToken, activeJob?.id, activeSubtitlePreset, fetchJob, paidTier, postRetentionFeedback, toast, trackEditorEvent, retentionStrategyProfile, retentionTargetPlatform],
   );
 
   const handleQueueTimelineSegmentAction = useCallback(
@@ -3199,24 +3507,52 @@ const Editor = () => {
   const handleDownload = async (clipIndex = 0) => {
     if (!accessToken || !activeJob) return;
     try {
-      const outputUrls = Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [];
-      const selectedExistingUrl =
-        outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
-      if (selectedExistingUrl) {
-        window.open(selectedExistingUrl, "_blank");
-        submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
-        return;
-      }
       const clipParam = clipIndex + 1;
-      const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipParam}`, { token: accessToken });
+      let downloadUrl = "";
+      try {
+        const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/download-url`, {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify({ clip: clipParam }),
+        });
+        downloadUrl = data.url;
+      } catch {
+        const outputUrls = Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [];
+        const selectedExistingUrl =
+          outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
+        if (selectedExistingUrl) {
+          downloadUrl = selectedExistingUrl;
+        } else {
+          const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipParam}`, {
+            token: accessToken,
+          });
+          downloadUrl = data.url;
+        }
+      }
       setActiveJob((prev) => {
         if (!prev) return prev;
         const nextUrls = Array.isArray(prev.outputUrls) ? [...prev.outputUrls] : [];
         while (nextUrls.length < clipParam) nextUrls.push("");
-        nextUrls[clipIndex] = data.url;
-        return { ...prev, outputUrl: data.url, outputUrls: nextUrls };
+        nextUrls[clipIndex] = downloadUrl;
+        return { ...prev, outputUrl: downloadUrl, outputUrls: nextUrls };
       });
-      window.open(data.url, "_blank");
+      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
+      const fallbackFileName =
+        activeJob.renderMode === "vertical"
+          ? `${baseName}-clip-${clipParam}.mp4`
+          : `${baseName}.mp4`;
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fallbackFileName;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      try {
+        link.click();
+      } finally {
+        document.body.removeChild(link);
+      }
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
@@ -3256,6 +3592,11 @@ const Editor = () => {
   }, [activeJob]);
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const exportFeedbackEntries = useMemo(
+    () => buildExportFeedbackEntries(activeJob?.analysis ?? {}),
+    [activeJob?.id, activeJob?.analysis],
+  );
+  const exportCreatorFeedbackCount = exportFeedbackEntries.filter((entry) => entry.sourceType === "creator").length;
   const hookStartSec = Number(activeAnalysis?.hook_start_time ?? activeAnalysis?.hook?.start ?? NaN);
   const hookEndSec = Number(activeAnalysis?.hook_end_time ?? (Number.isFinite(hookStartSec) ? hookStartSec + Number(activeAnalysis?.hook?.duration ?? 0) : NaN));
   const hookText = typeof activeAnalysis?.hook_text === "string" ? activeAnalysis.hook_text : "";
@@ -3585,13 +3926,16 @@ const Editor = () => {
     activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.durationSec,
     activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.sourceDurationSec,
   );
-  const energyMomentsFromAnalysis = normalizeEnergyMoments(
+  const energyMomentsSource =
     activeAnalysis?.energyMoments ||
     activeAnalysis?.energy_moments ||
     activeAnalysis?.timeline_energy_scores ||
     activeAnalysis?.pipelineSteps?.ANALYZE?.meta?.energyMoments ||
     activeAnalysis?.pipelineSteps?.ANALYZING?.meta?.energyMoments ||
-    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.topCandidates,
+    activeAnalysis?.pipelineSteps?.HOOK_SCORING?.meta?.topCandidates;
+  const energyMomentsFromAnalysis = useMemo(
+    () => normalizeEnergyMoments(energyMomentsSource),
+    [energyMomentsSource],
   );
   const fallbackEnergyAnchorSec = selectedHookCandidate?.start ?? 252;
   const energyTimelineMoments = useMemo(() => {
@@ -6209,10 +6553,16 @@ const Editor = () => {
                           </p>
                           <Button
                             className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-                            onClick={() => setExportOpen(true)}
+                            onClick={() => {
+                              if (activeJob.renderMode === "vertical") {
+                                setExportOpen(true);
+                                return;
+                              }
+                              void handleDownload(0);
+                            }}
                           >
                             <Download className="h-4 w-4" />
-                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Open Export"}
+                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
                           </Button>
                         </div>
                       </motion.div>
@@ -6594,32 +6944,26 @@ const Editor = () => {
                             ) : null}
                             <div className="space-y-1 pt-1">
                               <p>
-                                Creator correction feedback {paidTier ? "" : "(paid plans only)"}:
+                                Creator correction feedback:
                               </p>
-                              {paidTier ? (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {CREATOR_FEEDBACK_ACTIONS.map((action) => (
-                                    <Button
-                                      key={action.category}
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 px-2 text-[11px]"
-                                      disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
-                                      onClick={() => void submitCreatorFeedback(action.category)}
-                                    >
-                                      {creatorFeedbackSubmitting === action.category ? (
-                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                      ) : null}
-                                      {action.label}
-                                    </Button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-[11px]">
-                                  Upgrade to send hook/pacing/generic corrections directly to the model.
-                                </p>
-                              )}
+                              <div className="flex flex-wrap gap-1.5">
+                                {CREATOR_FEEDBACK_ACTIONS.map((action) => (
+                                  <Button
+                                    key={action.category}
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 px-2 text-[11px]"
+                                    disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
+                                    onClick={() => void submitCreatorFeedback(action.category)}
+                                  >
+                                    {creatorFeedbackSubmitting === action.category ? (
+                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    ) : null}
+                                    {action.label}
+                                  </Button>
+                                ))}
+                              </div>
                             </div>
                             <div className="pt-1">
                               <button
@@ -6852,17 +7196,73 @@ const Editor = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+      <Dialog
+        open={exportOpen}
+        onOpenChange={(open) => {
+          setExportOpen(open);
+          if (!open) setExportFeedbackOpen(false);
+        }}
+      >
         <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
           <DialogHeader>
-            <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
-            <p className="text-sm text-muted-foreground">
-              {activeJob?.renderMode === "vertical"
-                ? "Choose quality and download each vertical clip."
-                : "Choose your quality and download the final MP4."}
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  {activeJob?.renderMode === "vertical"
+                    ? "Choose quality and download each vertical clip."
+                    : "Choose your quality and download the final MP4."}
+                </p>
+              </div>
+              {activeJob && normalizeStatus(activeJob.status) === "ready" ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-9 w-9 border-border/60 bg-card/40"
+                      onClick={() => setExportFeedbackOpen((prev) => !prev)}
+                    >
+                      {creatorFeedbackSubmitting !== null ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageCircle className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="border-border/60 bg-card text-foreground">
+                    Leave render feedback
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
           </DialogHeader>
           <div className="space-y-4">
+            {exportFeedbackOpen && activeJob ? (
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                <p className="text-sm font-medium text-foreground">How was this render?</p>
+                <p className="text-[11px] text-muted-foreground">Your signal improves hook and pacing decisions on future edits.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {CREATOR_FEEDBACK_ACTIONS.map((action) => (
+                    <Button
+                      key={`export-feedback-${action.category}`}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="justify-start gap-1.5"
+                      disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
+                      onClick={() => void submitCreatorFeedback(action.category, "export_popup")}
+                    >
+                      {creatorFeedbackSubmitting === action.category ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-foreground">Export Quality</span>
@@ -6909,6 +7309,42 @@ const Editor = () => {
                 </div>
               </div>
             )}
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-foreground">Feedback History</p>
+                <span className="text-[11px] text-muted-foreground">
+                  {exportFeedbackEntries.length} entries
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Recent feedback signals already saved for this render.
+              </p>
+              <div className="mt-3 space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {exportFeedbackEntries.length ? (
+                  exportFeedbackEntries.map((entry) => (
+                    <div key={entry.id} className="rounded-md border border-border/50 bg-background/45 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-foreground">{entry.label}</p>
+                        <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                          {entry.sourceType === "creator" ? "Creator" : "Retention"}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{entry.detail}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/90">{formatFeedbackTimestamp(entry.at)}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-md border border-dashed border-border/60 bg-background/40 px-2 py-2 text-[11px] text-muted-foreground">
+                    No feedback submitted for this render yet.
+                  </p>
+                )}
+              </div>
+              {exportCreatorFeedbackCount > 0 ? (
+                <p className="mt-2 text-[11px] text-emerald-300">
+                  Creator feedback submissions: {exportCreatorFeedbackCount}
+                </p>
+              ) : null}
+            </div>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setExportOpen(false)}>
                 Close

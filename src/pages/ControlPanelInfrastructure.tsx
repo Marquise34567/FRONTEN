@@ -26,10 +26,12 @@ import {
   formatShortTime,
   HealthStatusResponse
 } from "./control-panel/shared"
+import { useAdminRealtimeStream } from "./control-panel/useAdminRealtimeStream"
 
 const ControlPanelInfrastructure = () => {
   const { accessToken } = useAuth()
   const canLoad = Boolean(accessToken)
+  const realtime = useAdminRealtimeStream(accessToken, 4000)
 
   const commandCenterQuery = useQuery({
     queryKey: ["control-panel-infrastructure-command-center"],
@@ -68,7 +70,7 @@ const ControlPanelInfrastructure = () => {
         />
       </div>
 
-      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Infrastructure Monitor"
           subtitle="Render queue health, worker load, storage posture, and scaling readiness."
@@ -78,6 +80,12 @@ const ControlPanelInfrastructure = () => {
           <div className="mt-4">
             <EmptyStateNote text="Sign in to load infrastructure telemetry." />
           </div>
+        ) : null}
+        {canLoad ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Stream: {realtime.streamError ? "warning" : realtime.connected ? "connected" : "connecting"}{" "}
+            {realtime.payload?.t ? `• ${formatShortTime(realtime.payload.t)}` : ""}
+          </p>
         ) : null}
 
         <section className="mt-4 grid gap-4 xl:grid-cols-4">
@@ -89,7 +97,7 @@ const ControlPanelInfrastructure = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold">{renderInfra?.activeJobsInQueue || systemHealth?.renderQueueLength || 0}</p>
+              <p className="text-3xl font-semibold">{realtime.payload?.jobsInQueue || renderInfra?.activeJobsInQueue || systemHealth?.renderQueueLength || 0}</p>
             </CardContent>
           </Card>
 

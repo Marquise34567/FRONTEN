@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
 import { Activity, AlertTriangle, ArrowRight, DollarSign, Globe2, Layers, Sparkles, Timer, Users } from "lucide-react"
@@ -8,8 +8,8 @@ import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
-import { API_URL, apiFetch } from "@/lib/api"
-import { getControlPanelPassword } from "@/lib/controlPanelAuth"
+import { apiFetch } from "@/lib/api"
+import { useAdminRealtimeStream } from "./control-panel/useAdminRealtimeStream"
 import { CommandCenterResponse, EmptyStateNote, formatCompactNumber, formatMoney, formatShortTime } from "./control-panel/shared"
 
 type OverviewResponse = {
@@ -25,15 +25,6 @@ type OverviewResponse = {
     websiteImpressions24h?: number
   }
   updatedAt: string
-}
-
-type LiveRealtimePayload = {
-  activeUsers: number
-  jobsInQueue: number
-  jobsFailed24h: number
-  websiteImpressions5m?: number
-  websiteImpressions24h?: number
-  t: string
 }
 
 const PAGE_LAUNCHER = [
@@ -90,10 +81,10 @@ const PAGE_LAUNCHER = [
 const ControlPanel = () => {
   const { accessToken } = useAuth()
   const navigate = useNavigate()
-  const [live, setLive] = useState<LiveRealtimePayload | null>(null)
-  const [streamError, setStreamError] = useState<string | null>(null)
 
   const canLoad = Boolean(accessToken)
+  const realtime = useAdminRealtimeStream(accessToken, 4000)
+  const live = realtime.payload
 
   const overviewQuery = useQuery({
     queryKey: ["admin-overview-slim"],
@@ -108,44 +99,7 @@ const ControlPanel = () => {
     enabled: canLoad,
     refetchInterval: 25000
   })
-
-  useEffect(() => {
-    if (!accessToken) return
-    let cancelled = false
-    const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}&password=${encodeURIComponent(getControlPanelPassword())}`
-    const source = new EventSource(`${API_URL || ""}${streamPath}`)
-
-    source.addEventListener("realtime", (event) => {
-      if (cancelled) return
-      try {
-        const payload = JSON.parse((event as MessageEvent).data || "{}") as LiveRealtimePayload
-        setLive(payload)
-        setStreamError(null)
-      } catch {
-        // ignore malformed realtime payloads
-      }
-    })
-
-    source.addEventListener("stream_warning", (event) => {
-      if (cancelled) return
-      try {
-        const payload = JSON.parse((event as MessageEvent).data || "{}") as { message?: string }
-        setStreamError(payload?.message || "Live stream warning")
-      } catch {
-        setStreamError("Live stream warning")
-      }
-    })
-
-    source.onerror = () => {
-      if (cancelled) return
-      setStreamError("Live stream disconnected. Retrying automatically...")
-    }
-
-    return () => {
-      cancelled = true
-      source.close()
-    }
-  }, [accessToken])
+  const streamError = realtime.streamError
 
   const summary = overviewQuery.data?.summary
 
@@ -180,7 +134,7 @@ const ControlPanel = () => {
         />
       </div>
 
-      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Overview"
           subtitle="High-level command snapshot. Deep metrics were moved to dedicated pages."
@@ -238,10 +192,11 @@ const ControlPanel = () => {
             <CardContent className="space-y-2 text-xs">
               <Badge className={healthStatus.className}>{healthStatus.label}</Badge>
               <p className="rounded-md border border-border/50 bg-card/40 p-2">
-                Stream: {streamError ? <span className="text-amber-200">warning</span> : <span className="text-emerald-200">connected</span>}
+                Stream: {streamError ? <span className="text-amber-200">warning</span> : realtime.connected ? <span className="text-emerald-200">connected</span> : <span className="text-muted-foreground">connecting</span>}
               </p>
               <p className="rounded-md border border-border/50 bg-card/40 p-2">Impressions (5m): {formatCompactNumber(effectiveImpressions5m)}</p>
               <p className="rounded-md border border-border/50 bg-card/40 p-2">Impressions (24h): {formatCompactNumber(effectiveImpressions24h)}</p>
+              <p className="rounded-md border border-border/50 bg-card/40 p-2">Connected Clients: {formatCompactNumber(live?.connectedRealtimeClients || 0)}</p>
               <p className="rounded-md border border-border/50 bg-card/40 p-2">Success rate: {((summary?.successRate || 0) * 100).toFixed(1)}%</p>
               <p className="text-[11px] text-muted-foreground">Overview updated: {formatShortTime(overviewQuery.data?.updatedAt)}</p>
               <p className="text-[11px] text-muted-foreground">Command generated: {formatShortTime(commandCenterQuery.data?.generatedAt)}</p>

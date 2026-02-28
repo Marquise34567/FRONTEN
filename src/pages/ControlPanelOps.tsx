@@ -68,6 +68,11 @@ const ControlPanelOps = () => {
   const [webhookType, setWebhookType] = useState("invoice.paid")
   const [webhookAmountCents, setWebhookAmountCents] = useState("9900")
   const [testUserPlanTier, setTestUserPlanTier] = useState("free")
+  const [grantSubscriptionEmail, setGrantSubscriptionEmail] = useState("")
+  const [grantSubscriptionUserId, setGrantSubscriptionUserId] = useState("")
+  const [grantSubscriptionPlanTier, setGrantSubscriptionPlanTier] = useState("starter")
+  const [grantSubscriptionDurationDays, setGrantSubscriptionDurationDays] = useState("30")
+  const [grantSubscriptionReason, setGrantSubscriptionReason] = useState("manual_control_panel_grant")
 
   const canLoad = Boolean(accessToken)
   const weeklyReportsQuery = useQuery({
@@ -243,13 +248,39 @@ const ControlPanelOps = () => {
     )
   }
 
+  const handleGrantSubscription = async () => {
+    if (!grantSubscriptionEmail.trim() && !grantSubscriptionUserId.trim()) {
+      setActionError("Provide an email or user ID to grant a subscription.")
+      setActionSuccess(null)
+      return
+    }
+    const durationDaysRaw = Number.parseInt(grantSubscriptionDurationDays || "30", 10)
+    const durationDays = Number.isFinite(durationDaysRaw)
+      ? Math.min(3650, Math.max(1, durationDaysRaw))
+      : 30
+    await runOpsAction(
+      "/api/admin/subscriptions/grant",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: grantSubscriptionEmail || undefined,
+          userId: grantSubscriptionUserId || undefined,
+          planTier: grantSubscriptionPlanTier,
+          durationDays,
+          reason: grantSubscriptionReason || undefined
+        })
+      },
+      `Granted ${grantSubscriptionPlanTier} for ${durationDays} day(s).`
+    )
+  }
+
   const weeklyProviderConfigured = Boolean(weeklyReportsQuery.data?.provider.configured)
   const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown"
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_50%_0%,hsl(var(--primary)/0.22),transparent_55%),linear-gradient(180deg,hsl(232_24%_8%)_0%,hsl(228_22%_6%)_100%)] text-foreground">
       <Navbar />
-      <main className="control-panel-main relative mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-7xl px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Ops Tools"
           subtitle="Automation controls, weekly reporting, and founder-only operational actions."
@@ -334,7 +365,7 @@ const ControlPanelOps = () => {
           </Card>
         </section>
 
-        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+        <section className="mt-8 grid gap-4 xl:grid-cols-3">
           <Card className="glass-card border-primary/30">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -374,6 +405,61 @@ const ControlPanelOps = () => {
                   Last run: {formatShortTime(selfImproveResult.generatedAt)} • Failed: {selfImproveResult.failedRenders} • Low quality: {selfImproveResult.lowQualityCount}
                 </p>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-cyan-300/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Rocket className="h-4 w-4 text-cyan-200" />
+                Subscription Grant Access
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground">Grant starter/creator/studio/founder access to any user directly from ops.</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={grantSubscriptionEmail}
+                  onChange={(e) => setGrantSubscriptionEmail(e.target.value)}
+                  placeholder="Target email"
+                  className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                />
+                <input
+                  value={grantSubscriptionUserId}
+                  onChange={(e) => setGrantSubscriptionUserId(e.target.value)}
+                  placeholder="or user ID"
+                  className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                />
+                <select
+                  value={grantSubscriptionPlanTier}
+                  onChange={(e) => setGrantSubscriptionPlanTier(e.target.value)}
+                  className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                >
+                  <option value="starter">starter</option>
+                  <option value="creator">creator</option>
+                  <option value="studio">studio</option>
+                  <option value="founder">founder</option>
+                </select>
+                <input
+                  value={grantSubscriptionDurationDays}
+                  onChange={(e) => setGrantSubscriptionDurationDays(e.target.value)}
+                  placeholder="Duration days"
+                  className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+                />
+                <input
+                  value={grantSubscriptionReason}
+                  onChange={(e) => setGrantSubscriptionReason(e.target.value)}
+                  placeholder="Reason (optional)"
+                  className="h-9 rounded-md border border-border/60 bg-card/50 px-2 text-xs sm:col-span-2"
+                />
+              </div>
+              <button
+                disabled={actionLoading}
+                onClick={handleGrantSubscription}
+                className="h-9 rounded-md border border-cyan-400/40 bg-cyan-400/10 px-3 text-cyan-100 disabled:opacity-60"
+              >
+                Grant Subscription
+              </button>
             </CardContent>
           </Card>
 

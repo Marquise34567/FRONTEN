@@ -15,6 +15,24 @@ export type LiveGeoResponse = {
   updatedAt: string
 }
 
+export type AdminRealtimeLiveUsers = {
+  usersOnSite: number
+  usersRendering: number
+  usersExporting: number
+  averageSessionMinutes: number
+}
+
+export type AdminRealtimePayload = {
+  activeUsers: number
+  connectedRealtimeClients?: number
+  jobsInQueue: number
+  jobsFailed24h: number
+  websiteImpressions5m?: number
+  websiteImpressions24h?: number
+  liveUsers?: AdminRealtimeLiveUsers
+  t: string
+}
+
 export type SecurityResponse = {
   score: number
   riskLevel: "low" | "medium" | "high"
