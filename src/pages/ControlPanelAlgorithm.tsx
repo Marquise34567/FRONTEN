@@ -14,7 +14,7 @@ import {
   YAxis
 } from "recharts"
 import { motion } from "framer-motion"
-import { Activity, FlaskConical, Rocket, Sparkles, TestTubeDiagonal, Wand2 } from "lucide-react"
+import { Activity, FlaskConical, MessageSquare, Rocket, Sparkles, TestTubeDiagonal, Wand2 } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Badge } from "@/components/ui/badge"
@@ -154,6 +154,11 @@ const formatClock = (iso: string) => {
 
 const formatPct = (value: number) => `${(value * 100).toFixed(0)}%`
 
+const formatSignalPercent = (value: number | null, digits = 0) => {
+  if (value === null || !Number.isFinite(value)) return "--"
+  return `${(value * 100).toFixed(digits)}%`
+}
+
 const toNumber = (value: unknown, fallback = 0) => {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : fallback
@@ -252,6 +257,13 @@ const ControlPanelAlgorithm = () => {
     refetchInterval: 4000
   })
 
+  const feedbackLoopStatusQuery = useQuery({
+    queryKey: ["algorithm-feedback-loop-status"],
+    queryFn: () => algorithmApi.getFeedbackLoopStatus({ token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 6000
+  })
+
   const sampleFootageQuery = useQuery({
     queryKey: ["algorithm-sample-footage"],
     queryFn: () => algorithmApi.listSampleFootage({ token: accessToken || "", limit: 25 }),
@@ -286,7 +298,8 @@ const ControlPanelAlgorithm = () => {
       queryClient.invalidateQueries({ queryKey: ["algorithm-metrics-recent"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-scorecards"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-suggestions"] }),
-      queryClient.invalidateQueries({ queryKey: ["algorithm-experiment-status"] })
+      queryClient.invalidateQueries({ queryKey: ["algorithm-experiment-status"] }),
+      queryClient.invalidateQueries({ queryKey: ["algorithm-feedback-loop-status"] })
     ])
   }
 
@@ -599,6 +612,8 @@ const ControlPanelAlgorithm = () => {
 
   const suggestions = deepAnalysis?.suggestions || suggestionsQuery.data?.suggestions || []
   const activeConfig = activeConfigQuery.data?.config || null
+  const feedbackSnapshot = feedbackLoopStatusQuery.data?.status?.brain_snapshot || null
+  const feedbackSignals = feedbackSnapshot?.recent_signals || []
   const liveDotClass = canLoad ? "bg-emerald-400" : "bg-slate-500"
 
   return (
@@ -622,7 +637,7 @@ const ControlPanelAlgorithm = () => {
         ))}
       </div>
 
-      <main className="relative mx-auto w-full max-w-[1600px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1600px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Algorithm Control Room"
           subtitle="Retention proxy orchestration, guardrails, experiments, and deterministic improvement loops."
@@ -1182,6 +1197,74 @@ const ControlPanelAlgorithm = () => {
                       Stop Experiment
                     </Button>
                   ) : null}
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700/80 bg-slate-900/65">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-xs">
+                    <span className="inline-flex items-center gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5 text-cyan-200" />
+                      User Feedback Feed
+                    </span>
+                    <Badge className="bg-cyan-500/20 text-cyan-100">
+                      {feedbackSnapshot?.sample_size || 0} samples
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-[11px]">
+                  <div className="grid grid-cols-2 gap-2 text-slate-300">
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Outcome avg: {formatSignalPercent(feedbackSnapshot?.avg_outcome ?? null)}
+                    </p>
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Platform share: {formatSignalPercent(feedbackSnapshot?.platform_feedback_share ?? null)}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {feedbackSignals.length ? (
+                      feedbackSignals.slice(0, 8).map((signal) => (
+                        <div key={`${signal.job_id}-${signal.created_at}`} className="rounded-md border border-slate-700/80 bg-slate-950/70 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="line-clamp-1 text-slate-100">
+                              {signal.creator_feedback_category
+                                ? `Creator: ${formatParamKey(signal.creator_feedback_category)}`
+                                : signal.source || "Retention telemetry"}
+                            </p>
+                            <Badge className={signal.source_type === "platform" ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-700 text-slate-200"}>
+                              {signal.source_type}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-slate-400">
+                            {signal.job_id.slice(0, 10)} · {formatClock(signal.created_at)}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                            <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-cyan-100">
+                              Outcome {formatSignalPercent(signal.signal_outcome)}
+                            </span>
+                            <span className="rounded border border-slate-600/80 bg-slate-900/70 px-1.5 py-0.5 text-slate-200">
+                              Hook {formatSignalPercent(signal.hook_hold_percent)}
+                            </span>
+                            <span className="rounded border border-slate-600/80 bg-slate-900/70 px-1.5 py-0.5 text-slate-200">
+                              Completion {formatSignalPercent(signal.completion_percent)}
+                            </span>
+                            <span className="rounded border border-slate-600/80 bg-slate-900/70 px-1.5 py-0.5 text-slate-200">
+                              Manual {formatSignalPercent(signal.manual_score)}
+                            </span>
+                          </div>
+                          {signal.creator_feedback_notes || signal.notes ? (
+                            <p className="mt-1 line-clamp-2 text-slate-300">
+                              {signal.creator_feedback_notes || signal.notes}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-md border border-dashed border-slate-700/80 bg-slate-950/60 px-2 py-2 text-slate-400">
+                        No user feedback captured yet.
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 

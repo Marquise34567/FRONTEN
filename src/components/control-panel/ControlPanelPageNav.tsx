@@ -43,33 +43,33 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36, ease: "easeOut" }}
-      className="relative overflow-hidden rounded-2xl border border-sky-400/20 bg-[radial-gradient(130%_140%_at_85%_-10%,hsl(204_95%_58%/0.26),transparent_48%),linear-gradient(160deg,hsl(216_30%_9%/0.88)_0%,hsl(216_35%_6%/0.94)_100%)] p-4 backdrop-blur-xl"
+      className="glass-card relative overflow-hidden border-border/60 bg-[radial-gradient(130%_160%_at_92%_-18%,hsl(var(--glow-secondary)/0.2),transparent_46%),radial-gradient(140%_150%_at_7%_100%,hsl(var(--primary)/0.16),transparent_48%),linear-gradient(165deg,hsl(var(--card)/0.74)_0%,hsl(var(--card)/0.48)_100%)] p-4 sm:p-5"
     >
-      <div className="pointer-events-none absolute -left-10 top-6 h-28 w-28 rounded-full bg-sky-500/20 blur-2xl" />
-      <div className="pointer-events-none absolute right-8 top-2 h-16 w-16 rounded-full bg-cyan-400/20 blur-2xl" />
+      <div className="pointer-events-none absolute -left-10 top-6 h-28 w-28 rounded-full bg-primary/15 blur-2xl" />
+      <div className="pointer-events-none absolute right-8 top-2 h-16 w-16 rounded-full bg-sky-400/20 blur-2xl" />
 
       <div className="relative flex flex-col gap-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-sky-200/80">Control Panel</p>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-100">{title}</h2>
-            <p className="text-sm text-slate-300/80">{subtitle}</p>
+            <span className="pill-badge text-[10px]">Control Panel</span>
+            <h2 className="mt-2 text-2xl font-bold font-display tracking-tight text-foreground">{title}</h2>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
-          <label className="relative inline-flex h-11 min-w-[220px] items-center overflow-hidden rounded-xl border border-sky-300/20 bg-slate-900/60 px-3 text-sm text-slate-100">
-            <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-300/70">Page</span>
+          <label className="relative inline-flex h-11 min-w-[220px] items-center overflow-hidden rounded-xl border border-border/60 bg-card/45 px-3 text-sm text-foreground">
+            <span className="mr-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Page</span>
             <select
               value={current.path}
               onChange={(event) => navigate(event.target.value)}
-              className="h-full w-full cursor-pointer appearance-none bg-transparent pr-6 text-sm text-slate-100 outline-none"
+              className="h-full w-full cursor-pointer appearance-none bg-transparent pr-6 text-sm text-foreground outline-none"
               aria-label="Control panel page selector"
             >
               {CONTROL_PANEL_PAGES.map((page) => (
-                <option key={page.key} value={page.path} className="bg-slate-900 text-slate-100">
+                <option key={page.key} value={page.path} className="bg-card text-foreground">
                   {page.label}
                 </option>
               ))}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-300" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-muted-foreground" />
           </label>
         </div>
 
@@ -83,8 +83,8 @@ const ControlPanelPageNav = ({ title, subtitle }: ControlPanelPageNavProps) => {
                 onClick={() => navigate(page.path)}
                 className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm transition ${
                   active
-                    ? "border-sky-300/50 bg-sky-400/20 text-sky-100 shadow-[0_0_18px_hsl(201_96%_46%/0.25)]"
-                    : "border-slate-700/80 bg-slate-900/40 text-slate-300 hover:border-sky-300/40 hover:text-slate-100"
+                    ? "border-primary/45 bg-primary/15 text-foreground shadow-[0_0_18px_hsl(var(--primary)/0.2)]"
+                    : "border-border/60 bg-card/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
                 }`}
               >
                 <page.Icon className="h-4 w-4" />

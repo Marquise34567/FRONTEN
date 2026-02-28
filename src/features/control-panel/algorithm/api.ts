@@ -6,6 +6,7 @@ import type {
   AlgorithmExperiment,
   AlgorithmPreset,
   AnalyzeResponse,
+  FeedbackLoopStatusResponse,
   ExperimentStatusResponse,
   ImprovementSuggestion,
   PromptApplyResponse,
@@ -171,6 +172,9 @@ export const algorithmApi = {
 
   getExperimentStatus: ({ token }: TokenInput) =>
     apiFetch<ExperimentStatusResponse>(`${BASE}/experiment/status`, withToken(token)),
+
+  getFeedbackLoopStatus: ({ token }: TokenInput) =>
+    apiFetch<FeedbackLoopStatusResponse>(`${BASE}/feedback-loop/status`, withToken(token)),
 
   listSampleFootage: ({ token, limit = 20 }: TokenInput & { limit?: number }) =>
     apiFetch<{ samples: SampleFootageItem[] }>(`${BASE}/sample-footage?limit=${encodeURIComponent(String(limit))}`, {

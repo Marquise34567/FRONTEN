@@ -188,7 +188,7 @@ const ControlPanelEmotion = () => {
         />
       </div>
 
-      <main className="control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
+      <main className="editor-landing-skin responsive-main control-panel-main relative mx-auto w-full max-w-[1450px] px-4 pb-16 pt-24 md:px-8">
         <ControlPanelPageNav
           title="Emotion Engine"
           subtitle="Realtime emotional tuning for the editor algorithm with live-sync controls and presets."
