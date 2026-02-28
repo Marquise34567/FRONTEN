@@ -4,6 +4,25 @@ import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+const COOL_FEATURE_KEYWORDS = [
+  "4k",
+  "priority",
+  "advanced effects",
+  "future features",
+  "all subtitle",
+  "all presets",
+  "lifetime",
+  "founder badge",
+  "locked price forever",
+  "karaoke",
+  "full zoom",
+];
+
+const isCoolFeature = (feature: string) => {
+  const normalized = feature.toLowerCase();
+  return COOL_FEATURE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
+
 type PricingCardsProps = {
   currentTier?: string;
   isAuthenticated: boolean;
@@ -74,7 +93,8 @@ const PricingCards = ({
               "relative rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c111f] to-[#11172a] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.35)]",
               "flex flex-col",
               isPopular && "ring-1 ring-primary/40 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
-              isFounder && "ring-1 ring-amber-400/50 shadow-[0_25px_80px_rgba(251,191,36,0.18)]"
+              isFounder && "ring-1 ring-amber-400/50 shadow-[0_25px_80px_rgba(251,191,36,0.18)]",
+              isCurrent && "subscription-active-card"
             )}
           >
             {(isPopular || isFounder) && (
@@ -131,7 +151,10 @@ const PricingCards = ({
             </div>
             <ul className="space-y-2 text-sm text-foreground mb-4">
               {plan.features.map((feature) => (
-                <li key={feature} className="flex items-center gap-2">
+                <li
+                  key={feature}
+                  className={cn("flex items-center gap-2 rounded-md px-2 py-1", isCurrent && isCoolFeature(feature) && "cool-feature-glow")}
+                >
                   <span className="h-5 w-5 rounded-full bg-white/5 flex items-center justify-center">
                     <Check className="w-3 h-3 text-success" />
                   </span>

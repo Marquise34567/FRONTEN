@@ -209,4 +209,102 @@
       linear-gradient(90deg, hsl(var(--primary) / 0.16), hsl(var(--glow-secondary) / 0.14)),
       hsl(var(--muted) / 0.32);
   }
+
+  @keyframes subscriptionActivePulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px hsl(var(--primary) / 0.35),
+        0 20px 60px -32px hsl(var(--primary) / 0.55);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px hsl(var(--primary) / 0.65),
+        0 30px 78px -28px hsl(var(--primary) / 0.9);
+    }
+  }
+
+  @keyframes subscriptionActiveSweep {
+    0% {
+      transform: translateX(-35%) rotate(8deg);
+      opacity: 0;
+    }
+    20% {
+      opacity: 0.65;
+    }
+    65% {
+      opacity: 0.7;
+    }
+    100% {
+      transform: translateX(35%) rotate(8deg);
+      opacity: 0;
+    }
+  }
+
+  @keyframes coolFeaturePulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px hsl(272 95% 66% / 0.32),
+        0 0 24px -12px hsl(272 95% 66% / 0.9),
+        inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px hsl(272 95% 66% / 0.55),
+        0 0 34px -8px hsl(272 95% 66% / 1),
+        inset 0 1px 0 hsl(0 0% 100% / 0.18);
+    }
+  }
+
+  .subscription-active-card {
+    position: relative;
+    overflow: hidden;
+    border-color: hsl(var(--primary) / 0.62);
+    animation: subscriptionActivePulse 2.8s ease-in-out infinite;
+  }
+
+  .subscription-active-card::before {
+    content: "";
+    position: absolute;
+    inset: -120% -20%;
+    pointer-events: none;
+    background: linear-gradient(
+      120deg,
+      transparent 32%,
+      hsl(var(--primary) / 0.18) 45%,
+      hsl(272 95% 66% / 0.28) 56%,
+      transparent 70%
+    );
+    animation: subscriptionActiveSweep 3.6s linear infinite;
+  }
+
+  .subscription-active-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .unlocked-feature-pill {
+    @apply flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-foreground;
+  }
+
+  .unlocked-feature-icon {
+    @apply text-primary;
+    filter: drop-shadow(0 0 10px hsl(var(--primary) / 0.6));
+  }
+
+  .cool-feature-glow {
+    color: hsl(275 100% 88%);
+    border-color: hsl(272 95% 66% / 0.45);
+    background: linear-gradient(140deg, hsl(272 95% 64% / 0.2), hsl(var(--primary) / 0.06));
+    animation: coolFeaturePulse 2.3s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .subscription-active-card,
+    .subscription-active-card::before,
+    .cool-feature-glow {
+      animation: none !important;
+    }
+  }
 }
