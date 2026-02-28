@@ -11,6 +11,15 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    watch: {
+      ignored: [
+        "**/.playwright-cli/**",
+        "**/output/**",
+        "**/outputs/**",
+        "**/public/creator-cards.html",
+        "**/*.log",
+      ],
+    },
     fs: {
       allow: [".."],
     },

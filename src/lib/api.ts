@@ -29,27 +29,28 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
-  if (!API_URL) {
-    throw new ApiError(
-      "API URL not configured. Set VITE_API_URL in your deployment environment.",
-      0,
-      "missing_api_url",
-    );
-  }
+  const base = API_URL || "";
   const { token, headers, ...rest } = options;
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     ...rest,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(headers || {}),
     },
+    credentials: "include",
   });
 
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text().catch(() => "");
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
   if (!res.ok) {
     throw new ApiError(
-      data?.message || data?.error || "Request failed",
+      data?.message || data?.error || `HTTP ${res.status}`,
       res.status,
       data?.error,
       data,
