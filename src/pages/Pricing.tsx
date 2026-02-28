@@ -14,8 +14,6 @@ import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
 import { ArrowRight, ZoomIn } from "lucide-react";
 
-const FREE_TRIAL_PRICE_ID = "price_1SyoifEaNugKFIUDgg243r6V";
-
 const Pricing = () => {
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
@@ -49,16 +47,24 @@ const Pricing = () => {
     }
     try {
       setAction({ tier: "starter", kind: "trial" });
-      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
+      const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ priceId: FREE_TRIAL_PRICE_ID }),
+        body: JSON.stringify({ tier: "starter", trial: true, interval: billingInterval }),
         token: accessToken,
       });
       window.location.href = result.url;
     } catch (err: any) {
       const code = err instanceof ApiError ? err.code : err?.code;
-      if (code === "invalid_price_id") {
+      if (code === "trial_checkout_not_configured" || code === "missing_price_config") {
         toast({ title: "Free trial unavailable", description: "Trial checkout is not configured yet." });
+        return;
+      }
+      if (code === "trial_already_active") {
+        toast({ title: "Free trial already active", description: "Your trial is already active on this account." });
+        return;
+      }
+      if (code === "trial_already_used") {
+        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
         return;
       }
       toast({ title: "Free trial checkout failed", description: err?.message || "Please try again." });
