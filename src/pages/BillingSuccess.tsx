@@ -12,11 +12,16 @@ import { CheckCircle2, Sparkles } from "lucide-react";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 
 const REDIRECT_SECONDS = 20;
+const GOOGLE_ADS_CONVERSION_SEND_TO = "AW-17981894798/TZAbCN2on4AcEI7ht_5C";
 const RECENT_EDITOR_FEATURES = [
   "Retention score now explains what the editor improved",
   "Hook candidate selection before re-rendering",
   "Auto-detected video niche with confidence + rationale",
 ];
+
+type GoogleTagWindow = Window & {
+  gtag?: (...args: unknown[]) => void;
+};
 
 const toPlanTier = (value?: string | null): PlanTier => {
   if (!value) return "free";
@@ -37,6 +42,12 @@ const BillingSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["subscription"] });
     queryClient.invalidateQueries({ queryKey: ["me"] });
   }, [queryClient]);
+
+  useEffect(() => {
+    const googleTagWindow = window as GoogleTagWindow;
+    if (typeof googleTagWindow.gtag !== "function") return;
+    googleTagWindow.gtag("event", "conversion", { send_to: GOOGLE_ADS_CONVERSION_SEND_TO });
+  }, []);
 
   useEffect(() => {
     if (!accessToken) return;
