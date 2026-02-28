@@ -12,6 +12,7 @@ import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
+import DevUpgradeModalPreview from "./pages/DevUpgradeModalPreview";
 import { AuthProvider } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/signup" element={<Signup />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/billing/success" element={<BillingSuccess />} />
+            <Route path="/dev/upgrade-modal" element={<DevUpgradeModalPreview />} />
             <Route
               path="/app"
               element={
