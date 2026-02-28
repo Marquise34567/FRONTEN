@@ -117,11 +117,11 @@
   }
 
   .glow-sm {
-    box-shadow: 0 0 20px -5px hsl(var(--primary) / 0.3);
+    box-shadow: 0 0 36px -2px hsl(var(--primary) / 0.65);
   }
 
   .glow-md {
-    box-shadow: 0 0 40px -10px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 60px -6px hsl(var(--primary) / 0.65);
   }
 
   .pill-badge {
@@ -165,10 +165,33 @@
   .btn-glow::after {
     content: '';
     @apply absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300;
-    box-shadow: 0 0 20px 4px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 36px 6px hsl(var(--primary) / 0.65);
   }
 
   .btn-glow:hover::after {
     @apply opacity-100;
   }
 }
+  /* Text outline with glow. Use on headings or important text. */
+  .text-outline-glow {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-stroke-width: 0.9px;
+    -webkit-text-stroke-color: hsl(var(--primary));
+    text-shadow:
+      0 0 6px hsl(var(--primary) / 0.9),
+      0 0 18px hsl(var(--glow-secondary) / 0.6),
+      0 0 36px hsl(var(--primary) / 0.35);
+  }
+
+  /* Stronger outline + glow variant */
+  .text-outline-glow-strong {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-stroke-width: 1.6px;
+    -webkit-text-stroke-color: hsl(var(--primary));
+    text-shadow:
+      0 0 8px hsl(var(--primary) / 1),
+      0 0 24px hsl(var(--glow-secondary) / 0.75),
+      0 0 60px hsl(var(--primary) / 0.45);
+  }
