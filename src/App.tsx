@@ -12,6 +12,7 @@ import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import BillingSuccess from "./pages/BillingSuccess";
+import GoogleTagSetup from "./pages/GoogleTagSetup";
 import ControlPanel from "./pages/ControlPanel";
 import ControlPanelAudience from "./pages/ControlPanelAudience";
 import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
@@ -102,6 +103,7 @@ const App = () => {
               <Route path="/signup" element={<Signup />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/billing/success" element={<BillingSuccess />} />
+              <Route path="/preview/google-ads-tracking" element={<GoogleTagSetup />} />
               <Route
                 path="/app"
                 element={
@@ -131,6 +133,14 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <Settings />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/editor/google-ads-tracking"
+                element={
+                  <RequireAuth>
+                    <GoogleTagSetup />
                   </RequireAuth>
                 }
               />
