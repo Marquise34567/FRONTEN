@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, ArrowRight, Lock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
+import { ApiError, apiFetch } from "@/lib/api";
 
 const resolveNextPath = (nextParam: string | null, location: ReturnType<typeof useLocation>) => {
   if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) return nextParam;
@@ -33,6 +34,20 @@ const Signup = () => {
   const [searchParams] = useSearchParams();
   const nextPath = resolveNextPath(searchParams.get("next"), location);
 
+  const enforceSingleAccountPerIp = async (normalizedEmail: string) => {
+    await apiFetch<{ allowed: boolean }>("/api/public/signup/ip-check", {
+      method: "POST",
+      body: JSON.stringify({ email: normalizedEmail }),
+    });
+  };
+
+  const lockSignupIp = async (normalizedEmail: string) => {
+    await apiFetch<{ allowed: boolean }>("/api/public/signup/ip-claim", {
+      method: "POST",
+      body: JSON.stringify({ email: normalizedEmail }),
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedEmail = email.trim();
@@ -46,11 +61,39 @@ const Signup = () => {
       return;
     }
     setSubmitting(true);
+    try {
+      await enforceSingleAccountPerIp(normalizedEmail);
+    } catch (error) {
+      setSubmitting(false);
+      if (error instanceof ApiError && error.code === "ip_signup_limit_reached") {
+        toast({
+          title: "Signup blocked",
+          description: "Only one account can be created from this network.",
+        });
+        return;
+      }
+      toast({
+        title: "Signup check failed",
+        description: "Please try again in a moment.",
+      });
+      return;
+    }
+
     const result = await signUp(normalizedEmail, password);
     setSubmitting(false);
     if (result.error) {
       toast({ title: "Sign up failed", description: result.error });
       return;
+    }
+    try {
+      await lockSignupIp(normalizedEmail);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "ip_signup_limit_reached") {
+        toast({
+          title: "Signup blocked",
+          description: "Only one account can be created from this network.",
+        });
+      }
     }
     if (result.needsEmailConfirm) {
       setEmailSent(true);

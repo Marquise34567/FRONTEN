@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,8 @@ const Navbar = () => {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [navHeightPx, setNavHeightPx] = useState(72);
+  const navRef = useRef<HTMLElement | null>(null);
   const showControlPanel = Boolean(me?.flags?.dev);
 
   const handleLogout = async () => {
@@ -33,16 +35,32 @@ const Navbar = () => {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(() => {
+    const updateNavHeight = () => {
+      const nextHeight = Math.ceil(navRef.current?.getBoundingClientRect().height || 0);
+      if (nextHeight > 0) setNavHeightPx(nextHeight);
+    };
+
+    updateNavHeight();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateNavHeight) : null;
+    if (observer && navRef.current) observer.observe(navRef.current);
+    window.addEventListener("resize", updateNavHeight);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateNavHeight);
+    };
+  }, [scrolled, mobileMenuOpen]);
+
   return (
     <>
       <nav
+        ref={navRef}
         className={
           `fixed top-0 left-0 right-0 z-50 px-[max(env(safe-area-inset-left),var(--ae-main-px,1rem))] backdrop-blur-md transition-all duration-300 ease-in-out ` +
           (scrolled
             ? "border-b border-border/30 bg-background/90 shadow-lg py-2"
             : "border-b border-border/30 bg-background/40 py-4")
         }
-        style={{ ["--ae-nav-height" as any]: scrolled ? "40px" : "56px" }}
       >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2">
         <Link to="/" className="flex min-w-0 items-center gap-2 nav-slide">
@@ -134,7 +152,7 @@ const Navbar = () => {
         </div>
       </div>
       </nav>
-      <div aria-hidden className="w-full" style={{ height: "var(--ae-nav-height)" }} />
+      <div aria-hidden className="w-full" style={{ height: `${navHeightPx}px` }} />
     </>
   );
 };

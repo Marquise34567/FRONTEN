@@ -5059,8 +5059,8 @@ const Editor = () => {
     handlePickFile();
   };
 
-  const handleViewFullAnalysisFromExport = () => {
-    setExportOpen(false);
+  const openVideoStatsSummary = useCallback((options?: { closeExport?: boolean }) => {
+    if (options?.closeExport) setExportOpen(false);
     setRetentionDetailsOpen(true);
     if (analyzeUnlockedForActiveJob) {
       setShowAdvancedDebug(true);
@@ -5070,6 +5070,10 @@ const Editor = () => {
         fullAnalysisSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     });
+  }, [analyzeUnlockedForActiveJob]);
+
+  const handleViewFullAnalysisFromExport = () => {
+    openVideoStatsSummary({ closeExport: true });
   };
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
@@ -7034,10 +7038,20 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <div ref={fullAnalysisSectionRef} className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+                    <div ref={fullAnalysisSectionRef} className="retention-summary-shell space-y-3 rounded-2xl p-3 sm:p-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
-                        <div className="flex flex-wrap gap-1.5">
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Video Stats Summary</p>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="retention-summary-feedback-btn h-8 px-2.5 text-[11px]"
+                            onClick={() => openVideoStatsSummary()}
+                          >
+                            <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                            Open Feedback
+                          </Button>
                           <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
                             {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
                           </Badge>
@@ -7054,7 +7068,7 @@ const Editor = () => {
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                        <div className="retention-summary-card rounded-xl p-3">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
                           {retentionScoreDeltaDisplay !== null ? (
                             <motion.p
@@ -7081,7 +7095,7 @@ const Editor = () => {
                             <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
                           ) : null}
                         </div>
-                        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+                        <div className="retention-summary-card rounded-xl p-3">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
                           {retentionBeforeBar !== null && retentionAfterBar !== null ? (
                             <div className="mt-2 space-y-2">
@@ -7123,7 +7137,7 @@ const Editor = () => {
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-border/50 bg-background/35 p-3">
+                      <div className="retention-summary-card retention-summary-timeline-block rounded-xl p-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
@@ -7900,7 +7914,7 @@ const Editor = () => {
                   className="w-full sm:w-auto"
                   onClick={handleViewFullAnalysisFromExport}
                 >
-                  See Full Analysis
+                  Open Feedback
                 </Button>
                 <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
                   <Download className="w-4 h-4" />

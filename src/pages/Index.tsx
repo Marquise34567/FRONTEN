@@ -153,6 +153,7 @@ const TRIAL_HOVER_TAKEOVER_DURATION_MS = 7_000;
 const TRIAL_HOVER_TAKEOVER_DURATION_SECONDS = TRIAL_HOVER_TAKEOVER_DURATION_MS / 1000;
 const TRIAL_INNER_THOUGHT_STAGGER_MS = 1_000;
 const TRIAL_INNER_THOUGHT_POPUP_COUNT = 4;
+const TRIAL_HOVER_TAKEOVER_DAILY_KEY = "trial_hover_takeover_last_date_v1";
 const TRIAL_INNER_THOUGHT_MALE_VOICE_HINTS =
   /(guy|davis|david|matthew|michael|brian|daniel|james|thomas|alex|male|man|google uk english male)/i;
 const TRIAL_INNER_THOUGHT_FEMALE_VOICE_HINTS =
@@ -219,6 +220,32 @@ const getTrialInnerThoughtVoicePools = (voices: SpeechSynthesisVoice[]) => {
     female: sortedVoices.filter((voice) => TRIAL_INNER_THOUGHT_FEMALE_VOICE_HINTS.test(voice.name)),
     fallback: sortedVoices,
   };
+};
+
+const getLocalCalendarDayKey = () => {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const hasDailyTrialHoverTakeoverBeenShown = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(TRIAL_HOVER_TAKEOVER_DAILY_KEY) === getLocalCalendarDayKey();
+  } catch {
+    return false;
+  }
+};
+
+const markDailyTrialHoverTakeoverShown = () => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TRIAL_HOVER_TAKEOVER_DAILY_KEY, getLocalCalendarDayKey());
+  } catch {
+    // Ignore storage failures and keep behavior functional.
+  }
 };
 
 const viralSignalCards = [
@@ -672,6 +699,9 @@ const Index = () => {
   const [demoUploadUrl, setDemoUploadUrl] = useState<string | null>(null);
   const [showDemoSignupPopup, setShowDemoSignupPopup] = useState(false);
   const [isDemoDragging, setIsDemoDragging] = useState(false);
+  const [trialHoverTakeoverAvailableToday, setTrialHoverTakeoverAvailableToday] = useState(
+    () => !hasDailyTrialHoverTakeoverBeenShown()
+  );
   const trialHoverTakeoverTimerRef = useRef<number | null>(null);
   const trialInnerThoughtTimersRef = useRef<number[]>([]);
   const isTrialHoverTakeoverActiveRef = useRef(false);
@@ -893,6 +923,7 @@ const Index = () => {
 
   const triggerTrialHoverTakeover = useCallback(() => {
     if (shouldReduceMotion) return;
+    if (!trialHoverTakeoverAvailableToday) return;
     const promptSequence = pickPromptSequence(
       trialInnerThoughtPrompts,
       activeTrialInnerThoughtPrompt,
@@ -907,6 +938,8 @@ const Index = () => {
     holyHoverSoundPlayedForCurrentHoverRef.current = false;
     isTrialHoverTakeoverActiveRef.current = true;
     setIsTrialHoverTakeoverActive(true);
+    markDailyTrialHoverTakeoverShown();
+    setTrialHoverTakeoverAvailableToday(false);
     // Do not speak per inner-thought prompts. Instead speak a single short message once on takeover start.
     speakSingleHoverMessage({ interrupt: true });
     clearTrialInnerThoughtTimers();
@@ -933,6 +966,7 @@ const Index = () => {
     playHolyHoverChime,
     shouldReduceMotion,
     speakSingleHoverMessage,
+    trialHoverTakeoverAvailableToday,
   ]);
 
   const handleTrialCtaHoverStart = useCallback(() => {
