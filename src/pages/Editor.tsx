@@ -480,6 +480,7 @@ type BingeMoment = {
   score: number;
   reason: string;
 };
+type FeedbackDeepDiveSection = "retention_vs_emotion" | "emotional_parts" | "binge_parts" | "timeline";
 
 type PreviewPlaybackTelemetry = {
   durationSec: number;
@@ -1288,6 +1289,7 @@ const Editor = () => {
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
+  const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
   const [aModeEnabled, setAModeEnabled] = useState(true);
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
@@ -1315,6 +1317,7 @@ const Editor = () => {
   });
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
   const fullAnalysisSectionRef = useRef<HTMLDivElement | null>(null);
+  const feedbackDeepDiveSectionRefs = useRef<Partial<Record<FeedbackDeepDiveSection, HTMLDivElement | null>>>({});
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -5389,17 +5392,36 @@ const Editor = () => {
   const openVideoStatsSummary = useCallback(() => {
     setVideoAnalysisOpen(true);
     setFeedbackDeepDiveOpen(false);
+    setFeedbackDeepDiveSection("retention_vs_emotion");
     setRetentionDetailsOpen(true);
     if (analyzeUnlockedForActiveJob) {
       setShowAdvancedDebug(true);
     }
   }, [analyzeUnlockedForActiveJob]);
 
+  const openFeedbackDeepDiveSection = useCallback((section: FeedbackDeepDiveSection = "retention_vs_emotion") => {
+    setFeedbackDeepDiveSection(section);
+    setVideoAnalysisOpen(true);
+    setFeedbackDeepDiveOpen(true);
+  }, []);
+
   useEffect(() => {
     if (!videoAnalysisOpen) {
       setFeedbackDeepDiveOpen(false);
     }
   }, [videoAnalysisOpen]);
+
+  useEffect(() => {
+    if (!feedbackDeepDiveOpen) return;
+    if (typeof window === "undefined") return;
+    const timer = window.setTimeout(() => {
+      feedbackDeepDiveSectionRefs.current[feedbackDeepDiveSection]?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [feedbackDeepDiveOpen, feedbackDeepDiveSection]);
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
@@ -7030,6 +7052,7 @@ const Editor = () => {
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Modern Energy + Emotion Timeline</p>
                             <Badge className="border-primary/35 bg-primary/10 text-foreground">Landing-style deep scan</Badge>
                           </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground">Click any bar to open detailed emotional analysis.</p>
                           <div className="mt-3 grid grid-cols-12 gap-1.5">
                             {timelineEnergyMoments.map((moment, idx) => (
                               <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
@@ -7037,6 +7060,8 @@ const Editor = () => {
                                   <button
                                     type="button"
                                     className="group flex h-28 flex-col justify-end"
+                                    aria-label={`${moment.timestampLabel} ${moment.emotionLabel}. Open detailed emotional analysis`}
+                                    onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
                                     style={{ minWidth: "0" }}
                                   >
                                     <span
@@ -7213,7 +7238,12 @@ const Editor = () => {
                           </Badge>
                         </div>
                       </div>
-                      <div className="mt-2 h-36 overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2">
+                      <button
+                        type="button"
+                        className="mt-2 h-36 w-full overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2 text-left transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        aria-label="Open detailed retention and emotion analysis"
+                        onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
+                      >
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                           <line
                             x1="0"
@@ -7259,10 +7289,10 @@ const Editor = () => {
                             );
                           })}
                         </svg>
-                      </div>
+                      </button>
                       <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                         <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
-                        <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"}</span>
+                        <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"} · Click graph for deep dive</span>
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
                         <div className="rounded-lg border border-border/50 bg-background/45 p-2.5">
@@ -7455,7 +7485,7 @@ const Editor = () => {
                             size="sm"
                             variant="outline"
                             className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
-                            onClick={() => setFeedbackDeepDiveOpen(true)}
+                            onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
                           >
                             <MessageCircle className="mr-1 h-3.5 w-3.5" />
                             Open Detailed Feedback
@@ -7476,7 +7506,19 @@ const Editor = () => {
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="retention-summary-card glass-card rounded-xl p-3">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Open detailed retention graph analysis"
+                          onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openFeedbackDeepDiveSection("retention_vs_emotion");
+                            }
+                          }}
+                          className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        >
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
                           {retentionScoreDeltaDisplay !== null ? (
                             <motion.p
@@ -7542,6 +7584,7 @@ const Editor = () => {
                               <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
                             </div>
                           )}
+                          <p className="mt-2 text-[11px] text-muted-foreground">Click chart for full retention breakdown.</p>
                         </div>
                       </div>
 
@@ -7568,6 +7611,7 @@ const Editor = () => {
                                     type="button"
                                     aria-label={`${segment.categoryLabel} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
                                     className={`absolute inset-y-0 rounded-sm transition-colors ${meta.segmentClassName}`}
+                                    onClick={() => openFeedbackDeepDiveSection("timeline")}
                                     style={{
                                       left: `${segment.positionPct}%`,
                                       width: `${segment.widthPct}%`,
@@ -7989,7 +8033,14 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        <div className="rounded-xl border border-primary/25 bg-background/40 p-3">
+                        <div
+                          ref={(node) => {
+                            feedbackDeepDiveSectionRefs.current.retention_vs_emotion = node;
+                          }}
+                          className={`rounded-xl border border-primary/25 bg-background/40 p-3 transition ${
+                            feedbackDeepDiveSection === "retention_vs_emotion" ? "ring-1 ring-primary/55" : ""
+                          }`}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention vs Emotion Graph</p>
                             <div className="flex flex-wrap gap-1.5">
@@ -8047,7 +8098,14 @@ const Editor = () => {
                         </div>
 
                         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                          <div className="rounded-xl border border-border/50 bg-background/40 p-3">
+                          <div
+                            ref={(node) => {
+                              feedbackDeepDiveSectionRefs.current.emotional_parts = node;
+                            }}
+                            className={`rounded-xl border border-border/50 bg-background/40 p-3 transition ${
+                              feedbackDeepDiveSection === "emotional_parts" ? "ring-1 ring-primary/55" : ""
+                            }`}
+                          >
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotional Parts (Timestamps)</p>
                             <div className="mt-2 space-y-2">
                               {emotionTimelineHighlights.length > 0 ? (
@@ -8068,7 +8126,14 @@ const Editor = () => {
                             </div>
                           </div>
 
-                          <div className="rounded-xl border border-border/50 bg-background/40 p-3">
+                          <div
+                            ref={(node) => {
+                              feedbackDeepDiveSectionRefs.current.binge_parts = node;
+                            }}
+                            className={`rounded-xl border border-border/50 bg-background/40 p-3 transition ${
+                              feedbackDeepDiveSection === "binge_parts" ? "ring-1 ring-primary/55" : ""
+                            }`}
+                          >
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge-Worthy Parts</p>
                             <div className="mt-2 space-y-2">
                               {bingeWorthyMoments.length > 0 ? (
@@ -8090,7 +8155,14 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        <div className="rounded-xl border border-primary/25 bg-background/40 p-3">
+                        <div
+                          ref={(node) => {
+                            feedbackDeepDiveSectionRefs.current.timeline = node;
+                          }}
+                          className={`rounded-xl border border-primary/25 bg-background/40 p-3 transition ${
+                            feedbackDeepDiveSection === "timeline" ? "ring-1 ring-primary/55" : ""
+                          }`}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
                             <Badge className="border-border/50 bg-background/60 text-foreground/80">
