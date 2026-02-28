@@ -8,7 +8,21 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Plus, Play, Download, Lock, Loader2, X } from "lucide-react";
+import {
+  Upload,
+  Plus,
+  Play,
+  Download,
+  Lock,
+  Loader2,
+  X,
+  Gauge,
+  Radar,
+  BrainCircuit,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+} from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +31,9 @@ import { PLAN_CONFIG, QUALITY_ORDER, clampQualityForTier, normalizeQuality, type
 
 const MB = 1024 * 1024;
 const LARGE_UPLOAD_THRESHOLD = 64 * MB;
+const JOBS_POLL_INTERVAL_MS = 5000;
+const ACTIVE_JOB_POLL_INTERVAL_MS = 4000;
+const ETA_TICK_INTERVAL_MS = 2000;
 // Supabase storage removed — use R2 via backend pre-signed multipart URLs only
 const FILE_INPUT_ACCEPT = ".mp4,.mkv,video/mp4,video/x-matroska";
 const isAllowedUploadFile = (file: File) => {
@@ -200,6 +217,17 @@ type EmotionTimelineSegment = {
   widthPct: number;
 };
 
+type ScoreBreakdownItem = {
+  key: string;
+  label: string;
+  score: number;
+  weight: number;
+  weightedScore: number;
+  summary: string;
+};
+
+type AnalysisDetailFocus = "retention" | "emotion" | "timeline";
+
 const EMOTION_META: Record<
   string,
   {
@@ -258,6 +286,38 @@ const firstFiniteNumber = (...values: unknown[]): number | null => {
     if (parsed !== null) return parsed;
   }
   return null;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+};
+
+const roundToTenths = (value: number) => Number(value.toFixed(1));
+
+const toScore100 = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const parsed = toFiniteNumber(value);
+    if (parsed === null) continue;
+    const normalized = parsed <= 1 ? parsed * 100 : parsed;
+    return roundToTenths(clamp(normalized, 0, 100));
+  }
+  return null;
+};
+
+const toSignedScoreDelta = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const parsed = toFiniteNumber(value);
+    if (parsed === null) continue;
+    const normalized = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+    return roundToTenths(clamp(normalized, -100, 100));
+  }
+  return null;
+};
+
+const formatScore = (value: number | null, fractionDigits = 1) => {
+  if (value === null || !Number.isFinite(value)) return "--";
+  return Number(value).toFixed(fractionDigits);
 };
 
 const toPercent = (value: number | null, fallback: number) => {
@@ -404,6 +464,63 @@ const normalizeEmotionMoments = (raw: unknown): EmotionMoment[] => {
     .sort((a, b) => a.timestampSec - b.timestampSec);
 };
 
+const buildJobSummarySignature = (job: JobSummary) =>
+  [
+    job.id,
+    normalizeStatus(job.status),
+    Math.round(Number(job.progress ?? 0)),
+    String(job.createdAt || ""),
+    String(job.inputPath || ""),
+    String(job.requestedQuality || ""),
+    job.watermark ? "1" : "0",
+  ].join("|");
+
+const sameJobSummaryList = (prev: JobSummary[], next: JobSummary[]) => {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let index = 0; index < prev.length; index += 1) {
+    if (buildJobSummarySignature(prev[index]) !== buildJobSummarySignature(next[index])) return false;
+  }
+  return true;
+};
+
+const buildJobDetailSignature = (job: JobDetail) => {
+  const analysis = asRecord(job.analysis);
+  const retentionCurveRaw = analysis?.retentionCurve ?? analysis?.retention_curve ?? analysis?.retentionPoints ?? analysis?.retention_points;
+  const emotionTimelineRaw = analysis?.emotionTimeline ?? analysis?.emotion_timeline ?? analysis?.timeline_emotions ?? analysis?.emotions;
+  const retentionCurveLen = Array.isArray(retentionCurveRaw) ? retentionCurveRaw.length : 0;
+  const emotionTimelineLen = Array.isArray(emotionTimelineRaw) ? emotionTimelineRaw.length : 0;
+  const scoreAfter =
+    toFiniteNumber(analysis?.retention_score_after) ??
+    toFiniteNumber(analysis?.retentionScoreAfter) ??
+    toFiniteNumber(analysis?.quality_score_after) ??
+    toFiniteNumber(analysis?.qualityScoreAfter) ??
+    toFiniteNumber(job.retentionScore) ??
+    0;
+  const scoreBefore =
+    toFiniteNumber(analysis?.retention_score_before) ??
+    toFiniteNumber(analysis?.retentionScoreBefore) ??
+    toFiniteNumber(analysis?.quality_score_before) ??
+    toFiniteNumber(analysis?.qualityScoreBefore) ??
+    0;
+  return [
+    buildJobSummarySignature(job),
+    String(job.outputUrl || ""),
+    String(job.finalQuality || ""),
+    Number(scoreBefore).toFixed(2),
+    Number(scoreAfter).toFixed(2),
+    retentionCurveLen,
+    emotionTimelineLen,
+    String(job.error || ""),
+  ].join("|");
+};
+
+const sameJobDetail = (prev: JobDetail | null, next: JobDetail | null) => {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  return buildJobDetailSignature(prev) === buildJobDetailSignature(next);
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -419,6 +536,7 @@ const Editor = () => {
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
+  const [analysisDetailFocus, setAnalysisDetailFocus] = useState<AnalysisDetailFocus>("retention");
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -460,7 +578,8 @@ const Editor = () => {
     }
     try {
       const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
-      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      const nextJobs = Array.isArray(data.jobs) ? data.jobs : [];
+      setJobs((prev) => (sameJobSummaryList(prev, nextJobs) ? prev : nextJobs));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setAuthError(true);
@@ -484,12 +603,14 @@ const Editor = () => {
       setLoadingJob(true);
       try {
         const data = await apiFetch<{ job: JobDetail }>(`/api/jobs/${jobId}`, { token: accessToken });
-        setActiveJob(data.job);
+        setActiveJob((prev) => (sameJobDetail(prev, data.job) ? prev : data.job));
         setJobs((prev) => {
           const index = prev.findIndex((job) => job.id === jobId);
           if (index === -1) return [data.job, ...prev];
           const next = [...prev];
-          next[index] = { ...next[index], ...data.job };
+          const merged = { ...next[index], ...data.job };
+          if (buildJobSummarySignature(next[index]) === buildJobSummarySignature(merged)) return prev;
+          next[index] = merged;
           return next;
         });
       } catch (err) {
@@ -551,9 +672,10 @@ const Editor = () => {
   }, [accessToken, signOut]);
 
   useEffect(() => {
-    const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
+    if (!activeJob || isTerminalStatus(activeJob.status)) return;
+    const timer = setInterval(() => setEtaTick((tick) => tick + 1), ETA_TICK_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [activeJob?.id, activeJob?.status]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -587,7 +709,7 @@ const Editor = () => {
     if (!accessToken || !hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
-    }, 2500);
+    }, JOBS_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [accessToken, hasActiveJobs, fetchJobs, authError]);
 
@@ -596,9 +718,9 @@ const Editor = () => {
     if (isTerminalStatus(activeJob.status)) return;
     const timer = setInterval(() => {
       fetchJob(selectedJobId);
-    }, 2500);
+    }, ACTIVE_JOB_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [accessToken, authError, activeJob, selectedJobId, fetchJob]);
+  }, [accessToken, authError, activeJob?.id, activeJob?.status, selectedJobId, fetchJob]);
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
@@ -1014,6 +1136,11 @@ const Editor = () => {
     setSearchParams(next, { replace: false });
   };
 
+  const openVideoAnalysisWithFocus = useCallback((focus: AnalysisDetailFocus) => {
+    setAnalysisDetailFocus(focus);
+    setVideoAnalysisOpen(true);
+  }, []);
+
   const handleDownload = async () => {
     if (!accessToken || !activeJob) return false;
     try {
@@ -1032,12 +1159,20 @@ const Editor = () => {
   };
 
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const activeJobIsReady = normalizedActiveStatus === "ready";
   const activeStatusLabel = activeJob ? STATUS_LABELS[normalizeStatus(activeJob.status)] || "Queued" : "Queued";
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && activeJob.outputUrl);
+  const optimizationHighlights = useMemo(() => {
+    if (!Array.isArray(activeJob?.optimizationNotes)) return [];
+    return activeJob.optimizationNotes
+      .map((note) => (typeof note === "string" ? note.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 3);
+  }, [activeJob?.optimizationNotes]);
   const activeAnalysis = activeJob?.analysis && typeof activeJob.analysis === "object" ? activeJob.analysis : null;
   const activeRetentionPayload =
     activeJob && (activeJob as any).retention && typeof (activeJob as any).retention === "object"
@@ -1270,6 +1405,311 @@ const Editor = () => {
     () => [...emotionTimelineSegments].sort((a, b) => b.intensity - a.intensity).slice(0, 6),
     [emotionTimelineSegments],
   );
+  const retentionBiggestDrop = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return null;
+    let best: { drop: number; from: RetentionPoint; to: RetentionPoint } | null = null;
+    for (let index = 1; index < retentionCurvePoints.length; index += 1) {
+      const from = retentionCurvePoints[index - 1];
+      const to = retentionCurvePoints[index];
+      const drop = from.predicted - to.predicted;
+      if (drop <= 0) continue;
+      if (!best || drop > best.drop) {
+        best = { drop, from, to };
+      }
+    }
+    return best;
+  }, [retentionCurvePoints]);
+  const dominantEmotionSegment = useMemo(() => {
+    let bestSegment: EmotionTimelineSegment | null = null;
+    let bestScore = -1;
+    for (const segment of emotionTimelineSegments) {
+      const score = segment.intensity * Math.max(1, segment.endSec - segment.startSec);
+      if (score > bestScore) {
+        bestScore = score;
+        bestSegment = segment;
+      }
+    }
+    return bestSegment;
+  }, [emotionTimelineSegments]);
+  const activeAutoDetectProfile = useMemo(
+    () =>
+      asRecord(activeAnalysis?.auto_detect_profile) ??
+      asRecord(activeAnalysis?.autoDetectProfile) ??
+      asRecord(activeAnalysis?.metadata_summary?.auto_detect_profile) ??
+      asRecord(activeAnalysis?.metadataSummary?.autoDetectProfile),
+    [activeAnalysis],
+  );
+  const explicitRetentionBeforeScore = useMemo(
+    () =>
+      toScore100(
+        activeAnalysis?.retention_score_before,
+        activeAnalysis?.retentionScoreBefore,
+        activeAnalysis?.quality_score_before,
+        activeAnalysis?.qualityScoreBefore,
+        activeRetentionPayload?.retention_score_before,
+        activeRetentionPayload?.retentionScoreBefore,
+        activeRetentionPayload?.quality_score_before,
+        activeRetentionPayload?.qualityScoreBefore,
+        activeAutoDetectProfile?.qualityScoreBefore,
+        activeAutoDetectProfile?.quality_score_before,
+        activeAutoDetectProfile?.scoreBefore,
+        activeAutoDetectProfile?.score_before,
+      ),
+    [activeAnalysis, activeRetentionPayload, activeAutoDetectProfile],
+  );
+  const explicitRetentionAfterScore = useMemo(
+    () =>
+      toScore100(
+        activeAnalysis?.retention_score_after,
+        activeAnalysis?.retentionScoreAfter,
+        activeAnalysis?.quality_score_after,
+        activeAnalysis?.qualityScoreAfter,
+        activeRetentionPayload?.retention_score_after,
+        activeRetentionPayload?.retentionScoreAfter,
+        activeRetentionPayload?.quality_score_after,
+        activeRetentionPayload?.qualityScoreAfter,
+        activeAutoDetectProfile?.qualityScoreAfter,
+        activeAutoDetectProfile?.quality_score_after,
+        activeAutoDetectProfile?.scoreAfter,
+        activeAutoDetectProfile?.score_after,
+        activeJob?.retentionScore,
+      ),
+    [activeAnalysis, activeRetentionPayload, activeAutoDetectProfile, activeJob?.retentionScore],
+  );
+  const explicitRetentionDelta = useMemo(
+    () =>
+      toSignedScoreDelta(
+        activeAnalysis?.retention_delta,
+        activeAnalysis?.retentionDelta,
+        activeAnalysis?.retention_delta_estimate,
+        activeAnalysis?.retentionDeltaEstimate,
+        activeAnalysis?.manual_retention_delta_estimate,
+        activeAnalysis?.quality_delta,
+        activeAnalysis?.qualityDelta,
+        activeRetentionPayload?.retention_delta,
+        activeRetentionPayload?.retentionDelta,
+        activeRetentionPayload?.manual_retention_delta_estimate,
+        activeRetentionPayload?.quality_delta,
+        activeRetentionPayload?.qualityDelta,
+        activeRetentionPayload?.delta,
+        activeAutoDetectProfile?.qualityDelta,
+        activeAutoDetectProfile?.quality_delta,
+      ),
+    [activeAnalysis, activeRetentionPayload, activeAutoDetectProfile],
+  );
+  const retentionAverageScore = useMemo(() => {
+    if (retentionCurvePoints.length === 0) return null;
+    const total = retentionCurvePoints.reduce((sum, point) => sum + point.predicted, 0);
+    return roundToTenths(clamp(total / retentionCurvePoints.length, 0, 100));
+  }, [retentionCurvePoints]);
+  const endingRetentionScore = useMemo(
+    () => toScore100(latestRetentionPoint?.predicted, activeJob?.retentionScore, retentionAverageScore),
+    [latestRetentionPoint, activeJob?.retentionScore, retentionAverageScore],
+  );
+  const emotionResonanceScore = useMemo(() => {
+    if (emotionMoments.length === 0) return null;
+    const average = emotionMoments.reduce((sum, moment) => sum + moment.intensity, 0) / emotionMoments.length;
+    const peak = emotionMoments.reduce((best, moment) => Math.max(best, moment.intensity), 0);
+    return roundToTenths(clamp(average * 0.74 + peak * 0.26, 0, 100));
+  }, [emotionMoments]);
+  const retentionDropAverage = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return 0;
+    let totalDrop = 0;
+    let dropCount = 0;
+    for (let index = 1; index < retentionCurvePoints.length; index += 1) {
+      const drop = retentionCurvePoints[index - 1].predicted - retentionCurvePoints[index].predicted;
+      if (drop <= 0) continue;
+      totalDrop += drop;
+      dropCount += 1;
+    }
+    if (dropCount === 0) return 0;
+    return roundToTenths(totalDrop / dropCount);
+  }, [retentionCurvePoints]);
+  const retentionStabilityScore = useMemo(() => {
+    const largestDrop = retentionBiggestDrop?.drop ?? 0;
+    const combinedPenalty = largestDrop * 1.65 + retentionDropAverage * 1.15;
+    return roundToTenths(clamp(100 - combinedPenalty, 30, 100));
+  }, [retentionBiggestDrop, retentionDropAverage]);
+  const retentionScoringBreakdown = useMemo<ScoreBreakdownItem[]>(() => {
+    const scanConfidence = roundToTenths(clamp(fullScanProgress, 0, 100));
+    const rows = [
+      {
+        key: "ending-hold",
+        label: "Ending Hold",
+        score: endingRetentionScore ?? 62,
+        weight: 0.34,
+        summary: "Predicted viewer hold in the final section.",
+      },
+      {
+        key: "average-hold",
+        label: "Average Hold",
+        score: retentionAverageScore ?? endingRetentionScore ?? 60,
+        weight: 0.24,
+        summary: "Average retention strength across the full timeline.",
+      },
+      {
+        key: "emotion-strength",
+        label: "Emotion Strength",
+        score: emotionResonanceScore ?? 58,
+        weight: 0.18,
+        summary: "Blend of emotional intensity and contrast from detected beats.",
+      },
+      {
+        key: "stability",
+        label: "Retention Stability",
+        score: retentionStabilityScore,
+        weight: 0.14,
+        summary: "Penalty-adjusted score for steep drop-off zones.",
+      },
+      {
+        key: "scan-confidence",
+        label: "Scan Confidence",
+        score: scanConfidence,
+        weight: 0.1,
+        summary: "How complete the current full-video analysis pass is.",
+      },
+    ];
+    return rows.map((item) => ({
+      ...item,
+      weightedScore: roundToTenths(item.score * item.weight),
+    }));
+  }, [
+    fullScanProgress,
+    endingRetentionScore,
+    retentionAverageScore,
+    emotionResonanceScore,
+    retentionStabilityScore,
+  ]);
+  const combinedRetentionScore = useMemo(() => {
+    if (retentionScoringBreakdown.length === 0) return 0;
+    const weightedTotal = retentionScoringBreakdown.reduce((sum, item) => sum + item.score * item.weight, 0);
+    return roundToTenths(clamp(weightedTotal, 0, 100));
+  }, [retentionScoringBreakdown]);
+  const afterRetentionScore = useMemo(
+    () => toScore100(explicitRetentionAfterScore, combinedRetentionScore, endingRetentionScore, retentionAverageScore),
+    [explicitRetentionAfterScore, combinedRetentionScore, endingRetentionScore, retentionAverageScore],
+  );
+  const inferredRetentionLift = useMemo(() => {
+    const emotionLift = emotionResonanceScore !== null ? clamp((emotionResonanceScore - 56) * 0.08, -1.2, 3.8) : 0.8;
+    const scanLift = clamp((fullScanProgress - 45) * 0.03, 0, 2.5);
+    const dropPenalty = clamp((retentionBiggestDrop?.drop ?? 0) * 0.18, 0.3, 3);
+    return roundToTenths(clamp(3.6 + emotionLift + scanLift - dropPenalty, 1.3, 9.5));
+  }, [emotionResonanceScore, fullScanProgress, retentionBiggestDrop]);
+  const beforeRetentionScore = useMemo(() => {
+    if (explicitRetentionBeforeScore !== null) return explicitRetentionBeforeScore;
+    if (afterRetentionScore === null) return null;
+    if (explicitRetentionDelta !== null) {
+      return toScore100(afterRetentionScore - explicitRetentionDelta);
+    }
+    return toScore100(afterRetentionScore - inferredRetentionLift);
+  }, [
+    explicitRetentionBeforeScore,
+    afterRetentionScore,
+    explicitRetentionDelta,
+    inferredRetentionLift,
+  ]);
+  const retentionScoreDelta = useMemo(() => {
+    if (afterRetentionScore !== null && beforeRetentionScore !== null) {
+      return roundToTenths(clamp(afterRetentionScore - beforeRetentionScore, -100, 100));
+    }
+    return explicitRetentionDelta;
+  }, [afterRetentionScore, beforeRetentionScore, explicitRetentionDelta]);
+  const finalRetentionScore = afterRetentionScore ?? combinedRetentionScore;
+  const retentionDeltaPositive = retentionScoreDelta === null ? null : retentionScoreDelta >= 0;
+  const retentionDeltaLabel = retentionScoreDelta === null
+    ? "Baseline pending"
+    : `${retentionScoreDelta >= 0 ? "+" : ""}${retentionScoreDelta.toFixed(1)} pts`;
+  const retentionScoreTier = useMemo(() => {
+    if (finalRetentionScore >= 88) {
+      return {
+        label: "Elite",
+        summary: "High watch-through trajectory with strong finish pressure.",
+        badgeClass: "border-success/35 bg-success/10 text-success",
+      };
+    }
+    if (finalRetentionScore >= 76) {
+      return {
+        label: "Strong",
+        summary: "Solid retention profile with room for extra lift in weaker sections.",
+        badgeClass: "border-primary/35 bg-primary/12 text-primary",
+      };
+    }
+    if (finalRetentionScore >= 62) {
+      return {
+        label: "Developing",
+        summary: "Moderate retention profile; optimize pacing to avoid mid-video dips.",
+        badgeClass: "border-warning/35 bg-warning/10 text-warning",
+      };
+    }
+    return {
+      label: "Rescue",
+      summary: "High drop-off risk detected; another optimization pass is recommended.",
+      badgeClass: "border-destructive/35 bg-destructive/10 text-destructive",
+    };
+  }, [finalRetentionScore]);
+  const retentionScoreOrbFill = clamp(finalRetentionScore, 0, 100);
+  const focusedAnalysisDetail = useMemo(() => {
+    if (analysisDetailFocus === "emotion") {
+      return {
+        title: "Emotion Graph Deep Dive",
+        subtitle: "Why this emotional arc should hold viewers longer.",
+        highlights: [
+          dominantEmotionSegment
+            ? `${dominantEmotionSegment.label} dominates ${formatTimelineClock(dominantEmotionSegment.startSec)}-${formatTimelineClock(dominantEmotionSegment.endSec)} at ${dominantEmotionSegment.intensity}% intensity.`
+            : "Emotion dominance is still being estimated.",
+          bingeHighlightSegments[0]
+            ? `Strongest binge beat is ${bingeHighlightSegments[0].label} at ${formatTimelineClock(bingeHighlightSegments[0].startSec)}.`
+            : "Top binge beat is still being generated.",
+          `${emotionLegend.length} distinct emotions detected across ${emotionTimelineSegments.length} timeline segments.`,
+        ],
+      };
+    }
+    if (analysisDetailFocus === "timeline") {
+      return {
+        title: "Timeline Deep Dive",
+        subtitle: "Section-level breakdown of binge-worthy moments.",
+        highlights: [
+          `${formatTimelineClock(emotionTimelineDurationSec)} total timeline scanned with ${emotionTimelineSegments.length} emotion segments.`,
+          bingeHighlightSegments[0]
+            ? `Highest-impact window: ${bingeHighlightSegments[0].label} at ${formatTimelineClock(bingeHighlightSegments[0].startSec)}-${formatTimelineClock(bingeHighlightSegments[0].endSec)}.`
+            : "Highest-impact window is still being estimated.",
+          `Top ${Math.min(6, bingeHighlightSegments.length)} windows are prioritized for binge retention tuning.`,
+        ],
+      };
+    }
+    const topRetentionPoint = retentionCurvePoints.reduce<RetentionPoint | null>(
+      (best, point) => (!best || point.predicted > best.predicted ? point : best),
+      null,
+    );
+    return {
+      title: "Retention Graph Deep Dive",
+      subtitle: "Predicted watch-through shape and where drop-off risk is highest.",
+      highlights: [
+        `Combined retention score is ${formatScore(finalRetentionScore)} / 100 with ${retentionDeltaLabel} vs baseline.`,
+        latestRetentionPoint
+          ? `Predicted ending hold is ${latestRetentionPoint.predicted}% at ${formatTimelineClock(latestRetentionPoint.atSec)}.`
+          : "Ending hold prediction is still being estimated.",
+        topRetentionPoint
+          ? `Strongest retention moment is ${topRetentionPoint.predicted}% at ${formatTimelineClock(topRetentionPoint.atSec)}.`
+          : "Strongest retention moment is still being estimated.",
+        retentionBiggestDrop
+          ? `Largest drop is ${retentionBiggestDrop.drop}% between ${formatTimelineClock(retentionBiggestDrop.from.atSec)} and ${formatTimelineClock(retentionBiggestDrop.to.atSec)}.`
+          : "No major retention drop detected yet.",
+      ],
+    };
+  }, [
+    analysisDetailFocus,
+    bingeHighlightSegments,
+    dominantEmotionSegment,
+    emotionLegend.length,
+    emotionTimelineDurationSec,
+    emotionTimelineSegments.length,
+    finalRetentionScore,
+    latestRetentionPoint,
+    retentionDeltaLabel,
+    retentionBiggestDrop,
+    retentionCurvePoints,
+  ]);
   const retentionFillId = useMemo(
     () => `retention-fill-${String(activeJob?.id || "none").replace(/[^a-zA-Z0-9_-]/g, "")}`,
     [activeJob?.id],
@@ -1553,34 +1993,173 @@ const Editor = () => {
                       </div>
                     )}
 
-                    {normalizeStatus(activeJob.status) === "ready" && (
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">Export is ready. Download your final cut.</p>
-                        <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
-                          <Download className="w-4 h-4" /> Open Export
-                        </Button>
+                    {activeJobIsReady && (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">Export is ready. Review feedback or download your final cut.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => openVideoAnalysisWithFocus("retention")}>
+                            Feedback Deep Dive
+                          </Button>
+                          <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
+                            <Download className="w-4 h-4" /> Open Export
+                          </Button>
+                        </div>
                       </div>
                     )}
 
-                    <div className="analysis-preview-card space-y-3 rounded-xl border border-border/60 bg-card/55 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                    {!activeJobIsReady ? (
+                    <div className="video-stats-summary-shell space-y-4 rounded-2xl p-4 sm:p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Prediction Graph</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Forecasted watch-through trend across your full video.
+                          <p className="pill-badge text-[10px]">Video Stats Summary</p>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Real-time retention score blended from retention curve, emotional flow, and full-video scan confidence.
                           </p>
                         </div>
-                        <Badge
-                          className={`${
-                            retentionGoalMet
-                              ? "border-success/35 bg-success/10 text-success"
-                              : "border-warning/35 bg-warning/10 text-warning"
-                          }`}
-                        >
-                          {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
-                        </Badge>
+                        <Badge className={retentionScoreTier.badgeClass}>{retentionScoreTier.label}</Badge>
                       </div>
-                      <div className="analysis-graph-surface h-36 overflow-hidden rounded-lg border border-border/60 p-2">
+
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                        <div className="video-stats-surface space-y-3 rounded-xl p-3 sm:p-4">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="retention-score-orb"
+                              style={{
+                                background: `conic-gradient(hsl(var(--primary)) 0 ${retentionScoreOrbFill}%, hsl(var(--border) / 0.42) ${retentionScoreOrbFill}% 100%)`,
+                              }}
+                            >
+                              <div className="retention-score-orb-inner">
+                                <span className="retention-score-orb-value">{Math.round(finalRetentionScore)}</span>
+                                <span className="retention-score-orb-label">/100</span>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Combined Retention Score</p>
+                              <p className="text-xl font-display font-semibold text-foreground">{formatScore(finalRetentionScore)} / 100</p>
+                              <p className="text-xs text-muted-foreground">{retentionScoreTier.summary}</p>
+                            </div>
+                          </div>
+
+                          <div className="score-shift-card rounded-lg p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                                  retentionDeltaPositive === null
+                                    ? "border-border/60 bg-muted/25 text-muted-foreground"
+                                    : retentionDeltaPositive
+                                      ? "border-success/35 bg-success/10 text-success"
+                                      : "border-destructive/35 bg-destructive/10 text-destructive"
+                                }`}
+                              >
+                                {retentionDeltaPositive === null ? (
+                                  <Gauge className="h-3 w-3" />
+                                ) : retentionDeltaPositive ? (
+                                  <TrendingUp className="h-3 w-3" />
+                                ) : (
+                                  <TrendingDown className="h-3 w-3" />
+                                )}
+                                {retentionDeltaLabel}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                              <div className="rounded-md border border-border/60 bg-background/40 px-2.5 py-2">
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before</p>
+                                <p className="mt-1 font-semibold text-foreground">{formatScore(beforeRetentionScore)}</p>
+                              </div>
+                              <div className="rounded-md border border-primary/35 bg-primary/10 px-2.5 py-2">
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-primary/90">After</p>
+                                <p className="mt-1 font-semibold text-foreground">{formatScore(afterRetentionScore ?? finalRetentionScore)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-2.5 space-y-1.5">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                                <div
+                                  className="h-full rounded-full bg-muted-foreground/55"
+                                  style={{ width: `${beforeRetentionScore !== null ? clamp(beforeRetentionScore, 0, 100) : 0}%` }}
+                                />
+                              </div>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                                <div
+                                  className="h-full rounded-full bg-primary"
+                                  style={{ width: `${clamp(finalRetentionScore, 0, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="video-stat-chip">
+                              <Gauge className="h-3.5 w-3.5" />
+                              Goal {RETENTION_GOAL_PERCENT}%+
+                            </span>
+                            <span className="video-stat-chip">
+                              <BarChart3 className="h-3.5 w-3.5" />
+                              {retentionScoringBreakdown.length} weighted signals
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="video-stats-surface rounded-xl p-3 sm:p-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Scoring System</p>
+                            <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                              Weighted
+                            </Badge>
+                          </div>
+                          <div className="mt-3 space-y-2.5">
+                            {retentionScoringBreakdown.map((item) => (
+                              <div key={item.key}>
+                                <div className="flex items-center justify-between gap-2 text-[11px]">
+                                  <span className="font-medium text-foreground">{item.label}</span>
+                                  <span className="text-muted-foreground">
+                                    {item.score.toFixed(1)} x {Math.round(item.weight * 100)}% = {item.weightedScore.toFixed(1)}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                                    style={{ width: `${item.score}%` }}
+                                  />
+                                </div>
+                                <p className="mt-1 text-[11px] text-muted-foreground">{item.summary}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="video-stats-metric-card rounded-lg p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">End Hold</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">{latestRetentionPoint ? `${latestRetentionPoint.predicted}%` : "--"}</p>
+                        </div>
+                        <div className="video-stats-metric-card rounded-lg p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Emotion Driver</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">
+                            {dominantEmotionSegment ? `${dominantEmotionSegment.label} ${dominantEmotionSegment.intensity}%` : `${formatScore(emotionResonanceScore)}%`}
+                          </p>
+                        </div>
+                        <div className="video-stats-metric-card rounded-lg p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Largest Drop</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">
+                            {retentionBiggestDrop
+                              ? `-${retentionBiggestDrop.drop}%`
+                              : "0%"}
+                          </p>
+                        </div>
+                        <div className="video-stats-metric-card rounded-lg p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Scan Confidence</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">{Math.round(fullScanProgress)}%</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="analysis-graph-surface video-stats-graph h-36 w-full overflow-hidden rounded-lg border border-border/60 p-2 text-left transition hover:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        onClick={() => openVideoAnalysisWithFocus("retention")}
+                        aria-label="Open retention graph deep dive"
+                      >
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                           <defs>
                             <linearGradient id={retentionFillId} x1="0" y1="0" x2="0" y2="1">
@@ -1630,12 +2209,12 @@ const Editor = () => {
                             />
                           ))}
                         </svg>
-                      </div>
+                      </button>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-[11px] text-muted-foreground">
                           Goal line: {RETENTION_GOAL_PERCENT}%+
                           <span className="ml-1.5">
-                            {retentionGoalMet ? "On track for strong completion." : "Tune pacing to reach target."}
+                            {retentionGoalMet ? "On track for strong completion." : "Tune pacing to reach target."} Click the graph for deep dive.
                           </span>
                         </div>
                         <Button
@@ -1643,12 +2222,75 @@ const Editor = () => {
                           size="sm"
                           variant="outline"
                           className="w-full sm:w-auto"
-                          onClick={() => setVideoAnalysisOpen(true)}
+                          onClick={() => openVideoAnalysisWithFocus("retention")}
                         >
-                          Open Video Analysis Report
+                          Open Feedback Deep Dive
                         </Button>
                       </div>
                     </div>
+                    ) : (
+                      <div className="analysis-report-card space-y-3 rounded-2xl p-4 sm:p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="pill-badge text-[10px]">Feedback Deep Dive</p>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Post-render retention feedback with score lift, weak spots, and optimization reasoning.
+                            </p>
+                          </div>
+                          <Badge className={retentionScoreTier.badgeClass}>{formatScore(finalRetentionScore)} / 100</Badge>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <div className="video-stats-metric-card rounded-lg p-2.5">
+                            <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Before</p>
+                            <p className="mt-1 text-sm font-semibold text-foreground">{formatScore(beforeRetentionScore)}</p>
+                          </div>
+                          <div className="video-stats-metric-card rounded-lg p-2.5">
+                            <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">After</p>
+                            <p className="mt-1 text-sm font-semibold text-foreground">{formatScore(afterRetentionScore ?? finalRetentionScore)}</p>
+                          </div>
+                          <div className="video-stats-metric-card rounded-lg p-2.5">
+                            <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Lift</p>
+                            <p
+                              className={`mt-1 text-sm font-semibold ${
+                                retentionDeltaPositive === null
+                                  ? "text-foreground"
+                                  : retentionDeltaPositive
+                                    ? "text-success"
+                                    : "text-destructive"
+                              }`}
+                            >
+                              {retentionDeltaLabel}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          {optimizationHighlights.length > 0 ? (
+                            optimizationHighlights.map((note, index) => (
+                              <p key={`feedback-highlight-${index}`} className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                                {note}
+                              </p>
+                            ))
+                          ) : (
+                            <p className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+                              Feedback summary is ready. Open deep dive for full retention and emotion diagnostics.
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            Render complete. Review the full feedback breakdown and key improvement windows.
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openVideoAnalysisWithFocus("retention")}
+                          >
+                            Open Feedback Deep Dive
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -1661,38 +2303,114 @@ const Editor = () => {
         <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-white/10 bg-background/95 p-3 backdrop-blur-xl sm:max-w-5xl sm:p-5">
           <div className="analysis-report-shell space-y-4 rounded-2xl p-3 sm:p-5">
             <DialogHeader>
-              <DialogTitle className="text-xl font-display">Video Analysis Report</DialogTitle>
+              <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
               <p className="text-sm text-muted-foreground">
-                Full video scan progress, retention prediction, and emotional timeline insights.
+                Full scan confidence, retention scoring, emotional timeline, and actionable post-render feedback.
               </p>
             </DialogHeader>
 
             <div className="analysis-report-card rounded-xl p-3 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Full Video Scan Progress</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{fullScanProgressLabel}</p>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Scoring System</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Combined score from weighted retention, emotion, stability, and scan signals.
+                  </p>
                 </div>
-                <Badge className="border-primary/35 bg-primary/10 text-primary">
-                  {Math.round(fullScanProgress)}%
+                <Badge className={retentionScoreTier.badgeClass}>
+                  {formatScore(finalRetentionScore)} / 100
                 </Badge>
               </div>
-              <Progress value={fullScanProgress} className="mt-3 h-2 bg-muted [&>div]:bg-primary" />
+
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <div className="video-stats-surface rounded-lg p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before</span>
+                    <span className="text-sm font-semibold text-foreground">{formatScore(beforeRetentionScore)}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                    <div
+                      className="h-full rounded-full bg-muted-foreground/55"
+                      style={{ width: `${beforeRetentionScore !== null ? clamp(beforeRetentionScore, 0, 100) : 0}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-primary/90">After</span>
+                    <span className="text-sm font-semibold text-foreground">{formatScore(afterRetentionScore ?? finalRetentionScore)}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${clamp(finalRetentionScore, 0, 100)}%` }}
+                    />
+                  </div>
+                  <div
+                    className={`mt-3 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] ${
+                      retentionDeltaPositive === null
+                        ? "border-border/60 bg-muted/25 text-muted-foreground"
+                        : retentionDeltaPositive
+                          ? "border-success/35 bg-success/10 text-success"
+                          : "border-destructive/35 bg-destructive/10 text-destructive"
+                    }`}
+                  >
+                    {retentionDeltaPositive === null ? (
+                      <Gauge className="h-3 w-3" />
+                    ) : retentionDeltaPositive ? (
+                      <TrendingUp className="h-3 w-3" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3" />
+                    )}
+                    {retentionDeltaLabel}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {retentionScoringBreakdown.map((item) => (
+                    <div key={`modal-breakdown-${item.key}`} className="rounded-lg border border-border/60 bg-background/45 p-2.5">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="font-medium text-foreground">{item.label}</span>
+                        <span className="text-muted-foreground">
+                          {item.score.toFixed(1)} x {Math.round(item.weight * 100)}% = {item.weightedScore.toFixed(1)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/45">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${item.score}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <span className="uppercase tracking-[0.16em]">Full Video Scan Progress</span>
+                  <span>{fullScanProgressLabel}</span>
+                </div>
+                <Progress value={fullScanProgress} className="mt-2 h-2 bg-muted [&>div]:bg-primary" />
+              </div>
+
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  <Radar className="mr-1 h-3 w-3" />
                   Duration: {formatTimelineClock(estimatedDurationSec ?? retentionTimelineDurationSec)}
                 </Badge>
                 <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  <BarChart3 className="mr-1 h-3 w-3" />
                   Retention points: {retentionCurvePoints.length}
                 </Badge>
                 <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  <BrainCircuit className="mr-1 h-3 w-3" />
                   Emotion beats: {emotionTimelineSegments.length}
                 </Badge>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <div className="analysis-report-card rounded-xl p-3 sm:p-4">
+              <div
+                className={`analysis-report-card rounded-xl p-3 sm:p-4 transition ${
+                  analysisDetailFocus === "retention" ? "ring-1 ring-primary/55" : ""
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Prediction Graph</p>
@@ -1710,7 +2428,12 @@ const Editor = () => {
                     {latestRetentionPoint ? `${latestRetentionPoint.predicted}%` : "Predicting"}
                   </Badge>
                 </div>
-                <div className="analysis-graph-surface mt-3 h-44 overflow-hidden rounded-lg border border-border/60 p-2">
+                <button
+                  type="button"
+                  className="analysis-graph-surface mt-3 h-44 w-full overflow-hidden rounded-lg border border-border/60 p-2 text-left transition hover:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  onClick={() => setAnalysisDetailFocus("retention")}
+                  aria-label="Focus retention deep dive details"
+                >
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                     <defs>
                       <linearGradient id={`${retentionFillId}-modal`} x1="0" y1="0" x2="0" y2="1">
@@ -1754,14 +2477,18 @@ const Editor = () => {
                       <circle key={`retention-modal-node-${index}`} cx={point.x} cy={point.y} r="1.25" fill="hsl(var(--primary))" />
                     ))}
                   </svg>
-                </div>
+                </button>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>Goal: {RETENTION_GOAL_PERCENT}%+</span>
-                  <span>{retentionGoalMet ? "On track" : "Below target"}</span>
+                  <span>{retentionGoalMet ? "On track" : "Below target"} · Click graph for details</span>
                 </div>
               </div>
 
-              <div className="analysis-report-card rounded-xl p-3 sm:p-4">
+              <div
+                className={`analysis-report-card rounded-xl p-3 sm:p-4 transition ${
+                  analysisDetailFocus === "emotion" ? "ring-1 ring-primary/55" : ""
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotion Graph</p>
@@ -1773,7 +2500,12 @@ const Editor = () => {
                     {emotionMoments.length} moments
                   </Badge>
                 </div>
-                <div className="analysis-graph-surface mt-3 h-44 overflow-hidden rounded-lg border border-border/60 p-2">
+                <button
+                  type="button"
+                  className="analysis-graph-surface mt-3 h-44 w-full overflow-hidden rounded-lg border border-border/60 p-2 text-left transition hover:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  onClick={() => setAnalysisDetailFocus("emotion")}
+                  aria-label="Focus emotion deep dive details"
+                >
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                     <defs>
                       <linearGradient id={`${emotionFillId}-modal`} x1="0" y1="0" x2="0" y2="1">
@@ -1808,7 +2540,7 @@ const Editor = () => {
                       <circle key={`emotion-modal-node-${index}`} cx={point.x} cy={point.y} r="1.1" fill="hsl(var(--glow-secondary))" />
                     ))}
                   </svg>
-                </div>
+                </button>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {emotionLegend.map((item) => (
                     <span
@@ -1826,12 +2558,16 @@ const Editor = () => {
               </div>
             </div>
 
-            <div className="analysis-report-card rounded-xl p-3 sm:p-4">
+            <div
+              className={`analysis-report-card rounded-xl p-3 sm:p-4 transition ${
+                analysisDetailFocus === "timeline" ? "ring-1 ring-primary/55" : ""
+              }`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotion Timeline</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Different emotions felt through the edit and why these moments are binge-worthy.
+                    Different emotions felt through the edit and why these moments are binge-worthy. Click timeline to focus deep dive.
                   </p>
                 </div>
                 <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
@@ -1839,7 +2575,12 @@ const Editor = () => {
                 </Badge>
               </div>
 
-              <div className="analysis-emotion-track mt-3 h-4 overflow-hidden rounded-full border border-border/60 bg-muted/35">
+              <button
+                type="button"
+                className="analysis-emotion-track mt-3 h-4 w-full overflow-hidden rounded-full border border-border/60 bg-muted/35"
+                onClick={() => setAnalysisDetailFocus("timeline")}
+                aria-label="Focus timeline deep dive details"
+              >
                 {emotionTimelineSegments.map((segment) => (
                   <span
                     key={`emotion-track-${segment.id}`}
@@ -1852,7 +2593,7 @@ const Editor = () => {
                     title={`${segment.label} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
                   />
                 ))}
-              </div>
+              </button>
 
               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                 {bingeHighlightSegments.map((segment) => (
@@ -1867,6 +2608,23 @@ const Editor = () => {
                     <p className="mt-1 text-[11px] text-foreground/90">
                       Why binge-worthy: {segment.bingeReason}
                     </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="analysis-report-card rounded-xl p-3 sm:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{focusedAnalysisDetail.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{focusedAnalysisDetail.subtitle}</p>
+                </div>
+                <Badge className="border-primary/35 bg-primary/10 text-primary">Detailed view</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                {focusedAnalysisDetail.highlights.map((item, index) => (
+                  <div key={`analysis-focus-detail-${analysisDetailFocus}-${index}`} className="rounded-lg border border-border/60 bg-background/45 p-2.5">
+                    <p className="text-xs text-foreground/90">{item}</p>
                   </div>
                 ))}
               </div>
@@ -1921,9 +2679,9 @@ const Editor = () => {
                 type="button"
                 variant="outline"
                 className="w-full sm:w-auto"
-                onClick={() => setVideoAnalysisOpen(true)}
+                onClick={() => openVideoAnalysisWithFocus("retention")}
               >
-                Video Analysis Report
+                Feedback Deep Dive
               </Button>
               <Button
                 className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
