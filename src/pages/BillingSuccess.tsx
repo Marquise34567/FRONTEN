@@ -2,7 +2,8 @@ import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import GlowBackdrop from "@/components/GlowBackdrop";
+import { Fragment, lazy, Suspense } from "react";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -95,7 +96,7 @@ const BillingSuccess = () => {
 
   if (!accessToken) {
     return (
-      <GlowBackdrop>
+      <Suspense fallback={<Fragment />}><GlowBackdrop>
         <Navbar />
         <main className="responsive-main min-h-screen flex items-center justify-center px-4 pt-24 pb-12">
           <div className="glass-card p-8 max-w-md text-center space-y-4">
@@ -110,7 +111,7 @@ const BillingSuccess = () => {
             </Link>
           </div>
         </main>
-      </GlowBackdrop>
+      </GlowBackdrop></Suspense>
     );
   }
 

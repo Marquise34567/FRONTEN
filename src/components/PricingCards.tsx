@@ -12,7 +12,7 @@ type PricingCardsProps = {
   onCheckout: (tier: PlanTier) => void;
   onPortal: () => void;
   actionTier?: PlanTier | null;
-  actionKind?: "subscribe" | null;
+  actionKind?: "subscribe" | "trial" | null;
   billingInterval?: "monthly" | "annual";
   founderSlotsRemaining?: number;
 };
@@ -79,7 +79,7 @@ const PricingCards = ({
 
   return (
     <motion.div
-      className={cn("grid grid-cols-1 md:grid-cols-2 gap-6", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
+      className={cn("grid grid-cols-1 gap-4 items-stretch sm:gap-6 md:grid-cols-2", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
       variants={gridVariants}
       initial="hidden"
       animate="show"
@@ -128,7 +128,7 @@ const PricingCards = ({
             whileHover={{ y: -8, scale: 1.01 }}
             transition={{ type: "spring", stiffness: 320, damping: 22 }}
             className={cn(
-              "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
+              "group relative flex h-full min-h-[320px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
               isPopular && "ring-1 ring-primary/45 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
               isFounder && "ring-1 ring-amber-400/55 shadow-[0_25px_80px_rgba(251,191,36,0.2)]"
             )}
@@ -176,9 +176,9 @@ const PricingCards = ({
                   <Check className="w-4 h-4 text-muted-foreground" />
                 )}
               </div>
-              <div>
-                <h3 className="text-lg font-semibold font-display text-foreground">{plan.name}</h3>
-                <p className="text-xs text-muted-foreground">{plan.description}</p>
+              <div className="min-w-0">
+                <h3 className="break-words text-lg font-semibold font-display text-foreground">{plan.name}</h3>
+                <p className="break-words text-xs text-muted-foreground">{plan.description}</p>
               </div>
             </div>
             {isFounder && (
@@ -218,13 +218,13 @@ const PricingCards = ({
             <p className="relative z-10 mb-4 text-xs leading-relaxed text-muted-foreground">
               Best for {PLAN_PERSONA[tier]}. {minuteCapLabel}.
             </p>
-            <motion.ul className="mb-5 space-y-2 text-sm text-foreground" variants={gridVariants}>
+            <motion.ul className="mb-5 max-h-36 space-y-2 overflow-auto pr-1 text-sm text-foreground hide-scrollbar" variants={gridVariants}>
               {plan.features.map((feature) => (
                 <motion.li key={feature} className="flex items-center gap-2" variants={featureVariants}>
                   <span className="h-5 w-5 rounded-full bg-white/5 flex items-center justify-center">
                     <Check className="w-3 h-3 text-success" />
                   </span>
-                  <span className="text-[13px]">{feature}</span>
+                  <span className="break-words text-[13px]">{feature}</span>
                 </motion.li>
               ))}
             </motion.ul>

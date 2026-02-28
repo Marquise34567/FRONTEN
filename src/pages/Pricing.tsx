@@ -1,39 +1,29 @@
 import { motion } from "framer-motion";
-import GlowBackdrop from "@/components/GlowBackdrop";
+import { Fragment, lazy, Suspense } from "react";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
-import PricingCards from "@/components/PricingCards";
+const PricingCards = lazy(() => import("@/components/PricingCards"));
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSubscription } from "@/hooks/use-subscription";
 import { useFounderAvailability } from "@/hooks/use-founder-availability";
-import { useMe } from "@/hooks/use-me";
 import { ApiError, apiFetch } from "@/lib/api";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
-import { ZoomIn } from "lucide-react";
+import { ArrowRight, ZoomIn } from "lucide-react";
+
+const FREE_TRIAL_PRICE_ID = "price_1SyoifEaNugKFIUDgg243r6V";
 
 const Pricing = () => {
   const { accessToken, user } = useAuth();
   const { plan: currentPlan } = useSubscription();
-  const { data: me } = useMe();
   const { data: founderAvailability } = useFounderAvailability();
-  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
+  const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" | "trial" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
-  const [useStarterTrial, setUseStarterTrial] = useState(false);
   const { toast } = useToast();
   const founderSlotsRemaining = founderAvailability?.remaining ?? 0;
-  const trialInfo = me?.subscription?.trial;
-  const trialActive = Boolean(trialInfo?.active);
-  const trialUsed = Boolean(!trialActive && (trialInfo?.startedAt || trialInfo?.endsAt || trialInfo?.trialTier));
-  const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
-  const trialEndsLabel = trialInfo?.endsAt ? new Date(trialInfo.endsAt).toLocaleString() : null;
-
-  useEffect(() => {
-    if (trialActive) setUseStarterTrial(true);
-    if (trialUsed) setUseStarterTrial(false);
-  }, [trialActive, trialUsed]);
 
   const handleCheckout = async (tier: PlanTier) => {
     if (!accessToken) return;
@@ -41,18 +31,37 @@ const Pricing = () => {
       setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
+        body: JSON.stringify({ tier, interval: billingInterval }),
+        token: accessToken,
+      });
+      window.location.href = result.url;
+    } catch (err: any) {
+      toast({ title: "Checkout failed", description: err?.message || "Please try again." });
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const handleStartFreeTrial = async () => {
+    if (!accessToken) {
+      window.location.href = "/signup";
+      return;
+    }
+    try {
+      setAction({ tier: "starter", kind: "trial" });
+      const result = await apiFetch<{ url: string }>("/api/checkout/create-session", {
+        method: "POST",
+        body: JSON.stringify({ priceId: FREE_TRIAL_PRICE_ID }),
         token: accessToken,
       });
       window.location.href = result.url;
     } catch (err: any) {
       const code = err instanceof ApiError ? err.code : err?.code;
-      if (code === "trial_already_used") {
-        setUseStarterTrial(false);
-        toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
+      if (code === "invalid_price_id") {
+        toast({ title: "Free trial unavailable", description: "Trial checkout is not configured yet." });
         return;
       }
-      toast({ title: "Checkout failed", description: err?.message || "Please try again." });
+      toast({ title: "Free trial checkout failed", description: err?.message || "Please try again." });
     } finally {
       setAction(null);
     }
@@ -72,18 +81,20 @@ const Pricing = () => {
   };
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pt-24 pb-20">
+        <Suspense fallback={<Fragment />}>
         <motion.div
-          className="text-center max-w-2xl mx-auto mb-14"
+          className="mx-auto mb-14 max-w-2xl text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <h1 className="text-4xl font-bold font-display text-foreground mb-4">Simple, Transparent Pricing</h1>
+          <h1 className="mb-4 text-3xl font-bold font-display text-foreground sm:text-4xl">Simple, Transparent Pricing</h1>
           <p className="text-muted-foreground">Pick a plan that matches your output volume and upgrade anytime.</p>
         </motion.div>
+        </Suspense>
 
         <motion.div
           className="max-w-2xl mx-auto mb-8"
@@ -91,20 +102,20 @@ const Pricing = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.45 }}
         >
-          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2.5 min-w-0">
               <span className="h-8 w-8 rounded-xl bg-emerald-400/15 flex items-center justify-center shrink-0">
                 <ZoomIn className="w-4 h-4 text-emerald-300" />
               </span>
-              <p className="text-sm text-emerald-100 truncate">Zoom-In Smart Reframing</p>
+              <p className="text-sm text-emerald-100">Zoom-In Smart Reframing</p>
             </div>
-            <Badge variant="secondary" className="bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">
+            <Badge variant="secondary" className="w-fit bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">
               Coming soon
             </Badge>
           </div>
         </motion.div>
 
-        <div className="flex items-center justify-center gap-3 mb-10">
+        <div className="mb-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
             <button
               type="button"
@@ -129,33 +140,21 @@ const Pricing = () => {
               Annual
             </button>
           </div>
-          <span className="text-xs text-muted-foreground">Switch to annual billing</span>
+          <span className="text-center text-xs text-muted-foreground">Switch to annual billing</span>
         </div>
-        <div className="flex items-center justify-center mb-10">
-          {trialUsed ? (
-            <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-              <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
-                Trial used
-              </Badge>
-              <span className="text-xs text-muted-foreground">Starter free trial has already been used on this account.</span>
-            </div>
-          ) : (
-            <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-              <Switch
-                checked={trialActive ? true : useStarterTrial}
-                onCheckedChange={setUseStarterTrial}
-                disabled={trialActive}
-              />
-              <span className="text-xs text-muted-foreground">
-                {trialActive
-                  ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
-                  : "Use 3-day free trial (full unlock) when choosing Starter"}
-              </span>
-            </label>
-          )}
+        <div className="flex flex-col items-center gap-2 mb-8">
+          <Button
+            type="button"
+            onClick={handleStartFreeTrial}
+            disabled={action?.kind === "trial"}
+            className="w-full rounded-full px-6 sm:w-auto"
+          >
+            {action?.kind === "trial" ? "Redirecting to checkout..." : "Start Free Trial"}
+            {action?.kind === "trial" ? null : <ArrowRight className="w-4 h-4" />}
+          </Button>
+          <p className="text-xs text-muted-foreground">Try premium tools first, then choose any subscription.</p>
         </div>
-
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto mb-2">
           <PricingCards
             currentTier={currentPlan}
             isAuthenticated={!!user}
@@ -169,7 +168,7 @@ const Pricing = () => {
           />
         </div>
       </main>
-    </GlowBackdrop>
+    </GlowBackdrop></Suspense>
   );
 };
 

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { Fragment, lazy, Suspense, useState } from "react";
 import { motion } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import GlowBackdrop from "@/components/GlowBackdrop";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ const Signup = () => {
   };
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main className="responsive-main flex items-center justify-center min-h-screen px-4 pt-24">
         <motion.div
@@ -140,7 +140,7 @@ const Signup = () => {
           </div>
         </motion.div>
       </main>
-    </GlowBackdrop>
+    </GlowBackdrop></Suspense>
   );
 };
 

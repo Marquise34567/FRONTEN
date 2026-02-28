@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import GlowBackdrop from "@/components/GlowBackdrop";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { CreditCard, Shield, Sparkles } from "lucide-react";
-import PricingCards from "@/components/PricingCards";
+const PricingCards = lazy(() => import("@/components/PricingCards"));
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
 import { useMe } from "@/hooks/use-me";
@@ -76,7 +76,7 @@ const Settings = () => {
   const [entitlements, setEntitlements] = useState<any | null>(null);
   const [action, setAction] = useState<{ tier: PlanTier; kind: "subscribe" } | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
-  const [useStarterTrial, setUseStarterTrial] = useState(false);
+  
   const { toast } = useToast();
   const { plan: currentPlan, features, subtitlePresets } = useSubscription();
   const { data: founderAvailability } = useFounderAvailability();
@@ -122,10 +122,7 @@ const Settings = () => {
       .catch(() => setEntitlements(null));
   }, [accessToken]);
 
-  useEffect(() => {
-    if (trialActive) setUseStarterTrial(true);
-    if (trialUsed) setUseStarterTrial(false);
-  }, [trialActive, trialUsed]);
+  
 
   const openUpgrade = (plan: PlanTier) => {
     setRequiredPlan(plan);
@@ -138,14 +135,13 @@ const Settings = () => {
       setAction({ tier, kind: "subscribe" });
       const result = await apiFetch<{ url: string }>("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ tier, interval: billingInterval, trial: tier === "starter" && useStarterTrial }),
+        body: JSON.stringify({ tier, interval: billingInterval }),
         token: accessToken,
       });
       window.location.href = result.url;
     } catch (err: any) {
       const code = err instanceof ApiError ? err.code : err?.code;
       if (code === "trial_already_used") {
-        setUseStarterTrial(false);
         toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
         return;
       }
@@ -176,7 +172,6 @@ const Settings = () => {
         body: JSON.stringify({
           tier: requiredPlan,
           interval: billingInterval,
-          trial: requiredPlan === "starter" && useStarterTrial,
         }),
         token: accessToken,
       });
@@ -184,7 +179,6 @@ const Settings = () => {
     } catch (err: any) {
       const code = err instanceof ApiError ? err.code : err?.code;
       if (code === "trial_already_used") {
-        setUseStarterTrial(false);
         toast({ title: "Free trial already used", description: "Upgrade to continue with premium access." });
         return;
       }
@@ -267,16 +261,24 @@ const Settings = () => {
   const usage = data?.usage;
   const usageDaily = data?.usageDaily;
   const limits = data?.limits;
+  const isDevAccount = Boolean(data?.flags?.dev);
+  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const maxRendersPerMonth =
     limits?.maxRendersPerMonth ?? (tier === "free" ? null : plan.maxRendersPerMonth);
   const maxRendersPerDay = limits?.maxRendersPerDay ?? null;
+  const maxRerendersPerDay = limits?.maxRerendersPerDay ?? plan.maxRerendersPerDay;
   const dailyLimited = tier === "free" && maxRendersPerDay !== null && maxRendersPerDay !== undefined;
   const rendersUsed = usage?.rendersUsed ?? 0;
   const rendersUsedToday = usageDaily?.rendersUsed ?? 0;
+  const rerendersUsedToday = data?.rerenderUsageDaily?.rerendersUsed ?? 0;
   const rendersRemaining = maxRendersPerMonth ? Math.max(0, maxRendersPerMonth - rendersUsed) : 0;
   const rendersRemainingToday =
     maxRendersPerDay !== null && maxRendersPerDay !== undefined
       ? Math.max(0, maxRendersPerDay - rendersUsedToday)
+      : null;
+  const rerendersRemainingToday =
+    maxRerendersPerDay !== null && maxRerendersPerDay !== undefined
+      ? Math.max(0, maxRerendersPerDay - rerendersUsedToday)
       : null;
   const rendersUsagePercent = dailyLimited
     ? maxRendersPerDay > 0
@@ -290,7 +292,7 @@ const Settings = () => {
   const advancedLocked = !features.advancedEffects;
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pt-24 pb-12 max-w-5xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
@@ -309,6 +311,26 @@ const Settings = () => {
               </div>
               <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
                 {isFounderPlan ? "Founder (Lifetime)" : tier}
+              </Badge>
+            </div>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {isDevAccount && (
+                <Badge className="bg-gradient-to-r from-amber-500/20 via-yellow-400/20 to-orange-500/20 border border-amber-400/40 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-amber-200">
+                  Dev
+                </Badge>
+              )}
+              <Badge variant="secondary" className="border-border/60 bg-muted/40 text-muted-foreground">
+                {tierLabel} plan
+              </Badge>
+              <Badge variant="secondary" className="border-border/60 bg-muted/40 text-muted-foreground">
+                {isDevAccount
+                  ? "Unlimited renders"
+                  : `${rendersRemaining ?? 0} renders left`}
+              </Badge>
+              <Badge variant="secondary" className="border-border/60 bg-muted/40 text-muted-foreground">
+                {isDevAccount
+                  ? "Unlimited re-renders"
+                  : `${rerendersRemainingToday ?? 0} re-renders left today`}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
@@ -808,7 +830,16 @@ const Settings = () => {
               <span className="text-xs text-muted-foreground">Switch to annual billing</span>
             </div>
             <div className="mb-6">
-              {trialUsed ? (
+              {trialActive ? (
+                <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
+                  <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
+                    Trial active
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {`Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`}
+                  </span>
+                </div>
+              ) : trialUsed ? (
                 <div className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
                   <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border border-border/60">
                     Trial used
@@ -817,20 +848,7 @@ const Settings = () => {
                     Starter free trial has already been used on this account.
                   </span>
                 </div>
-              ) : (
-                <label className="inline-flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-                  <Switch
-                    checked={trialActive ? true : useStarterTrial}
-                    onCheckedChange={setUseStarterTrial}
-                    disabled={trialActive}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {trialActive
-                      ? `Free trial active (${Math.max(1, trialDaysRemaining)}d left${trialEndsLabel ? `, ends ${trialEndsLabel}` : ""})`
-                      : "Use 3-day free trial (full unlock) when choosing Starter"}
-                  </span>
-                </label>
-              )}
+              ) : null}
             </div>
             <PricingCards
               currentTier={currentPlan}
@@ -854,7 +872,7 @@ const Settings = () => {
         onUpgrade={handleUpgrade}
         founderSlotsRemaining={founderSlotsRemaining}
       />
-    </GlowBackdrop>
+    </GlowBackdrop></Suspense>
   );
 };
 

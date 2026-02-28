@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import GlowBackdrop from "@/components/GlowBackdrop";
+import { Fragment, lazy, Suspense } from "react";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -15,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -177,17 +178,32 @@ const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v1";
 const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
+const CHECKOUT_SUCCESS_QUERY_KEYS = ["success", "session_id", "source", "trial", "tier", "endsAt"] as const;
+
+const toPlanTier = (value: unknown): PlanTier | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return PLAN_TIERS.includes(normalized as PlanTier) ? (normalized as PlanTier) : null;
+};
 
 type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
+type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
+type PipelinePowerMode = "standard" | "ultra" | "retention_king";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
+type AchievementSignal = {
+  id: "retention_beast" | "hook_master" | "post_now";
+  title: string;
+  line: string;
+  metric: string;
+};
 type OutcomeAutomationProfile = {
   enabled: boolean;
   source: "real_distribution_analytics";
@@ -289,6 +305,27 @@ const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; cl
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
 };
+const PIPELINE_POWER_MODE_OPTIONS: Array<{
+  value: PipelinePowerMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "standard",
+    label: "Standard",
+    description: "Balanced pipeline behavior using your current retention profile and editor mode.",
+  },
+  {
+    value: "ultra",
+    label: "Ultra Mode",
+    description: "Dynamic binge playbook + ultra-fast processing/upload path for maximum output speed.",
+  },
+  {
+    value: "retention_king",
+    label: "Retention King",
+    description: "Retention-engineering playbook that aggressively hunts drop-off windows and curiosity loops.",
+  },
+];
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -1027,7 +1064,15 @@ const normalizeOutcomeAutomationEditorMode = (value: unknown): EditorModeSelecti
     : "auto";
 };
 
-const mapEditorModeForBackend = (value: EditorModeSelection): EditorModeSelection => value;
+const mapEditorModeForBackend = (
+  value: EditorModeSelection,
+  powerMode: PipelinePowerMode,
+): BackendEditorModeSelection => {
+  if (powerMode === "ultra") return "ultra";
+  if (powerMode === "retention_king") return "retention-king";
+  return value;
+};
+const isUltraPipelineMode = (mode: PipelinePowerMode) => mode === "ultra";
 
 const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -1069,6 +1114,14 @@ type EditorSettingsResponse = {
   };
 };
 
+type CheckoutSuccessDialogState = {
+  open: boolean;
+  heading: string;
+  description: string;
+  activatedPlan: string | null;
+  trial: boolean;
+};
+
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
 const Editor = () => {
@@ -1108,6 +1161,7 @@ const Editor = () => {
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
+  const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("standard");
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
   const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
   const [longFormAggression, setLongFormAggression] = useState(45);
@@ -1146,6 +1200,7 @@ const Editor = () => {
   const [aModeEnabled, setAModeEnabled] = useState(true);
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
+  const [achievementPopup, setAchievementPopup] = useState<AchievementSignal | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
@@ -1168,6 +1223,7 @@ const Editor = () => {
     editorMode: false,
   });
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
+  const fullAnalysisSectionRef = useRef<HTMLDivElement | null>(null);
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1177,23 +1233,37 @@ const Editor = () => {
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
+  const achievementShownRef = useRef<Record<string, Record<string, boolean>>>({});
+  const powerModeSyncJobRef = useRef<string | null>(null);
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
   const lowBandwidthMode = runtimeProfile.lowBandwidth;
   const lowPowerMode = runtimeProfile.lowPowerDevice;
   const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
+  const livePollingIntervalMs = performanceConstrained ? 4500 : 2500;
+  const ultraPipelineMode = isUltraPipelineMode(pipelinePowerMode);
+  const retentionKingPipelineMode = pipelinePowerMode === "retention_king";
   const previewPreload: "auto" | "metadata" = performanceConstrained ? "metadata" : "auto";
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
-  const { data: me, refetch: refetchMe } = useMe({ refetchInterval: hasActiveJobs ? 2500 : false });
+  const { data: me, refetch: refetchMe } = useMe({
+    refetchInterval: hasActiveJobs ? livePollingIntervalMs : false,
+  });
   const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
+  const [checkoutSuccessDialog, setCheckoutSuccessDialog] = useState<CheckoutSuccessDialogState>({
+    open: false,
+    heading: "",
+    description: "",
+    activatedPlan: null,
+    trial: false,
+  });
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const paidTier = isPaidTier(tier);
@@ -1493,6 +1563,49 @@ const Editor = () => {
       setHideSubscriptionCard(false);
     }
   }, [subscriptionCardHideKey]);
+
+  useEffect(() => {
+    if (searchParams.get("success") !== "true") return;
+
+    const source = String(searchParams.get("source") || "").toLowerCase();
+    const trialState = String(searchParams.get("trial") || "").toLowerCase();
+    const trialCheckout = source === "trial" || trialState === "started" || trialState === "active";
+    const tierFromQuery = toPlanTier(searchParams.get("tier"));
+    const tierFromSubscription = toPlanTier(me?.subscription?.tier);
+    const tierFromTrial = toPlanTier(trialInfo?.trialTier);
+    const resolvedTier = tierFromQuery || (trialCheckout ? tierFromTrial : tierFromSubscription) || null;
+    const activatedPlan = resolvedTier ? PLAN_CONFIG[resolvedTier].name : null;
+    const description = activatedPlan
+      ? trialCheckout
+        ? `You activated the ${activatedPlan} free trial.`
+        : `You activated the ${activatedPlan} subscription.`
+      : trialCheckout
+      ? "You activated a free trial."
+      : "You activated a subscription.";
+
+    setCheckoutSuccessDialog({
+      open: true,
+      heading: trialCheckout ? "Free trial activated" : "Subscription activated",
+      description: `${description} Premium editor tools are now unlocked.`,
+      activatedPlan,
+      trial: trialCheckout,
+    });
+
+    const next = new URLSearchParams(searchParams);
+    for (const key of CHECKOUT_SUCCESS_QUERY_KEYS) {
+      next.delete(key);
+    }
+    setSearchParams(next, { replace: true });
+  }, [me?.subscription?.tier, searchParams, setSearchParams, trialInfo?.trialTier]);
+
+  useEffect(() => {
+    const previewParam = String(searchParams.get("preview") || "").toLowerCase();
+    const shouldOpenExportPreview = previewParam === "export" || searchParams.get("exportPreview") === "1";
+    if (!shouldOpenExportPreview) return;
+
+    setExportOpen(true);
+    setExportFeedbackOpen(false);
+  }, [searchParams]);
 
   useEffect(() => {
     try {
@@ -2149,32 +2262,19 @@ const Editor = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const pointerQuery = window.matchMedia("(pointer: coarse)");
-    // Mobile signal follows product spec: width <= 767 OR coarse pointer.
+    // Mobile signal should follow viewport width so screen-size behavior is predictable.
     const syncMobileSignal = () => {
       const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-      const isMobile =
-        viewportWidth <= 767 ||
-        pointerQuery.matches;
+      const isMobile = viewportWidth <= 767;
       setMobilePipeline(isMobile);
       document.documentElement.classList.toggle("mobile", isMobile);
     };
     syncMobileSignal();
     window.addEventListener("resize", syncMobileSignal, { passive: true });
     window.addEventListener("orientationchange", syncMobileSignal, { passive: true });
-    if (typeof pointerQuery.addEventListener === "function") {
-      pointerQuery.addEventListener("change", syncMobileSignal);
-    } else if (typeof pointerQuery.addListener === "function") {
-      pointerQuery.addListener(syncMobileSignal);
-    }
     return () => {
       window.removeEventListener("resize", syncMobileSignal);
       window.removeEventListener("orientationchange", syncMobileSignal);
-      if (typeof pointerQuery.removeEventListener === "function") {
-        pointerQuery.removeEventListener("change", syncMobileSignal);
-      } else if (typeof pointerQuery.removeListener === "function") {
-        pointerQuery.removeListener(syncMobileSignal);
-      }
     };
   }, []);
 
@@ -2220,25 +2320,33 @@ const Editor = () => {
   }, [selectedJobId, accessToken, authError, fetchJob]);
 
   useEffect(() => {
+    if (paidTier || pipelinePowerMode === "standard") return;
+    setPipelinePowerMode("standard");
+  }, [paidTier, pipelinePowerMode]);
+
+  useEffect(() => {
     setHookSelectorOpen(false);
+    if (!activeJob?.id) {
+      powerModeSyncJobRef.current = null;
+    }
   }, [activeJob?.id]);
 
   useEffect(() => {
     if (!accessToken || !hasActiveJobs || authError) return;
     const timer = setInterval(() => {
       fetchJobs();
-    }, 2500);
+    }, livePollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, hasActiveJobs, fetchJobs, authError]);
+  }, [accessToken, hasActiveJobs, fetchJobs, authError, livePollingIntervalMs]);
 
   useEffect(() => {
     if (!accessToken || authError || !activeJob || !selectedJobId) return;
     if (isTerminalStatus(activeJob.status)) return;
     const timer = setInterval(() => {
       fetchJob(selectedJobId);
-    }, 2500);
+    }, livePollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, authError, activeJob, selectedJobId, fetchJob]);
+  }, [accessToken, authError, activeJob, selectedJobId, fetchJob, livePollingIntervalMs]);
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
@@ -2475,7 +2583,8 @@ const Editor = () => {
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
-    const editorModeForJob = mapEditorModeForBackend(editorMode);
+    const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
+    const fastModeForJob = ultraPipelineMode;
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = autoCaptionsEnabled;
@@ -2515,6 +2624,8 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
+              fastMode: fastModeForJob,
+              pipelinePowerMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -2538,6 +2649,8 @@ const Editor = () => {
               longFormAggression,
               longFormClarityVsSpeed,
               tangentKiller,
+              fastMode: fastModeForJob,
+              pipelinePowerMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -3354,10 +3467,11 @@ const Editor = () => {
       setReprocessingJobId(job.id);
       try {
         const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
-        const editorModeForJob = mapEditorModeForBackend(editorMode);
+        const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
+        const fastModeForJob = ultraPipelineMode;
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -3382,6 +3496,8 @@ const Editor = () => {
           longFormAggression,
           longFormClarityVsSpeed,
           tangentKiller,
+          fastMode: fastModeForJob,
+          pipelinePowerMode,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -3491,6 +3607,7 @@ const Editor = () => {
       longFormAggression,
       longFormClarityVsSpeed,
       onlyHookAndCut,
+      pipelinePowerMode,
       qualityByJob,
       refetchMe,
       retentionStrategyProfile,
@@ -3499,6 +3616,7 @@ const Editor = () => {
       hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
+      ultraPipelineMode,
       verticalCaptionText,
       toast,
     ],
@@ -3743,6 +3861,72 @@ const Editor = () => {
               : typeof activeAnalysis?.targetPlatform === "string"
                 ? activeAnalysis.targetPlatform
                 : null;
+  const autoDetectProfile =
+    metadataRetention?.autoDetect && typeof metadataRetention.autoDetect === "object"
+      ? metadataRetention.autoDetect
+      : metadataRetention?.auto_detect && typeof metadataRetention.auto_detect === "object"
+        ? metadataRetention.auto_detect
+        : activeAnalysis?.video_auto_detect && typeof activeAnalysis.video_auto_detect === "object"
+          ? activeAnalysis.video_auto_detect
+          : activeAnalysis?.videoAutoDetect && typeof activeAnalysis.videoAutoDetect === "object"
+            ? activeAnalysis.videoAutoDetect
+            : null;
+  const detectedAutoPreset =
+    typeof autoDetectProfile?.preset === "string"
+      ? autoDetectProfile.preset
+      : null;
+  const detectedAutoStyle =
+    typeof autoDetectProfile?.style === "string"
+      ? autoDetectProfile.style
+      : null;
+  const detectedAutoContentType =
+    typeof autoDetectProfile?.contentType === "string"
+      ? autoDetectProfile.contentType
+      : typeof autoDetectProfile?.content_type === "string"
+        ? autoDetectProfile.content_type
+        : null;
+  const detectedAutoFormat =
+    typeof autoDetectProfile?.format === "string"
+      ? autoDetectProfile.format
+      : null;
+  const retentionKingBlendPctDisplay =
+    Number.isFinite(Number(autoDetectProfile?.retentionKingBlendPct))
+      ? Number(autoDetectProfile.retentionKingBlendPct)
+      : Number.isFinite(Number(activeAnalysis?.retention_king_blend_pct))
+        ? Number(activeAnalysis.retention_king_blend_pct)
+        : Number.isFinite(Number(activeAnalysis?.retentionKingBlendPct))
+          ? Number(activeAnalysis.retentionKingBlendPct)
+          : null;
+  const retentionKingBlendLevelDisplay =
+    typeof autoDetectProfile?.retentionKingBlendLevel === "string"
+      ? autoDetectProfile.retentionKingBlendLevel
+      : typeof autoDetectProfile?.retention_king_blend_level === "string"
+        ? autoDetectProfile.retention_king_blend_level
+        : null;
+  const dynamicScoreBeforeDisplay =
+    Number.isFinite(Number(autoDetectProfile?.qualityScoreBefore))
+      ? Number(autoDetectProfile.qualityScoreBefore)
+      : Number.isFinite(Number(autoDetectProfile?.quality_score_before))
+        ? Number(autoDetectProfile.quality_score_before)
+        : null;
+  const dynamicScoreAfterDisplay =
+    Number.isFinite(Number(autoDetectProfile?.qualityScoreAfter))
+      ? Number(autoDetectProfile.qualityScoreAfter)
+      : Number.isFinite(Number(autoDetectProfile?.quality_score_after))
+        ? Number(autoDetectProfile.quality_score_after)
+        : null;
+  const dynamicThoughtBefore =
+    typeof autoDetectProfile?.thoughtBefore === "string"
+      ? autoDetectProfile.thoughtBefore
+      : typeof autoDetectProfile?.thought_before === "string"
+        ? autoDetectProfile.thought_before
+        : null;
+  const dynamicThoughtAfter =
+    typeof autoDetectProfile?.thoughtAfter === "string"
+      ? autoDetectProfile.thoughtAfter
+      : typeof autoDetectProfile?.thought_after === "string"
+        ? autoDetectProfile.thought_after
+        : null;
   const detectedNicheRaw =
     typeof activeAnalysis?.niche_profile?.niche === "string"
       ? activeAnalysis.niche_profile.niche
@@ -3839,6 +4023,8 @@ const Editor = () => {
         ? Number((retentionScoreAfterDisplay - retentionScoreBeforeDisplay).toFixed(1))
         : null
     );
+  const dynamicScoreBeforePopup = dynamicScoreBeforeDisplay ?? retentionScoreBeforeDisplay;
+  const dynamicScoreAfterPopup = dynamicScoreAfterDisplay ?? retentionScoreAfterDisplay;
   const hookWindowLabel =
     Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
       ? formatHookRange(hookStartSec, hookEndSec)
@@ -4159,6 +4345,89 @@ const Editor = () => {
   );
   const canQueueTimelineSegmentAction = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
+  const hookConfidenceScore = clamp(
+    Math.round((Number(selectedHookCandidate?.auditScore || selectedHookCandidate?.score || 0) || 0) * 100),
+    0,
+    100,
+  );
+  const achievementSignals = useMemo<AchievementSignal[]>(() => {
+    const list: AchievementSignal[] = [];
+    const predicted = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? null;
+    if (predicted !== null && predicted >= 78) {
+      list.push({
+        id: "retention_beast",
+        title: "Congrats! Retention Beast",
+        line: "High retention unlocked. I'd watch this all the way through - it's that good.",
+        metric: `${Math.round(predicted)}% predicted retention`,
+      });
+    }
+    if (hookConfidenceScore >= 79) {
+      list.push({
+        id: "hook_master",
+        title: "Hook Master",
+        line: "Your opener is strong in the first seconds and should stop scrolls hard.",
+        metric: `${hookConfidenceScore}% hook confidence`,
+      });
+    }
+    if (retentionGoalMet && (retentionScoreDeltaDisplay ?? 0) >= 5) {
+      list.push({
+        id: "post_now",
+        title: "Post Signal Detected",
+        line: "This is good. You should post this.",
+        metric: `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay?.toFixed(1) ?? "0.0"} retention delta`,
+      });
+    }
+    return list;
+  }, [
+    hookConfidenceScore,
+    latestRetentionPoint?.predicted,
+    retentionGoalMet,
+    retentionScoreAfterDisplay,
+    retentionScoreDisplay,
+    retentionScoreDeltaDisplay,
+  ]);
+  const activePipelinePowerMode = useMemo<PipelinePowerMode>(() => {
+    if (pipelinePowerMode !== "standard") return pipelinePowerMode;
+    const raw = String(
+      activeAnalysis?.pipelinePowerMode ??
+      activeAnalysis?.pipeline_power_mode ??
+      activeAnalysis?.pipeline_mode_playbook ??
+      activeAnalysis?.mode_playbook ??
+      activeAnalysis?.editorMode ??
+      activeAnalysis?.editor_mode ??
+      "",
+    ).trim().toLowerCase();
+    if (raw === "ultra") return "ultra";
+    if (raw === "retention-king" || raw === "retention_king") return "retention_king";
+    return "standard";
+  }, [activeAnalysis, pipelinePowerMode]);
+  const modeMomentumScore = clamp(
+    Math.round(
+      (latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? 72) * 0.55 +
+      (retentionScoreDeltaDisplay ?? 0) * 2.2,
+    ),
+    0,
+    100,
+  );
+  const modePackagingScore = clamp(
+    Math.round(
+      hookConfidenceScore * 0.6 +
+      (retentionGoalMet ? 24 : 12) +
+      Math.max(0, (retentionScoreDeltaDisplay ?? 0) * 1.6),
+    ),
+    0,
+    100,
+  );
+  const modeConsistencyScore = clamp(
+    Math.round(100 - Math.min(45, Math.abs(skipRiskRetentionSegments.length * 9 - bestRetentionSegments.length * 4))),
+    0,
+    100,
+  );
+  const modeCompletionScore = clamp(
+    Math.round((latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? 70) - weakRetentionSegments.length * 2),
+    0,
+    100,
+  );
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
     : null;
@@ -4329,6 +4598,37 @@ const Editor = () => {
   const hookPreviewError = activeJob ? hookPreviewErrorByJob[activeJob.id] || "" : "";
   const hookPreviewLoading = Boolean(activeJob?.id && hookPreviewLoadingJobId === activeJob.id);
   const hookPreviewRefreshNonce = activeJob ? hookPreviewRefreshNonceByJob[activeJob.id] || 0 : 0;
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    if (powerModeSyncJobRef.current === activeJob.id) return;
+    const raw = String(
+      activeAnalysis?.pipelinePowerMode ??
+      activeAnalysis?.pipeline_power_mode ??
+      activeAnalysis?.pipeline_mode_playbook ??
+      activeAnalysis?.mode_playbook ??
+      activeAnalysis?.editorMode ??
+      activeAnalysis?.editor_mode ??
+      "",
+    ).trim().toLowerCase();
+    let next: PipelinePowerMode = "standard";
+    if (raw === "ultra") next = "ultra";
+    if (raw === "retention-king" || raw === "retention_king") next = "retention_king";
+    if (next !== "standard" && !paidTier) next = "standard";
+    powerModeSyncJobRef.current = activeJob.id;
+    setPipelinePowerMode(next);
+  }, [activeAnalysis, activeJob?.id, paidTier]);
+  useEffect(() => {
+    if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
+    if (achievementSignals.length === 0) return;
+    const shownForJob = achievementShownRef.current[activeJob.id] || {};
+    const nextSignal = achievementSignals.find((signal) => !shownForJob[signal.id]);
+    if (!nextSignal) return;
+    achievementShownRef.current[activeJob.id] = {
+      ...shownForJob,
+      [nextSignal.id]: true,
+    };
+    setAchievementPopup(nextSignal);
+  }, [activeJob?.id, activeJob?.status, achievementSignals]);
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -4699,9 +4999,44 @@ const Editor = () => {
     Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
   const mobileApplyAndRenderLabel = isVerticalMode
     ? pendingVerticalFile
-      ? "Apply & Render"
-      : "Pick Clip & Render"
-    : "Apply & Render";
+      ? "Run Binge Optimizer"
+      : "Pick Clip & Run Binge Optimizer"
+    : "Run Binge Optimizer";
+
+  const handleSelectPipelinePowerMode = (mode: PipelinePowerMode) => {
+    if (mode !== "standard" && !paidTier) {
+      setTrialUpgradeOpen(true);
+      toast({
+        title: "Premium mode locked",
+        description: "Ultra Mode and Retention King are available on paid plans.",
+      });
+      return;
+    }
+    setPipelinePowerMode(mode);
+    trackEditorEvent("pipeline_power_mode_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: { mode },
+    });
+  };
+
+  useEffect(() => {
+    if (pipelinePowerMode === "standard") return;
+    if (pipelinePowerMode === "ultra") {
+      setRetentionStrategyProfile("viral");
+      setLongFormPreset("ultra");
+      setLongFormAggression((prev) => Math.max(prev, LONG_FORM_PRESET_DEFAULTS.ultra.aggression));
+      setLongFormClarityVsSpeed((prev) => Math.min(prev, LONG_FORM_PRESET_DEFAULTS.ultra.clarityVsSpeed));
+      setTangentKiller(true);
+      return;
+    }
+    setRetentionStrategyProfile("viral");
+    setLongFormPreset("aggressive");
+    setLongFormAggression((prev) => Math.max(prev, 88));
+    setLongFormClarityVsSpeed((prev) => Math.min(prev, 44));
+    setTangentKiller(true);
+  }, [pipelinePowerMode]);
 
   const applyPlatformRecommendation = () => {
     setRetentionStrategyProfile(activePlatformRecommendation.profile);
@@ -4722,6 +5057,19 @@ const Editor = () => {
       return;
     }
     handlePickFile();
+  };
+
+  const handleViewFullAnalysisFromExport = () => {
+    setExportOpen(false);
+    setRetentionDetailsOpen(true);
+    if (analyzeUnlockedForActiveJob) {
+      setShowAdvancedDebug(true);
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        fullAnalysisSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   };
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
@@ -4770,6 +5118,8 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
+  const verticalModeChipClass = (active: boolean) =>
+    `vertical-mode-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
 
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
@@ -4869,6 +5219,57 @@ const Editor = () => {
     if (section === "vibe") {
       return (
         <div className="space-y-4">
+          <div className="rounded-xl border border-primary/30 bg-[linear-gradient(145deg,rgba(102,58,255,0.2),rgba(31,23,58,0.38))] p-3 backdrop-blur-xl">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Power Modes</p>
+                <p className="text-xs text-muted-foreground">
+                  Ultra Mode and Retention King push dedicated pipeline playbooks with stronger retention pressure.
+                </p>
+              </div>
+              <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
+                {paidTier ? "Paid unlocked" : "Paid only"}
+              </Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+              {PIPELINE_POWER_MODE_OPTIONS.map((mode) => {
+                const active = pipelinePowerMode === mode.value;
+                const locked = !paidTier && mode.value !== "standard";
+                return (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={`premium-mode-toggle ${active ? "is-active" : ""} ${locked ? "is-locked" : ""}`}
+                    onClick={() => handleSelectPipelinePowerMode(mode.value)}
+                    aria-pressed={active}
+                    aria-label={mode.label}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground">{mode.label}</span>
+                      {locked ? (
+                        <Lock className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      ) : mode.value === "retention_king" ? (
+                        <Crown className="h-4 w-4 text-primary" aria-hidden />
+                      ) : mode.value === "ultra" ? (
+                        <Zap className="h-4 w-4 text-primary" aria-hidden />
+                      ) : (
+                        <Gauge className="h-4 w-4 text-primary" aria-hidden />
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-left text-[11px] text-muted-foreground">{mode.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {pipelinePowerMode !== "standard" ? (
+              <p className="mt-2 text-[11px] text-primary/90">
+                {pipelinePowerMode === "ultra"
+                  ? "Ultra Mode active: fast-mode upload/process + dynamic binge playbook."
+                  : "Retention King active: retention-engineering playbook + aggressive drop-off elimination."}
+              </p>
+            ) : null}
+          </div>
+
           <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm text-foreground">Vibe</span>
@@ -5285,23 +5686,31 @@ const Editor = () => {
     }`;
   const activeRetentionLabel =
     RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label ?? "Balanced";
-  const activeEditorModeLabel = EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto";
+  const activeEditorModeLabel = pipelinePowerMode === "ultra"
+    ? "Ultra Mode"
+    : pipelinePowerMode === "retention_king"
+      ? "Retention King"
+      : (EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto");
   const activeTargetPlatformLabel =
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main
         className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
-          performanceConstrained ? "network-constrained" : ""
+          performanceConstrained ? "network-constrained editor-performance-safe" : ""
         }`}
         data-network={runtimeProfile.effectiveType ?? "unknown"}
         data-save-data={runtimeProfile.saveData ? "true" : "false"}
         data-low-power={lowPowerMode ? "true" : "false"}
         data-performance={performanceConstrained ? "constrained" : "standard"}
       >
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <motion.div
+          initial={performanceConstrained ? false : { opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: performanceConstrained ? 0.2 : 0.5 }}
+        >
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
@@ -5836,6 +6245,15 @@ const Editor = () => {
                       Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
                     </p>
                   )}
+                  {ultraPipelineMode ? (
+                    <p className="text-[11px] text-primary">
+                      Ultra Mode active: accelerated upload + processing path enabled.
+                    </p>
+                  ) : retentionKingPipelineMode ? (
+                    <p className="text-[11px] text-primary">
+                      Retention King active: deep retention-engineering analysis enabled.
+                    </p>
+                  ) : null}
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -5849,18 +6267,18 @@ const Editor = () => {
               </div>
 
               {isVerticalMode && (
-                <div className="glass-card p-5 space-y-5">
+                <div className="glass-card vertical-mode-shell p-5 space-y-5">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <p className="text-sm font-medium text-foreground">Vertical Clip Builder</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="vertical-mode-title text-sm font-medium text-foreground">Vertical Clip Builder</p>
+                      <p className="vertical-mode-subtitle text-xs text-muted-foreground">
                         {skipManualWebcamCrop
                           ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
                           : "Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame."}
                       </p>
                       <button
                         type="button"
-                        className="mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                        className="hero-platform-pill vertical-mode-toggle mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/35 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
                         onClick={() => {
                           setCropInteraction(null);
                           setSkipManualWebcamCrop((prev) => !prev);
@@ -5879,29 +6297,25 @@ const Editor = () => {
                         <button
                           key={count}
                           type="button"
-                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                            verticalClipCount === count
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border/60 text-muted-foreground hover:border-primary/40"
-                          }`}
+                          className={verticalModeChipClass(verticalClipCount === count)}
                           onClick={() => setVerticalClipCount(count)}
                         >
                           {count === 0 ? "Auto" : `${count} clips`}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="vertical-mode-note text-[11px] text-muted-foreground">
                       Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
                     </p>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="vertical-mode-panel space-y-2 rounded-xl p-3">
                     <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
                     <Textarea
                       value={verticalCaptionText}
                       onChange={(event) => setVerticalCaptionText(event.target.value)}
                       placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
-                      className="min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
+                      className="vertical-mode-textarea min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
                     />
                     <p className="text-[11px] text-muted-foreground">
                       Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
@@ -5909,7 +6323,7 @@ const Editor = () => {
                   </div>
 
                   {!verticalPreviewUrl && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="vertical-mode-note text-xs text-muted-foreground">
                       Upload a file to open the webcam crop tool and 9:16 stacked preview.
                     </p>
                   )}
@@ -5960,7 +6374,7 @@ const Editor = () => {
 
                           <div
                             ref={sourcePreviewRef}
-                            className="relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
+                            className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
                             style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
                           >
                             <video
@@ -6027,7 +6441,7 @@ const Editor = () => {
                             playsInline
                             className="hidden"
                           />
-                          <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
+                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
                             <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
                             <div className="mx-auto w-full max-w-[300px]">
                               <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
@@ -6040,7 +6454,7 @@ const Editor = () => {
                             </div>
                           </div>
 
-                          <div className="rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
+                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
                             {!skipManualWebcamCrop ? (
                               <>
                                 <div className="space-y-2">
@@ -6079,11 +6493,7 @@ const Editor = () => {
                                   <button
                                     key={fit}
                                     type="button"
-                                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                                      bottomFitMode === fit
-                                        ? "border-primary bg-primary/10 text-primary"
-                                        : "border-border/60 text-muted-foreground hover:border-primary/40"
-                                    }`}
+                                    className={verticalModeChipClass(bottomFitMode === fit)}
                                     onClick={() => setBottomFitMode(fit)}
                                   >
                                     {fit === "cover" ? "Cover (default)" : "Contain"}
@@ -6096,14 +6506,14 @@ const Editor = () => {
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-muted-foreground">
+                        <p className="vertical-mode-note text-xs text-muted-foreground">
                           {skipManualWebcamCrop
                             ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, single-frame vertical render (manual crop skipped).`
                             : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, top webcam strip + bottom full-frame stack.`}
                         </p>
                         <Button
                           type="button"
-                          className="w-full gap-2 sm:w-auto"
+                          className="hero-cta-button hero-cta-primary vertical-mode-cta w-full gap-2 rounded-full px-5 sm:w-auto"
                           disabled={!verticalSelectionReady || !!uploadingJobId || !!cropInteraction}
                           onClick={startVerticalRender}
                         >
@@ -6172,10 +6582,10 @@ const Editor = () => {
                   </div>
                 ) : null}
 
-                <div className="editor-pipeline-shell rounded-2xl border px-3.5 py-3 sm:px-4">
+                <div className="editor-pipeline-shell glass-card rounded-2xl border px-3.5 py-3 sm:px-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">Pipeline Console</p>
+                      <p className="text-gradient-primary text-sm font-semibold">Pipeline Console</p>
                       <p className="text-xs text-muted-foreground">
                         {activeJob
                           ? "Status, stage, and full-scan progress for the selected render."
@@ -6196,16 +6606,16 @@ const Editor = () => {
                   </div>
                   {activeJob ? (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-foreground">
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-foreground">
                         {displayName(activeJob)}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
                         Stage: {activeStageLabel}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
                         {activeJob.renderMode === "vertical" ? "Vertical job" : "Standard render"}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
                         {activeJobCreatedAtLabel}
                       </span>
                     </div>
@@ -6234,7 +6644,7 @@ const Editor = () => {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
+                    <div className="editor-pipeline-stage-track rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
                       <div className="pipeline-scrollbar overflow-x-auto">
                         <ol className="flex min-w-[980px] items-center gap-2" aria-label="High-retention pipeline stages">
                           {pipelineRows.map((row, idx) => (
@@ -6243,7 +6653,8 @@ const Editor = () => {
                                 <TooltipTrigger asChild>
                                   <div
                                     aria-current={row.state === "active" ? "step" : undefined}
-                                    className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                    data-state={row.state}
+                                    className={`editor-pipeline-stage-pill rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
                                       row.state === "done"
                                         ? "border-primary/50 bg-primary/15 text-foreground"
                                         : row.state === "active"
@@ -6263,7 +6674,7 @@ const Editor = () => {
                                 </TooltipContent>
                               </Tooltip>
                               {idx < pipelineRows.length - 1 ? (
-                                <span className="text-xs text-muted-foreground">→</span>
+                                <span className="editor-pipeline-stage-arrow text-xs text-muted-foreground">→</span>
                               ) : null}
                             </li>
                           ))}
@@ -6476,6 +6887,38 @@ const Editor = () => {
                       </div>
                     </div>
 
+                    {activePipelinePowerMode !== "standard" ? (
+                      <div className="mode-stats-shell rounded-xl border p-3 sm:p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                            {activePipelinePowerMode === "ultra" ? "Ultra Mode Feedback Analysis" : "Retention King Feedback Analysis"}
+                          </p>
+                          <Badge className="border-primary/40 bg-primary/15 text-primary-foreground">
+                            {activePipelinePowerMode === "ultra" ? "Dynamic Binge Logic" : "Retention Engineer Logic"}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          {[
+                            { label: "Momentum Index", value: modeMomentumScore },
+                            { label: "Hook Packaging", value: modePackagingScore },
+                            { label: "Flow Consistency", value: modeConsistencyScore },
+                            { label: "Completion Pressure", value: modeCompletionScore },
+                          ].map((card) => (
+                            <div key={card.label} className="rounded-lg border border-primary/25 bg-background/45 p-2.5">
+                              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{card.label}</p>
+                              <p className="mt-1 text-2xl font-premium text-foreground">{card.value}</p>
+                              <div className="mt-2 h-1.5 rounded-full bg-muted/65">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
+                                  style={{ width: `${card.value}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {!isTerminalStatus(activeJob.status) && (
                       <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
                         <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -6591,7 +7034,7 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+                    <div ref={fullAnalysisSectionRef} className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground/80">Retention Summary</p>
                         <div className="flex flex-wrap gap-1.5">
@@ -6601,6 +7044,12 @@ const Editor = () => {
                           <Badge className="border-primary/35 bg-primary/10 text-primary">
                             {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
                           </Badge>
+                          {achievementSignals.slice(0, 2).map((signal) => (
+                            <Badge key={signal.id} className="border-primary/45 bg-primary/15 text-primary-foreground">
+                              <Trophy className="mr-1 h-3.5 w-3.5" />
+                              {signal.title}
+                            </Badge>
+                          ))}
                         </div>
                       </div>
 
@@ -6884,6 +7333,37 @@ const Editor = () => {
                             {detectedRetentionTargetPlatform ? (
                               <p>Target: {formatPlatformLabel(detectedRetentionTargetPlatform)}</p>
                             ) : null}
+                            {detectedAutoPreset ? (
+                              <p>Auto preset: {formatNicheLabel(detectedAutoPreset)}</p>
+                            ) : null}
+                            {detectedAutoStyle ? (
+                              <p>Auto style: {formatNicheLabel(detectedAutoStyle)}</p>
+                            ) : null}
+                            {detectedAutoContentType ? (
+                              <p>Content type: {formatNicheLabel(detectedAutoContentType)}</p>
+                            ) : null}
+                            {detectedAutoFormat && !detectedRetentionContentFormat ? (
+                              <p>Auto format: {formatNicheLabel(detectedAutoFormat)}</p>
+                            ) : null}
+                            {retentionKingBlendPctDisplay !== null ? (
+                              <p>
+                                Retention King blend: {retentionKingBlendPctDisplay.toFixed(1)}%
+                                {retentionKingBlendLevelDisplay ? ` (${formatNicheLabel(retentionKingBlendLevelDisplay)})` : ""}
+                              </p>
+                            ) : null}
+                            {dynamicScoreBeforePopup !== null || dynamicScoreAfterPopup !== null ? (
+                              <p>
+                                Dynamic score:
+                                {dynamicScoreBeforePopup !== null ? ` before ${dynamicScoreBeforePopup.toFixed(1)}%` : ""}
+                                {dynamicScoreAfterPopup !== null ? ` after ${dynamicScoreAfterPopup.toFixed(1)}%` : ""}
+                              </p>
+                            ) : null}
+                            {dynamicThoughtBefore ? (
+                              <p>Model thought (before): {dynamicThoughtBefore}</p>
+                            ) : null}
+                            {dynamicThoughtAfter ? (
+                              <p>Model thought (after): {dynamicThoughtAfter}</p>
+                            ) : null}
                             {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
                               <p>
                                 Predicted completion: {verticalPredictedAverage.toFixed(1)}%
@@ -7010,23 +7490,23 @@ const Editor = () => {
                         ) : null}
                       </div>
 
-                      <div className="overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
+                      <div className="editor-pipeline-log-shell overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
                         <button
                           type="button"
                           aria-expanded={pipelineLogOpen}
-                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
+                          className="editor-pipeline-log-toggle hero-cta-button hero-cta-secondary flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
                           onClick={() => setPipelineLogOpen((prev) => !prev)}
                         >
                           <span className="font-medium">Processing Log</span>
                           <span className="font-mono text-[11px] text-muted-foreground">{pipelineLogOpen ? "Hide" : "Show"} stream</span>
                         </button>
                         {pipelineLogOpen ? (
-                          <div className="pipeline-scrollbar max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
+                          <div className="editor-pipeline-log-stream pipeline-scrollbar max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
                             {pipelineLogEntries.length > 0 ? (
                               pipelineLogEntries.map((entry, index) => (
                                 <p
                                   key={`${entry.message}-${index}`}
-                                  className={`mb-1 ${
+                                  className={`editor-pipeline-log-entry mb-1 ${
                                     entry.level === "error"
                                       ? "text-destructive"
                                       : entry.level === "warn"
@@ -7040,7 +7520,7 @@ const Editor = () => {
                                 </p>
                               ))
                             ) : (
-                              <p className="text-muted-foreground">[{logTimestamp}] Awaiting backend stage messages...</p>
+                              <p className="editor-pipeline-log-entry text-muted-foreground">[{logTimestamp}] Awaiting backend stage messages...</p>
                             )}
                           </div>
                         ) : null}
@@ -7150,6 +7630,38 @@ const Editor = () => {
       </Dialog>
 
       <Dialog
+        open={checkoutSuccessDialog.open}
+        onOpenChange={(open) => {
+          setCheckoutSuccessDialog((previous) => ({ ...previous, open }));
+        }}
+      >
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">{checkoutSuccessDialog.heading}</DialogTitle>
+            <DialogDescription>{checkoutSuccessDialog.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {checkoutSuccessDialog.activatedPlan ? (
+              <Badge
+                className={
+                  checkoutSuccessDialog.trial
+                    ? "bg-emerald-500/15 text-emerald-200 border border-emerald-400/40"
+                    : "bg-primary/15 text-primary border border-primary/40"
+                }
+              >
+                {checkoutSuccessDialog.activatedPlan}
+              </Badge>
+            ) : null}
+            <div className="flex justify-end">
+              <Button type="button" onClick={() => setCheckoutSuccessDialog((previous) => ({ ...previous, open: false }))}>
+                Continue
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={trialUpgradeOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -7192,6 +7704,38 @@ const Editor = () => {
                 Upgrade now
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(achievementPopup)} onOpenChange={(open) => { if (!open) setAchievementPopup(null); }}>
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-primary/35 bg-[linear-gradient(145deg,rgba(19,12,38,0.95),rgba(35,23,74,0.92))] p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display text-primary-foreground">
+              {achievementPopup?.title || "Achievement Unlocked"}
+            </DialogTitle>
+            <DialogDescription className="text-foreground/85">
+              {achievementPopup?.line || "Your latest render hit a strong retention milestone."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-primary/35 bg-primary/12 p-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-primary-foreground/80">Signal</p>
+            <p className="mt-1 text-lg font-premium text-foreground">{achievementPopup?.metric || "Retention lift detected"}</p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setAchievementPopup(null)}>
+              Keep Tuning
+            </Button>
+            <Button
+              className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+              onClick={() => {
+                setAchievementPopup(null);
+                setExportOpen(true);
+              }}
+            >
+              <Trophy className="h-4 w-4" />
+              Open Export
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -7349,10 +7893,20 @@ const Editor = () => {
               <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setExportOpen(false)}>
                 Close
               </Button>
-              <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
-                <Download className="w-4 h-4" />
-                {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
-              </Button>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={handleViewFullAnalysisFromExport}
+                >
+                  See Full Analysis
+                </Button>
+                <Button className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto" onClick={() => handleDownload(0)}>
+                  <Download className="w-4 h-4" />
+                  {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -7402,7 +7956,7 @@ const Editor = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </GlowBackdrop>
+    </GlowBackdrop></Suspense>
   );
 };
 

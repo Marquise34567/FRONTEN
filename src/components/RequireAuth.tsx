@@ -1,9 +1,15 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/providers/AuthProvider";
+import { isLocalhostAuthBypassEnabled } from "@/lib/localhostAuthBypass";
 
 const RequireAuth = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const localhostBypassEnabled = isLocalhostAuthBypassEnabled();
+
+  if (localhostBypassEnabled) {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

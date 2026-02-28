@@ -254,6 +254,41 @@ export type CommandCenterResponse = {
   }
 }
 
+export type AdminAnalyticsResponse = {
+  generatedAt: string
+  totals: {
+    allTimeTrackedUsers: number
+    allTimeAccounts: number
+    allTimeRenderUsers: number
+    allTimeEvents: number
+    allTimeSessions: number
+    allTimePageViews: number
+  }
+  engagement: {
+    avgSessionMinutes: number
+    medianSessionMinutes: number
+    avgTimeOnPageSeconds: number
+    medianTimeOnPageSeconds: number
+    avgPagesPerSession: number
+    avgEventsPerSession: number
+    bounceRatePct: number
+  }
+  topPagesByViews: Array<{
+    pagePath: string
+    views: number
+    uniqueUsers: number
+    avgTimeSeconds: number
+    totalTimeMinutes: number
+  }>
+  topPagesByTime: Array<{
+    pagePath: string
+    views: number
+    uniqueUsers: number
+    avgTimeSeconds: number
+    totalTimeMinutes: number
+  }>
+}
+
 export const formatShortTime = (iso?: string | null) => {
   if (!iso) return "-"
   const date = new Date(iso)

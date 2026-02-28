@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Creator Cards — Static</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=AW-17981894798"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'AW-17981894798');
+  </script>
+  <style>
+    :root{--bg:#0f172a;--card:#0b1220;--accent:#7c3aed;--muted:#94a3b8;color-scheme:dark}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(180deg,#071029 0%, #041026 100%);color:#e6eef8}
+    .wrap{max-width:1100px;margin:48px auto;padding:24px;position:relative}
+    header{display:flex;align-items:baseline;gap:16px}
+    h1{font-size:28px;margin:0}
+    p.lead{margin:6px 0 20px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .kicker{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(124,58,237,0.12);color:var(--accent);font-weight:600;font-size:12px}
+    h2.card-title{margin:12px 0 8px;font-size:18px}
+    p.card-copy{margin:0;color:var(--muted);line-height:1.45}
+    .foot{margin-top:20px;color:var(--muted);font-size:13px}
+
+    /* Button styling: no hover transitions/animations except controlled floating animation */
+    .btn{display:inline-block;margin-top:14px;padding:10px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;outline:none;box-shadow:0 8px 20px rgba(124,58,237,0.12);animation:float 3.2s ease-in-out infinite;}
+    .btn:focus{box-shadow:0 10px 26px rgba(124,58,237,0.18)}
+    /* Explicitly remove transitions so only the float keyframes animate */
+    .btn{transition:none}
+
+    @keyframes float{
+      0%{transform:translateY(0)}
+      50%{transform:translateY(-8px)}
+      100%{transform:translateY(0)}
+    }
+
+    /* Viral analytics side graphic: moved to left and vertically centered */
+    .viral{position:absolute;left:18px;top:50%;width:110px;height:220px;display:flex;align-items:center;justify-content:center;pointer-events:none;transform:translateY(-50%);z-index:5}
+    .viral svg{width:100%;height:100%;display:block}
+    .bar{fill:rgba(124,58,237,0.85)}
+    .bar-anim{transform-origin:center bottom;animation:barPulse 2.6s ease-in-out infinite}
+    .dot{fill:rgba(124,58,237,0.18)}
+
+    @keyframes barPulse{
+      0%{transform:scaleY(0.6)}
+      50%{transform:scaleY(1)}
+      100%{transform:scaleY(0.6)}
+    }
+
+    @media (max-width:760px){
+      .viral{display:none}
+    }
+    @media (max-width:520px){h1{font-size:20px}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <span class="kicker">Built for creator workflows</span>
+        <h1>Make long recordings publish-ready, fast</h1>
+        <p class="lead">Turn one recording into platform-ready clips, tuned for retention and scale.</p>
+      </div>
+    </header>
+
+    <section class="grid" aria-label="Creator workflow cards">
+      <article class="card">
+        <h2 class="card-title">1 recording → multi-platform cuts</h2>
+        <p class="card-copy">Turn one long video into ready-to-post clips across your channel stack.</p>
+        <button class="btn" aria-label="Learn more about multi-platform cuts">Explore cuts</button>
+      </article>
+
+      <article class="card">
+        <h2 class="card-title">Retention-first editing</h2>
+        <p class="card-copy">Hooks, trims, and pacing in one pass — keep viewers watching longer with cuts tuned for creator content cadence.</p>
+        <button class="btn" aria-label="Learn more about retention-first editing">See retention tips</button>
+      </article>
+
+      <article class="card">
+        <h2 class="card-title">Scale your upload schedule</h2>
+        <p class="card-copy">From solo channel to creator team — grow from occasional uploads to daily publishing.</p>
+        <button class="btn" aria-label="Learn more about scaling uploads">Scale publishing</button>
+      </article>
+    </section>
+
+    <!-- Viral analytics side SVG -->
+    <div class="viral" aria-hidden="true">
+      <svg viewBox="0 0 80 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#b794f4" stop-opacity="0.9"/>
+            <stop offset="100%" stop-color="#6d28d9" stop-opacity="0.7"/>
+          </linearGradient>
+        </defs>
+        <rect x="8" y="20" width="12" height="120" class="bar bar-anim" style="transform-origin:14px 140px;animation-delay:0s;fill:url(#g)" />
+        <rect x="30" y="40" width="12" height="100" class="bar bar-anim" style="transform-origin:36px 140px;animation-delay:0.3s;fill:rgba(124,58,237,0.82)" />
+        <rect x="52" y="10" width="12" height="140" class="bar bar-anim" style="transform-origin:58px 140px;animation-delay:0.6s;fill:rgba(99,102,241,0.9)" />
+        <circle cx="40" cy="150" r="18" class="dot" />
+      </svg>
+    </div>
+
+    <p class="foot">Want variations (light theme, Tailwind classes, or componentized React versions)? Tell me which and I’ll add them.</p>
+  </main>
+</body>
+</html>

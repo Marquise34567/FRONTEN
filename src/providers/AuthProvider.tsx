@@ -1,6 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthError, Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  getLocalhostBypassToken,
+  getLocalhostBypassUser,
+  isLocalhostAuthBypassEnabled,
+} from "@/lib/localhostAuthBypass";
 
 type AuthResult = {
   error?: string;
@@ -53,12 +58,34 @@ const toAuthResult = (error?: AuthError | null): AuthResult => {
   return { error: message, code, status: error.status };
 };
 
+const createLocalhostBypassSession = (): Session => {
+  const bypassUser = getLocalhostBypassUser();
+  const fake: any = {
+    provider_token: null,
+    access_token: getLocalhostBypassToken(),
+    expires_at: Number.MAX_SAFE_INTEGER,
+    user: {
+      id: bypassUser.id,
+      email: bypassUser.email,
+      app_metadata: {},
+      user_metadata: {},
+    },
+  };
+  return fake as Session;
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const localhostBypassEnabled = isLocalhostAuthBypassEnabled();
 
   useEffect(() => {
     let mounted = true;
+    if (localhostBypassEnabled) {
+      setSession(createLocalhostBypassSession());
+      setLoading(false);
+      return () => {};
+    }
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       const nextSession = toActiveSession(data.session);
@@ -90,7 +117,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       data.subscription.unsubscribe();
       window.removeEventListener('auth:expired', onExpired)
     };
-  }, []);
+  }, [localhostBypassEnabled]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -138,10 +165,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       },
       signOut: async () => {
+        if (localhostBypassEnabled) {
+          setSession(createLocalhostBypassSession());
+          setLoading(false);
+          return;
+        }
         await supabase.auth.signOut();
       },
     }),
-    [session, loading],
+    [session, loading, localhostBypassEnabled],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -22,12 +22,16 @@ import ControlPanelGrowth from "./pages/ControlPanelGrowth";
 import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
 import ControlPanelOps from "./pages/ControlPanelOps";
 import ControlPanelSecurity from "./pages/ControlPanelSecurity";
+import ControlPanelAnalytics from "./pages/ControlPanelAnalytics";
+import PreviewFinalRender from "./pages/PreviewFinalRender";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
 import { useEffect } from "react";
 import { apiFetch } from "@/lib/api";
+import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
+import { useRealtimePresence } from "@/hooks/use-realtime-presence";
 
 const queryClient = new QueryClient();
 
@@ -86,6 +90,35 @@ const ClientErrorReporter = () => {
   return null;
 };
 
+const RealtimePresenceBridge = () => {
+  const { accessToken } = useAuth();
+  useRealtimePresence(accessToken);
+  return null;
+};
+
+const RouteViewTracker = () => {
+  const { accessToken } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!accessToken) return;
+    void trackAnalyticsEvent(
+      {
+        eventName: "app_page_view",
+        category: "page_view",
+        sessionId: getAnalyticsSessionId(),
+        pagePath: `${location.pathname}${location.search || ""}`,
+        metadata: {
+          source: "route_tracker",
+        },
+      },
+      accessToken
+    );
+  }, [accessToken, location.pathname, location.search]);
+
+  return null;
+};
+
 const App = () => {
   useScreenProfile();
 
@@ -93,10 +126,12 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ClientErrorReporter />
+        <RealtimePresenceBridge />
         <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <RouteViewTracker />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
@@ -184,12 +219,23 @@ const App = () => {
                   </RequireAuth>
                 }
               />
+              <Route path="/preview/final-render" element={<PreviewFinalRender />} />
               <Route
                 path="/dev/control-panel/emotion"
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
                       <ControlPanelEmotion />
+                    </RequireDevAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dev/control-panel/analytics"
+                element={
+                  <RequireAuth>
+                    <RequireDevAdmin>
+                      <ControlPanelAnalytics />
                     </RequireDevAdmin>
                   </RequireAuth>
                 }

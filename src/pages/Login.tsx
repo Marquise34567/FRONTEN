@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import GlowBackdrop from "@/components/GlowBackdrop";
+import { Fragment, lazy, Suspense } from "react";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +73,7 @@ const Login = () => {
   };
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<div>Loading...</div>}><GlowBackdrop>
       <Navbar />
       <main className="responsive-main flex items-center justify-center min-h-screen px-4 pt-24">
         <motion.div
@@ -148,7 +149,7 @@ const Login = () => {
           </div>
         </motion.div>
       </main>
-    </GlowBackdrop>
+    </GlowBackdrop></Suspense>
   );
 };
 
