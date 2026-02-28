@@ -445,6 +445,41 @@ type RetentionTimelineSegment = {
   positionPct: number;
   widthPct: number;
 };
+type EmotionProfileKey = "excitement" | "curiosity" | "anticipation" | "tension" | "inspiration";
+type EmotionSummarySignal = {
+  key: EmotionProfileKey;
+  label: string;
+  sharePercent: number;
+  confidence: number;
+  timelineStrength: number;
+  timestampsSec: number[];
+  badgeClassName: string;
+  barClassName: string;
+};
+type EnergyMomentWithEmotion = EnergyMoment & {
+  positionPct: number;
+  timestampLabel: string;
+  emotionKey: EmotionProfileKey;
+  emotionLabel: string;
+  emotionalScore: number;
+};
+type EmotionTimelineHighlight = {
+  id: string;
+  timestampSec: number;
+  timestampLabel: string;
+  emotionKey: EmotionProfileKey;
+  emotionLabel: string;
+  strength: number;
+  reason: string;
+  source: "energy" | "anchor" | "retention";
+};
+type BingeMoment = {
+  id: string;
+  timestampSec: number;
+  timestampLabel: string;
+  score: number;
+  reason: string;
+};
 
 type PreviewPlaybackTelemetry = {
   durationSec: number;
@@ -1023,6 +1058,60 @@ const RETENTION_TIMELINE_CATEGORY_META: Record<
   },
 };
 
+const EMOTION_PROFILE_META: Record<
+  EmotionProfileKey,
+  {
+    label: string;
+    badgeClassName: string;
+    barClassName: string;
+    detail: string;
+  }
+> = {
+  excitement: {
+    label: "Excitement",
+    badgeClassName: "border-fuchsia-400/45 bg-fuchsia-500/15 text-fuchsia-100",
+    barClassName: "from-fuchsia-400/90 via-pink-400/85 to-orange-300/85",
+    detail: "High velocity moments with strong payoff pressure.",
+  },
+  curiosity: {
+    label: "Curiosity",
+    badgeClassName: "border-sky-400/45 bg-sky-500/15 text-sky-100",
+    barClassName: "from-sky-400/90 via-cyan-300/85 to-teal-300/85",
+    detail: "Question-loop and reveal-driven watch momentum.",
+  },
+  anticipation: {
+    label: "Anticipation",
+    badgeClassName: "border-indigo-400/45 bg-indigo-500/15 text-indigo-100",
+    barClassName: "from-indigo-400/90 via-violet-300/85 to-blue-300/85",
+    detail: "Build-up windows before major emotional beats.",
+  },
+  tension: {
+    label: "Tension",
+    badgeClassName: "border-rose-400/45 bg-rose-500/15 text-rose-100",
+    barClassName: "from-rose-400/90 via-red-300/85 to-amber-300/75",
+    detail: "Likely drop-off risk where pacing needs tightening.",
+  },
+  inspiration: {
+    label: "Inspiration",
+    badgeClassName: "border-emerald-400/45 bg-emerald-500/15 text-emerald-100",
+    barClassName: "from-emerald-400/90 via-lime-300/85 to-cyan-300/80",
+    detail: "Emotion-forward sections with face and voice emphasis.",
+  },
+};
+
+const classifyEmotionProfile = (moment: Pick<EnergyMoment, "energy" | "motion" | "audio" | "visual" | "facial">): EmotionProfileKey => {
+  if (moment.energy >= 86 && moment.motion >= 78) return "excitement";
+  if (moment.visual >= 80 && moment.energy >= 72) return "curiosity";
+  if (moment.facial >= 78 && moment.audio >= 70) return "inspiration";
+  if (moment.energy <= 60 || moment.audio <= 54) return "tension";
+  return "anticipation";
+};
+
+const formatEmotionPredictionReason = (emotionKey: EmotionProfileKey) => {
+  const meta = EMOTION_PROFILE_META[emotionKey];
+  return `${meta.label} signals are strong across energy + retention windows.`;
+};
+
 const resolveRetentionTimelineCategory = ({
   predicted,
   dropFromPrevious,
@@ -1198,6 +1287,7 @@ const Editor = () => {
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
+  const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
@@ -4148,12 +4238,23 @@ const Editor = () => {
       : 0;
     return Math.max(60, Math.round(fromDuration ?? maxMomentSec ?? hookTail ?? 360));
   }, [estimatedDurationSec, energyTimelineMoments, selectedHookCandidate]);
-  const timelineEnergyMoments = useMemo(() => (
-    energyTimelineMoments.slice(0, 10).map((moment) => ({
-      ...moment,
-      positionPct: clamp((moment.timestampSec / Math.max(1, estimatedTimelineDurationSec)) * 100, 4, 96),
-      timestampLabel: formatTimelineClock(moment.timestampSec),
-    }))
+  const timelineEnergyMoments = useMemo<EnergyMomentWithEmotion[]>(() => (
+    energyTimelineMoments.slice(0, 12).map((moment) => {
+      const emotionKey = classifyEmotionProfile(moment);
+      const emotionalScore = clamp(
+        Math.round((moment.facial * 0.48) + (moment.audio * 0.32) + (moment.motion * 0.2)),
+        0,
+        100,
+      );
+      return {
+        ...moment,
+        positionPct: clamp((moment.timestampSec / Math.max(1, estimatedTimelineDurationSec)) * 100, 4, 96),
+        timestampLabel: formatTimelineClock(moment.timestampSec),
+        emotionKey,
+        emotionLabel: EMOTION_PROFILE_META[emotionKey].label,
+        emotionalScore,
+      };
+    })
   ), [energyTimelineMoments, estimatedTimelineDurationSec]);
   const highestEnergyMoment = timelineEnergyMoments.length > 0
     ? timelineEnergyMoments.reduce((best, current) => (current.energy > best.energy ? current : best), timelineEnergyMoments[0])
@@ -4346,6 +4447,229 @@ const Editor = () => {
     () => retentionTimelineSegments.filter((segment) => segment.category === "weak").slice(0, 3),
     [retentionTimelineSegments],
   );
+  const emotionalBeatAnchorSeconds = useMemo(() => {
+    const raw =
+      activeAnalysis?.emotional_beat_anchors ??
+      activeAnalysis?.emotionalBeatAnchors ??
+      activeAnalysis?.pipelineSteps?.PACING?.meta?.emotionalBeatAnchors ??
+      activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta?.emotionalBeatAnchors;
+    if (!Array.isArray(raw)) return [] as number[];
+    const parsed = raw
+      .map((entry) => {
+        if (typeof entry === "number") return entry;
+        if (entry && typeof entry === "object") {
+          const item = entry as Record<string, unknown>;
+          return firstFiniteNumber(item.atSec, item.timeSec, item.timestampSec, item.timestamp, item.time, item.start);
+        }
+        return firstFiniteNumber(entry);
+      })
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+      .map((value) => clamp(value, 0, retentionTimelineDurationSec))
+      .sort((a, b) => a - b);
+    const unique = Array.from(new Set(parsed.map((value) => Number(value.toFixed(2)))));
+    return unique.slice(0, 10);
+  }, [activeAnalysis, retentionTimelineDurationSec]);
+  const emotionSignals = useMemo<EmotionSummarySignal[]>(() => {
+    const buckets = new Map<EmotionProfileKey, { score: number; samples: number; timestamps: number[] }>();
+    const pushSignal = (key: EmotionProfileKey, score: number, timestampSec: number) => {
+      const existing = buckets.get(key) ?? { score: 0, samples: 0, timestamps: [] };
+      existing.score += Math.max(0, score);
+      existing.samples += 1;
+      if (Number.isFinite(timestampSec) && existing.timestamps.length < 8) {
+        existing.timestamps.push(Math.max(0, timestampSec));
+      }
+      buckets.set(key, existing);
+    };
+
+    for (const moment of timelineEnergyMoments) {
+      const weightedScore = Math.round(
+        (moment.energy * 0.56) +
+        (moment.emotionalScore * 0.24) +
+        (moment.audio * 0.2),
+      );
+      pushSignal(moment.emotionKey, weightedScore, moment.timestampSec);
+    }
+
+    for (const anchorSec of emotionalBeatAnchorSeconds) {
+      const nearest = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - anchorSec) < Math.abs(closest.timestampSec - anchorSec) ? moment : closest;
+      }, null);
+      pushSignal(nearest?.emotionKey ?? "anticipation", 24, anchorSec);
+    }
+
+    for (const segment of bestRetentionSegments) {
+      const nearest = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - segment.midpointSec) < Math.abs(closest.timestampSec - segment.midpointSec)
+          ? moment
+          : closest;
+      }, null);
+      const segmentScore = Math.round(segment.predicted * 0.28 + Math.max(0, -segment.dropFromPrevious) * 3.5);
+      pushSignal(nearest?.emotionKey ?? "anticipation", segmentScore, segment.midpointSec);
+    }
+
+    const totalScore = Array.from(buckets.values()).reduce((sum, bucket) => sum + bucket.score, 0);
+    if (totalScore <= 0) {
+      const fallbackMeta = EMOTION_PROFILE_META.anticipation;
+      return [{
+        key: "anticipation",
+        label: fallbackMeta.label,
+        sharePercent: 100,
+        confidence: 62,
+        timelineStrength: 62,
+        timestampsSec: timelineEnergyMoments.slice(0, 2).map((moment) => moment.timestampSec),
+        badgeClassName: fallbackMeta.badgeClassName,
+        barClassName: fallbackMeta.barClassName,
+      }];
+    }
+
+    return Array.from(buckets.entries())
+      .map(([key, bucket]) => {
+        const avg = bucket.samples > 0 ? bucket.score / bucket.samples : bucket.score;
+        const sharePercent = Number(((bucket.score / totalScore) * 100).toFixed(1));
+        const confidence = clamp(Math.round(avg), 28, 99);
+        const meta = EMOTION_PROFILE_META[key];
+        return {
+          key,
+          label: meta.label,
+          sharePercent,
+          confidence,
+          timelineStrength: clamp(Math.round(avg), 0, 100),
+          timestampsSec: bucket.timestamps.slice(0, 4).sort((a, b) => a - b),
+          badgeClassName: meta.badgeClassName,
+          barClassName: meta.barClassName,
+        } satisfies EmotionSummarySignal;
+      })
+      .sort((a, b) => b.sharePercent - a.sharePercent)
+      .slice(0, 5);
+  }, [bestRetentionSegments, emotionalBeatAnchorSeconds, timelineEnergyMoments]);
+  const predictedAudienceEmotions = useMemo(() => {
+    const baselineRetention = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 74;
+    return emotionSignals.slice(0, 4).map((signal, index) => {
+      const predicted = clamp(
+        Math.round(signal.timelineStrength * 0.62 + baselineRetention * 0.38 - index * 3),
+        32,
+        98,
+      );
+      return {
+        ...signal,
+        predictedAudiencePercent: predicted,
+        predictionReason: formatEmotionPredictionReason(signal.key),
+      };
+    });
+  }, [emotionSignals, latestRetentionPoint, retentionScoreAfterDisplay, retentionScoreDisplay]);
+  const topEmotionSignal = emotionSignals[0] ?? null;
+  const emotionTimelineHighlights = useMemo<EmotionTimelineHighlight[]>(() => {
+    const rows: EmotionTimelineHighlight[] = [];
+    for (const moment of timelineEnergyMoments) {
+      rows.push({
+        id: `energy-${moment.timestampSec.toFixed(2)}`,
+        timestampSec: moment.timestampSec,
+        timestampLabel: moment.timestampLabel,
+        emotionKey: moment.emotionKey,
+        emotionLabel: moment.emotionLabel,
+        strength: moment.emotionalScore,
+        reason: `${moment.emotionLabel} spike · energy ${moment.energy}`,
+        source: "energy",
+      });
+    }
+    for (const [index, anchorSec] of emotionalBeatAnchorSeconds.entries()) {
+      const nearest = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - anchorSec) < Math.abs(closest.timestampSec - anchorSec) ? moment : closest;
+      }, null);
+      const emotionKey = nearest?.emotionKey ?? "anticipation";
+      rows.push({
+        id: `anchor-${index}-${anchorSec.toFixed(2)}`,
+        timestampSec: anchorSec,
+        timestampLabel: formatTimelineClock(anchorSec),
+        emotionKey,
+        emotionLabel: EMOTION_PROFILE_META[emotionKey].label,
+        strength: nearest?.emotionalScore ?? 70,
+        reason: `Detected emotional beat anchor at ${formatTimelineClock(anchorSec)}`,
+        source: "anchor",
+      });
+    }
+    for (const [index, segment] of bestRetentionSegments.entries()) {
+      const nearest = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - segment.midpointSec) < Math.abs(closest.timestampSec - segment.midpointSec)
+          ? moment
+          : closest;
+      }, null);
+      const emotionKey = nearest?.emotionKey ?? "curiosity";
+      rows.push({
+        id: `retention-${index}-${segment.id}`,
+        timestampSec: segment.midpointSec,
+        timestampLabel: formatTimelineClock(segment.midpointSec),
+        emotionKey,
+        emotionLabel: EMOTION_PROFILE_META[emotionKey].label,
+        strength: clamp(Math.round(segment.predicted), 0, 100),
+        reason: `Best-part retention window (${segment.predicted}% hold)`,
+        source: "retention",
+      });
+    }
+    const sortedByStrength = rows.sort((a, b) => b.strength - a.strength);
+    const deduped: EmotionTimelineHighlight[] = [];
+    for (const row of sortedByStrength) {
+      const nearDuplicate = deduped.some(
+        (existing) =>
+          existing.emotionKey === row.emotionKey &&
+          Math.abs(existing.timestampSec - row.timestampSec) < 7,
+      );
+      if (nearDuplicate) continue;
+      deduped.push(row);
+      if (deduped.length >= 8) break;
+    }
+    return deduped.sort((a, b) => a.timestampSec - b.timestampSec);
+  }, [bestRetentionSegments, emotionalBeatAnchorSeconds, timelineEnergyMoments]);
+  const bingeWorthyMoments = useMemo<BingeMoment[]>(() => {
+    const rows: BingeMoment[] = [];
+    for (const segment of bestRetentionSegments) {
+      const nearest = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - segment.midpointSec) < Math.abs(closest.timestampSec - segment.midpointSec)
+          ? moment
+          : closest;
+      }, null);
+      const emotionLabel = nearest?.emotionLabel ?? "Momentum";
+      rows.push({
+        id: `best-${segment.id}`,
+        timestampSec: segment.midpointSec,
+        timestampLabel: formatTimelineClock(segment.midpointSec),
+        score: clamp(Math.round(segment.predicted * 0.68 + (nearest?.energy ?? 72) * 0.32), 0, 100),
+        reason: `${emotionLabel} + retention hold (${segment.predicted}%)`,
+      });
+    }
+    for (const moment of timelineEnergyMoments.filter((entry) => entry.energy >= 74)) {
+      rows.push({
+        id: `energy-${moment.timestampSec.toFixed(2)}`,
+        timestampSec: moment.timestampSec,
+        timestampLabel: moment.timestampLabel,
+        score: clamp(Math.round(moment.energy * 0.7 + moment.emotionalScore * 0.3), 0, 100),
+        reason: `${moment.emotionLabel} surge (energy ${moment.energy})`,
+      });
+    }
+    const sorted = rows.sort((a, b) => b.score - a.score);
+    const deduped: BingeMoment[] = [];
+    for (const row of sorted) {
+      if (deduped.some((existing) => Math.abs(existing.timestampSec - row.timestampSec) < 6)) continue;
+      deduped.push(row);
+      if (deduped.length >= 6) break;
+    }
+    return deduped.sort((a, b) => a.timestampSec - b.timestampSec);
+  }, [bestRetentionSegments, timelineEnergyMoments]);
+  const emotionLinePoints = useMemo(() => {
+    if (timelineEnergyMoments.length < 2) return "";
+    return timelineEnergyMoments
+      .map((moment) => {
+        const x = clamp((moment.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
+        const y = 100 - clamp(moment.emotionalScore, 0, 100);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [retentionTimelineDurationSec, timelineEnergyMoments]);
   const canQueueTimelineSegmentAction = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
   const hookConfidenceScore = clamp(
@@ -5064,11 +5388,18 @@ const Editor = () => {
 
   const openVideoStatsSummary = useCallback(() => {
     setVideoAnalysisOpen(true);
+    setFeedbackDeepDiveOpen(false);
     setRetentionDetailsOpen(true);
     if (analyzeUnlockedForActiveJob) {
       setShowAdvancedDebug(true);
     }
   }, [analyzeUnlockedForActiveJob]);
+
+  useEffect(() => {
+    if (!videoAnalysisOpen) {
+      setFeedbackDeepDiveOpen(false);
+    }
+  }, [videoAnalysisOpen]);
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
@@ -6681,7 +7012,7 @@ const Editor = () => {
                     </div>
 
                     {normalizedActiveStatus === "ready" && (
-                      <div className="space-y-3 rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
+                      <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
                           <Badge className="border-primary/35 bg-primary/10 text-foreground">
@@ -6694,39 +7025,49 @@ const Editor = () => {
                         />
                         <p className="text-[11px] text-muted-foreground">{fullScanProgressLabel}</p>
 
-                        <div className="rounded-lg border border-border/60 bg-background/50 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Energy Timeline</p>
-                            <Badge className="border-border/60 bg-muted/30 text-muted-foreground">0-100 score</Badge>
+                        <div className="rounded-lg border border-primary/20 bg-background/45 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Modern Energy + Emotion Timeline</p>
+                            <Badge className="border-primary/35 bg-primary/10 text-foreground">Landing-style deep scan</Badge>
                           </div>
-                          <div className="relative mt-3 h-10">
-                            <div className="absolute inset-x-0 top-4 h-px bg-gradient-to-r from-border/60 via-primary/80 to-border/60" />
+                          <div className="mt-3 grid grid-cols-12 gap-1.5">
                             {timelineEnergyMoments.map((moment, idx) => (
                               <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
                                 <TooltipTrigger asChild>
                                   <button
                                     type="button"
-                                    className="absolute top-0 -translate-x-1/2"
-                                    style={{ left: `${moment.positionPct}%` }}
+                                    className="group flex h-28 flex-col justify-end"
+                                    style={{ minWidth: "0" }}
                                   >
-                                    <Badge className="border-primary/40 bg-primary/15 px-1.5 py-0.5 text-[10px] text-foreground">
-                                      {moment.energy}
-                                    </Badge>
+                                    <span
+                                      className={`w-full rounded-t-md bg-gradient-to-t ${EMOTION_PROFILE_META[moment.emotionKey].barClassName} transition-all group-hover:brightness-110`}
+                                      style={{ height: `${Math.max(12, moment.energy)}%` }}
+                                    />
+                                    <span className="mt-1 block truncate text-[10px] text-muted-foreground">{moment.timestampLabel}</span>
                                   </button>
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
-                                  <p className="text-[11px] font-medium">{moment.timestampLabel} energy {moment.energy}</p>
+                                  <p className="text-[11px] font-medium">
+                                    {moment.timestampLabel} · {moment.emotionLabel}
+                                  </p>
                                   <p className="text-[11px] text-muted-foreground">
-                                    Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
+                                    Energy {moment.energy} | Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
                                   </p>
                                 </TooltipContent>
                               </Tooltip>
                             ))}
                           </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {emotionSignals.slice(0, 4).map((signal) => (
+                              <Badge key={`emotion-signal-${signal.key}`} className={signal.badgeClassName}>
+                                {signal.label} {Math.round(signal.sharePercent)}%
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-2">
                               <Badge className="border-primary/35 bg-primary/10 text-foreground">
                                 Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
@@ -6748,7 +7089,7 @@ const Editor = () => {
                             <p className="mt-2 text-xs text-muted-foreground">{autoHookSummaryLine}</p>
                           </div>
 
-                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-xs font-medium text-foreground">Auto-Cut Boring/Silent/Pauses</p>
                               <Switch
@@ -6768,11 +7109,11 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <div className="space-y-3 rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
+                    <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode</p>
-                          <p className="text-xs text-muted-foreground">Advanced retention automation (facial scan + binge logic)</p>
+                          <p className="text-xs text-muted-foreground">Modern retention automation with facial + emotion intelligence.</p>
                         </div>
                         <Switch
                           checked={aModeEnabled}
@@ -6783,20 +7124,16 @@ const Editor = () => {
                       </div>
 
                       {aModeEnabled ? (
-                        <div className="space-y-3">
-                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Facial Scan Overlay</p>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button type="button" className="text-[11px] text-primary underline underline-offset-4">
-                                    Suggestion
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="border-border/60 bg-card text-foreground">
-                                  {`Facial Scan: Boost Retention +${facialRetentionBoostPct}% by focusing on high-engagement face at ${formatTimelineClock(facialFocusSec)}`}
-                                </PopoverContent>
-                              </Popover>
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Facial Scan Overlay</p>
+                                <p className="mt-1 text-xs text-foreground/90">
+                                  Focus lock near {formatTimelineClock(facialFocusSec)} estimated to lift retention by +{facialRetentionBoostPct}%.
+                                </p>
+                              </div>
+                              <Badge className="border-primary/35 bg-primary/10 text-foreground">+{facialRetentionBoostPct}%</Badge>
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                               {facialHeatmapMoments.map((zone) => (
@@ -6813,8 +7150,8 @@ const Editor = () => {
                             </div>
                           </div>
 
-                          <div className="rounded-lg border border-border/60 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-3">
+                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
+                            <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge Mode</p>
                                 <p className="text-xs text-muted-foreground">
@@ -6829,15 +7166,26 @@ const Editor = () => {
                               />
                             </div>
                             {bingeModeEnabled ? (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {bingeSuggestions.map((line, index) => (
-                                  <Badge
-                                    key={`binge-suggestion-${index}`}
-                                    className="border-primary/30 bg-primary/10 text-foreground"
-                                  >
-                                    {line}
-                                  </Badge>
+                              <div className="mt-2 space-y-2">
+                                {bingeWorthyMoments.slice(0, 3).map((moment) => (
+                                  <div key={`binge-moment-${moment.id}`} className="rounded-md border border-border/60 bg-background/50 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs text-foreground">{moment.timestampLabel}</p>
+                                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{moment.score}%</Badge>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{moment.reason}</p>
+                                  </div>
                                 ))}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {bingeSuggestions.slice(0, 3).map((line, index) => (
+                                    <Badge
+                                      key={`binge-suggestion-${index}`}
+                                      className="border-primary/30 bg-primary/10 text-foreground"
+                                    >
+                                      {line}
+                                    </Badge>
+                                  ))}
+                                </div>
                               </div>
                             ) : (
                               <p className="mt-2 text-xs text-muted-foreground">Binge optimizations are currently paused.</p>
@@ -6851,21 +7199,28 @@ const Editor = () => {
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-border/60 bg-card/55 p-3 sm:p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Retention Prediction Graph</p>
-                        <Badge className={`${retentionGoalMet ? "border-success/35 bg-success/10 text-success" : "border-warning/35 bg-warning/10 text-warning"}`}>
-                          {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
-                        </Badge>
+                    <div className="rounded-xl border border-primary/20 bg-[linear-gradient(160deg,rgba(19,26,54,0.64),rgba(23,18,44,0.62))] p-3 sm:p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Retention + Emotion Analysis</p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {topEmotionSignal ? (
+                            <Badge className={topEmotionSignal.badgeClassName}>
+                              Top Emotion: {topEmotionSignal.label}
+                            </Badge>
+                          ) : null}
+                          <Badge className={`${retentionGoalMet ? "border-success/35 bg-success/10 text-success" : "border-warning/35 bg-warning/10 text-warning"}`}>
+                            {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="mt-2 h-32 overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2">
+                      <div className="mt-2 h-36 overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2">
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                           <line
                             x1="0"
                             y1={100 - RETENTION_GOAL_PERCENT}
                             x2="100"
                             y2={100 - RETENTION_GOAL_PERCENT}
-                            stroke="hsl(var(--primary) / 0.45)"
+                            stroke="hsl(var(--primary) / 0.35)"
                             strokeDasharray="3 3"
                             strokeWidth="1"
                           />
@@ -6873,15 +7228,72 @@ const Editor = () => {
                             points={retentionLinePoints}
                             fill="none"
                             stroke="hsl(var(--primary))"
-                            strokeWidth="2.4"
+                            strokeWidth="2.5"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
+                          {emotionLinePoints ? (
+                            <polyline
+                              points={emotionLinePoints}
+                              fill="none"
+                              stroke="hsl(var(--glow-secondary))"
+                              strokeWidth="2"
+                              strokeDasharray="4 3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          ) : null}
+                          {emotionTimelineHighlights.slice(0, 5).map((item) => {
+                            const x = clamp((item.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
+                            const y = 100 - clamp(item.strength, 0, 100);
+                            return (
+                              <circle
+                                key={`emotion-dot-${item.id}`}
+                                cx={x}
+                                cy={y}
+                                r="1.8"
+                                fill="hsl(var(--glow-secondary))"
+                                stroke="hsl(var(--background))"
+                                strokeWidth="0.6"
+                              />
+                            );
+                          })}
                         </svg>
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                         <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
                         <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"}</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                        <div className="rounded-lg border border-border/50 bg-background/45 p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Emotions Felt</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {emotionSignals.slice(0, 4).map((signal) => (
+                              <Badge key={`felt-${signal.key}`} className={signal.badgeClassName}>
+                                {signal.label} · {Math.round(signal.sharePercent)}%
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border/50 bg-background/45 p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Predicted Audience Emotions</p>
+                          <div className="mt-2 space-y-1.5">
+                            {predictedAudienceEmotions.slice(0, 3).map((signal) => (
+                              <div key={`predicted-emotion-${signal.key}`}>
+                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                  <span>{signal.label}</span>
+                                  <span>{signal.predictedAudiencePercent}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
+                                  <div
+                                    className={`h-full rounded-full bg-gradient-to-r ${signal.barClassName}`}
+                                    style={{ width: `${signal.predictedAudiencePercent}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -7043,10 +7455,10 @@ const Editor = () => {
                             size="sm"
                             variant="outline"
                             className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
-                            onClick={() => openVideoStatsSummary()}
+                            onClick={() => setFeedbackDeepDiveOpen(true)}
                           >
                             <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                            Open Feedback
+                            Open Detailed Feedback
                           </Button>
                           <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
                             {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
@@ -7534,6 +7946,347 @@ const Editor = () => {
                             )}
                           </div>
                         ) : null}
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={feedbackDeepDiveOpen} onOpenChange={setFeedbackDeepDiveOpen}>
+                    <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-primary/30 bg-[linear-gradient(148deg,rgba(18,14,38,0.95),rgba(14,24,46,0.94))] p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
+                      <DialogHeader>
+                        <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
+                        <DialogDescription>
+                          Modernized retention intelligence with timestamped emotional beats, binge-worthy moments, and audience emotion predictions.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
+                            <p className={`mt-1 font-premium text-3xl ${retentionScoreDeltaDisplay !== null && retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
+                              {retentionScoreDeltaDisplay !== null
+                                ? `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)}`
+                                : "Pending"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{hookWindowLabel}</p>
+                          </div>
+                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Top Emotion Felt</p>
+                            <p className="mt-1 text-2xl font-premium text-foreground">{topEmotionSignal?.label || "Anticipation"}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {topEmotionSignal
+                                ? `${Math.round(topEmotionSignal.sharePercent)}% share across timeline`
+                                : "Emotion confidence stabilizing"}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Predicted Hold</p>
+                            <p className="mt-1 text-2xl font-premium text-foreground">
+                              {latestRetentionPoint ? `${latestRetentionPoint.predicted}%` : "n/a"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Goal {RETENTION_GOAL_PERCENT}% · {retentionGoalMet ? "On track" : "Needs tightening"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-primary/25 bg-background/40 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention vs Emotion Graph</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              <Badge className="border-primary/35 bg-primary/12 text-foreground">Retention curve</Badge>
+                              <Badge className="border-[hsl(var(--glow-secondary)/0.45)] bg-[hsl(var(--glow-secondary)/0.14)] text-foreground">Emotion intensity</Badge>
+                            </div>
+                          </div>
+                          <div className="mt-3 h-40 rounded-lg border border-border/50 bg-background/50 p-2">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                              <line
+                                x1="0"
+                                y1={100 - RETENTION_GOAL_PERCENT}
+                                x2="100"
+                                y2={100 - RETENTION_GOAL_PERCENT}
+                                stroke="hsl(var(--primary) / 0.32)"
+                                strokeDasharray="3 3"
+                                strokeWidth="1"
+                              />
+                              <polyline
+                                points={retentionLinePoints}
+                                fill="none"
+                                stroke="hsl(var(--primary))"
+                                strokeWidth="2.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                              {emotionLinePoints ? (
+                                <polyline
+                                  points={emotionLinePoints}
+                                  fill="none"
+                                  stroke="hsl(var(--glow-secondary))"
+                                  strokeWidth="2"
+                                  strokeDasharray="4 3"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              ) : null}
+                              {emotionTimelineHighlights.slice(0, 6).map((item) => {
+                                const x = clamp((item.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
+                                const y = 100 - clamp(item.strength, 0, 100);
+                                return (
+                                  <circle
+                                    key={`deep-emotion-point-${item.id}`}
+                                    cx={x}
+                                    cy={y}
+                                    r="1.8"
+                                    fill="hsl(var(--glow-secondary))"
+                                    stroke="hsl(var(--background))"
+                                    strokeWidth="0.6"
+                                  />
+                                );
+                              })}
+                            </svg>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                          <div className="rounded-xl border border-border/50 bg-background/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotional Parts (Timestamps)</p>
+                            <div className="mt-2 space-y-2">
+                              {emotionTimelineHighlights.length > 0 ? (
+                                emotionTimelineHighlights.map((item) => (
+                                  <div key={`emotion-highlight-${item.id}`} className="rounded-md border border-border/50 bg-background/50 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Badge className={EMOTION_PROFILE_META[item.emotionKey].badgeClassName}>{item.emotionLabel}</Badge>
+                                      <p className="text-xs text-foreground">{item.timestampLabel}</p>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="rounded-md border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                  Emotional timeline highlights are still being generated.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border/50 bg-background/40 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge-Worthy Parts</p>
+                            <div className="mt-2 space-y-2">
+                              {bingeWorthyMoments.length > 0 ? (
+                                bingeWorthyMoments.map((moment) => (
+                                  <div key={`binge-highlight-${moment.id}`} className="rounded-md border border-border/50 bg-background/50 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs text-foreground">{moment.timestampLabel}</p>
+                                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{moment.score}% binge score</Badge>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{moment.reason}</p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="rounded-md border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                  Binge-worthy windows are still being detected.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-primary/25 bg-background/40 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
+                            <Badge className="border-border/50 bg-background/60 text-foreground/80">
+                              {Math.round(retentionTimelineDurationSec)}s scanned
+                            </Badge>
+                          </div>
+                          <div className="relative mt-3 h-4 overflow-hidden rounded-full border border-border/50 bg-muted/35">
+                            {retentionTimelineSegments.map((segment) => {
+                              const meta = RETENTION_TIMELINE_CATEGORY_META[segment.category];
+                              return (
+                                <Tooltip key={`deep-timeline-segment-${segment.id}`}>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      aria-label={`${segment.categoryLabel} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
+                                      className={`absolute inset-y-0 rounded-sm transition-colors ${meta.segmentClassName}`}
+                                      style={{
+                                        left: `${segment.positionPct}%`,
+                                        width: `${segment.widthPct}%`,
+                                      }}
+                                    />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    <p className="text-[11px] font-medium">
+                                      {segment.categoryLabel}: {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Predicted {segment.predicted}% retention
+                                      {segment.dropFromPrevious > 0 ? ` · drop ${segment.dropFromPrevious}%` : ""}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">{segment.reason}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {(["best", "skip_risk", "weak", "steady"] as const).map((category) => {
+                              const meta = RETENTION_TIMELINE_CATEGORY_META[category];
+                              return (
+                                <Badge key={`deep-retention-legend-${category}`} className={meta.badgeClassName}>
+                                  {meta.label}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3">
+                            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-200">Best Parts</p>
+                              {bestRetentionSegments.length > 0 ? (
+                                <div className="mt-2 space-y-1.5">
+                                  {bestRetentionSegments.map((segment) => (
+                                    <p key={`deep-best-retention-${segment.id}`} className="text-xs text-emerald-100/90">
+                                      {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-emerald-100/75">No standout moments detected yet.</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-rose-100">Viewers May Skip</p>
+                              {skipRiskRetentionSegments.length > 0 ? (
+                                <div className="mt-2 space-y-2">
+                                  {skipRiskRetentionSegments.map((segment) => {
+                                    const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
+                                    const queuedAction = timelineSegmentActionByKey[actionKey];
+                                    const submitting = timelineSegmentActionSubmittingKey === actionKey;
+                                    return (
+                                      <div key={`deep-skip-risk-${segment.id}`} className="rounded border border-rose-400/25 bg-rose-950/20 p-2">
+                                        <p className="text-xs text-rose-100">
+                                          {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-rose-100/80">{segment.reason}</p>
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
+                                          >
+                                            {submitting ? (
+                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Wand2 className="mr-1 h-3 w-3" />
+                                            )}
+                                            {queuedAction === "fix" ? "Fix queued" : "Fix part"}
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
+                                          >
+                                            {submitting ? (
+                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Scissors className="mr-1 h-3 w-3" />
+                                            )}
+                                            {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-rose-100/75">No high skip-risk windows detected.</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-amber-100">Weaker Parts</p>
+                              {weakRetentionSegments.length > 0 ? (
+                                <div className="mt-2 space-y-2">
+                                  {weakRetentionSegments.map((segment) => {
+                                    const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
+                                    const queuedAction = timelineSegmentActionByKey[actionKey];
+                                    const submitting = timelineSegmentActionSubmittingKey === actionKey;
+                                    return (
+                                      <div key={`deep-weak-retention-${segment.id}`} className="rounded border border-amber-400/25 bg-amber-950/20 p-2">
+                                        <p className="text-xs text-amber-100">
+                                          {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-amber-100/80">{segment.reason}</p>
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
+                                          >
+                                            {submitting ? (
+                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Wand2 className="mr-1 h-3 w-3" />
+                                            )}
+                                            {queuedAction === "fix" ? "Fix queued" : "Fix part"}
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
+                                          >
+                                            {submitting ? (
+                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <Scissors className="mr-1 h-3 w-3" />
+                                            )}
+                                            {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-amber-100/75">No weaker windows detected.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-border/50 bg-background/40 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Predicted Audience Emotions</p>
+                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {predictedAudienceEmotions.map((signal) => (
+                              <div key={`deep-predicted-emotion-${signal.key}`} className="rounded-md border border-border/50 bg-background/50 p-2">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <Badge className={signal.badgeClassName}>{signal.label}</Badge>
+                                  <p className="text-[11px] text-foreground">{signal.predictedAudiencePercent}%</p>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
+                                  <div
+                                    className={`h-full rounded-full bg-gradient-to-r ${signal.barClassName}`}
+                                    style={{ width: `${signal.predictedAudiencePercent}%` }}
+                                  />
+                                </div>
+                                <p className="mt-1 text-[11px] text-muted-foreground">{signal.predictionReason}</p>
+                                {signal.timestampsSec.length > 0 ? (
+                                  <p className="mt-1 text-[10px] text-muted-foreground/90">
+                                    Seen at {signal.timestampsSec.map((sec) => formatTimelineClock(sec)).join(" · ")}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </DialogContent>
