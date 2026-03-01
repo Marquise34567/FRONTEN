@@ -5389,27 +5389,10 @@ const Editor = () => {
     handlePickFile();
   };
 
-  const openVideoStatsSummary = useCallback(() => {
-    setVideoAnalysisOpen(true);
-    setFeedbackDeepDiveOpen(false);
-    setFeedbackDeepDiveSection("retention_vs_emotion");
-    setRetentionDetailsOpen(true);
-    if (analyzeUnlockedForActiveJob) {
-      setShowAdvancedDebug(true);
-    }
-  }, [analyzeUnlockedForActiveJob]);
-
   const openFeedbackDeepDiveSection = useCallback((section: FeedbackDeepDiveSection = "retention_vs_emotion") => {
     setFeedbackDeepDiveSection(section);
-    setVideoAnalysisOpen(true);
     setFeedbackDeepDiveOpen(true);
   }, []);
-
-  useEffect(() => {
-    if (!videoAnalysisOpen) {
-      setFeedbackDeepDiveOpen(false);
-    }
-  }, [videoAnalysisOpen]);
 
   useEffect(() => {
     if (!feedbackDeepDiveOpen) return;
@@ -6996,7 +6979,7 @@ const Editor = () => {
                     </div>
 
                     <div className="editor-pipeline-stage-track rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
-                      <div className="pipeline-scrollbar overflow-x-auto">
+                      <div className="pipeline-scrollbar hide-scrollbar overflow-x-auto">
                         <ol className="flex min-w-[980px] items-center gap-2" aria-label="High-retention pipeline stages">
                           {pipelineRows.map((row, idx) => (
                             <li key={row.key} className="flex items-center gap-2">
@@ -7337,16 +7320,36 @@ const Editor = () => {
                             {activePipelinePowerMode === "ultra" ? "Dynamic Binge Logic" : "Retention Engineer Logic"}
                           </Badge>
                         </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Simple scorecard: each metric is 0-100, and higher is better.
+                        </p>
                         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                           {[
-                            { label: "Momentum Index", value: modeMomentumScore },
-                            { label: "Hook Packaging", value: modePackagingScore },
-                            { label: "Flow Consistency", value: modeConsistencyScore },
-                            { label: "Completion Pressure", value: modeCompletionScore },
+                            {
+                              label: "Viewer Momentum",
+                              value: modeMomentumScore,
+                              summary: "How strongly viewer attention stays up through the video.",
+                            },
+                            {
+                              label: "Hook Strength",
+                              value: modePackagingScore,
+                              summary: "How compelling the opening hook and early packaging feel.",
+                            },
+                            {
+                              label: "Flow Stability",
+                              value: modeConsistencyScore,
+                              summary: "How smooth and consistent pacing feels between sections.",
+                            },
+                            {
+                              label: "Finish Likelihood",
+                              value: modeCompletionScore,
+                              summary: "How likely viewers are to keep watching near the ending.",
+                            },
                           ].map((card) => (
                             <div key={card.label} className="rounded-lg border border-primary/25 bg-background/45 p-2.5">
                               <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{card.label}</p>
-                              <p className="mt-1 text-2xl font-premium text-foreground">{card.value}</p>
+                              <p className="mt-1 text-2xl font-premium text-foreground">{card.value}/100</p>
+                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{card.summary}</p>
                               <div className="mt-2 h-1.5 rounded-full bg-muted/65">
                                 <div
                                   className="h-full rounded-full bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
@@ -7478,7 +7481,7 @@ const Editor = () => {
                       <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-3 backdrop-blur-xl sm:max-w-5xl sm:p-4">
                         <div ref={fullAnalysisSectionRef} className="retention-summary-shell glass-card space-y-3 rounded-2xl p-3 sm:p-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="pill-badge text-[10px]">Video Stats Summary</p>
+                        <p className="pill-badge text-[10px]">Feedback Snapshot</p>
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Button
                             type="button"
@@ -7545,7 +7548,19 @@ const Editor = () => {
                             <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
                           ) : null}
                         </div>
-                        <div className="retention-summary-card glass-card rounded-xl p-3">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Open detailed retention before and after analysis"
+                          onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openFeedbackDeepDiveSection("retention_vs_emotion");
+                            }
+                          }}
+                          className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        >
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
                           {retentionBeforeBar !== null && retentionAfterBar !== null ? (
                             <div className="mt-2 space-y-2">
@@ -8760,10 +8775,10 @@ const Editor = () => {
                   onClick={() => {
                     setExportFeedbackOpen(false);
                     setExportOpen(false);
-                    openVideoStatsSummary();
+                    openFeedbackDeepDiveSection("retention_vs_emotion");
                   }}
                 >
-                  Open Video Analysis
+                  Open Feedback Deep Dive
                 </Button>
                 <Button
                   className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
