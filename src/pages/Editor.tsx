@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
@@ -227,6 +227,36 @@ type ScoreBreakdownItem = {
 };
 
 type AnalysisDetailFocus = "retention" | "emotion" | "timeline";
+type AnalysisExplorerTab = "hooks" | "risks" | "actions";
+
+type ExplorerHookCandidate = {
+  id: string;
+  startSec: number;
+  endSec: number;
+  score: number | null;
+  auditScore: number | null;
+  reason: string;
+  text: string;
+  selected: boolean;
+};
+
+type ExplorerRiskWindow = {
+  id: string;
+  startSec: number;
+  endSec: number;
+  severity: number;
+  source: "drop" | "removed" | "compressed";
+  reason: string;
+};
+
+type ExplorerActionItem = {
+  id: string;
+  startSec: number | null;
+  endSec: number | null;
+  action: string;
+  intensity: number | null;
+  reason: string;
+};
 
 const EMOTION_META: Record<
   string,
@@ -464,6 +494,155 @@ const normalizeEmotionMoments = (raw: unknown): EmotionMoment[] => {
     .sort((a, b) => a.timestampSec - b.timestampSec);
 };
 
+const normalizeHookExplorerCandidates = ({
+  raw,
+  selectedStart,
+  selectedEnd,
+  maxDurationSec,
+}: {
+  raw: unknown;
+  selectedStart: number | null;
+  selectedEnd: number | null;
+  maxDurationSec: number;
+}): ExplorerHookCandidate[] => {
+  if (!Array.isArray(raw)) return [];
+  const safeDuration = Math.max(1, maxDurationSec || 1);
+  const mapped = raw
+    .map((entry, index) => {
+      const item = asRecord(entry);
+      if (!item) return null;
+      const startRaw = firstFiniteNumber(item.start, item.startSec, item.hook_start_time);
+      const durationRaw = firstFiniteNumber(item.duration, item.durationSec);
+      const endRaw = firstFiniteNumber(item.end, item.endSec, item.hook_end_time);
+      if (startRaw === null && endRaw === null) return null;
+      const startSec = clamp(startRaw ?? Math.max(0, (endRaw ?? 0) - 8), 0, Math.max(0, safeDuration - 0.2));
+      const endSec = clamp(
+        endRaw ?? (durationRaw !== null ? startSec + durationRaw : startSec + 8),
+        startSec + 0.2,
+        safeDuration,
+      );
+      const score = toScore100(item.score, item.score100);
+      const auditScore = toScore100(item.auditScore, item.audit_score, item.hook_audit_score);
+      const reason =
+        (typeof item.reason === "string" && item.reason.trim()) ||
+        (typeof item.hook_reason === "string" && item.hook_reason.trim()) ||
+        "Candidate selected from strongest opener signals.";
+      const text =
+        (typeof item.text === "string" && item.text.trim()) ||
+        (typeof item.transcript === "string" && item.transcript.trim()) ||
+        "";
+      const selected =
+        selectedStart !== null &&
+        selectedEnd !== null &&
+        Math.abs(startSec - selectedStart) < 0.15 &&
+        Math.abs(endSec - selectedEnd) < 0.2;
+      return {
+        id: `${index}-${Math.round(startSec * 10)}-${Math.round(endSec * 10)}`,
+        startSec: Number(startSec.toFixed(3)),
+        endSec: Number(endSec.toFixed(3)),
+        score,
+        auditScore,
+        reason: String(reason),
+        text: String(text),
+        selected,
+      } satisfies ExplorerHookCandidate;
+    })
+    .filter((item): item is ExplorerHookCandidate => Boolean(item))
+    .sort((left, right) => {
+      const leftScore = left.score ?? left.auditScore ?? 0;
+      const rightScore = right.score ?? right.auditScore ?? 0;
+      return rightScore - leftScore || left.startSec - right.startSec;
+    });
+  return mapped.slice(0, 12);
+};
+
+const normalizeRangeWindows = ({
+  raw,
+  source,
+  reasonFallback,
+  severityFallback,
+  maxDurationSec,
+}: {
+  raw: unknown;
+  source: ExplorerRiskWindow["source"];
+  reasonFallback: string;
+  severityFallback: number;
+  maxDurationSec: number;
+}): ExplorerRiskWindow[] => {
+  if (!Array.isArray(raw)) return [];
+  const safeDuration = Math.max(1, maxDurationSec || 1);
+  return raw
+    .map((entry, index) => {
+      const item = asRecord(entry);
+      if (!item) return null;
+      const startRaw = firstFiniteNumber(item.start, item.startSec, item.t);
+      const endRaw = firstFiniteNumber(item.end, item.endSec, item.to);
+      if (startRaw === null || endRaw === null) return null;
+      const startSec = clamp(startRaw, 0, Math.max(0, safeDuration - 0.2));
+      const endSec = clamp(endRaw, startSec + 0.2, safeDuration);
+      if (endSec - startSec < 0.2) return null;
+      const severity = clamp(
+        Math.round(firstFiniteNumber(item.score, item.severity, item.intensity, severityFallback) ?? severityFallback),
+        0,
+        100,
+      );
+      const reason =
+        (typeof item.reason === "string" && item.reason.trim()) ||
+        (typeof item.description === "string" && item.description.trim()) ||
+        reasonFallback;
+      return {
+        id: `${source}-${index}-${Math.round(startSec * 10)}-${Math.round(endSec * 10)}`,
+        startSec: Number(startSec.toFixed(3)),
+        endSec: Number(endSec.toFixed(3)),
+        severity,
+        source,
+        reason: String(reason),
+      } satisfies ExplorerRiskWindow;
+    })
+    .filter((item): item is ExplorerRiskWindow => Boolean(item));
+};
+
+const normalizeExplorerActions = ({
+  raw,
+  maxDurationSec,
+}: {
+  raw: unknown;
+  maxDurationSec: number;
+}): ExplorerActionItem[] => {
+  if (!Array.isArray(raw)) return [];
+  const safeDuration = Math.max(1, maxDurationSec || 1);
+  return raw
+    .map((entry, index) => {
+      const item = asRecord(entry);
+      if (!item) return null;
+      const startRaw = firstFiniteNumber(item.start, item.startSec, item.t);
+      const endRaw = firstFiniteNumber(item.end, item.endSec, item.to);
+      const hasRange = startRaw !== null && endRaw !== null;
+      const startSec = hasRange ? clamp(startRaw as number, 0, Math.max(0, safeDuration - 0.2)) : null;
+      const endSec = hasRange ? clamp(endRaw as number, (startSec as number) + 0.2, safeDuration) : null;
+      const reason =
+        (typeof item.reason === "string" && item.reason.trim()) ||
+        (typeof item.description === "string" && item.description.trim()) ||
+        "Applied by retention planner.";
+      const actionRaw =
+        (typeof item.action === "string" && item.action) ||
+        (typeof item.type === "string" && item.type) ||
+        "adjust";
+      const action = actionRaw.replace(/_/g, " ").trim();
+      const intensity = toScore100(item.intensity, item.score, item.severity);
+      return {
+        id: `action-${index}-${Math.round((startSec ?? 0) * 10)}`,
+        startSec: startSec !== null ? Number(startSec.toFixed(3)) : null,
+        endSec: endSec !== null ? Number(endSec.toFixed(3)) : null,
+        action,
+        intensity,
+        reason: String(reason),
+      } satisfies ExplorerActionItem;
+    })
+    .filter((item): item is ExplorerActionItem => Boolean(item))
+    .slice(0, 18);
+};
+
 const buildJobSummarySignature = (job: JobSummary) =>
   [
     job.id,
@@ -537,6 +716,8 @@ const Editor = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [analysisDetailFocus, setAnalysisDetailFocus] = useState<AnalysisDetailFocus>("retention");
+  const [analysisExplorerTab, setAnalysisExplorerTab] = useState<AnalysisExplorerTab>("hooks");
+  const [analysisCursorSec, setAnalysisCursorSec] = useState<number | null>(null);
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -1141,6 +1322,31 @@ const Editor = () => {
     setVideoAnalysisOpen(true);
   }, []);
 
+  const focusAnalysisAtTime = useCallback((seconds: number, focus: AnalysisDetailFocus = "retention") => {
+    setAnalysisCursorSec(Math.max(0, seconds));
+    setAnalysisDetailFocus(focus);
+    setVideoAnalysisOpen(true);
+  }, []);
+
+  const handleFocusGraphClick = useCallback(
+    (
+      event: MouseEvent<HTMLButtonElement>,
+      durationSec: number,
+      focus: AnalysisDetailFocus,
+    ) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (rect.width <= 0) {
+        setAnalysisDetailFocus(focus);
+        return;
+      }
+      const relativeX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+      const targetSec = Number((relativeX * Math.max(1, durationSec)).toFixed(2));
+      setAnalysisCursorSec(targetSec);
+      setAnalysisDetailFocus(focus);
+    },
+    [],
+  );
+
   const handleDownload = async () => {
     if (!accessToken || !activeJob) return false;
     try {
@@ -1405,6 +1611,142 @@ const Editor = () => {
     () => [...emotionTimelineSegments].sort((a, b) => b.intensity - a.intensity).slice(0, 6),
     [emotionTimelineSegments],
   );
+  const analysisDurationSec = Math.max(
+    1,
+    estimatedDurationSec ?? retentionTimelineDurationSec ?? emotionTimelineDurationSec ?? 1,
+  );
+  const activeEditPlan = useMemo(
+    () => asRecord(activeAnalysis?.editPlan) ?? asRecord(activeAnalysis?.edit_plan),
+    [activeAnalysis],
+  );
+  const selectedHookStartSec = firstFiniteNumber(
+    activeAnalysis?.hook_start_time,
+    activeAnalysis?.hookStartTime,
+    activeAnalysis?.hook?.start,
+    activeAnalysis?.preferred_hook?.start,
+    activeAnalysis?.preferredHook?.start,
+  );
+  const selectedHookEndSec = firstFiniteNumber(
+    activeAnalysis?.hook_end_time,
+    activeAnalysis?.hookEndTime,
+    selectedHookStartSec !== null
+      ? firstFiniteNumber(
+          activeAnalysis?.hook?.duration !== undefined
+            ? selectedHookStartSec + Number(activeAnalysis?.hook?.duration)
+            : null,
+          activeAnalysis?.preferred_hook?.duration !== undefined
+            ? selectedHookStartSec + Number(activeAnalysis?.preferred_hook?.duration)
+            : null,
+        )
+      : null,
+    activeAnalysis?.preferred_hook?.end,
+    activeAnalysis?.preferredHook?.end,
+  );
+  const hookExplorerCandidates = useMemo<ExplorerHookCandidate[]>(() => {
+    const raw =
+      activeAnalysis?.hook_candidates ||
+      activeAnalysis?.hookCandidates ||
+      activeAnalysis?.hook_variants ||
+      activeAnalysis?.hookVariants ||
+      activeEditPlan?.hookCandidates ||
+      activeEditPlan?.hook_candidates ||
+      activeEditPlan?.hookVariants ||
+      activeEditPlan?.hook_variants ||
+      [];
+    return normalizeHookExplorerCandidates({
+      raw,
+      selectedStart: selectedHookStartSec,
+      selectedEnd: selectedHookEndSec,
+      maxDurationSec: analysisDurationSec,
+    });
+  }, [activeAnalysis, activeEditPlan, selectedHookStartSec, selectedHookEndSec, analysisDurationSec]);
+  const plannerSummary = useMemo(
+    () => asRecord(activeEditPlan?.planner) ?? asRecord(activeAnalysis?.planner),
+    [activeEditPlan, activeAnalysis],
+  );
+  const plannerPacingAdjustmentCount = Math.max(
+    0,
+    Math.round(
+      firstFiniteNumber(
+        plannerSummary?.pacingAdjustmentCount,
+        plannerSummary?.pacing_adjustment_count,
+        activeEditPlan?.pacingGovernorAdjustments,
+      ) ?? 0,
+    ),
+  );
+  const plannerProtectionChanges = useMemo(() => {
+    const rows =
+      (Array.isArray(plannerSummary?.retentionProtectionChanges) && plannerSummary?.retentionProtectionChanges) ||
+      (Array.isArray(plannerSummary?.retention_protection_changes) && plannerSummary?.retention_protection_changes) ||
+      [];
+    return rows
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 6);
+  }, [plannerSummary]);
+  const actionExplorerItems = useMemo<ExplorerActionItem[]>(() => {
+    const fromBoredom = normalizeExplorerActions({
+      raw: activeEditPlan?.boredomActions || activeEditPlan?.boredom_actions || [],
+      maxDurationSec: analysisDurationSec,
+    });
+    const fromPlannerText = plannerProtectionChanges.map((item, index) => ({
+      id: `planner-protection-${index}`,
+      startSec: null,
+      endSec: null,
+      action: "retention protection",
+      intensity: null,
+      reason: item,
+    }));
+    return [...fromBoredom, ...fromPlannerText].slice(0, 18);
+  }, [activeEditPlan, analysisDurationSec, plannerProtectionChanges]);
+  const modelConfidenceScore = toScore100(
+    plannerSummary?.predictionConfidence,
+    plannerSummary?.prediction_confidence,
+    activeAnalysis?.retention_judge?.confidence,
+    activeAnalysis?.retention_judge?.confidence_percent,
+  );
+  const analysisConfidenceScore = useMemo(() => {
+    const model = modelConfidenceScore ?? clamp(fullScanProgress - 8, 0, 100);
+    return roundToTenths(clamp(model * 0.62 + fullScanProgress * 0.38, 0, 100));
+  }, [modelConfidenceScore, fullScanProgress]);
+  const analysisCursorSafeSec = analysisCursorSec === null ? null : clamp(analysisCursorSec, 0, analysisDurationSec);
+  const retentionCursorX = analysisCursorSafeSec === null
+    ? null
+    : clamp((analysisCursorSafeSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
+  const emotionCursorX = analysisCursorSafeSec === null
+    ? null
+    : clamp((analysisCursorSafeSec / Math.max(1, emotionTimelineDurationSec)) * 100, 0, 100);
+  const closestRetentionAtCursor = useMemo(() => {
+    if (analysisCursorSafeSec === null || retentionCurvePoints.length === 0) return null;
+    let best = retentionCurvePoints[0];
+    let bestDistance = Math.abs(retentionCurvePoints[0].atSec - analysisCursorSafeSec);
+    for (let index = 1; index < retentionCurvePoints.length; index += 1) {
+      const point = retentionCurvePoints[index];
+      const distance = Math.abs(point.atSec - analysisCursorSafeSec);
+      if (distance < bestDistance) {
+        best = point;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }, [analysisCursorSafeSec, retentionCurvePoints]);
+  const closestEmotionAtCursor = useMemo(() => {
+    if (analysisCursorSafeSec === null || emotionTimelineSegments.length === 0) return null;
+    let best = emotionTimelineSegments[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const segment of emotionTimelineSegments) {
+      if (analysisCursorSafeSec >= segment.startSec && analysisCursorSafeSec <= segment.endSec) {
+        return segment;
+      }
+      const center = segment.startSec + (segment.endSec - segment.startSec) * 0.5;
+      const distance = Math.abs(center - analysisCursorSafeSec);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = segment;
+      }
+    }
+    return best;
+  }, [analysisCursorSafeSec, emotionTimelineSegments]);
   const retentionBiggestDrop = useMemo(() => {
     if (retentionCurvePoints.length < 2) return null;
     let best: { drop: number; from: RetentionPoint; to: RetentionPoint } | null = null;
@@ -1419,6 +1761,57 @@ const Editor = () => {
     }
     return best;
   }, [retentionCurvePoints]);
+  const riskExplorerWindows = useMemo<ExplorerRiskWindow[]>(() => {
+    const removed = normalizeRangeWindows({
+      raw: activeAnalysis?.removed_segments || activeAnalysis?.removedSegments || [],
+      source: "removed",
+      reasonFallback: "Hard-cut range removed to avoid viewer drop-off.",
+      severityFallback: 78,
+      maxDurationSec: analysisDurationSec,
+    });
+    const compressed = normalizeRangeWindows({
+      raw: activeAnalysis?.compressed_segments || activeAnalysis?.compressedSegments || [],
+      source: "compressed",
+      reasonFallback: "Compressed section to preserve context with less drag.",
+      severityFallback: 64,
+      maxDurationSec: analysisDurationSec,
+    });
+    const boredom = normalizeRangeWindows({
+      raw: activeAnalysis?.boredom_ranges || activeAnalysis?.boredomRanges || activeEditPlan?.boredomRanges || [],
+      source: "drop",
+      reasonFallback: "Predicted boredom/drop-off zone.",
+      severityFallback: 70,
+      maxDurationSec: analysisDurationSec,
+    });
+    const fromLargestDrop = retentionBiggestDrop
+      ? [{
+          id: "largest-drop",
+          startSec: retentionBiggestDrop.from.atSec,
+          endSec: retentionBiggestDrop.to.atSec,
+          severity: clamp(Math.round(retentionBiggestDrop.drop * 5), 30, 99),
+          source: "drop" as const,
+          reason: `Largest predicted drop (${retentionBiggestDrop.drop.toFixed(1)}%) in retention curve.`,
+        } satisfies ExplorerRiskWindow]
+      : [];
+    return [...fromLargestDrop, ...boredom, ...removed, ...compressed]
+      .sort((left, right) => right.severity - left.severity || left.startSec - right.startSec)
+      .slice(0, 16);
+  }, [activeAnalysis, activeEditPlan, analysisDurationSec, retentionBiggestDrop]);
+  const patternInterruptCountValue = Math.max(
+    0,
+    Math.round(
+      firstFiniteNumber(
+        activeAnalysis?.pattern_interrupt_count,
+        activeAnalysis?.patternInterruptCount,
+        activeEditPlan?.patternInterruptCount,
+      ) ?? 0,
+    ),
+  );
+  const patternInterruptDensityValue = firstFiniteNumber(
+    activeAnalysis?.pattern_interrupt_density,
+    activeAnalysis?.patternInterruptDensity,
+    activeEditPlan?.patternInterruptDensity,
+  );
   const dominantEmotionSegment = useMemo(() => {
     let bestSegment: EmotionTimelineSegment | null = null;
     let bestScore = -1;
@@ -1660,6 +2053,9 @@ const Editor = () => {
           bingeHighlightSegments[0]
             ? `Strongest binge beat is ${bingeHighlightSegments[0].label} at ${formatTimelineClock(bingeHighlightSegments[0].startSec)}.`
             : "Top binge beat is still being generated.",
+          analysisCursorSafeSec !== null && closestEmotionAtCursor
+            ? `At cursor ${formatTimelineClock(analysisCursorSafeSec)}, dominant emotion is ${closestEmotionAtCursor.label} (${closestEmotionAtCursor.intensity}%).`
+            : "Click the graph or timeline to inspect exact moments.",
           `${emotionLegend.length} distinct emotions detected across ${emotionTimelineSegments.length} timeline segments.`,
         ],
       };
@@ -1673,6 +2069,9 @@ const Editor = () => {
           bingeHighlightSegments[0]
             ? `Highest-impact window: ${bingeHighlightSegments[0].label} at ${formatTimelineClock(bingeHighlightSegments[0].startSec)}-${formatTimelineClock(bingeHighlightSegments[0].endSec)}.`
             : "Highest-impact window is still being estimated.",
+          analysisCursorSafeSec !== null
+            ? `Cursor is locked at ${formatTimelineClock(analysisCursorSafeSec)} for section-level QA.`
+            : "Set a cursor point to inspect section-level QA.",
           `Top ${Math.min(6, bingeHighlightSegments.length)} windows are prioritized for binge retention tuning.`,
         ],
       };
@@ -1689,6 +2088,9 @@ const Editor = () => {
         latestRetentionPoint
           ? `Predicted ending hold is ${latestRetentionPoint.predicted}% at ${formatTimelineClock(latestRetentionPoint.atSec)}.`
           : "Ending hold prediction is still being estimated.",
+        analysisCursorSafeSec !== null && closestRetentionAtCursor
+          ? `At cursor ${formatTimelineClock(analysisCursorSafeSec)}, predicted hold is ${closestRetentionAtCursor.predicted}%.`
+          : "Click retention graph to inspect point-by-point hold predictions.",
         topRetentionPoint
           ? `Strongest retention moment is ${topRetentionPoint.predicted}% at ${formatTimelineClock(topRetentionPoint.atSec)}.`
           : "Strongest retention moment is still being estimated.",
@@ -1699,7 +2101,10 @@ const Editor = () => {
     };
   }, [
     analysisDetailFocus,
+    analysisCursorSafeSec,
     bingeHighlightSegments,
+    closestEmotionAtCursor,
+    closestRetentionAtCursor,
     dominantEmotionSegment,
     emotionLegend.length,
     emotionTimelineDurationSec,
@@ -1718,6 +2123,27 @@ const Editor = () => {
     () => `emotion-fill-${String(activeJob?.id || "none").replace(/[^a-zA-Z0-9_-]/g, "")}`,
     [activeJob?.id],
   );
+
+  useEffect(() => {
+    setAnalysisCursorSec(null);
+    setAnalysisExplorerTab("hooks");
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!videoAnalysisOpen) return;
+    if (analysisCursorSec !== null) return;
+    if (hookExplorerCandidates[0]) {
+      setAnalysisCursorSec(hookExplorerCandidates[0].startSec);
+      return;
+    }
+    if (riskExplorerWindows[0]) {
+      setAnalysisCursorSec(riskExplorerWindows[0].startSec);
+      return;
+    }
+    if (retentionCurvePoints[0]) {
+      setAnalysisCursorSec(retentionCurvePoints[0].atSec);
+    }
+  }, [videoAnalysisOpen, analysisCursorSec, hookExplorerCandidates, riskExplorerWindows, retentionCurvePoints]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -1937,8 +2363,8 @@ const Editor = () => {
               <div className="glass-card p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="pill-badge text-[10px]">Video Summary</p>
-                    <p className="mt-2 text-xs text-muted-foreground">Live status updates while your job runs</p>
+                    <p className="pill-badge text-[10px]">Feedback Snapshot</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Live status and feedback updates while your job runs</p>
                   </div>
                   {activeJob && (
                     <Badge variant="outline" className={`text-xs ${statusBadgeClass(activeJob.status)}`}>
@@ -2201,6 +2627,211 @@ const Editor = () => {
               </div>
             </div>
 
+            <div className="analysis-report-card rounded-xl p-3 sm:p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Actionable AI Plan Explorer</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Click hooks, risk windows, and actions to inspect exact timeline moments.
+                  </p>
+                </div>
+                <Badge className="border-primary/35 bg-primary/10 text-primary">
+                  Confidence {formatScore(analysisConfidenceScore)}%
+                </Badge>
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  Model: {formatScore(modelConfidenceScore)}%
+                </Badge>
+                <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  Data coverage: {Math.round(fullScanProgress)}%
+                </Badge>
+                <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  Pattern interrupts: {patternInterruptCountValue}
+                  {patternInterruptDensityValue !== null ? ` (${patternInterruptDensityValue.toFixed(3)}/s)` : ""}
+                </Badge>
+                <Badge variant="secondary" className="bg-muted/35 text-foreground/90">
+                  Planner pacing actions: {plannerPacingAdjustmentCount}
+                </Badge>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                    analysisExplorerTab === "hooks"
+                      ? "border-primary/45 bg-primary/12 text-primary"
+                      : "border-border/60 bg-background/45 text-foreground/85 hover:border-primary/35"
+                  }`}
+                  onClick={() => setAnalysisExplorerTab("hooks")}
+                >
+                  Hooks ({hookExplorerCandidates.length})
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                    analysisExplorerTab === "risks"
+                      ? "border-primary/45 bg-primary/12 text-primary"
+                      : "border-border/60 bg-background/45 text-foreground/85 hover:border-primary/35"
+                  }`}
+                  onClick={() => setAnalysisExplorerTab("risks")}
+                >
+                  Drop-off Risks ({riskExplorerWindows.length})
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                    analysisExplorerTab === "actions"
+                      ? "border-primary/45 bg-primary/12 text-primary"
+                      : "border-border/60 bg-background/45 text-foreground/85 hover:border-primary/35"
+                  }`}
+                  onClick={() => setAnalysisExplorerTab("actions")}
+                >
+                  Actions ({actionExplorerItems.length})
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {analysisExplorerTab === "hooks" && (
+                    <>
+                      {hookExplorerCandidates.length === 0 ? (
+                        <p className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+                          Hook candidates are still being compiled from the analysis pipeline.
+                        </p>
+                      ) : (
+                        hookExplorerCandidates.map((candidate, index) => (
+                          <button
+                            key={candidate.id}
+                            type="button"
+                            className={`w-full rounded-lg border p-2.5 text-left transition ${
+                              analysisCursorSafeSec !== null && Math.abs((analysisCursorSafeSec ?? 0) - candidate.startSec) < 0.2
+                                ? "border-primary/45 bg-primary/10"
+                                : "border-border/60 bg-background/45 hover:border-primary/35"
+                            }`}
+                            onClick={() => focusAnalysisAtTime(candidate.startSec, "retention")}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-foreground">
+                                #{index + 1} {formatTimelineClock(candidate.startSec)}-{formatTimelineClock(candidate.endSec)}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                {candidate.score !== null ? `${candidate.score.toFixed(1)}%` : "score pending"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{candidate.reason}</p>
+                            {candidate.selected ? (
+                              <p className="mt-1 text-[11px] font-medium text-primary">Selected hook</p>
+                            ) : null}
+                          </button>
+                        ))
+                      )}
+                    </>
+                  )}
+
+                  {analysisExplorerTab === "risks" && (
+                    <>
+                      {riskExplorerWindows.length === 0 ? (
+                        <p className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+                          No high-risk windows detected yet.
+                        </p>
+                      ) : (
+                        riskExplorerWindows.map((window) => (
+                          <button
+                            key={window.id}
+                            type="button"
+                            className={`w-full rounded-lg border p-2.5 text-left transition ${
+                              analysisCursorSafeSec !== null && Math.abs((analysisCursorSafeSec ?? 0) - window.startSec) < 0.2
+                                ? "border-primary/45 bg-primary/10"
+                                : "border-border/60 bg-background/45 hover:border-primary/35"
+                            }`}
+                            onClick={() => focusAnalysisAtTime(window.startSec, "retention")}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-foreground">
+                                {formatTimelineClock(window.startSec)}-{formatTimelineClock(window.endSec)}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                severity {window.severity}%
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{window.reason}</p>
+                          </button>
+                        ))
+                      )}
+                    </>
+                  )}
+
+                  {analysisExplorerTab === "actions" && (
+                    <>
+                      {actionExplorerItems.length === 0 ? (
+                        <p className="rounded-lg border border-border/60 bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+                          Action items are pending from planner output.
+                        </p>
+                      ) : (
+                        actionExplorerItems.map((action) => {
+                          const hasRange = action.startSec !== null && action.endSec !== null;
+                          return (
+                            <button
+                              key={action.id}
+                              type="button"
+                              className={`w-full rounded-lg border p-2.5 text-left transition ${
+                                hasRange
+                                  ? "border-border/60 bg-background/45 hover:border-primary/35"
+                                  : "border-border/45 bg-background/25"
+                              }`}
+                              onClick={() => {
+                                if (hasRange) focusAnalysisAtTime(action.startSec as number, "timeline");
+                              }}
+                              disabled={!hasRange}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium capitalize text-foreground">{action.action}</span>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {hasRange
+                                    ? `${formatTimelineClock(action.startSec as number)}-${formatTimelineClock(action.endSec as number)}`
+                                    : "global"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] text-muted-foreground">{action.reason}</p>
+                            </button>
+                          );
+                        })
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-border/60 bg-background/45 p-2.5">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Cursor Inspector</p>
+                  <p className="mt-1 text-xs text-foreground">
+                    {analysisCursorSafeSec !== null
+                      ? `Pinned at ${formatTimelineClock(analysisCursorSafeSec)}`
+                      : "Click any graph or item to pin timeline cursor."}
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    <div className="rounded-md border border-border/60 bg-background/40 p-2">
+                      <p className="text-[11px] text-muted-foreground">Nearest retention point</p>
+                      <p className="text-xs text-foreground">
+                        {closestRetentionAtCursor
+                          ? `${closestRetentionAtCursor.predicted}% at ${formatTimelineClock(closestRetentionAtCursor.atSec)}`
+                          : "Not available"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-border/60 bg-background/40 p-2">
+                      <p className="text-[11px] text-muted-foreground">Nearest emotion segment</p>
+                      <p className="text-xs text-foreground">
+                        {closestEmotionAtCursor
+                          ? `${closestEmotionAtCursor.label} (${closestEmotionAtCursor.intensity}%)`
+                          : "Not available"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div
                 className={`analysis-report-card rounded-xl p-3 sm:p-4 transition ${
@@ -2227,7 +2858,7 @@ const Editor = () => {
                 <button
                   type="button"
                   className="analysis-graph-surface mt-3 h-44 w-full overflow-hidden rounded-lg border border-border/60 p-2 text-left transition hover:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  onClick={() => setAnalysisDetailFocus("retention")}
+                  onClick={(event) => handleFocusGraphClick(event, retentionTimelineDurationSec, "retention")}
                   aria-label="Focus retention deep dive details"
                 >
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
@@ -2258,6 +2889,17 @@ const Editor = () => {
                       strokeDasharray="3 2.5"
                       strokeWidth="1.2"
                     />
+                    {retentionCursorX !== null ? (
+                      <line
+                        x1={retentionCursorX}
+                        y1="0"
+                        x2={retentionCursorX}
+                        y2="100"
+                        stroke="hsl(var(--foreground) / 0.58)"
+                        strokeDasharray="2 2"
+                        strokeWidth="1.2"
+                      />
+                    ) : null}
                     {retentionAreaPath ? (
                       <path d={retentionAreaPath} fill={`url(#${retentionFillId}-modal)`} />
                     ) : null}
@@ -2276,7 +2918,10 @@ const Editor = () => {
                 </button>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>Goal: {RETENTION_GOAL_PERCENT}%+</span>
-                  <span>{retentionGoalMet ? "On track" : "Below target"} · Click graph for details</span>
+                  <span>
+                    {retentionGoalMet ? "On track" : "Below target"}
+                    {analysisCursorSafeSec !== null ? ` · Cursor ${formatTimelineClock(analysisCursorSafeSec)}` : " · Click graph for details"}
+                  </span>
                 </div>
               </div>
 
@@ -2299,7 +2944,7 @@ const Editor = () => {
                 <button
                   type="button"
                   className="analysis-graph-surface mt-3 h-44 w-full overflow-hidden rounded-lg border border-border/60 p-2 text-left transition hover:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  onClick={() => setAnalysisDetailFocus("emotion")}
+                  onClick={(event) => handleFocusGraphClick(event, emotionTimelineDurationSec, "emotion")}
                   aria-label="Focus emotion deep dive details"
                 >
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
@@ -2323,6 +2968,17 @@ const Editor = () => {
                     ))}
                     {emotionAreaPath ? (
                       <path d={emotionAreaPath} fill={`url(#${emotionFillId}-modal)`} />
+                    ) : null}
+                    {emotionCursorX !== null ? (
+                      <line
+                        x1={emotionCursorX}
+                        y1="0"
+                        x2={emotionCursorX}
+                        y2="100"
+                        stroke="hsl(var(--foreground) / 0.58)"
+                        strokeDasharray="2 2"
+                        strokeWidth="1.2"
+                      />
                     ) : null}
                     <polyline
                       points={emotionLinePoints}
@@ -2374,7 +3030,7 @@ const Editor = () => {
               <button
                 type="button"
                 className="analysis-emotion-track mt-3 h-4 w-full overflow-hidden rounded-full border border-border/60 bg-muted/35"
-                onClick={() => setAnalysisDetailFocus("timeline")}
+                onClick={(event) => handleFocusGraphClick(event, emotionTimelineDurationSec, "timeline")}
                 aria-label="Focus timeline deep dive details"
               >
                 {emotionTimelineSegments.map((segment) => (
@@ -2389,6 +3045,12 @@ const Editor = () => {
                     title={`${segment.label} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
                   />
                 ))}
+                {emotionCursorX !== null ? (
+                  <span
+                    className="absolute inset-y-0 w-[2px] bg-foreground/80"
+                    style={{ left: `${emotionCursorX}%` }}
+                  />
+                ) : null}
               </button>
 
               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
