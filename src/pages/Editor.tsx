@@ -216,6 +216,8 @@ type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bou
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
+type FullAutoYoutubeTarget = "auto" | "long_form" | "shorts";
+type FullAutoYoutubeVibe = "auto" | "hype" | "cinematic" | "chill" | "education";
 type HookSelectionMode = "manual" | "auto";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts";
@@ -254,6 +256,38 @@ type OutcomeAutomationPreview = {
 type OutcomeAutomationResponse = {
   profile?: OutcomeAutomationProfile;
   preview?: OutcomeAutomationPreview;
+};
+type FullAutoYoutubeProfilePayload = {
+  mode?: string;
+  version?: string;
+  target?: Exclude<FullAutoYoutubeTarget, "auto">;
+  vibe?: Exclude<FullAutoYoutubeVibe, "auto">;
+  highlights?: string[];
+  transitionPack?: string[];
+  overlayPack?: string[];
+  soundFxPack?: string[];
+  musicPlan?: {
+    vibe?: string;
+    source?: string;
+    ducking?: boolean;
+  } | null;
+  exportPlan?: {
+    aspectRatio?: string;
+    resolution?: string;
+  } | null;
+  seoSuggestions?: {
+    titles?: string[];
+    thumbnailIdeas?: string[];
+    hashtags?: string[];
+  } | null;
+  subAiPrompts?: Record<string, string> | null;
+  edgeCases?: string[];
+  cloudQueue?: string[];
+} | null;
+type FullAutoYoutubeProfileResponse = {
+  enabled?: boolean;
+  defaults?: Record<string, unknown>;
+  profile?: FullAutoYoutubeProfilePayload;
 };
 const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressionLevel> = {
   safe: "low",
@@ -486,6 +520,18 @@ const PIPELINE_POWER_MODE_OPTIONS: Array<{
     label: "Retention King",
     description: "Retention-engineering playbook that aggressively hunts drop-off windows and curiosity loops.",
   },
+];
+const FULL_AUTO_YOUTUBE_TARGET_OPTIONS: Array<{ value: FullAutoYoutubeTarget; label: string; description: string }> = [
+  { value: "auto", label: "Auto Detect", description: "Use current orientation to infer long-form vs Shorts defaults." },
+  { value: "long_form", label: "Long-Form", description: "16:9 pacing with chapter-safe rhythm and story continuity." },
+  { value: "shorts", label: "Shorts", description: "9:16 high-retention pacing with denser hooks and interrupts." },
+];
+const FULL_AUTO_YOUTUBE_VIBE_OPTIONS: Array<{ value: FullAutoYoutubeVibe; label: string; description: string }> = [
+  { value: "auto", label: "Auto Vibe", description: "Infer mood from content context and orientation." },
+  { value: "hype", label: "Hype", description: "Faster transitions, stronger SFX, punchier overlays." },
+  { value: "cinematic", label: "Cinematic", description: "Smoother pacing, filmic transitions, polished lower-thirds." },
+  { value: "chill", label: "Chill", description: "Subtle cuts, softer motion, ambient visual treatment." },
+  { value: "education", label: "Education", description: "Clarity-first cuts, chapter cues, and calmer overlays." },
 ];
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
@@ -1449,6 +1495,20 @@ const mapEditorModeForBackend = (
   return value;
 };
 const isUltraPipelineMode = (mode: PipelinePowerMode) => mode === "ultra";
+const resolveFullAutoYoutubeTarget = (
+  target: FullAutoYoutubeTarget,
+  isVerticalMode: boolean,
+): Exclude<FullAutoYoutubeTarget, "auto"> => {
+  if (target === "long_form" || target === "shorts") return target;
+  return isVerticalMode ? "shorts" : "long_form";
+};
+const resolveFullAutoYoutubeVibe = (
+  vibe: FullAutoYoutubeVibe,
+  target: Exclude<FullAutoYoutubeTarget, "auto">,
+): Exclude<FullAutoYoutubeVibe, "auto"> => {
+  if (vibe !== "auto") return vibe;
+  return target === "shorts" ? "hype" : "cinematic";
+};
 
 const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -1558,6 +1618,13 @@ const Editor = () => {
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("standard");
+  const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
+  const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
+    isVerticalMode ? "shorts" : "auto",
+  );
+  const [fullAutoYoutubeVibe, setFullAutoYoutubeVibe] = useState<FullAutoYoutubeVibe>("auto");
+  const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
+  const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
   const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
   const [longFormAggression, setLongFormAggression] = useState(45);
@@ -1647,6 +1714,14 @@ const Editor = () => {
   const ultraPipelineMode = isUltraPipelineMode(pipelinePowerMode);
   const retentionKingPipelineMode = pipelinePowerMode === "retention_king";
   const previewPreload: "auto" | "metadata" = performanceConstrained ? "metadata" : "auto";
+  const fullAutoResolvedTarget = useMemo(
+    () => resolveFullAutoYoutubeTarget(fullAutoYoutubeTarget, isVerticalMode),
+    [fullAutoYoutubeTarget, isVerticalMode],
+  );
+  const fullAutoResolvedVibe = useMemo(
+    () => resolveFullAutoYoutubeVibe(fullAutoYoutubeVibe, fullAutoResolvedTarget),
+    [fullAutoYoutubeVibe, fullAutoResolvedTarget],
+  );
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -3040,6 +3115,17 @@ const Editor = () => {
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
         : null;
+    const fullAutoYoutubePayload = fullAutoYoutubeEnabled
+      ? {
+          enabled: true,
+          target: fullAutoYoutubeTarget,
+          vibe: fullAutoYoutubeVibe,
+          includeSeoPack: true,
+          includePromptPack: true,
+          includeQueueHints: true,
+          preferAiBroll: true,
+        }
+      : null;
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -3075,6 +3161,7 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(fullAutoYoutubePayload ? { fullAutoYoutube: fullAutoYoutubePayload } : {}),
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
               verticalCaptionText: verticalCaptionTextForJob,
@@ -3101,6 +3188,7 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(fullAutoYoutubePayload ? { fullAutoYoutube: fullAutoYoutubePayload } : {}),
               horizontalMode: {
                 output: "quality" as const,
                 fit: "contain" as const,
@@ -4141,6 +4229,19 @@ const Editor = () => {
             preset: subtitlePresetForJob,
             style: subtitleStyleForJob,
           },
+          ...(fullAutoYoutubeEnabled
+            ? {
+                fullAutoYoutube: {
+                  enabled: true,
+                  target: fullAutoYoutubeTarget,
+                  vibe: fullAutoYoutubeVibe,
+                  includeSeoPack: true,
+                  includePromptPack: true,
+                  includeQueueHints: true,
+                  preferAiBroll: true,
+                },
+              }
+            : {}),
         };
         if (requestedMode === "vertical") {
           const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
@@ -4254,6 +4355,9 @@ const Editor = () => {
       editorMode,
       fetchJob,
       fetchJobs,
+      fullAutoYoutubeEnabled,
+      fullAutoYoutubeTarget,
+      fullAutoYoutubeVibe,
       maxRendersPerMonth,
       maxRerendersPerDay,
       maxCutsRequested,
@@ -6133,6 +6237,29 @@ const Editor = () => {
   const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
   const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
+  const fullAutoPreviewBulletPoints = useMemo(() => {
+    const highlightSource = Array.isArray(fullAutoYoutubeProfile?.highlights)
+      ? fullAutoYoutubeProfile.highlights
+      : [];
+    const highlights = highlightSource.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    if (highlights.length > 0) return highlights.slice(0, 3);
+    if (fullAutoResolvedTarget === "shorts") {
+      return [
+        "Hook-first pacing with denser pattern interrupts every few seconds.",
+        "Energetic transitions + punchy SFX layering tuned for short-form retention.",
+        "Vertical export with YouTube Shorts packaging defaults.",
+      ];
+    }
+    return [
+      "Long-form chapter-safe pacing with clarity-preserving compression.",
+      "Mood-based transitions and overlays tuned for viewer flow.",
+      "Horizontal export with title/thumbnail suggestion pack.",
+    ];
+  }, [fullAutoResolvedTarget, fullAutoYoutubeProfile]);
+  const fullAutoPreviewTitleIdea = useMemo(() => {
+    const first = fullAutoYoutubeProfile?.seoSuggestions?.titles?.[0];
+    return typeof first === "string" && first.trim().length > 0 ? first.trim() : null;
+  }, [fullAutoYoutubeProfile]);
   const captionEngineOffline = captionCapability.available === false;
   const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
   const mobileApplyAndRenderDisabled =
@@ -6177,6 +6304,103 @@ const Editor = () => {
     setLongFormClarityVsSpeed((prev) => Math.min(prev, 44));
     setTangentKiller(true);
   }, [pipelinePowerMode]);
+
+  useEffect(() => {
+    if (!fullAutoYoutubeEnabled) return;
+
+    const modeByVibe: Record<Exclude<FullAutoYoutubeVibe, "auto">, EditorModeSelection> = {
+      hype: "gaming",
+      cinematic: "vlog",
+      chill: "commentary",
+      education: "education",
+    };
+    const target = fullAutoResolvedTarget;
+    const vibe = fullAutoResolvedVibe;
+    const targetMaxCuts = target === "shorts" ? 12 : (vibe === "education" ? 6 : 8);
+
+    setOnlyHookAndCut(false);
+    setDefaultHookSelectionMode("auto");
+    setAutoCaptionsEnabled(true);
+    setRetentionTargetPlatform("youtube");
+    setMaxCutsRequested(targetMaxCuts);
+    setEditorMode(modeByVibe[vibe] ?? "auto");
+
+    if (target === "shorts") {
+      setRetentionStrategyProfile("viral");
+      setLongFormPreset("auto");
+      setLongFormAggression(62);
+      setLongFormClarityVsSpeed(46);
+      setTangentKiller(false);
+    } else {
+      const educationFlow = vibe === "education";
+      setRetentionStrategyProfile(educationFlow ? "safe" : "balanced");
+      setLongFormPreset(educationFlow ? "balanced" : "aggressive");
+      setLongFormAggression(educationFlow ? 58 : 74);
+      setLongFormClarityVsSpeed(educationFlow ? 78 : 56);
+      setTangentKiller(true);
+    }
+
+    if (vibe === "hype" && paidTier) {
+      setPipelinePowerMode("ultra");
+    } else if (pipelinePowerMode !== "standard") {
+      setPipelinePowerMode("standard");
+    }
+  }, [
+    fullAutoYoutubeEnabled,
+    fullAutoResolvedTarget,
+    fullAutoResolvedVibe,
+    paidTier,
+    pipelinePowerMode,
+  ]);
+
+  useEffect(() => {
+    if (!fullAutoYoutubeEnabled || !accessToken || authError) {
+      setFullAutoYoutubeProfile(null);
+      setFullAutoYoutubeLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFullAutoYoutubeLoading(true);
+    apiFetch<FullAutoYoutubeProfileResponse>("/api/jobs/full-auto-youtube/profile", {
+      method: "POST",
+      token: accessToken,
+      body: JSON.stringify({
+        renderMode: isVerticalMode ? "vertical" : "horizontal",
+        fullAutoYoutube: {
+          enabled: true,
+          target: fullAutoYoutubeTarget,
+          vibe: fullAutoYoutubeVibe,
+          includeSeoPack: true,
+          includePromptPack: true,
+          includeQueueHints: true,
+          preferAiBroll: true,
+        },
+      }),
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setFullAutoYoutubeProfile(data?.profile ?? null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFullAutoYoutubeProfile(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setFullAutoYoutubeLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    authError,
+    fullAutoYoutubeEnabled,
+    fullAutoYoutubeTarget,
+    fullAutoYoutubeVibe,
+    isVerticalMode,
+  ]);
 
   const applyPlatformRecommendation = () => {
     setRetentionStrategyProfile(activePlatformRecommendation.profile);
@@ -6363,6 +6587,109 @@ const Editor = () => {
     if (section === "vibe") {
       return (
         <div className="space-y-4">
+          <div className="rounded-xl border border-primary/35 bg-[linear-gradient(140deg,rgba(22,163,74,0.14),rgba(9,20,16,0.38))] p-3 backdrop-blur-xl">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Full Auto YouTube Mode</p>
+                <p className="text-xs text-muted-foreground">
+                  One click to auto-tune cuts, transitions, SFX, captions, BGM ducking, and export packaging.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge className={fullAutoYoutubeEnabled ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
+                  {fullAutoYoutubeEnabled ? "Enabled" : "Disabled"}
+                </Badge>
+                <Switch
+                  checked={fullAutoYoutubeEnabled}
+                  onCheckedChange={(checked) => {
+                    setFullAutoYoutubeEnabled(checked);
+                    trackEditorEvent("full_auto_youtube_toggled", {
+                      retentionProfile: retentionStrategyProfile,
+                      targetPlatform: retentionTargetPlatform,
+                      captionStyle: activeSubtitlePreset,
+                      metadata: {
+                        enabled: checked,
+                        target: fullAutoYoutubeTarget,
+                        vibe: fullAutoYoutubeVibe,
+                        mode: isVerticalMode ? "vertical" : "horizontal",
+                      },
+                    });
+                  }}
+                  aria-label="Toggle Full Auto YouTube mode"
+                />
+              </div>
+            </div>
+
+            {fullAutoYoutubeEnabled ? (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <p className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Output Intent</p>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    {FULL_AUTO_YOUTUBE_TARGET_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={sectionPillClass(fullAutoYoutubeTarget === option.value)}
+                        onClick={() => setFullAutoYoutubeTarget(option.value)}
+                        aria-label={option.label}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-[11px] font-semibold">{option.label}</span>
+                          <span className="mt-1 text-[10px] text-muted-foreground">{option.description}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Vibe Coding</p>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                    {FULL_AUTO_YOUTUBE_VIBE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={sectionPillClass(fullAutoYoutubeVibe === option.value)}
+                        onClick={() => setFullAutoYoutubeVibe(option.value)}
+                        aria-label={option.label}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-[11px] font-semibold">{option.label}</span>
+                          <span className="mt-1 text-[10px] text-muted-foreground">{option.description}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border/50 bg-background/35 p-3">
+                  <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Auto Profile Preview</p>
+                  <p className="mt-1 text-xs text-primary">
+                    Target: {fullAutoResolvedTarget === "shorts" ? "YouTube Shorts" : "YouTube Long-Form"} | Vibe: {formatNicheLabel(fullAutoResolvedVibe)}
+                  </p>
+                  {fullAutoYoutubeLoading ? (
+                    <p className="mt-2 text-xs text-muted-foreground">Building backend profile...</p>
+                  ) : (
+                    <>
+                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        {fullAutoPreviewBulletPoints.map((line) => (
+                          <li key={line}>• {line}</li>
+                        ))}
+                      </ul>
+                      {fullAutoPreviewTitleIdea ? (
+                        <p className="mt-2 text-[11px] text-primary/90">Title idea: {fullAutoPreviewTitleIdea}</p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Turn this on to auto-apply YouTube-ready defaults and backend profile generation on each upload.
+              </p>
+            )}
+          </div>
+
           <div className="rounded-xl border border-primary/30 bg-[linear-gradient(145deg,rgba(102,58,255,0.2),rgba(31,23,58,0.38))] p-3 backdrop-blur-xl">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
