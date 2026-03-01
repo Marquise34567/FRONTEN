@@ -1431,7 +1431,7 @@ const Editor = () => {
       requestedMode === "vertical"
         ? {
             enabled: true,
-            autoGenerate: verticalCaptionTextForJob.length === 0,
+            autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
             fontId: verticalCaptionFontId,
@@ -1729,7 +1729,7 @@ const Editor = () => {
       requestedMode === "vertical"
         ? {
             enabled: true,
-            autoGenerate: verticalCaptionTextForJob.length === 0,
+            autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
             fontId: verticalCaptionFontId,
@@ -1806,6 +1806,7 @@ const Editor = () => {
     verticalCaptionPositionY,
     verticalCaptionPreset,
     verticalClipCount,
+    useTranscriptForCaptions,
   ]);
 
   const handlePickFile = () => fileInputRef.current?.click();
