@@ -16,6 +16,8 @@ import {
   Lock,
   Loader2,
   X,
+  ScissorsSquare,
+  MousePointerClick,
   Gauge,
   Radar,
   BrainCircuit,
@@ -56,6 +58,74 @@ const uploadParallelismForFile = (size: number) => {
   return 1;
 };
 
+const normalizeVerticalCaptionTextForJob = (value: string) =>
+  String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, 1800);
+
+const normalizeCaptionHexColor = (value: string, fallback: string) => {
+  const compact = String(value || "").trim().replace(/^#/, "").toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(compact)) return compact;
+  return fallback;
+};
+
+type VerticalCaptionPresetOptionId =
+  | "basic_clean"
+  | "mrbeast_animated"
+  | "neon_glow"
+  | "bold_clean_box"
+  | "rage_mode"
+  | "ice_pop"
+  | "retro_wave"
+  | "glitch_pop"
+  | "cinema_punch";
+type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
+type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
+
+const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{ id: VerticalCaptionPresetOptionId; label: string; description: string }> = [
+  { id: "rage_mode", label: "TikTok Punch", description: "High-energy caption look for TikTok pacing." },
+  { id: "bold_clean_box", label: "IG Reels Clean", description: "Readable box caption style for Reels." },
+  { id: "cinema_punch", label: "YouTube Shorts Bold", description: "High-contrast Shorts-style captions." },
+  { id: "mrbeast_animated", label: "Creator Hype", description: "Punchy pop captions with big outlines." },
+  { id: "basic_clean", label: "Minimal", description: "Simple clean subtitles with subtle outline." },
+  { id: "neon_glow", label: "Neon Glow", description: "Stylized neon look for energetic edits." },
+  { id: "ice_pop", label: "Ice Pop", description: "Cool-blue pop style." },
+  { id: "retro_wave", label: "Retro Wave", description: "Retro colorful caption style." },
+  { id: "glitch_pop", label: "Glitch Pop", description: "Glitch-style captions for high motion clips." },
+];
+const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; label: string }> = [
+  { id: "impact", label: "Impact" },
+  { id: "sans_bold", label: "Sans Bold" },
+  { id: "condensed", label: "Condensed" },
+  { id: "serif_bold", label: "Serif Bold" },
+  { id: "display_black", label: "Display Black" },
+  { id: "mono_bold", label: "Mono Bold" },
+];
+const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOptionId; label: string }> = [
+  { id: "none", label: "Static" },
+  { id: "pop", label: "Pop" },
+  { id: "slide", label: "Slide" },
+  { id: "fade", label: "Fade" },
+  { id: "bounce", label: "Bounce" },
+  { id: "glitch", label: "Glitch" },
+];
+const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
+  VerticalCaptionPresetOptionId,
+  { fontId: VerticalCaptionFontOptionId; outlineColor: string; outlineWidth: number; animation: VerticalCaptionAnimationOptionId }
+> = {
+  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none" },
+  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop" },
+  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide" },
+  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none" },
+  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce" },
+  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop" },
+  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide" },
+  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch" },
+  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none" },
+};
+const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
+
 type JobStatus =
   | "queued"
   | "uploading"
@@ -80,10 +150,12 @@ interface JobSummary {
   progress?: number;
   requestedQuality?: string | null;
   watermark?: boolean;
+  renderMode?: "horizontal" | "vertical" | "standard" | string;
 }
 
 interface JobDetail extends JobSummary {
   outputUrl?: string | null;
+  outputUrls?: string[] | null;
   finalQuality?: string | null;
   retentionScore?: number | null;
   analysis?: any;
@@ -762,6 +834,25 @@ const Editor = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
+  const modeParam = searchParams.get("mode");
+  const isVerticalMode = modeParam === "vertical";
+  const [verticalClipCount, setVerticalClipCount] = useState(8);
+  const [verticalCaptionText, setVerticalCaptionText] = useState("");
+  const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
+  const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
+  );
+  const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState<string>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
+  );
+  const [verticalCaptionOutlineWidth, setVerticalCaptionOutlineWidth] = useState<number>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineWidth,
+  );
+  const [verticalCaptionAnimation, setVerticalCaptionAnimation] = useState<VerticalCaptionAnimationOptionId>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
+  );
+  const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
+  const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -782,6 +873,15 @@ const Editor = () => {
   }, [maxRendersPerMonth, rendersUsed]);
 
   const [authError, setAuthError] = useState(false);
+
+  const applyVerticalCaptionPreset = useCallback((presetId: VerticalCaptionPresetOptionId) => {
+    const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[presetId] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    setVerticalCaptionPreset(presetId);
+    setVerticalCaptionFontId(defaults.fontId);
+    setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionOutlineWidth(defaults.outlineWidth);
+    setVerticalCaptionAnimation(defaults.animation);
+  }, []);
 
   const fetchJobs = useCallback(async () => {
     if (!accessToken) {
@@ -1049,6 +1149,12 @@ const Editor = () => {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (verticalPreviewUrl) URL.revokeObjectURL(verticalPreviewUrl);
+    };
+  }, [verticalPreviewUrl]);
+
+  useEffect(() => {
     if (!activeJob) return;
     setQualityByJob((prev) => {
       if (prev[activeJob.id]) return prev;
@@ -1123,12 +1229,36 @@ const Editor = () => {
 
   // Resumable upload logic removed — we use backend-presigned multipart upload to R2
 
-  const handleFile = async (file: File) => {
+  const handleFile = async (
+    file: File,
+    renderOptions?: {
+      mode?: "horizontal" | "vertical";
+      verticalClipCount?: number;
+    },
+  ) => {
     if (!isAllowedUploadFile(file)) {
       toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
       return;
     }
     if (!accessToken) return;
+    const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
+    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const verticalCaptionsPayload =
+      requestedMode === "vertical"
+        ? {
+            enabled: true,
+            autoGenerate: verticalCaptionTextForJob.length === 0,
+            preset: verticalCaptionPreset,
+            text: verticalCaptionTextForJob,
+            fontId: verticalCaptionFontId,
+            outlineColor: normalizeCaptionHexColor(
+              verticalCaptionOutlineColor,
+              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            animation: verticalCaptionAnimation,
+          }
+        : null;
     if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
       toast({
         title: "Render limit reached",
@@ -1142,7 +1272,14 @@ const Editor = () => {
         "/api/jobs/create",
         {
           method: "POST",
-          body: JSON.stringify({ filename: file.name }),
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type,
+            renderMode: requestedMode,
+            ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
+            ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+            ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
+          }),
           token: accessToken,
         },
       );
@@ -1150,7 +1287,7 @@ const Editor = () => {
       setUploadingJobId(create.job.id);
       pipelineStartRef.current[create.job.id] = Date.now();
       statusStartRef.current[create.job.id] = { status: "uploading", startedAt: Date.now() };
-      setJobs((prev) => [{ ...create.job, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
+      setJobs((prev) => [{ ...create.job, renderMode: requestedMode, status: "uploading", progress: 5 }, ...(Array.isArray(prev) ? prev : [])]);
 
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("jobId", create.job.id);
@@ -1286,7 +1423,13 @@ const Editor = () => {
         // Notify backend of completion for single-PUT flow
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
           method: 'POST',
-          body: JSON.stringify({ key: create.inputPath }),
+          body: JSON.stringify({
+            key: create.inputPath,
+            ...(requestedMode === "vertical" ? { renderMode: "vertical" as const } : {}),
+            ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
+            ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+            ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
+          }),
           token: accessToken,
         })
 
@@ -1334,14 +1477,60 @@ const Editor = () => {
     }
   };
 
+  const prepareVerticalFile = useCallback(
+    (file: File) => {
+      if (!isAllowedUploadFile(file)) {
+        toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
+        return;
+      }
+      setPendingVerticalFile(file);
+      setVerticalPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(file);
+      });
+    },
+    [toast],
+  );
+
+  const startVerticalRender = useCallback(() => {
+    if (!pendingVerticalFile) {
+      toast({ title: "Choose a file", description: "Upload a video before creating vertical clips." });
+      return;
+    }
+    void handleFile(pendingVerticalFile, {
+      mode: "vertical",
+      verticalClipCount,
+    });
+  }, [handleFile, pendingVerticalFile, toast, verticalClipCount]);
+
   const handlePickFile = () => fileInputRef.current?.click();
 
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault();
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    if (!file) return;
+    if (isVerticalMode) {
+      prepareVerticalFile(file);
+      return;
+    }
+    void handleFile(file);
   };
+
+  const toggleEditorMode = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    if (isVerticalMode) {
+      next.delete("mode");
+      setPendingVerticalFile(null);
+      setVerticalPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    } else {
+      next.set("mode", "vertical");
+    }
+    setSearchParams(next, { replace: false });
+  }, [isVerticalMode, searchParams, setSearchParams]);
 
   const handleSelectJob = (jobId: string) => {
     const next = new URLSearchParams(searchParams);
@@ -2617,6 +2806,9 @@ const Editor = () => {
                   </Badge>
                 </>
               )}
+              <Button type="button" variant="outline" onClick={toggleEditorMode} className="rounded-full">
+                {isVerticalMode ? "Standard Mode" : "Vertical Mode"}
+              </Button>
               <Button onClick={handlePickFile} className="rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
                 <Plus className="w-4 h-4" /> New Project
               </Button>
@@ -2630,7 +2822,13 @@ const Editor = () => {
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) handleFile(file);
+              if (file) {
+                if (isVerticalMode) {
+                  prepareVerticalFile(file);
+                } else {
+                  void handleFile(file);
+                }
+              }
               if (e.target) e.target.value = "";
             }}
           />
@@ -2669,6 +2867,12 @@ const Editor = () => {
                         {STATUS_LABELS[normalizeStatus(job.status)] || "Queued"}
                       </Badge>
                     </div>
+                    {job.renderMode === "vertical" && (
+                      <p className="text-[10px] text-primary/90 mt-1 inline-flex items-center gap-1">
+                        <ScissorsSquare className="w-3 h-3" />
+                        Vertical clip job
+                      </p>
+                    )}
                     <p className="text-[11px] text-muted-foreground mt-1">
                       {new Date(job.createdAt).toLocaleString()}
                     </p>
@@ -2694,8 +2898,12 @@ const Editor = () => {
                   <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
-                  <p className="font-medium text-foreground">Drop your video here or click to upload</p>
-                  <p className="text-sm text-muted-foreground">MP4 or MKV up to 2GB</p>
+                  <p className="font-medium text-foreground">
+                    {isVerticalMode ? "Upload a video for vertical clip mode" : "Drop your video here or click to upload"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {isVerticalMode ? "Then customize caption style and create vertical clips." : "MP4 or MKV up to 2GB"}
+                  </p>
                   {uploadingJobId && (
                     <div className="w-full max-w-sm mt-4">
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -2708,10 +2916,163 @@ const Editor = () => {
                 </div>
               </div>
 
+              {isVerticalMode && (
+                <div className="glass-card p-5 space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Vertical Caption Builder</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Create TikTok/Reels/Shorts-style vertical captions with custom font and outline.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[8, 10, 12, 15, 20].map((count) => (
+                        <button
+                          key={count}
+                          type="button"
+                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                            verticalClipCount === count
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 text-muted-foreground hover:border-primary/40"
+                          }`}
+                          onClick={() => setVerticalClipCount(count)}
+                        >
+                          {count} clips
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Caption style</span>
+                      <select
+                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                        value={verticalCaptionPreset}
+                        onChange={(event) => applyVerticalCaptionPreset(event.target.value as VerticalCaptionPresetOptionId)}
+                      >
+                        {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => (
+                          <option key={option.id} value={option.id} className="bg-background text-foreground">
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Font</span>
+                      <select
+                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                        value={verticalCaptionFontId}
+                        onChange={(event) => setVerticalCaptionFontId(event.target.value as VerticalCaptionFontOptionId)}
+                      >
+                        {VERTICAL_CAPTION_FONT_OPTIONS.map((fontOption) => (
+                          <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                            {fontOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Animation</span>
+                      <select
+                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                        value={verticalCaptionAnimation}
+                        onChange={(event) => setVerticalCaptionAnimation(event.target.value as VerticalCaptionAnimationOptionId)}
+                      >
+                        {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
+                          <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                            {animationOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">Outline color</span>
+                      <input
+                        type="color"
+                        className="h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
+                        value={`#${normalizeCaptionHexColor(
+                          verticalCaptionOutlineColor,
+                          VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                        )}`}
+                        onChange={(event) =>
+                          setVerticalCaptionOutlineColor(
+                            normalizeCaptionHexColor(
+                              event.target.value,
+                              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-[11px] text-muted-foreground">
+                        Outline width ({verticalCaptionOutlineWidth}px)
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={24}
+                        step={1}
+                        value={verticalCaptionOutlineWidth}
+                        onChange={(event) => setVerticalCaptionOutlineWidth(clamp(Number(event.target.value), 0, 24))}
+                        className="w-full accent-primary"
+                      />
+                      <span className="text-[10px] text-muted-foreground">Set to 0 for no outline.</span>
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] text-muted-foreground">Custom caption text (optional)</span>
+                    <textarea
+                      value={verticalCaptionText}
+                      onChange={(event) => setVerticalCaptionText(event.target.value)}
+                      placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
+                      className="min-h-[96px] w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground"
+                    />
+                  </label>
+
+                  {!verticalPreviewUrl ? (
+                    <p className="text-xs text-muted-foreground">Upload a file to prepare a vertical render.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80">
+                        <video src={verticalPreviewUrl} controls className="w-full max-h-[380px] object-contain" />
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                          <MousePointerClick className="w-3.5 h-3.5" />
+                          Vertical style: {VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === verticalCaptionPreset)?.label}
+                        </p>
+                        <Button
+                          type="button"
+                          className="gap-2"
+                          disabled={!pendingVerticalFile || !!uploadingJobId}
+                          onClick={startVerticalRender}
+                        >
+                          <ScissorsSquare className="w-4 h-4" />
+                          Create Vertical Clips
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="glass-card overflow-hidden">
-                <div className="aspect-video bg-muted/30 flex items-center justify-center relative">
+                <div
+                  className={`${
+                    activeJob?.renderMode === "vertical" || isVerticalMode
+                      ? "aspect-[9/16] max-w-[360px] mx-auto"
+                      : "aspect-video"
+                  } bg-muted/30 flex items-center justify-center relative`}
+                >
                   {showVideo ? (
-                    <video src={activeJob?.outputUrl || ""} controls className="w-full h-full object-cover" />
+                    <video
+                      src={activeJob?.outputUrl || ""}
+                      controls
+                      className={`w-full h-full ${activeJob?.renderMode === "vertical" || isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
+                    />
                   ) : (
                     <>
                       <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
