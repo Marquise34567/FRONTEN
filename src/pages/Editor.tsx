@@ -1037,6 +1037,7 @@ const Editor = () => {
   const [transcriptSourceJobId, setTranscriptSourceJobId] = useState<string | null>(null);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
+  const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const verticalCaptionPreviewRef = useRef<HTMLDivElement | null>(null);
   const [verticalPreviewFrameWidth, setVerticalPreviewFrameWidth] = useState<number>(360);
@@ -1543,9 +1544,9 @@ const Editor = () => {
   ) => {
     if (!isAllowedUploadFile(file)) {
       toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
-      return;
+      return false;
     }
-    if (!accessToken) return;
+    if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
     const captionsEnabledForJob = true;
     const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
@@ -1575,7 +1576,7 @@ const Editor = () => {
         title: "Render limit reached",
         description: `You've used all ${maxRendersPerMonth} renders for this month.`,
       });
-      return;
+      return false;
     }
     setUploadProgress(0);
     try {
@@ -1695,7 +1696,7 @@ const Editor = () => {
       // Try R2 multipart only when backend indicated direct upload support.
       if (create.uploadUrl) {
         const usedR2 = await tryR2Multipart()
-        if (usedR2) return
+        if (usedR2) return true
       }
 
       const uploadViaProxy = async () => {
@@ -1735,7 +1736,7 @@ const Editor = () => {
           setUploadBytesUploaded(null)
           setUploadBytesTotal(null)
           fetchJobs()
-          return
+          return true
         }
 
         // Notify backend of completion for single-PUT flow
@@ -1764,7 +1765,7 @@ const Editor = () => {
         setUploadBytesUploaded(null)
         setUploadBytesTotal(null)
         fetchJobs()
-        return
+        return true
       }
 
       // No direct upload URL available; proxy upload will update job and enqueue processing server-side.
@@ -1780,6 +1781,7 @@ const Editor = () => {
       setUploadBytesUploaded(null)
       setUploadBytesTotal(null)
       fetchJobs()
+      return true
     } catch (err: any) {
       console.error(err);
       if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -1799,6 +1801,7 @@ const Editor = () => {
       setUploadProgress(0);
       setUploadBytesUploaded(null);
       setUploadBytesTotal(null);
+      return false;
     }
   };
 
@@ -1810,6 +1813,7 @@ const Editor = () => {
       }
       setCaptionDragState(null);
       setCaptionResizeState(null);
+      setIsVerticalBuilderHidden(false);
       setPendingVerticalFile(file);
       setVerticalPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -1819,15 +1823,17 @@ const Editor = () => {
     [toast],
   );
 
-  const startVerticalRender = useCallback(() => {
+  const startVerticalRender = useCallback(async () => {
     if (!pendingVerticalFile) {
       toast({ title: "Choose a file", description: "Upload a video before creating vertical clips." });
       return;
     }
-    void handleFile(pendingVerticalFile, {
+    const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount,
     });
+    if (!ok) return;
+    setIsVerticalBuilderHidden(true);
   }, [handleFile, pendingVerticalFile, toast, verticalClipCount]);
 
   const handleReprocessCaptions = useCallback(async () => {
@@ -3506,7 +3512,7 @@ const Editor = () => {
                 </div>
               </div>
 
-              {isVerticalMode && (
+              {isVerticalMode && !isVerticalBuilderHidden && (
                 <div className="glass-card vertical-mode-shell p-5 sm:p-6">
                   <div className="vertical-mode-layout">
                     <div className="vertical-mode-column space-y-4">
