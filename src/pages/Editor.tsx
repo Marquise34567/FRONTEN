@@ -1571,8 +1571,12 @@ const Editor = () => {
   const handleDownload = async () => {
     if (!accessToken || !activeJob) return false;
     try {
-      if (activeJob.outputUrl) {
-        window.open(activeJob.outputUrl, "_blank");
+      const existing =
+        activeJob.outputUrl ||
+        (Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls.find((url) => typeof url === "string" && url.trim()) : null) ||
+        null;
+      if (existing) {
+        window.open(existing, "_blank");
         return true;
       }
       const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url`, { token: accessToken });
@@ -1592,7 +1596,15 @@ const Editor = () => {
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && activeJob.outputUrl);
+  const activeOutputUrls = useMemo(
+    () =>
+      Array.isArray(activeJob?.outputUrls)
+        ? activeJob.outputUrls.filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+        : [],
+    [activeJob?.outputUrls],
+  );
+  const previewOutputUrl = activeJob?.outputUrl || activeOutputUrls[0] || "";
+  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const optimizationHighlights = useMemo(() => {
     if (!Array.isArray(activeJob?.optimizationNotes)) return [];
     return activeJob.optimizationNotes
@@ -3069,7 +3081,7 @@ const Editor = () => {
                 >
                   {showVideo ? (
                     <video
-                      src={activeJob?.outputUrl || ""}
+                      src={previewOutputUrl}
                       controls
                       className={`w-full h-full ${activeJob?.renderMode === "vertical" || isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
                     />
