@@ -37,6 +37,16 @@ const exportLabel = (tier: PlanTier) => {
   return quality.toUpperCase();
 };
 
+const minutesLabel = (tier: PlanTier) => {
+  const value = PLAN_CONFIG[tier].maxMinutesPerMonth;
+  if (value === null) return "Unlimited";
+  return `${value} min`;
+};
+
+const modesLabel = (tier: PlanTier) => (tier === "free" ? "Standard" : "Ultra + Retention");
+
+const verticalToolsLabel = (tier: PlanTier) => (tier === "free" ? "Locked" : "Batch + Download All");
+
 type PricingCardsProps = {
   currentTier?: string;
   isAuthenticated: boolean;
@@ -101,6 +111,9 @@ const PricingCards = ({
         const renderLimitLabel = `${plan.maxRendersPerMonth} renders / month`;
         const detailRows = [
           { label: "Export", value: exportLabel(tier) },
+          { label: "Minutes", value: minutesLabel(tier) },
+          { label: "Modes", value: modesLabel(tier) },
+          { label: "Vertical", value: verticalToolsLabel(tier) },
           { label: "Subtitles", value: subtitleAccessLabel(tier) },
           { label: "Queue", value: plan.priority ? "Priority" : "Standard" },
           { label: "Watermark", value: plan.watermark ? "On" : "Off" },
