@@ -162,6 +162,12 @@ const normalizeVerticalCaptionTextForJob = (value: string) =>
     .trim()
     .slice(0, 1800);
 
+const normalizeCaptionHexColor = (value: string, fallback: string) => {
+  const compact = String(value || "").trim().replace(/^#/, "").toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(compact)) return compact;
+  return fallback;
+};
+
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const MAX_CUTS_MIN = 1;
@@ -190,6 +196,18 @@ type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
+type VerticalCaptionPresetOptionId =
+  | "basic_clean"
+  | "mrbeast_animated"
+  | "neon_glow"
+  | "bold_clean_box"
+  | "rage_mode"
+  | "ice_pop"
+  | "retro_wave"
+  | "glitch_pop"
+  | "cinema_punch";
+type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
+type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
@@ -277,6 +295,58 @@ const RETENTION_PROFILE_HINTS: Record<RetentionStrategyProfile, string> = {
   balanced: "Balanced = adaptive cuts + smooth flow",
   viral: "Viral = faster cuts + shock hooks",
 };
+const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; label: string }> = [
+  { id: "impact", label: "Impact" },
+  { id: "sans_bold", label: "Sans Bold" },
+  { id: "condensed", label: "Condensed" },
+  { id: "serif_bold", label: "Serif Bold" },
+  { id: "display_black", label: "Display Black" },
+  { id: "mono_bold", label: "Mono Bold" },
+];
+const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOptionId; label: string }> = [
+  { id: "none", label: "Static" },
+  { id: "pop", label: "Pop" },
+  { id: "slide", label: "Slide" },
+  { id: "fade", label: "Fade" },
+  { id: "bounce", label: "Bounce" },
+  { id: "glitch", label: "Glitch" },
+];
+const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
+  id: VerticalCaptionPresetOptionId;
+  label: string;
+  description: string;
+  platformHint?: string;
+}> = [
+  { id: "rage_mode", label: "TikTok Punch", description: "High-energy punchy captions with stronger motion.", platformHint: "TikTok" },
+  { id: "bold_clean_box", label: "Reels Clean Box", description: "Clear white captions in a high-readability box.", platformHint: "IG Reels" },
+  { id: "cinema_punch", label: "Shorts Bold", description: "High-contrast cinematic styling for Shorts.", platformHint: "YouTube Shorts" },
+  { id: "mrbeast_animated", label: "Creator Hype", description: "Punchy animated captions for hook-heavy edits." },
+  { id: "basic_clean", label: "Minimal Clean", description: "Simple, clean captions with subtle styling." },
+  { id: "neon_glow", label: "Neon Glow", description: "Bright stylized look for high-energy clips." },
+  { id: "ice_pop", label: "Ice Pop", description: "Cool-toned pop look for gaming and reaction clips." },
+  { id: "retro_wave", label: "Retro Wave", description: "Colorful retro styling with bold presence." },
+  { id: "glitch_pop", label: "Glitch Pop", description: "Techy glitch-inspired styling for energetic moments." },
+];
+const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
+  VerticalCaptionPresetOptionId,
+  { fontId: VerticalCaptionFontOptionId; outlineColor: string; outlineWidth: number; animation: VerticalCaptionAnimationOptionId }
+> = {
+  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none" },
+  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop" },
+  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide" },
+  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none" },
+  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce" },
+  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop" },
+  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide" },
+  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch" },
+  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none" },
+};
+const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, VerticalCaptionPresetOptionId> = {
+  tiktok: "rage_mode",
+  instagram_reels: "bold_clean_box",
+  youtube: "cinema_punch",
+};
+const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
 const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
   { key: "format", label: "Format" },
@@ -730,6 +800,125 @@ const formatTimelineClock = (seconds: number) => {
   const mins = Math.floor(safe / 60);
   const secs = Math.floor(safe % 60);
   return `${mins}:${String(secs).padStart(2, "0")}`;
+};
+
+const formatDurationClock = (seconds: number | null) => {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "--";
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const secs = rounded % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+};
+
+const formatSignedPercent = (value: number | null, fractionDigits = 1) => {
+  if (value === null || !Number.isFinite(value)) return "--";
+  const normalized = Number(value.toFixed(fractionDigits));
+  return `${normalized >= 0 ? "+" : ""}${normalized.toFixed(fractionDigits)}%`;
+};
+
+const roundToTenth = (value: number) => Number(value.toFixed(1));
+
+const VIDEO_URL_EXTENSION_PATTERN = /\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i;
+const BLOCKED_URL_EXTENSION_PATTERN = /\.(xml|html?|json|txt|csv)(?:$|[?#])/i;
+
+const normalizeUrlCandidate = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
+
+const isLikelyVideoUrl = (value: unknown) => {
+  const raw = normalizeUrlCandidate(value);
+  if (!raw) return false;
+  const lowerRaw = raw.toLowerCase();
+  if (BLOCKED_URL_EXTENSION_PATTERN.test(lowerRaw)) return false;
+  if (VIDEO_URL_EXTENSION_PATTERN.test(lowerRaw)) return true;
+  if (lowerRaw.includes("/local-output")) return true;
+  if (lowerRaw.includes("/output-url")) return true;
+  if (lowerRaw.includes("video/mp4")) return true;
+  if (lowerRaw.includes("response-content-type=video")) return true;
+  if (lowerRaw.includes("content-type=video")) return true;
+
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://autoeditor.local";
+    const parsed = new URL(raw, base);
+    const pathname = parsed.pathname.toLowerCase();
+    if (BLOCKED_URL_EXTENSION_PATTERN.test(pathname)) return false;
+    if (VIDEO_URL_EXTENSION_PATTERN.test(pathname)) return true;
+    if (pathname.includes("/local-output")) return true;
+    if (pathname.includes("/output-url")) return true;
+    const search = parsed.search.toLowerCase();
+    if (search.includes("response-content-type=video") || search.includes("content-type=video")) return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+};
+
+const sanitizeVideoUrlList = (values: Array<unknown>) => {
+  const deduped = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeUrlCandidate(value);
+    if (!normalized || !isLikelyVideoUrl(normalized) || deduped.has(normalized)) continue;
+    deduped.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+};
+
+const normalizeJobVideoOutputs = (job: JobDetail): JobDetail => {
+  const urls = sanitizeVideoUrlList([
+    ...(Array.isArray(job.outputUrls) ? job.outputUrls : []),
+    job.outputUrl,
+  ]);
+  return {
+    ...job,
+    outputUrl: urls[0] ?? null,
+    outputUrls: urls.length > 0 ? urls : null,
+  };
+};
+
+const interpolateRetentionAtSec = (points: RetentionPoint[], targetSec: number) => {
+  if (!Array.isArray(points) || points.length === 0) return null;
+  const safeTarget = Math.max(0, Number(targetSec) || 0);
+  if (safeTarget <= points[0].atSec) return points[0].predicted;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (safeTarget > current.atSec) continue;
+    const span = Math.max(0.001, current.atSec - previous.atSec);
+    const ratio = clamp((safeTarget - previous.atSec) / span, 0, 1);
+    return roundToTenth(previous.predicted + (current.predicted - previous.predicted) * ratio);
+  }
+  return points[points.length - 1]?.predicted ?? null;
+};
+
+const averageRetentionBetween = (points: RetentionPoint[], startSec: number, endSec: number) => {
+  if (!Array.isArray(points) || points.length === 0) return null;
+  const safeStart = Math.max(0, Number(startSec) || 0);
+  const safeEnd = Math.max(safeStart + 0.001, Number(endSec) || safeStart);
+  const anchors = [
+    safeStart,
+    ...points
+      .map((point) => point.atSec)
+      .filter((atSec) => atSec > safeStart && atSec < safeEnd),
+    safeEnd,
+  ].sort((left, right) => left - right);
+  let area = 0;
+  for (let index = 1; index < anchors.length; index += 1) {
+    const fromSec = anchors[index - 1];
+    const toSec = anchors[index];
+    const from = interpolateRetentionAtSec(points, fromSec);
+    const to = interpolateRetentionAtSec(points, toSec);
+    if (from === null || to === null) continue;
+    area += ((from + to) / 2) * (toSec - fromSec);
+  }
+  const span = safeEnd - safeStart;
+  if (span <= 0) return null;
+  return roundToTenth(area / span);
 };
 
 const normalizeFeedbackPercent = (value: unknown) => {
@@ -1245,6 +1434,19 @@ const Editor = () => {
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
+  const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
+  const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
+  );
+  const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState<string>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
+  );
+  const [verticalCaptionOutlineWidth, setVerticalCaptionOutlineWidth] = useState<number>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineWidth,
+  );
+  const [verticalCaptionAnimation, setVerticalCaptionAnimation] = useState<VerticalCaptionAnimationOptionId>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
+  );
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -1514,6 +1716,22 @@ const Editor = () => {
       setSubtitleStyleDirty(true);
     },
     [subtitleStyleConfig],
+  );
+
+  const applyVerticalCaptionPreset = useCallback((presetId: VerticalCaptionPresetOptionId) => {
+    const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[presetId] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    setVerticalCaptionPreset(presetId);
+    setVerticalCaptionFontId(defaults.fontId);
+    setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionOutlineWidth(defaults.outlineWidth);
+    setVerticalCaptionAnimation(defaults.animation);
+  }, []);
+
+  const applyPlatformVerticalCaptionPreset = useCallback(
+    (platform: RetentionTargetPlatform) => {
+      applyVerticalCaptionPreset(PLATFORM_VERTICAL_CAPTION_PRESET[platform]);
+    },
+    [applyVerticalCaptionPreset],
   );
 
   const saveSubtitleStyle = useCallback(async () => {
@@ -1827,12 +2045,13 @@ const Editor = () => {
       setLoadingJob(true);
       try {
         const data = await apiFetch<{ job: JobDetail }>(`/api/jobs/${jobId}`, { token: accessToken });
-        setActiveJob(data.job);
+        const normalizedJob = normalizeJobVideoOutputs(data.job);
+        setActiveJob(normalizedJob);
         setJobs((prev) => {
           const index = prev.findIndex((job) => job.id === jobId);
-          if (index === -1) return [data.job, ...prev];
+          if (index === -1) return [normalizedJob, ...prev];
           const next = [...prev];
-          next[index] = { ...next[index], ...data.job };
+          next[index] = { ...next[index], ...normalizedJob };
           return next;
         });
       } catch (err) {
@@ -2497,13 +2716,13 @@ const Editor = () => {
             const j = jobs.find((x) => x.id === id);
             let fileName: string | undefined;
             let url: string | undefined;
-            if (j && (j as any).outputUrl) {
-              url = (j as any).outputUrl;
+            if (j && isLikelyVideoUrl((j as any).outputUrl)) {
+              url = String((j as any).outputUrl);
               fileName = (j as any).fileName ?? undefined;
             } else {
               try {
                 const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
-                url = resp?.job?.outputUrl ?? undefined;
+                url = isLikelyVideoUrl(resp?.job?.outputUrl) ? String(resp?.job?.outputUrl) : undefined;
                 fileName = resp?.job?.fileName ?? undefined;
               } catch (e) {
                 // fallback to download-url endpoint
@@ -2688,6 +2907,22 @@ const Editor = () => {
       preset: subtitlePresetForJob,
       style: subtitleStyleForJob,
     };
+    const verticalCaptionsPayload =
+      requestedMode === "vertical"
+        ? {
+            enabled: captionsEnabledForJob,
+            autoGenerate: verticalCaptionTextForJob.length === 0,
+            preset: verticalCaptionPreset,
+            text: verticalCaptionTextForJob,
+            fontId: verticalCaptionFontId,
+            outlineColor: normalizeCaptionHexColor(
+              verticalCaptionOutlineColor,
+              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            animation: verticalCaptionAnimation,
+          }
+        : null;
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -2726,6 +2961,7 @@ const Editor = () => {
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
               verticalCaptionText: verticalCaptionTextForJob,
+              verticalCaptions: verticalCaptionsPayload,
             }
           : {
               filename: file.name,
@@ -2951,6 +3187,7 @@ const Editor = () => {
             longFormClarityVsSpeed,
             tangentKiller,
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+            ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
           }),
           token: accessToken,
         })
@@ -3566,6 +3803,7 @@ const Editor = () => {
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = autoCaptionsEnabled;
         const fastModeForJob = ultraPipelineMode;
+        const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -3601,7 +3839,21 @@ const Editor = () => {
           },
         };
         if (requestedMode === "vertical") {
-          payload.verticalCaptionText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+          const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+          payload.verticalCaptionText = verticalCaptionTextForJob;
+          payload.verticalCaptions = {
+            enabled: captionsEnabledForJob,
+            autoGenerate: verticalCaptionTextForJob.length === 0,
+            preset: verticalCaptionPreset,
+            text: verticalCaptionTextForJob,
+            fontId: verticalCaptionFontId,
+            outlineColor: normalizeCaptionHexColor(
+              verticalCaptionOutlineColor,
+              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            animation: verticalCaptionAnimation,
+          };
         }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
           payload.preferredHook = {
@@ -3711,6 +3963,11 @@ const Editor = () => {
       selectedHookByJob,
       subtitleStyleDraft,
       ultraPipelineMode,
+      verticalCaptionAnimation,
+      verticalCaptionFontId,
+      verticalCaptionOutlineColor,
+      verticalCaptionOutlineWidth,
+      verticalCaptionPreset,
       verticalCaptionText,
       toast,
     ],
@@ -3729,7 +3986,7 @@ const Editor = () => {
         });
         downloadUrl = data.url;
       } catch {
-        const outputUrls = Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [];
+        const outputUrls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : []);
         const selectedExistingUrl =
           outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
         if (selectedExistingUrl) {
@@ -3743,10 +4000,15 @@ const Editor = () => {
       }
       setActiveJob((prev) => {
         if (!prev) return prev;
-        const nextUrls = Array.isArray(prev.outputUrls) ? [...prev.outputUrls] : [];
+        const nextUrls = sanitizeVideoUrlList(Array.isArray(prev.outputUrls) ? prev.outputUrls : []);
         while (nextUrls.length < clipParam) nextUrls.push("");
         nextUrls[clipIndex] = downloadUrl;
-        return { ...prev, outputUrl: downloadUrl, outputUrls: nextUrls };
+        const sanitized = sanitizeVideoUrlList(nextUrls);
+        return {
+          ...prev,
+          outputUrl: isLikelyVideoUrl(downloadUrl) ? downloadUrl : (sanitized[0] ?? null),
+          outputUrls: sanitized.length > 0 ? sanitized : null,
+        };
       });
       const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
       const fallbackFileName =
@@ -3797,11 +4059,9 @@ const Editor = () => {
       : "Cancel Job";
   const activeOutputUrls = useMemo(() => {
     if (!activeJob) return [] as string[];
-    const urls = Array.isArray(activeJob.outputUrls)
-      ? activeJob.outputUrls.map((url) => (typeof url === "string" ? url : ""))
-      : [];
+    const urls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : []);
     if (urls.length > 0) return urls;
-    if (activeJob.outputUrl) return [activeJob.outputUrl];
+    if (isLikelyVideoUrl(activeJob.outputUrl)) return [String(activeJob.outputUrl)];
     return [];
   }, [activeJob]);
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
@@ -4675,6 +4935,244 @@ const Editor = () => {
   }, [retentionTimelineDurationSec, timelineEnergyMoments]);
   const canQueueTimelineSegmentAction = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
+  const durationForDeepDiveSec = Math.max(1, retentionTimelineDurationSec || estimatedTimelineDurationSec || 1);
+  const averagePercentViewed = useMemo(
+    () => averageRetentionBetween(retentionCurvePoints, 0, durationForDeepDiveSec),
+    [durationForDeepDiveSec, retentionCurvePoints],
+  );
+  const averageViewDurationSec = averagePercentViewed === null
+    ? null
+    : roundToTenth((durationForDeepDiveSec * averagePercentViewed) / 100);
+  const durationBenchmarkPercent = useMemo(() => {
+    const minutes = durationForDeepDiveSec / 60;
+    if (!Number.isFinite(minutes) || minutes <= 0) return null;
+    if (minutes <= 1) return 72;
+    if (minutes <= 3) return 62;
+    if (minutes <= 6) return 54;
+    if (minutes <= 10) return 48;
+    if (minutes <= 20) return 42;
+    return 38;
+  }, [durationForDeepDiveSec]);
+  const relativeRetentionDeltaPercent = averagePercentViewed === null || durationBenchmarkPercent === null
+    ? null
+    : roundToTenth(averagePercentViewed - durationBenchmarkPercent);
+  const relativeRetentionLabel = relativeRetentionDeltaPercent === null
+    ? "Not enough retention data"
+    : relativeRetentionDeltaPercent >= 0
+      ? `Above similar videos (${formatSignedPercent(relativeRetentionDeltaPercent)})`
+      : `Below similar videos (${formatSignedPercent(relativeRetentionDeltaPercent)})`;
+  const watchTimePerThousandViewsMinutes = averageViewDurationSec === null
+    ? null
+    : Math.round((averageViewDurationSec / 60) * 1000);
+  const completionRatePercent = useMemo(
+    () => interpolateRetentionAtSec(retentionCurvePoints, durationForDeepDiveSec),
+    [durationForDeepDiveSec, retentionCurvePoints],
+  );
+  const engagedViewsPercent = useMemo(() => {
+    const engagedAtSec = Math.min(5, Math.max(1.5, durationForDeepDiveSec * 0.06));
+    return interpolateRetentionAtSec(retentionCurvePoints, engagedAtSec);
+  }, [durationForDeepDiveSec, retentionCurvePoints]);
+  const retentionAt15Sec = useMemo(
+    () => interpolateRetentionAtSec(retentionCurvePoints, 15),
+    [retentionCurvePoints],
+  );
+  const retentionAt30Sec = useMemo(
+    () => interpolateRetentionAtSec(retentionCurvePoints, 30),
+    [retentionCurvePoints],
+  );
+  const midVideoRetentionPercent = useMemo(
+    () => averageRetentionBetween(retentionCurvePoints, durationForDeepDiveSec * 0.3, durationForDeepDiveSec * 0.7),
+    [durationForDeepDiveSec, retentionCurvePoints],
+  );
+  const endRetentionPercent = useMemo(() => {
+    const endStart = Math.max(0, durationForDeepDiveSec - 30);
+    return averageRetentionBetween(retentionCurvePoints, endStart, durationForDeepDiveSec);
+  }, [durationForDeepDiveSec, retentionCurvePoints]);
+  const patternInterruptCount = firstFiniteNumber(
+    activeAnalysis?.pattern_interrupt_count,
+    activeAnalysis?.patternInterruptCount,
+    activeAnalysis?.pipelineSteps?.PACING?.meta?.patternInterruptCount,
+  );
+  const pacingScoreOutOf10 = useMemo(() => {
+    const explicit = firstFiniteNumber(
+      activeAnalysis?.pacing_score,
+      activeAnalysis?.pacingScore,
+      activeAnalysis?.pipelineSteps?.PACING?.meta?.score,
+      activeAnalysis?.pipelineSteps?.PACING?.meta?.pacingScore,
+    );
+    if (explicit !== null) {
+      return roundToTenth(clamp(explicit <= 1 ? explicit * 10 : explicit, 1, 10));
+    }
+    if (patternInterruptCount !== null && durationForDeepDiveSec > 0) {
+      const interruptsPerMinute = patternInterruptCount / Math.max(1, durationForDeepDiveSec / 60);
+      return roundToTenth(clamp(4.2 + interruptsPerMinute * 0.45, 1, 10));
+    }
+    return null;
+  }, [activeAnalysis, durationForDeepDiveSec, patternInterruptCount]);
+  const boredomRemovedRatioRaw = firstFiniteNumber(
+    activeAnalysis?.boredom_removed_ratio,
+    activeAnalysis?.boredomRemovedRatio,
+    activeAnalysis?.low_engagement_removed_pct,
+    activeAnalysis?.lowEngagementRemovedPct,
+  );
+  const boredomRemovedRatio = boredomRemovedRatioRaw === null
+    ? null
+    : clamp(boredomRemovedRatioRaw > 1 ? boredomRemovedRatioRaw / 100 : boredomRemovedRatioRaw, 0, 1);
+  const fillerSecondsPotential = boredomRemovedRatio === null
+    ? null
+    : Math.round(durationForDeepDiveSec * boredomRemovedRatio);
+  const retentionChangeEvents = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return [] as Array<{
+      id: string;
+      from: RetentionPoint;
+      to: RetentionPoint;
+      dropAbs: number;
+      gainAbs: number;
+      relativeDrop: number;
+      segment: RetentionTimelineSegment | null;
+      cause: string;
+      suggestion: string;
+    }>;
+    const totalDrop = Math.max(0.1, retentionCurvePoints[0].predicted - (latestRetentionPoint?.predicted ?? retentionCurvePoints[retentionCurvePoints.length - 1].predicted));
+    return retentionCurvePoints.slice(1).map((to, index) => {
+      const from = retentionCurvePoints[index];
+      const delta = roundToTenth(to.predicted - from.predicted);
+      const dropAbs = roundToTenth(Math.max(0, -delta));
+      const gainAbs = roundToTenth(Math.max(0, delta));
+      const expectedDrop = roundToTenth(totalDrop * ((to.atSec - from.atSec) / Math.max(1, durationForDeepDiveSec)));
+      const relativeDrop = roundToTenth(dropAbs - Math.max(0, expectedDrop));
+      const midpoint = (from.atSec + to.atSec) / 2;
+      const segment = retentionTimelineSegments.find((item) => midpoint >= item.startSec && midpoint <= item.endSec) ?? null;
+      const nearestEmotion = timelineEnergyMoments.reduce<EnergyMomentWithEmotion | null>((closest, moment) => {
+        if (!closest) return moment;
+        return Math.abs(moment.timestampSec - midpoint) < Math.abs(closest.timestampSec - midpoint) ? moment : closest;
+      }, null);
+      const causeBits: string[] = [];
+      if (segment?.reason) causeBits.push(segment.reason);
+      if (nearestEmotion) {
+        if (nearestEmotion.energy <= 58) causeBits.push("Low motion/energy detected.");
+        if (nearestEmotion.audio <= 54) causeBits.push("Likely dead-air or low vocal intensity.");
+        if (nearestEmotion.visual <= 56) causeBits.push("Visual variety dropped in this range.");
+      }
+      const cause = causeBits.length > 0
+        ? causeBits.slice(0, 2).join(" ")
+        : "Pacing slowed without a strong visual interrupt.";
+      const suggestion = dropAbs >= 12
+        ? "Trim this beat, add B-roll or a pattern interrupt, and tighten narration."
+        : dropAbs >= 7
+          ? "Condense this section and add fast visual overlays or jump cuts."
+          : "Slightly speed up this moment and remove filler words/pauses.";
+      return {
+        id: `${from.atSec}-${to.atSec}`,
+        from,
+        to,
+        dropAbs,
+        gainAbs,
+        relativeDrop,
+        segment,
+        cause,
+        suggestion,
+      };
+    });
+  }, [durationForDeepDiveSec, latestRetentionPoint?.predicted, retentionCurvePoints, retentionTimelineSegments, timelineEnergyMoments]);
+  const majorDropOffMoments = useMemo(
+    () => retentionChangeEvents.filter((event) => event.dropAbs >= 3).sort((left, right) => right.dropAbs - left.dropAbs).slice(0, 5),
+    [retentionChangeEvents],
+  );
+  const retentionSpikeMoments = useMemo(
+    () => retentionChangeEvents.filter((event) => event.gainAbs >= 2).sort((left, right) => right.gainAbs - left.gainAbs).slice(0, 4),
+    [retentionChangeEvents],
+  );
+  const deepDiveRecommendations = useMemo(() => {
+    const recommendations: Array<{
+      id: string;
+      rank: number;
+      title: string;
+      timestampLabel: string;
+      detail: string;
+      estimatedLift: number;
+      segment: RetentionTimelineSegment | null;
+    }> = [];
+    for (const event of majorDropOffMoments) {
+      const estimatedLift = clamp(Math.round(event.dropAbs * 0.55), 3, 18);
+      recommendations.push({
+        id: `drop-${event.id}`,
+        rank: 0,
+        title: `Fix drop from ${formatTimelineClock(event.from.atSec)} to ${formatTimelineClock(event.to.atSec)}`,
+        timestampLabel: `${formatTimelineClock(event.from.atSec)}-${formatTimelineClock(event.to.atSec)}`,
+        detail: `${event.cause} ${event.suggestion}`,
+        estimatedLift,
+        segment: event.segment,
+      });
+    }
+    if (fillerSecondsPotential !== null && fillerSecondsPotential > 4) {
+      recommendations.push({
+        id: "filler-removal",
+        rank: 0,
+        title: "Remove silence/filler pockets",
+        timestampLabel: "Across timeline",
+        detail: `Potentially trim around ${fillerSecondsPotential}s of pauses/fillers to improve pacing continuity.`,
+        estimatedLift: clamp(Math.round(fillerSecondsPotential / 6), 2, 10),
+        segment: null,
+      });
+    }
+    if (retentionAt30Sec !== null && retentionAt30Sec < 70) {
+      recommendations.push({
+        id: "hook-tighten",
+        rank: 0,
+        title: "Tighten first 30 seconds",
+        timestampLabel: "0:00-0:30",
+        detail: "Strengthen hook clarity, front-load payoff, and use a faster pattern interrupt cadence.",
+        estimatedLift: clamp(Math.round((70 - retentionAt30Sec) * 0.35), 3, 14),
+        segment: null,
+      });
+    }
+    return recommendations
+      .sort((left, right) => right.estimatedLift - left.estimatedLift)
+      .slice(0, 5)
+      .map((item, index) => ({ ...item, rank: index + 1 }));
+  }, [fillerSecondsPotential, majorDropOffMoments, retentionAt30Sec]);
+  const projectedAverageViewedRange = useMemo(() => {
+    if (averagePercentViewed === null) return null;
+    const totalLift = deepDiveRecommendations.reduce((sum, item) => sum + item.estimatedLift, 0);
+    if (totalLift <= 0) return { min: averagePercentViewed, max: averagePercentViewed };
+    return {
+      min: roundToTenth(clamp(averagePercentViewed + totalLift * 0.35, 0, 100)),
+      max: roundToTenth(clamp(averagePercentViewed + totalLift * 0.58, 0, 100)),
+    };
+  }, [averagePercentViewed, deepDiveRecommendations]);
+  const deepDiveOverallSummary = useMemo(() => {
+    if (averagePercentViewed === null) {
+      return "Retention analysis will appear once full retention points are available.";
+    }
+    const quality =
+      averagePercentViewed >= 60
+        ? "Excellent retention profile"
+        : averagePercentViewed >= 45
+          ? "Solid retention profile"
+          : averagePercentViewed >= 35
+            ? "Moderate retention profile"
+            : "At-risk retention profile";
+    const majorDrop = majorDropOffMoments[0];
+    if (!majorDrop) {
+      return `${quality} — ${averagePercentViewed.toFixed(1)}% avg viewed with no major drop-off detected.`;
+    }
+    return `${quality} — ${averagePercentViewed.toFixed(1)}% avg viewed, biggest drop ${majorDrop.dropAbs.toFixed(1)}% at ${formatTimelineClock(majorDrop.from.atSec)}-${formatTimelineClock(majorDrop.to.atSec)}.`;
+  }, [averagePercentViewed, majorDropOffMoments]);
+  const retentionCurveSummary = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return "Retention curve is not available yet for this video.";
+    const first = retentionCurvePoints[0];
+    const majorDrop = majorDropOffMoments[0];
+    const spike = retentionSpikeMoments[0];
+    const startLine = `Curve opens at ${first.predicted}% and trends through ${formatTimelineClock(durationForDeepDiveSec)}.`;
+    const dropLine = majorDrop
+      ? `Sharpest drop is ${majorDrop.dropAbs.toFixed(1)}% at ${formatTimelineClock(majorDrop.from.atSec)}-${formatTimelineClock(majorDrop.to.atSec)}.`
+      : "No severe drop-off segment detected.";
+    const spikeLine = spike
+      ? `Best rebound is +${spike.gainAbs.toFixed(1)}% at ${formatTimelineClock(spike.from.atSec)}-${formatTimelineClock(spike.to.atSec)}.`
+      : "No strong rewatch spike detected yet.";
+    return `${startLine} ${dropLine} ${spikeLine}`;
+  }, [durationForDeepDiveSec, majorDropOffMoments, retentionCurvePoints, retentionSpikeMoments]);
   const hookConfidenceScore = clamp(
     Math.round((Number(selectedHookCandidate?.auditScore || selectedHookCandidate?.score || 0) || 0) * 100),
     0,
@@ -6656,6 +7154,115 @@ const Editor = () => {
                     </p>
                   </div>
 
+                  <div className="vertical-mode-panel space-y-3 rounded-xl border border-border/40 bg-card/45 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">Vertical Caption Style</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-[11px]"
+                        onClick={() => applyPlatformVerticalCaptionPreset(retentionTargetPlatform)}
+                      >
+                        Match {activeTargetPlatformLabel} look
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(["tiktok", "instagram_reels", "youtube"] as RetentionTargetPlatform[]).map((platform) => {
+                        const mappedPreset = PLATFORM_VERTICAL_CAPTION_PRESET[platform];
+                        const platformLabel =
+                          platform === "tiktok" ? "TikTok" : platform === "instagram_reels" ? "IG Reels" : "YouTube Shorts";
+                        return (
+                          <button
+                            key={platform}
+                            type="button"
+                            className={verticalModeChipClass(verticalCaptionPreset === mappedPreset)}
+                            onClick={() => applyPlatformVerticalCaptionPreset(platform)}
+                          >
+                            {platformLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Style</span>
+                        <select
+                          className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                          value={verticalCaptionPreset}
+                          onChange={(event) => applyVerticalCaptionPreset(event.target.value as VerticalCaptionPresetOptionId)}
+                        >
+                          {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id} className="bg-background text-foreground">
+                              {option.platformHint ? `${option.label} (${option.platformHint})` : option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Font</span>
+                        <select
+                          className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                          value={verticalCaptionFontId}
+                          onChange={(event) => setVerticalCaptionFontId(event.target.value as VerticalCaptionFontOptionId)}
+                        >
+                          {VERTICAL_CAPTION_FONT_OPTIONS.map((fontOption) => (
+                            <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                              {fontOption.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Animation</span>
+                        <select
+                          className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                          value={verticalCaptionAnimation}
+                          onChange={(event) => setVerticalCaptionAnimation(event.target.value as VerticalCaptionAnimationOptionId)}
+                        >
+                          {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
+                            <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                              {animationOption.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Outline color</span>
+                        <input
+                          type="color"
+                          className="h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
+                          value={`#${normalizeCaptionHexColor(
+                            verticalCaptionOutlineColor,
+                            VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                          )}`}
+                          onChange={(event) =>
+                            setVerticalCaptionOutlineColor(
+                              normalizeCaptionHexColor(
+                                event.target.value,
+                                VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1 sm:col-span-2">
+                        <span className="text-[11px] text-muted-foreground">Outline width ({verticalCaptionOutlineWidth}px)</span>
+                        <Slider
+                          min={0}
+                          max={24}
+                          step={1}
+                          className="editor-settings-slider"
+                          value={[verticalCaptionOutlineWidth]}
+                          onValueChange={(values) => setVerticalCaptionOutlineWidth(clamp(Math.round(values?.[0] ?? 0), 0, 24))}
+                        />
+                      </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Outline set to 0 removes border. Styles, font, animation, and outline apply to vertical-mode captions.
+                    </p>
+                  </div>
+
                   {!verticalPreviewUrl && (
                     <p className="vertical-mode-note text-xs text-muted-foreground">
                       Upload a file to open the webcam crop tool and 9:16 stacked preview.
@@ -8010,41 +8617,62 @@ const Editor = () => {
                     </DialogContent>
                   </Dialog>
                   <Dialog open={feedbackDeepDiveOpen} onOpenChange={setFeedbackDeepDiveOpen}>
-                    <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-primary/30 bg-[linear-gradient(148deg,rgba(18,14,38,0.95),rgba(14,24,46,0.94))] p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
+                    <DialogContent className="deepdive-shell max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
                       <DialogHeader>
                         <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
                         <DialogDescription>
-                          Modernized retention intelligence with timestamped emotional beats, binge-worthy moments, and audience emotion predictions.
+                          For a retention-based editor like your AutoEditor, the feedback deepdive stats should focus on actionable, data-driven insights that directly inform editing decisions.
+                          The goal is to help creators understand why retention drops (or spikes) and get precise recommendations tied to timestamps.
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
-                            <p className={`mt-1 font-premium text-3xl ${retentionScoreDeltaDisplay !== null && retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
-                              {retentionScoreDeltaDisplay !== null
-                                ? `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)}`
-                                : "Pending"}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">{hookWindowLabel}</p>
+                        <div className="deepdive-section rounded-xl p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Quick Summary Box</p>
+                              <p className="mt-1 text-sm text-foreground">{deepDiveOverallSummary}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{retentionCurveSummary}</p>
+                            </div>
+                            <Badge className={retentionGoalMet ? "border-emerald-400/45 bg-emerald-500/15 text-emerald-100" : "border-amber-400/45 bg-amber-500/15 text-amber-100"}>
+                              Goal {RETENTION_GOAL_PERCENT}% · {retentionGoalMet ? "On Track" : "Needs Pacing Fixes"}
+                            </Badge>
                           </div>
-                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Top Emotion Felt</p>
-                            <p className="mt-1 text-2xl font-premium text-foreground">{topEmotionSignal?.label || "Anticipation"}</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Average View Duration</p>
+                            <p className="mt-1 font-premium text-2xl text-foreground">{formatDurationClock(averageViewDurationSec)}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">of {formatDurationClock(durationForDeepDiveSec)} total</p>
+                          </div>
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Average % Viewed</p>
+                            <p className="mt-1 font-premium text-2xl text-foreground">{averagePercentViewed !== null ? `${averagePercentViewed.toFixed(1)}%` : "--"}</p>
                             <p className="mt-1 text-[11px] text-muted-foreground">
-                              {topEmotionSignal
-                                ? `${Math.round(topEmotionSignal.sharePercent)}% share across timeline`
-                                : "Emotion confidence stabilizing"}
+                              Benchmark {durationBenchmarkPercent !== null ? `${durationBenchmarkPercent.toFixed(1)}%` : "--"}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-primary/30 bg-background/45 p-3">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Predicted Hold</p>
-                            <p className="mt-1 text-2xl font-premium text-foreground">
-                              {latestRetentionPoint ? `${latestRetentionPoint.predicted}%` : "n/a"}
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Relative Retention</p>
+                            <p className={`mt-1 font-premium text-xl ${relativeRetentionDeltaPercent !== null && relativeRetentionDeltaPercent >= 0 ? "text-emerald-300" : "text-amber-300"}`}>
+                              {relativeRetentionLabel}
                             </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              Goal {RETENTION_GOAL_PERCENT}% · {retentionGoalMet ? "On track" : "Needs tightening"}
+                          </div>
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Watch Time / 1,000 Views</p>
+                            <p className="mt-1 font-premium text-2xl text-foreground">
+                              {watchTimePerThousandViewsMinutes !== null ? `${watchTimePerThousandViewsMinutes.toLocaleString()} min` : "--"}
                             </p>
+                          </div>
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Completion Rate</p>
+                            <p className="mt-1 font-premium text-2xl text-foreground">{completionRatePercent !== null ? `${completionRatePercent.toFixed(1)}%` : "--"}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">End-of-video hold</p>
+                          </div>
+                          <div className="deepdive-kpi-card rounded-xl p-3">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Engaged Views %</p>
+                            <p className="mt-1 font-premium text-2xl text-foreground">{engagedViewsPercent !== null ? `${engagedViewsPercent.toFixed(1)}%` : "--"}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">Early hold in first seconds</p>
                           </div>
                         </div>
 
@@ -8052,25 +8680,23 @@ const Editor = () => {
                           ref={(node) => {
                             feedbackDeepDiveSectionRefs.current.retention_vs_emotion = node;
                           }}
-                          className={`rounded-xl border border-primary/25 bg-background/40 p-3 transition ${
-                            feedbackDeepDiveSection === "retention_vs_emotion" ? "ring-1 ring-primary/55" : ""
-                          }`}
+                          className={`deepdive-section rounded-xl p-3 transition ${feedbackDeepDiveSection === "retention_vs_emotion" ? "ring-1 ring-primary/55" : ""}`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention vs Emotion Graph</p>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Visual Retention Curve Highlights</p>
                             <div className="flex flex-wrap gap-1.5">
-                              <Badge className="border-primary/35 bg-primary/12 text-foreground">Retention curve</Badge>
-                              <Badge className="border-[hsl(var(--glow-secondary)/0.45)] bg-[hsl(var(--glow-secondary)/0.14)] text-foreground">Emotion intensity</Badge>
+                              <Badge className="border-primary/35 bg-primary/12 text-foreground">Retention</Badge>
+                              <Badge className="border-[hsl(var(--glow-secondary)/0.45)] bg-[hsl(var(--glow-secondary)/0.14)] text-foreground">Emotion</Badge>
                             </div>
                           </div>
-                          <div className="mt-3 h-40 rounded-lg border border-border/50 bg-background/50 p-2">
+                          <div className="deepdive-graph mt-3 h-40 rounded-lg p-2">
                             <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                               <line
                                 x1="0"
                                 y1={100 - RETENTION_GOAL_PERCENT}
                                 x2="100"
                                 y2={100 - RETENTION_GOAL_PERCENT}
-                                stroke="hsl(var(--primary) / 0.32)"
+                                stroke="hsl(var(--primary) / 0.42)"
                                 strokeDasharray="3 3"
                                 strokeWidth="1"
                               />
@@ -8078,7 +8704,7 @@ const Editor = () => {
                                 points={retentionLinePoints}
                                 fill="none"
                                 stroke="hsl(var(--primary))"
-                                strokeWidth="2.4"
+                                strokeWidth="2.5"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               />
@@ -8093,49 +8719,89 @@ const Editor = () => {
                                   strokeLinejoin="round"
                                 />
                               ) : null}
-                              {emotionTimelineHighlights.slice(0, 6).map((item) => {
-                                const x = clamp((item.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
-                                const y = 100 - clamp(item.strength, 0, 100);
-                                return (
-                                  <circle
-                                    key={`deep-emotion-point-${item.id}`}
-                                    cx={x}
-                                    cy={y}
-                                    r="1.8"
-                                    fill="hsl(var(--glow-secondary))"
-                                    stroke="hsl(var(--background))"
-                                    strokeWidth="0.6"
-                                  />
-                                );
-                              })}
                             </svg>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">Hook retention (15s)</p>
+                              <p className="text-sm font-semibold text-foreground">{retentionAt15Sec !== null ? `${retentionAt15Sec.toFixed(1)}%` : "--"}</p>
+                            </div>
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">First 30s retention</p>
+                              <p className="text-sm font-semibold text-foreground">{retentionAt30Sec !== null ? `${retentionAt30Sec.toFixed(1)}%` : "--"}</p>
+                            </div>
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">Mid-video hold</p>
+                              <p className="text-sm font-semibold text-foreground">{midVideoRetentionPercent !== null ? `${midVideoRetentionPercent.toFixed(1)}%` : "--"}</p>
+                            </div>
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">End retention (last 30s)</p>
+                              <p className="text-sm font-semibold text-foreground">{endRetentionPercent !== null ? `${endRetentionPercent.toFixed(1)}%` : "--"}</p>
+                            </div>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                           <div
                             ref={(node) => {
-                              feedbackDeepDiveSectionRefs.current.emotional_parts = node;
+                              feedbackDeepDiveSectionRefs.current.timeline = node;
                             }}
-                            className={`rounded-xl border border-border/50 bg-background/40 p-3 transition ${
-                              feedbackDeepDiveSection === "emotional_parts" ? "ring-1 ring-primary/55" : ""
-                            }`}
+                            className={`deepdive-section rounded-xl p-3 transition ${feedbackDeepDiveSection === "timeline" ? "ring-1 ring-primary/55" : ""}`}
                           >
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotional Parts (Timestamps)</p>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Major Drop-Off Points</p>
                             <div className="mt-2 space-y-2">
-                              {emotionTimelineHighlights.length > 0 ? (
-                                emotionTimelineHighlights.map((item) => (
-                                  <div key={`emotion-highlight-${item.id}`} className="rounded-md border border-border/50 bg-background/50 p-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <Badge className={EMOTION_PROFILE_META[item.emotionKey].badgeClassName}>{item.emotionLabel}</Badge>
-                                      <p className="text-xs text-foreground">{item.timestampLabel}</p>
+                              {majorDropOffMoments.length > 0 ? (
+                                majorDropOffMoments.map((event) => {
+                                  const segment = event.segment;
+                                  const actionKey = segment ? toTimelineSegmentActionKey(activeJob.id, segment.id) : null;
+                                  const queuedAction = actionKey ? timelineSegmentActionByKey[actionKey] : null;
+                                  const submitting = actionKey ? timelineSegmentActionSubmittingKey === actionKey : false;
+                                  return (
+                                    <div key={`drop-off-${event.id}`} className="deepdive-list-card rounded-lg p-2.5">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs font-semibold text-foreground">
+                                          {formatTimelineClock(event.from.atSec)}-{formatTimelineClock(event.to.atSec)}
+                                        </p>
+                                        <Badge className={event.dropAbs >= 10 ? "border-rose-500/45 bg-rose-500/15 text-rose-100" : "border-amber-500/45 bg-amber-500/15 text-amber-100"}>
+                                          -{event.dropAbs.toFixed(1)}%
+                                        </Badge>
+                                      </div>
+                                      <p className="mt-1 text-[11px] text-muted-foreground">
+                                        Relative drop {event.relativeDrop.toFixed(1)}% · {event.cause}
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-foreground/90">{event.suggestion}</p>
+                                      {segment ? (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
+                                          >
+                                            {submitting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Wand2 className="mr-1 h-3 w-3" />}
+                                            {queuedAction === "fix" ? "Fix queued" : "Queue fix"}
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-[11px]"
+                                            disabled={!canQueueTimelineSegmentAction || submitting}
+                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
+                                          >
+                                            {submitting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Scissors className="mr-1 h-3 w-3" />}
+                                            {queuedAction === "remove" ? "Removal queued" : "Queue remove"}
+                                          </Button>
+                                        </div>
+                                      ) : null}
                                     </div>
-                                    <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p>
-                                  </div>
-                                ))
+                                  );
+                                })
                               ) : (
-                                <p className="rounded-md border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
-                                  Emotional timeline highlights are still being generated.
+                                <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                  No major drop-off windows detected from the current retention curve.
                                 </p>
                               )}
                             </div>
@@ -8145,26 +8811,39 @@ const Editor = () => {
                             ref={(node) => {
                               feedbackDeepDiveSectionRefs.current.binge_parts = node;
                             }}
-                            className={`rounded-xl border border-border/50 bg-background/40 p-3 transition ${
-                              feedbackDeepDiveSection === "binge_parts" ? "ring-1 ring-primary/55" : ""
-                            }`}
+                            className={`deepdive-section rounded-xl p-3 transition ${feedbackDeepDiveSection === "binge_parts" ? "ring-1 ring-primary/55" : ""}`}
                           >
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge-Worthy Parts</p>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Top 5 Edit Recommendations (Prioritized)</p>
                             <div className="mt-2 space-y-2">
-                              {bingeWorthyMoments.length > 0 ? (
-                                bingeWorthyMoments.map((moment) => (
-                                  <div key={`binge-highlight-${moment.id}`} className="rounded-md border border-border/50 bg-background/50 p-2">
+                              {deepDiveRecommendations.length > 0 ? (
+                                deepDiveRecommendations.map((recommendation) => (
+                                  <div key={`recommendation-${recommendation.id}`} className="deepdive-list-card rounded-lg p-2.5">
                                     <div className="flex items-center justify-between gap-2">
-                                      <p className="text-xs text-foreground">{moment.timestampLabel}</p>
-                                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{moment.score}% binge score</Badge>
+                                      <p className="text-xs font-semibold text-foreground">#{recommendation.rank} {recommendation.title}</p>
+                                      <Badge className="border-primary/40 bg-primary/12 text-foreground">+{recommendation.estimatedLift}% est. lift</Badge>
                                     </div>
-                                    <p className="mt-1 text-[11px] text-muted-foreground">{moment.reason}</p>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{recommendation.timestampLabel}</p>
+                                    <p className="mt-1 text-[11px] text-foreground/90">{recommendation.detail}</p>
                                   </div>
                                 ))
                               ) : (
-                                <p className="rounded-md border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
-                                  Binge-worthy windows are still being detected.
+                                <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                  Recommendations will populate as soon as stronger drop-off signals are detected.
                                 </p>
+                              )}
+                            </div>
+                            <div className="mt-3 rounded-lg border border-border/60 bg-background/40 p-2.5">
+                              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Retention Spikes / Rewatch Moments</p>
+                              {retentionSpikeMoments.length > 0 ? (
+                                <div className="mt-2 space-y-1.5">
+                                  {retentionSpikeMoments.map((event) => (
+                                    <p key={`spike-${event.id}`} className="text-xs text-foreground/90">
+                                      {formatTimelineClock(event.from.atSec)}-{formatTimelineClock(event.to.atSec)} · +{event.gainAbs.toFixed(1)}%
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-muted-foreground">No clear rewatch spike detected yet.</p>
                               )}
                             </div>
                           </div>
@@ -8172,207 +8851,87 @@ const Editor = () => {
 
                         <div
                           ref={(node) => {
-                            feedbackDeepDiveSectionRefs.current.timeline = node;
+                            feedbackDeepDiveSectionRefs.current.emotional_parts = node;
                           }}
-                          className={`rounded-xl border border-primary/25 bg-background/40 p-3 transition ${
-                            feedbackDeepDiveSection === "timeline" ? "ring-1 ring-primary/55" : ""
-                          }`}
+                          className={`deepdive-section rounded-xl p-3 transition ${feedbackDeepDiveSection === "emotional_parts" ? "ring-1 ring-primary/55" : ""}`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Emotion Analysis</p>
                             <Badge className="border-border/50 bg-background/60 text-foreground/80">
-                              {Math.round(retentionTimelineDurationSec)}s scanned
+                              Pacing score: {pacingScoreOutOf10 !== null ? `${pacingScoreOutOf10.toFixed(1)}/10` : "--"}
                             </Badge>
                           </div>
-                          <div className="relative mt-3 h-4 overflow-hidden rounded-full border border-border/50 bg-muted/35">
-                            {retentionTimelineSegments.map((segment) => {
-                              const meta = RETENTION_TIMELINE_CATEGORY_META[segment.category];
-                              return (
-                                <Tooltip key={`deep-timeline-segment-${segment.id}`}>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      aria-label={`${segment.categoryLabel} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
-                                      className={`absolute inset-y-0 rounded-sm transition-colors ${meta.segmentClassName}`}
-                                      style={{
-                                        left: `${segment.positionPct}%`,
-                                        width: `${segment.widthPct}%`,
-                                      }}
+                          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {predictedAudienceEmotions.length > 0 ? (
+                              predictedAudienceEmotions.map((signal) => (
+                                <div key={`deep-predicted-emotion-${signal.key}`} className="deepdive-list-card rounded-lg p-2.5">
+                                  <div className="mb-1 flex items-center justify-between gap-2">
+                                    <Badge className={signal.badgeClassName}>{signal.label}</Badge>
+                                    <p className="text-[11px] text-foreground">{signal.predictedAudiencePercent}%</p>
+                                  </div>
+                                  <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
+                                    <div
+                                      className={`h-full rounded-full bg-gradient-to-r ${signal.barClassName}`}
+                                      style={{ width: `${signal.predictedAudiencePercent}%` }}
                                     />
-                                  </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs">
-                                    <p className="text-[11px] font-medium">
-                                      {segment.categoryLabel}: {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
-                                    </p>
-                                    <p className="text-[11px] text-muted-foreground">
-                                      Predicted {segment.predicted}% retention
-                                      {segment.dropFromPrevious > 0 ? ` · drop ${segment.dropFromPrevious}%` : ""}
-                                    </p>
-                                    <p className="text-[11px] text-muted-foreground">{segment.reason}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              );
-                            })}
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">{signal.predictionReason}</p>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                Emotion timeline data is unavailable for this render yet.
+                              </p>
+                            )}
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {(["best", "skip_risk", "weak", "steady"] as const).map((category) => {
-                              const meta = RETENTION_TIMELINE_CATEGORY_META[category];
-                              return (
-                                <Badge key={`deep-retention-legend-${category}`} className={meta.badgeClassName}>
-                                  {meta.label}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3">
-                            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-200">Best Parts</p>
-                              {bestRetentionSegments.length > 0 ? (
-                                <div className="mt-2 space-y-1.5">
-                                  {bestRetentionSegments.map((segment) => (
-                                    <p key={`deep-best-retention-${segment.id}`} className="text-xs text-emerald-100/90">
-                                      {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                    </p>
-                                  ))}
-                                </div>
+                          <div className="mt-3">
+                            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Key Emotion Moments</p>
+                            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                              {emotionTimelineHighlights.length > 0 ? (
+                                emotionTimelineHighlights.slice(0, 6).map((item) => (
+                                  <div key={`emotion-highlight-${item.id}`} className="deepdive-list-card rounded-lg p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Badge className={EMOTION_PROFILE_META[item.emotionKey].badgeClassName}>{item.emotionLabel}</Badge>
+                                      <p className="text-xs text-foreground">{item.timestampLabel}</p>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p>
+                                  </div>
+                                ))
                               ) : (
-                                <p className="mt-2 text-xs text-emerald-100/75">No standout moments detected yet.</p>
-                              )}
-                            </div>
-                            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-rose-100">Viewers May Skip</p>
-                              {skipRiskRetentionSegments.length > 0 ? (
-                                <div className="mt-2 space-y-2">
-                                  {skipRiskRetentionSegments.map((segment) => {
-                                    const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
-                                    const queuedAction = timelineSegmentActionByKey[actionKey];
-                                    const submitting = timelineSegmentActionSubmittingKey === actionKey;
-                                    return (
-                                      <div key={`deep-skip-risk-${segment.id}`} className="rounded border border-rose-400/25 bg-rose-950/20 p-2">
-                                        <p className="text-xs text-rose-100">
-                                          {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                        </p>
-                                        <p className="mt-1 text-[11px] text-rose-100/80">{segment.reason}</p>
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-[11px]"
-                                            disabled={!canQueueTimelineSegmentAction || submitting}
-                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
-                                          >
-                                            {submitting ? (
-                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                            ) : (
-                                              <Wand2 className="mr-1 h-3 w-3" />
-                                            )}
-                                            {queuedAction === "fix" ? "Fix queued" : "Fix part"}
-                                          </Button>
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-[11px]"
-                                            disabled={!canQueueTimelineSegmentAction || submitting}
-                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
-                                          >
-                                            {submitting ? (
-                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                            ) : (
-                                              <Scissors className="mr-1 h-3 w-3" />
-                                            )}
-                                            {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="mt-2 text-xs text-rose-100/75">No high skip-risk windows detected.</p>
-                              )}
-                            </div>
-                            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-amber-100">Weaker Parts</p>
-                              {weakRetentionSegments.length > 0 ? (
-                                <div className="mt-2 space-y-2">
-                                  {weakRetentionSegments.map((segment) => {
-                                    const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
-                                    const queuedAction = timelineSegmentActionByKey[actionKey];
-                                    const submitting = timelineSegmentActionSubmittingKey === actionKey;
-                                    return (
-                                      <div key={`deep-weak-retention-${segment.id}`} className="rounded border border-amber-400/25 bg-amber-950/20 p-2">
-                                        <p className="text-xs text-amber-100">
-                                          {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                        </p>
-                                        <p className="mt-1 text-[11px] text-amber-100/80">{segment.reason}</p>
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-[11px]"
-                                            disabled={!canQueueTimelineSegmentAction || submitting}
-                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
-                                          >
-                                            {submitting ? (
-                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                            ) : (
-                                              <Wand2 className="mr-1 h-3 w-3" />
-                                            )}
-                                            {queuedAction === "fix" ? "Fix queued" : "Fix part"}
-                                          </Button>
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-[11px]"
-                                            disabled={!canQueueTimelineSegmentAction || submitting}
-                                            onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
-                                          >
-                                            {submitting ? (
-                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                            ) : (
-                                              <Scissors className="mr-1 h-3 w-3" />
-                                            )}
-                                            {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="mt-2 text-xs text-amber-100/75">No weaker windows detected.</p>
+                                <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
+                                  No emotion highlights were detected for this timeline.
+                                </p>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        <div className="rounded-xl border border-border/50 bg-background/40 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Predicted Audience Emotions</p>
+                        <div className="deepdive-section rounded-xl p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before / After Projection</p>
                           <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                            {predictedAudienceEmotions.map((signal) => (
-                              <div key={`deep-predicted-emotion-${signal.key}`} className="rounded-md border border-border/50 bg-background/50 p-2">
-                                <div className="mb-1 flex items-center justify-between gap-2">
-                                  <Badge className={signal.badgeClassName}>{signal.label}</Badge>
-                                  <p className="text-[11px] text-foreground">{signal.predictedAudiencePercent}%</p>
-                                </div>
-                                <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
-                                  <div
-                                    className={`h-full rounded-full bg-gradient-to-r ${signal.barClassName}`}
-                                    style={{ width: `${signal.predictedAudiencePercent}%` }}
-                                  />
-                                </div>
-                                <p className="mt-1 text-[11px] text-muted-foreground">{signal.predictionReason}</p>
-                                {signal.timestampsSec.length > 0 ? (
-                                  <p className="mt-1 text-[10px] text-muted-foreground/90">
-                                    Seen at {signal.timestampsSec.map((sec) => formatTimelineClock(sec)).join(" · ")}
-                                  </p>
-                                ) : null}
-                              </div>
-                            ))}
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">Current</p>
+                              <p className="text-sm font-semibold text-foreground">
+                                Avg % viewed {averagePercentViewed !== null ? `${averagePercentViewed.toFixed(1)}%` : "--"} ·
+                                Retention delta {retentionScoreDeltaDisplay !== null ? `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)} pts` : "--"}
+                              </p>
+                            </div>
+                            <div className="deepdive-chip rounded-lg p-2">
+                              <p className="text-[11px] text-muted-foreground">After suggested edits</p>
+                              <p className="text-sm font-semibold text-foreground">
+                                {projectedAverageViewedRange
+                                  ? `${projectedAverageViewedRange.min.toFixed(1)}%-${projectedAverageViewedRange.max.toFixed(1)}% avg viewed`
+                                  : "Projection unavailable"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Benchmark comparison: {averagePercentViewed !== null && durationBenchmarkPercent !== null
+                              ? `${averagePercentViewed.toFixed(1)}% vs ${durationBenchmarkPercent.toFixed(1)}% expected for this video length`
+                              : "Not enough retention points for benchmark comparison."}
+                            {fillerSecondsPotential !== null
+                              ? ` · Silence/filler potential: ~${fillerSecondsPotential}s`
+                              : ""}
                           </div>
                         </div>
                       </div>
@@ -8847,6 +9406,7 @@ const Editor = () => {
 };
 
 export default Editor;
+
 
 
 
