@@ -170,6 +170,10 @@ const normalizeCaptionHexColor = (value: string, fallback: string) => {
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const VERTICAL_CAPTION_POSITION_MIN = 0.02;
+const VERTICAL_CAPTION_POSITION_MAX = 0.98;
+const clampCaptionPosition = (value: number) =>
+  Number(clamp(value, VERTICAL_CAPTION_POSITION_MIN, VERTICAL_CAPTION_POSITION_MAX).toFixed(4));
 const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 8;
@@ -479,6 +483,12 @@ type CropInteraction = {
   startClientX: number;
   startClientY: number;
   startCrop: WebcamCrop;
+};
+type VerticalCaptionDragState = {
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
 };
 type VerticalLayoutMode = "stacked" | "single";
 type VerticalModePayload = {
@@ -1514,6 +1524,8 @@ const Editor = () => {
   const [verticalCaptionAnimation, setVerticalCaptionAnimation] = useState<VerticalCaptionAnimationOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
   );
+  const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
+  const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -1536,6 +1548,7 @@ const Editor = () => {
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
+  const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
@@ -1590,6 +1603,7 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
@@ -2988,6 +3002,8 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            positionX: clampCaptionPosition(verticalCaptionPositionX),
+            positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
         : null;
     if (hasReachedRenderLimitForMode(requestedMode)) {
@@ -3328,6 +3344,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
+    setVerticalCaptionDragState(null);
     setVerticalClipCount(0);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -3394,6 +3411,7 @@ const Editor = () => {
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode("cover");
     setCropInteraction(null);
+    setVerticalCaptionDragState(null);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -3468,6 +3486,56 @@ const Editor = () => {
       window.removeEventListener("pointercancel", onEnd);
     };
   }, [cropInteraction, sourceVideoMeta, normalizeWebcamCrop]);
+
+  const beginVerticalCaptionDrag = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isVerticalMode) return;
+    const canvas = verticalCompositionCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const hitbox = verticalCaptionHitboxRef.current;
+    if (hitbox) {
+      const margin = 14;
+      const inside =
+        pointerX >= hitbox.left - margin &&
+        pointerX <= hitbox.right + margin &&
+        pointerY >= hitbox.top - margin &&
+        pointerY <= hitbox.bottom + margin;
+      if (!inside) return;
+    }
+    event.preventDefault();
+    setVerticalCaptionDragState({
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: verticalCaptionPositionX,
+      startY: verticalCaptionPositionY,
+    });
+  }, [isVerticalMode, verticalCaptionPositionX, verticalCaptionPositionY]);
+
+  useEffect(() => {
+    if (!verticalCaptionDragState) return;
+    const onMove = (event: PointerEvent) => {
+      const canvas = verticalCompositionCanvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const deltaX = (event.clientX - verticalCaptionDragState.startClientX) / rect.width;
+      const deltaY = (event.clientY - verticalCaptionDragState.startClientY) / rect.height;
+      setVerticalCaptionPositionX(clampCaptionPosition(verticalCaptionDragState.startX + deltaX));
+      setVerticalCaptionPositionY(clampCaptionPosition(verticalCaptionDragState.startY + deltaY));
+    };
+    const onEnd = () => setVerticalCaptionDragState(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  }, [verticalCaptionDragState]);
 
   const webcamPaddingMax = useMemo(() => {
     if (!webcamCrop) return 0;
@@ -3577,20 +3645,6 @@ const Editor = () => {
       }
       ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
     };
-    const drawRoundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
-      const r = Math.max(0, Math.min(radius, width / 2, height / 2));
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + width - r, y);
-      ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-      ctx.lineTo(x + width, y + height - r);
-      ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-      ctx.lineTo(x + r, y + height);
-      ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-    };
     const wrapCaptionText = (text: string, maxWidth: number, maxLines: number) => {
       const tokens = text
         .replace(/\s+/g, " ")
@@ -3673,12 +3727,13 @@ const Editor = () => {
           const baseFontPx = Math.round((singleLayout ? canvasHeight : bottomHeight) * 0.115);
           const fontPx = clamp(baseFontPx, 20, 62);
           const outlinePx = Math.max(0, Math.round(verticalCaptionOutlineWidth * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width)));
-          const centerY = singleLayout ? canvasHeight * 0.82 : topHeight + bottomHeight * 0.74;
+          const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionX);
+          const centerY = canvasHeight * clampCaptionPosition(verticalCaptionPositionY);
           const maxTextWidth = canvasWidth * 0.82;
 
           ctx.save();
           ctx.globalAlpha = animationOpacity;
-          ctx.translate(canvasWidth / 2, centerY + animationYOffset);
+          ctx.translate(centerX, centerY + animationYOffset);
           ctx.scale(animationScale, animationScale);
           ctx.font = `900 ${fontPx}px ${captionFontFamily}`;
           ctx.textAlign = "center";
@@ -3688,16 +3743,14 @@ const Editor = () => {
           if (lines.length > 0) {
             const lineHeight = Math.round(fontPx * 1.08);
             const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
-            const boxWidth = Math.min(maxTextWidth, blockTextWidth + fontPx * 0.92);
-            const boxHeight = lineHeight * lines.length + fontPx * 0.72;
-            const boxX = -boxWidth / 2;
-            const boxY = -boxHeight / 2;
-            drawRoundedRect(boxX, boxY, boxWidth, boxHeight, Math.max(10, Math.round(fontPx * 0.22)));
-            ctx.fillStyle = captionPalette.boxColor;
-            ctx.fill();
-            ctx.lineWidth = Math.max(1, outlinePx * 0.45);
-            ctx.strokeStyle = captionPalette.borderColor;
-            ctx.stroke();
+            const textBlockHeight = lineHeight * lines.length;
+            const hitPadding = Math.round(fontPx * 0.55);
+            verticalCaptionHitboxRef.current = {
+              left: centerX - blockTextWidth / 2 - hitPadding,
+              right: centerX + blockTextWidth / 2 + hitPadding,
+              top: centerY - textBlockHeight / 2 - hitPadding,
+              bottom: centerY + textBlockHeight / 2 + hitPadding,
+            };
 
             ctx.shadowColor = captionPalette.glowColor;
             ctx.shadowBlur = Math.round(fontPx * 0.24);
@@ -3720,8 +3773,12 @@ const Editor = () => {
                 ctx.fillText(line, 1.5, y);
               }
             }
+          } else {
+            verticalCaptionHitboxRef.current = null;
           }
           ctx.restore();
+        } else {
+          verticalCaptionHitboxRef.current = null;
         }
       }
       raf = window.requestAnimationFrame(render);
@@ -3749,6 +3806,8 @@ const Editor = () => {
     verticalCaptionFontId,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
+    verticalCaptionPositionX,
+    verticalCaptionPositionY,
     verticalCaptionPreset,
     verticalCaptionText,
     isVerticalMode,
@@ -4061,6 +4120,8 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            positionX: clampCaptionPosition(verticalCaptionPositionX),
+            positionY: clampCaptionPosition(verticalCaptionPositionY),
           };
         }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
@@ -4175,6 +4236,8 @@ const Editor = () => {
       verticalCaptionFontId,
       verticalCaptionOutlineColor,
       verticalCaptionOutlineWidth,
+      verticalCaptionPositionX,
+      verticalCaptionPositionY,
       verticalCaptionPreset,
       verticalCaptionText,
       toast,
@@ -7596,11 +7659,17 @@ const Editor = () => {
                               <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
                                 <canvas
                                   ref={verticalCompositionCanvasRef}
-                                  className="h-full w-full rounded-lg border border-border/50 bg-black"
+                                  className={`h-full w-full rounded-lg border border-border/50 bg-black touch-none select-none ${
+                                    verticalCaptionDragState ? "cursor-grabbing" : "cursor-grab"
+                                  }`}
+                                  onPointerDown={beginVerticalCaptionDrag}
                                 />
                                 <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-border/50" />
                               </div>
                             </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              Drag the caption text directly on this preview to reposition it.
+                            </p>
                           </div>
 
                           <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
