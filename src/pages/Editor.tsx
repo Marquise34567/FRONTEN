@@ -1551,6 +1551,7 @@ const Editor = () => {
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
+  const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
@@ -3437,6 +3438,7 @@ const Editor = () => {
       toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
       return;
     }
+    setIsVerticalBuilderHidden(false);
     setPendingVerticalFile(file);
     setWebcamCrop(null);
     setSourceVideoMeta(null);
@@ -3882,6 +3884,7 @@ const Editor = () => {
       },
     });
     if (!ok) return;
+    setIsVerticalBuilderHidden(true);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
     setSourceVideoMeta(null);
@@ -7409,7 +7412,7 @@ const Editor = () => {
                 </div>
               </div>
 
-              {isVerticalMode && (
+              {isVerticalMode && !isVerticalBuilderHidden && (
                 <div className="glass-card vertical-mode-shell p-5 space-y-5">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
