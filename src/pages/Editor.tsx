@@ -2967,7 +2967,7 @@ const Editor = () => {
     const fastModeForJob = ultraPipelineMode;
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = autoCaptionsEnabled;
+    const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
     const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
@@ -3653,7 +3653,7 @@ const Editor = () => {
           ctx.stroke();
         }
 
-        if (autoCaptionsEnabled) {
+        if (isVerticalMode || autoCaptionsEnabled) {
           const now = performance.now();
           let animationScale = 1;
           let animationYOffset = 0;
@@ -3751,6 +3751,7 @@ const Editor = () => {
     verticalCaptionOutlineWidth,
     verticalCaptionPreset,
     verticalCaptionText,
+    isVerticalMode,
   ]);
 
   const startVerticalRender = async () => {
@@ -4006,11 +4007,11 @@ const Editor = () => {
       try {
         const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
         const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
+        const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = autoCaptionsEnabled;
+        const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
         const fastModeForJob = ultraPipelineMode;
-        const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
