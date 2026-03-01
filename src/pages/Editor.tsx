@@ -82,6 +82,13 @@ type VerticalCaptionPresetOptionId =
   | "cinema_punch";
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
+type VerticalCaptionPreviewTheme = {
+  textColor: string;
+  background: string;
+  borderColor: string;
+  boxShadow: string;
+  textShadow: string;
+};
 
 const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{ id: VerticalCaptionPresetOptionId; label: string; description: string }> = [
   { id: "rage_mode", label: "TikTok Punch", description: "High-energy caption look for TikTok pacing." },
@@ -143,6 +150,79 @@ const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> 
   serif_bold: '"Georgia", "Times New Roman", serif',
   display_black: '"Poppins", "Space Grotesk", "Inter", sans-serif',
   mono_bold: '"Consolas", "Roboto Mono", monospace',
+};
+const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, VerticalCaptionPreviewTheme> = {
+  basic_clean: {
+    textColor: "#F8FAFC",
+    background: "rgba(2, 6, 23, 0.55)",
+    borderColor: "rgba(255, 255, 255, 0.48)",
+    boxShadow: "0 10px 24px -18px rgba(15, 23, 42, 0.95)",
+    textShadow: "0 3px 10px rgba(2, 6, 23, 0.78)",
+  },
+  mrbeast_animated: {
+    textColor: "#FFFFFF",
+    background: "linear-gradient(160deg, rgba(255, 193, 7, 0.2), rgba(0, 0, 0, 0.35))",
+    borderColor: "rgba(255, 214, 102, 0.9)",
+    boxShadow: "0 12px 26px -16px rgba(255, 178, 0, 0.95)",
+    textShadow: "0 3px 12px rgba(161, 98, 7, 0.6)",
+  },
+  neon_glow: {
+    textColor: "#67E8F9",
+    background: "linear-gradient(160deg, rgba(17, 24, 39, 0.62), rgba(0, 0, 0, 0.3))",
+    borderColor: "rgba(34, 211, 238, 0.86)",
+    boxShadow: "0 0 22px rgba(34, 211, 238, 0.45)",
+    textShadow: "0 0 10px rgba(34, 211, 238, 0.55)",
+  },
+  bold_clean_box: {
+    textColor: "#FFFFFF",
+    background: "rgba(0, 0, 0, 0.72)",
+    borderColor: "rgba(248, 250, 252, 0.82)",
+    boxShadow: "0 10px 22px -16px rgba(0, 0, 0, 0.98)",
+    textShadow: "0 2px 8px rgba(0, 0, 0, 0.82)",
+  },
+  rage_mode: {
+    textColor: "#FDE68A",
+    background: "linear-gradient(165deg, rgba(127, 29, 29, 0.66), rgba(24, 24, 27, 0.5))",
+    borderColor: "rgba(251, 191, 36, 0.9)",
+    boxShadow: "0 0 20px rgba(251, 146, 60, 0.5)",
+    textShadow: "0 0 12px rgba(251, 146, 60, 0.55)",
+  },
+  ice_pop: {
+    textColor: "#E0F2FE",
+    background: "linear-gradient(165deg, rgba(12, 74, 110, 0.62), rgba(15, 23, 42, 0.42))",
+    borderColor: "rgba(125, 211, 252, 0.86)",
+    boxShadow: "0 0 22px rgba(56, 189, 248, 0.4)",
+    textShadow: "0 0 11px rgba(56, 189, 248, 0.5)",
+  },
+  retro_wave: {
+    textColor: "#F5D0FE",
+    background: "linear-gradient(160deg, rgba(88, 28, 135, 0.58), rgba(251, 146, 60, 0.22))",
+    borderColor: "rgba(244, 114, 182, 0.84)",
+    boxShadow: "0 0 20px rgba(236, 72, 153, 0.45)",
+    textShadow: "0 0 11px rgba(236, 72, 153, 0.52)",
+  },
+  glitch_pop: {
+    textColor: "#E5E7EB",
+    background: "linear-gradient(165deg, rgba(17, 24, 39, 0.78), rgba(3, 7, 18, 0.46))",
+    borderColor: "rgba(148, 163, 184, 0.84)",
+    boxShadow: "0 0 20px rgba(129, 140, 248, 0.34)",
+    textShadow: "0 0 10px rgba(165, 180, 252, 0.46)",
+  },
+  cinema_punch: {
+    textColor: "#FFFBEB",
+    background: "linear-gradient(160deg, rgba(120, 53, 15, 0.62), rgba(23, 23, 23, 0.46))",
+    borderColor: "rgba(253, 230, 138, 0.84)",
+    boxShadow: "0 0 18px rgba(251, 191, 36, 0.34)",
+    textShadow: "0 0 10px rgba(251, 191, 36, 0.44)",
+  },
+};
+const VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS: Record<VerticalCaptionAnimationOptionId, string> = {
+  none: "",
+  pop: "vertical-caption-anim-pop",
+  slide: "vertical-caption-anim-slide",
+  fade: "vertical-caption-anim-fade",
+  bounce: "vertical-caption-anim-bounce",
+  glitch: "vertical-caption-anim-glitch",
 };
 
 type CaptionDragState = {
@@ -2047,6 +2127,9 @@ const Editor = () => {
     verticalCaptionOutlineColor,
     VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
   );
+  const previewCaptionTheme =
+    VERTICAL_CAPTION_PREVIEW_THEMES[verticalCaptionPreset] ?? VERTICAL_CAPTION_PREVIEW_THEMES[DEFAULT_VERTICAL_CAPTION_STYLE];
+  const previewCaptionAnimationClass = VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS[verticalCaptionAnimation];
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
     activeAnalysis?.framesAnalyzed,
@@ -3612,7 +3695,7 @@ const Editor = () => {
                         <video src={verticalPreviewUrl} controls className="w-full max-h-[380px] object-contain" />
                         <div className="pointer-events-none absolute inset-0">
                           <div
-                            className="pointer-events-auto absolute z-20 cursor-move rounded-lg border border-white/55 bg-black/28 px-3 py-2 text-center font-black tracking-[0.02em] text-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.85)]"
+                            className="vertical-caption-preview-shell pointer-events-auto absolute z-20 cursor-move rounded-lg border px-3 py-2 text-center font-black tracking-[0.02em]"
                             style={{
                               left: `${verticalCaptionPositionX * 100}%`,
                               top: `${verticalCaptionPositionY * 100}%`,
@@ -3622,18 +3705,24 @@ const Editor = () => {
                               lineHeight: 1.12,
                               whiteSpace: "pre-line",
                               transform: "translate(-50%, -50%)",
+                              color: previewCaptionTheme.textColor,
+                              background: previewCaptionTheme.background,
+                              borderColor: previewCaptionTheme.borderColor,
+                              boxShadow: previewCaptionTheme.boxShadow,
                               WebkitTextStroke:
                                 previewCaptionOutlinePx > 0
                                   ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
                                   : "0px transparent",
                               textShadow:
                                 previewCaptionOutlinePx > 0
-                                  ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35)`
-                                  : "none",
+                                  ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35), ${previewCaptionTheme.textShadow}`
+                                  : previewCaptionTheme.textShadow,
                             }}
                             onPointerDown={beginCaptionDrag}
                           >
-                            {previewCaptionText}
+                            <span className={`vertical-caption-preview-text${previewCaptionAnimationClass ? ` ${previewCaptionAnimationClass}` : ""}`}>
+                              {previewCaptionText}
+                            </span>
                             <button
                               type="button"
                               className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
