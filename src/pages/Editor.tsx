@@ -7125,7 +7125,7 @@ const Editor = () => {
                       </button>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {[0, 8, 10, 12, 15, 20].map((count) => (
+                      {[0, 3, 4].map((count) => (
                         <button
                           key={count}
                           type="button"
@@ -7137,7 +7137,7 @@ const Editor = () => {
                       ))}
                     </div>
                     <p className="vertical-mode-note text-[11px] text-muted-foreground">
-                      Auto uses duration-based batch scaling (8-20 exports). Fixed values force exact clip count.
+                      Auto picks 3-4 ranked clips. Fixed values force an exact short-form batch size.
                     </p>
                   </div>
 
