@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { motion } from "framer-motion";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -1004,6 +1004,7 @@ const Editor = () => {
   const statusStartRef = useRef<Record<string, { status: string; startedAt: number }>>({});
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessToken, signOut } = useAuth();
   const { toast } = useToast();
@@ -1335,13 +1336,6 @@ const Editor = () => {
         if (typeof highlightTimeoutRef.current === "number") window.clearTimeout(highlightTimeoutRef.current as any);
       } catch (e) {}
     };
-  }, []);
-
-  // Listen for explicit popover-triggered open events (from PopoverTrigger wrapper)
-  useEffect(() => {
-    const onOpen = () => setSettingsOpen(true);
-    window.addEventListener("open-editor-settings", onOpen as EventListener);
-    return () => window.removeEventListener("open-editor-settings", onOpen as EventListener);
   }, []);
 
   useEffect(() => {
@@ -3365,38 +3359,6 @@ const Editor = () => {
   const verticalModeChipClass = (active: boolean) =>
     `vertical-mode-chip inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all ${active ? "is-active" : ""}`;
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // Listen for clicks on any 'Open' buttons and open the full settings popup.
-  useEffect(() => {
-    const handler = (e: any) => {
-      try {
-        const target = e.target as HTMLElement | null;
-        if (!target) return;
-        const btn = target.closest?.('button') as HTMLButtonElement | null;
-        if (!btn) return;
-        const text = (btn.innerText || '').trim();
-        // Only intercept the 'Open' button inside the vertical builder panel
-        if (text.toLowerCase() === 'open' && btn.closest?.('.vertical-mode-panel')) {
-          try {
-            e.preventDefault?.();
-            e.stopPropagation?.();
-            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-          } catch (err) {}
-          setSettingsOpen(true);
-        }
-      } catch (err) {
-        // ignore
-      }
-    };
-    // Listen to pointerdown and click in capture phase to stop popover handlers early
-    document.addEventListener('pointerdown', handler, true);
-    document.addEventListener('click', handler, true);
-    return () => {
-      document.removeEventListener('pointerdown', handler, true);
-      document.removeEventListener('click', handler, true);
-    };
-  }, []);
   return (
     <GlowBackdrop>
       <Navbar />
@@ -3408,20 +3370,15 @@ const Editor = () => {
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-4" onClick={() => setSettingsOpen(true)}>
-                Open Settings
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground rounded-full px-4"
+                onClick={() => navigate("/settings")}
+              >
+                Account Settings
               </Button>
-
-              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <DialogContent className="w-[90vw] max-w-[1100px] h-[85vh]">
-                  <DialogHeader>
-                    <DialogTitle>Editor Settings</DialogTitle>
-                  </DialogHeader>
-                  <div className="mt-2 h-[calc(85vh-64px)]">
-                    <iframe src="/settings" title="Editor Settings" className="w-full h-full border-0 rounded-md" />
-                  </div>
-                </DialogContent>
-              </Dialog>
               {me && (
                 <>
                   {isDevAccount && (

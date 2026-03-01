@@ -5,33 +5,7 @@ import { cn } from "@/lib/utils";
 
 const Popover = PopoverPrimitive.Root;
 
-// Custom PopoverTrigger wrapper:
-// If the child element contains the class `open-editor-settings`, we render the
-// child directly and intercept clicks to dispatch a global event so the
-// settings popup can open instead of the popover.
-const PopoverTrigger = (props: any) => {
-  const { children, ...rest } = props;
-  if (React.isValidElement(children)) {
-    const className = String((children.props && children.props.className) || "");
-    // Auto-detect explicit class OR a literal 'Open' label on the child button
-    const childText = typeof children.props?.children === "string" ? (children.props.children as string) : null;
-    if (className.includes("open-editor-settings") || (childText && childText.trim().toLowerCase() === "open")) {
-      const child = React.cloneElement(children, {
-        ...children.props,
-        onClick: (e: any) => {
-          try {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-          } catch (err) {}
-          window.dispatchEvent(new CustomEvent("open-editor-settings"));
-          if (typeof children.props.onClick === "function") children.props.onClick(e);
-        },
-      });
-      return child;
-    }
-  }
-  return <PopoverPrimitive.Trigger {...rest}>{children}</PopoverPrimitive.Trigger>;
-};
+const PopoverTrigger = PopoverPrimitive.Trigger;
 
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,

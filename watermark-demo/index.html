@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Watermark Demo — AutoEditor (Free)</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; background:#0b0f13; color:#e6eef8; display:flex; align-items:center; justify-content:center; height:100vh; margin:0 }
+    .stage { width: 720px; max-width:94vw; background: #111827; border-radius:10px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); overflow:hidden }
+    .video { position:relative; height:405px; background: linear-gradient(180deg,#0f1724,#071023); display:flex; align-items:center; justify-content:center }
+    .video .placeholder { color:#90a4b2; font-size:18px }
+    /* watermark (free videos) */
+    .watermark {
+      position:absolute;
+      right:14px;
+      bottom:10px;
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      background: rgba(2,6,23,0.48);
+      border: 1px solid rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.88);
+      padding:6px 10px;
+      border-radius:6px;
+      font-size:13px;
+      backdrop-filter: blur(6px) saturate(120%);
+      box-shadow: 0 6px 18px rgba(2,6,23,0.6);
+    }
+    .watermark .logo { width:20px; height:20px; display:inline-block }
+    .watermark .logo-img { width:240px; height:auto; display:block }
+    .controls { padding:14px; display:flex; gap:10px; align-items:center; justify-content:space-between }
+    .btn { background:#0b1220; color:#e6eef8; border:1px solid rgba(255,255,255,0.04); padding:8px 12px; border-radius:8px; cursor:pointer }
+    .btn.ghost { background:transparent; border:1px solid rgba(255,255,255,0.06) }
+    .note { color:#9fb0c7; font-size:13px }
+    .hidden { display:none }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="video" aria-hidden>
+      <div class="placeholder">Sample video frame — preview</div>
+      <div class="watermark" id="watermark">
+        <!-- Use the provided watermark image (save the attached image as `watermark.png` in this folder) -->
+        <img src="./watermark.png" alt="AutoEditor watermark" class="logo-img" />
+      </div>
+    </div>
+    <div class="controls">
+      <div>
+        <button class="btn" id="remove">Simulate Upgrade (remove watermark)</button>
+        <button class="btn ghost" id="reset">Reset</button>
+      </div>
+      <div class="note">Watermark shown on free exports — sample placement: bottom-right</div>
+    </div>
+  </div>
+
+  <script>
+    const wm = document.getElementById('watermark');
+    const remove = document.getElementById('remove');
+    const reset = document.getElementById('reset');
+    remove.addEventListener('click', () => { wm.classList.add('hidden'); remove.disabled = true });
+    reset.addEventListener('click', () => { wm.classList.remove('hidden'); remove.disabled = false });
+  </script>
+</body>
+</html>
