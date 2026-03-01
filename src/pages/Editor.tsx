@@ -83,9 +83,35 @@ type VerticalCaptionPresetOptionId =
   | "retro_wave"
   | "glitch_pop"
   | "cinema_punch"
-  | "shadow_strike";
-type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
+  | "shadow_strike"
+  | "story_pop"
+  | "street_block"
+  | "clean_solid"
+  | "aqua_burst";
+type VerticalCaptionFontOptionId =
+  | "impact"
+  | "sans_bold"
+  | "condensed"
+  | "serif_bold"
+  | "display_black"
+  | "mono_bold"
+  | "poster_bold"
+  | "grotesk_tight"
+  | "street_sans"
+  | "classic_serif";
+type BackendVerticalCaptionPresetId =
+  | "basic_clean"
+  | "mrbeast_animated"
+  | "neon_glow"
+  | "bold_clean_box"
+  | "rage_mode"
+  | "ice_pop"
+  | "retro_wave"
+  | "glitch_pop"
+  | "cinema_punch";
+type BackendVerticalCaptionFontId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
+type VerticalClipDurationOption = 30 | 60;
 type VerticalCaptionPreviewTheme = {
   textColor: string;
   background: string;
@@ -96,11 +122,15 @@ type VerticalCaptionPreviewTheme = {
 
 const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{ id: VerticalCaptionPresetOptionId; label: string; description: string }> = [
   { id: "rage_mode", label: "TikTok Punch", description: "High-energy caption look for TikTok pacing." },
+  { id: "street_block", label: "Street Block", description: "Hard solid caption block with thick outline." },
+  { id: "clean_solid", label: "Solid Caption Box", description: "Full solid-color caption container for max readability." },
   { id: "bold_clean_box", label: "IG Reels Clean", description: "Readable box caption style for Reels." },
   { id: "cinema_punch", label: "YouTube Shorts Bold", description: "High-contrast Shorts-style captions." },
   { id: "mrbeast_animated", label: "Creator Hype", description: "Punchy pop captions with big outlines." },
+  { id: "story_pop", label: "Story Pop", description: "Soft creator captions for story-style edits." },
   { id: "basic_clean", label: "Minimal", description: "Simple clean subtitles with subtle outline." },
   { id: "neon_glow", label: "Neon Glow", description: "Stylized neon look for energetic edits." },
+  { id: "aqua_burst", label: "Aqua Burst", description: "Bright cyan style for energetic short clips." },
   { id: "ice_pop", label: "Ice Pop", description: "Cool-blue pop style." },
   { id: "retro_wave", label: "Retro Wave", description: "Retro colorful caption style." },
   { id: "glitch_pop", label: "Glitch Pop", description: "Glitch-style captions for high motion clips." },
@@ -113,6 +143,10 @@ const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; la
   { id: "serif_bold", label: "Serif Bold" },
   { id: "display_black", label: "Display Black" },
   { id: "mono_bold", label: "Mono Bold" },
+  { id: "poster_bold", label: "Poster Bold" },
+  { id: "grotesk_tight", label: "Grotesk Tight" },
+  { id: "street_sans", label: "Street Sans" },
+  { id: "classic_serif", label: "Classic Serif" },
 ];
 const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOptionId; label: string }> = [
   { id: "none", label: "Static" },
@@ -122,26 +156,204 @@ const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOp
   { id: "bounce", label: "Bounce" },
   { id: "glitch", label: "Glitch" },
 ];
+const VERTICAL_CLIP_DURATION_OPTIONS: VerticalClipDurationOption[] = [30, 60];
+const DEFAULT_VERTICAL_CLIP_DURATION_SECONDS: VerticalClipDurationOption = 30;
+const VERTICAL_CAPTION_PRESET_TO_BACKEND: Record<VerticalCaptionPresetOptionId, BackendVerticalCaptionPresetId> = {
+  basic_clean: "basic_clean",
+  mrbeast_animated: "mrbeast_animated",
+  neon_glow: "neon_glow",
+  bold_clean_box: "bold_clean_box",
+  rage_mode: "rage_mode",
+  ice_pop: "ice_pop",
+  retro_wave: "retro_wave",
+  glitch_pop: "glitch_pop",
+  cinema_punch: "cinema_punch",
+  shadow_strike: "cinema_punch",
+  story_pop: "mrbeast_animated",
+  street_block: "rage_mode",
+  clean_solid: "bold_clean_box",
+  aqua_burst: "neon_glow",
+};
+const VERTICAL_CAPTION_FONT_TO_BACKEND: Record<VerticalCaptionFontOptionId, BackendVerticalCaptionFontId> = {
+  impact: "impact",
+  sans_bold: "sans_bold",
+  condensed: "condensed",
+  serif_bold: "serif_bold",
+  display_black: "display_black",
+  mono_bold: "mono_bold",
+  poster_bold: "impact",
+  grotesk_tight: "condensed",
+  street_sans: "sans_bold",
+  classic_serif: "serif_bold",
+};
 const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   VerticalCaptionPresetOptionId,
   {
     fontId: VerticalCaptionFontOptionId;
+    textColor: string;
+    accentColor: string;
     outlineColor: string;
     outlineWidth: number;
+    boxEnabled: boolean;
+    boxColor: string;
     animation: VerticalCaptionAnimationOptionId;
     shadowStrength: number;
   }
 > = {
-  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34 },
-  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62 },
-  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide", shadowStrength: 70 },
-  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46 },
-  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76 },
-  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62 },
-  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide", shadowStrength: 68 },
-  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch", shadowStrength: 74 },
-  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58 },
-  shadow_strike: { fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92 },
+  basic_clean: {
+    fontId: "sans_bold",
+    textColor: "F8FAFC",
+    accentColor: "E2E8F0",
+    outlineColor: "0F172A",
+    outlineWidth: 3,
+    boxEnabled: true,
+    boxColor: "020617",
+    animation: "none",
+    shadowStrength: 34,
+  },
+  mrbeast_animated: {
+    fontId: "impact",
+    textColor: "FFFFFF",
+    accentColor: "FFD166",
+    outlineColor: "050505",
+    outlineWidth: 18,
+    boxEnabled: false,
+    boxColor: "000000",
+    animation: "pop",
+    shadowStrength: 62,
+  },
+  neon_glow: {
+    fontId: "condensed",
+    textColor: "67E8F9",
+    accentColor: "22D3EE",
+    outlineColor: "071E28",
+    outlineWidth: 6,
+    boxEnabled: false,
+    boxColor: "020617",
+    animation: "slide",
+    shadowStrength: 70,
+  },
+  bold_clean_box: {
+    fontId: "sans_bold",
+    textColor: "FFFFFF",
+    accentColor: "FFE047",
+    outlineColor: "000000",
+    outlineWidth: 6,
+    boxEnabled: true,
+    boxColor: "111827",
+    animation: "none",
+    shadowStrength: 46,
+  },
+  rage_mode: {
+    fontId: "impact",
+    textColor: "FDE68A",
+    accentColor: "FB923C",
+    outlineColor: "1A0202",
+    outlineWidth: 14,
+    boxEnabled: true,
+    boxColor: "111111",
+    animation: "bounce",
+    shadowStrength: 76,
+  },
+  ice_pop: {
+    fontId: "condensed",
+    textColor: "E0F2FE",
+    accentColor: "38BDF8",
+    outlineColor: "041426",
+    outlineWidth: 10,
+    boxEnabled: false,
+    boxColor: "041426",
+    animation: "pop",
+    shadowStrength: 62,
+  },
+  retro_wave: {
+    fontId: "display_black",
+    textColor: "F5D0FE",
+    accentColor: "F472B6",
+    outlineColor: "25003A",
+    outlineWidth: 9,
+    boxEnabled: false,
+    boxColor: "240046",
+    animation: "slide",
+    shadowStrength: 68,
+  },
+  glitch_pop: {
+    fontId: "mono_bold",
+    textColor: "E5E7EB",
+    accentColor: "A5B4FC",
+    outlineColor: "111827",
+    outlineWidth: 8,
+    boxEnabled: false,
+    boxColor: "020617",
+    animation: "glitch",
+    shadowStrength: 74,
+  },
+  cinema_punch: {
+    fontId: "serif_bold",
+    textColor: "FFFBEB",
+    accentColor: "FDE68A",
+    outlineColor: "1A1203",
+    outlineWidth: 7,
+    boxEnabled: true,
+    boxColor: "1F172A",
+    animation: "none",
+    shadowStrength: 58,
+  },
+  shadow_strike: {
+    fontId: "display_black",
+    textColor: "F8FAFC",
+    accentColor: "CBD5E1",
+    outlineColor: "111827",
+    outlineWidth: 10,
+    boxEnabled: true,
+    boxColor: "0F172A",
+    animation: "none",
+    shadowStrength: 92,
+  },
+  story_pop: {
+    fontId: "poster_bold",
+    textColor: "FFFFFF",
+    accentColor: "FCD34D",
+    outlineColor: "1E293B",
+    outlineWidth: 7,
+    boxEnabled: true,
+    boxColor: "111827",
+    animation: "pop",
+    shadowStrength: 56,
+  },
+  street_block: {
+    fontId: "street_sans",
+    textColor: "FFFFFF",
+    accentColor: "F97316",
+    outlineColor: "050505",
+    outlineWidth: 12,
+    boxEnabled: true,
+    boxColor: "000000",
+    animation: "bounce",
+    shadowStrength: 70,
+  },
+  clean_solid: {
+    fontId: "sans_bold",
+    textColor: "FFFFFF",
+    accentColor: "E2E8F0",
+    outlineColor: "000000",
+    outlineWidth: 4,
+    boxEnabled: true,
+    boxColor: "0F172A",
+    animation: "none",
+    shadowStrength: 38,
+  },
+  aqua_burst: {
+    fontId: "grotesk_tight",
+    textColor: "E0FFFF",
+    accentColor: "22D3EE",
+    outlineColor: "082F49",
+    outlineWidth: 8,
+    boxEnabled: true,
+    boxColor: "0C4A6E",
+    animation: "slide",
+    shadowStrength: 64,
+  },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const DEFAULT_SUBTITLE_STYLE = "basic_clean";
@@ -164,6 +376,10 @@ const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> 
   serif_bold: '"Georgia", "Times New Roman", serif',
   display_black: '"Poppins", "Space Grotesk", "Inter", sans-serif',
   mono_bold: '"Consolas", "Roboto Mono", monospace',
+  poster_bold: '"Bebas Neue", "Anton", "Impact", sans-serif',
+  grotesk_tight: '"Oswald", "Arial Narrow", "Inter", sans-serif',
+  street_sans: '"Montserrat", "Arial Black", "Inter", sans-serif',
+  classic_serif: '"Palatino Linotype", "Book Antiqua", "Georgia", serif',
 };
 const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, VerticalCaptionPreviewTheme> = {
   basic_clean: {
@@ -235,6 +451,34 @@ const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, Ver
     borderColor: "rgba(148, 163, 184, 0.86)",
     boxShadow: "0 18px 30px -14px rgba(2, 6, 23, 0.95)",
     textShadow: "0 4px 12px rgba(2, 6, 23, 0.78)",
+  },
+  story_pop: {
+    textColor: "#FFFFFF",
+    background: "linear-gradient(160deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.62))",
+    borderColor: "rgba(252, 211, 77, 0.86)",
+    boxShadow: "0 12px 24px -14px rgba(15, 23, 42, 0.95)",
+    textShadow: "0 2px 10px rgba(15, 23, 42, 0.85)",
+  },
+  street_block: {
+    textColor: "#FFFFFF",
+    background: "#000000",
+    borderColor: "#000000",
+    boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.1), 0 16px 28px -18px rgba(0, 0, 0, 0.95)",
+    textShadow: "0 0 0 rgba(0, 0, 0, 0)",
+  },
+  clean_solid: {
+    textColor: "#FFFFFF",
+    background: "#0F172A",
+    borderColor: "#0F172A",
+    boxShadow: "0 10px 22px -16px rgba(15, 23, 42, 0.95)",
+    textShadow: "0 2px 8px rgba(2, 6, 23, 0.7)",
+  },
+  aqua_burst: {
+    textColor: "#E0FFFF",
+    background: "linear-gradient(165deg, rgba(14, 116, 144, 0.78), rgba(8, 47, 73, 0.66))",
+    borderColor: "rgba(34, 211, 238, 0.9)",
+    boxShadow: "0 0 22px rgba(14, 165, 233, 0.38)",
+    textShadow: "0 0 12px rgba(34, 211, 238, 0.5)",
   },
 };
 const VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS: Record<VerticalCaptionAnimationOptionId, string> = {
@@ -1011,10 +1255,16 @@ const Editor = () => {
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(8);
+  const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<VerticalClipDurationOption>(
+    DEFAULT_VERTICAL_CLIP_DURATION_SECONDS,
+  );
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
+  );
+  const [verticalCaptionTextColor, setVerticalCaptionTextColor] = useState<string>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].textColor,
   );
   const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState<string>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
@@ -1032,6 +1282,12 @@ const Editor = () => {
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [verticalCaptionBoxWidthPct, setVerticalCaptionBoxWidthPct] = useState<number>(VERTICAL_CAPTION_BOX_WIDTH_DEFAULT);
+  const [verticalCaptionBoxEnabled, setVerticalCaptionBoxEnabled] = useState<boolean>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].boxEnabled,
+  );
+  const [verticalCaptionBoxColor, setVerticalCaptionBoxColor] = useState<string>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].boxColor,
+  );
   const [useTranscriptForCaptions, setUseTranscriptForCaptions] = useState<boolean>(true);
   const [editableTranscriptText, setEditableTranscriptText] = useState<string>("");
   const [transcriptSourceJobId, setTranscriptSourceJobId] = useState<string | null>(null);
@@ -1068,8 +1324,11 @@ const Editor = () => {
     const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[presetId] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
     setVerticalCaptionPreset(presetId);
     setVerticalCaptionFontId(defaults.fontId);
+    setVerticalCaptionTextColor(defaults.textColor);
     setVerticalCaptionOutlineColor(defaults.outlineColor);
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
+    setVerticalCaptionBoxEnabled(defaults.boxEnabled);
+    setVerticalCaptionBoxColor(defaults.boxColor);
     setVerticalCaptionAnimation(defaults.animation);
     setVerticalCaptionShadowStrength(defaults.shadowStrength);
   }, []);
@@ -1540,6 +1799,7 @@ const Editor = () => {
     renderOptions?: {
       mode?: "horizontal" | "vertical";
       verticalClipCount?: number;
+      verticalClipDurationSeconds?: VerticalClipDurationOption;
     },
   ) => {
     if (!isAllowedUploadFile(file)) {
@@ -1551,22 +1811,33 @@ const Editor = () => {
     const captionsEnabledForJob = true;
     const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
     const verticalCaptionTextForJob = effectiveVerticalCaptionText;
+    const activeCaptionDefaults =
+      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const resolvedCaptionTextColor = normalizeCaptionHexColor(verticalCaptionTextColor, activeCaptionDefaults.textColor);
+    const resolvedCaptionOutlineColor = normalizeCaptionHexColor(verticalCaptionOutlineColor, activeCaptionDefaults.outlineColor);
+    const resolvedCaptionBoxColor = normalizeCaptionHexColor(verticalCaptionBoxColor, activeCaptionDefaults.boxColor);
+    const resolvedShadowStrength = Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX));
+    const resolvedVerticalClipDurationSeconds: VerticalClipDurationOption =
+      renderOptions?.verticalClipDurationSeconds === 60 ? 60 : 30;
     const verticalCaptionsPayload =
       requestedMode === "vertical"
         ? {
             enabled: true,
             autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
-            preset: verticalCaptionPreset,
+            preset: VERTICAL_CAPTION_PRESET_TO_BACKEND[verticalCaptionPreset],
             text: verticalCaptionTextForJob,
-            fontId: verticalCaptionFontId,
+            fontId: VERTICAL_CAPTION_FONT_TO_BACKEND[verticalCaptionFontId],
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
-            outlineColor: normalizeCaptionHexColor(
-              verticalCaptionOutlineColor,
-              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-            ),
+            textColor: resolvedCaptionTextColor,
+            accentColor: activeCaptionDefaults.accentColor,
+            outlineColor: resolvedCaptionOutlineColor,
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            boxEnabled: verticalCaptionBoxEnabled,
+            boxColor: resolvedCaptionBoxColor,
             animation: verticalCaptionAnimation,
-            shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
+            shadowEnabled: resolvedShadowStrength > 0,
+            shadowBlur: Math.round((resolvedShadowStrength / 100) * 42),
+            shadowStrength: resolvedShadowStrength,
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
@@ -1596,6 +1867,7 @@ const Editor = () => {
               style: subtitleStyleForJob,
             },
             ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
+            ...(requestedMode === "vertical" ? { verticalClipDurationSeconds: resolvedVerticalClipDurationSeconds } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
           }),
@@ -1753,6 +2025,7 @@ const Editor = () => {
             },
             ...(requestedMode === "vertical" ? { renderMode: "vertical" as const } : {}),
             ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
+            ...(requestedMode === "vertical" ? { verticalClipDurationSeconds: resolvedVerticalClipDurationSeconds } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
           }),
@@ -1831,10 +2104,11 @@ const Editor = () => {
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount,
+      verticalClipDurationSeconds,
     });
     if (!ok) return;
     setIsVerticalBuilderHidden(true);
-  }, [handleFile, pendingVerticalFile, toast, verticalClipCount]);
+  }, [handleFile, pendingVerticalFile, toast, verticalClipCount, verticalClipDurationSeconds]);
 
   const handleReprocessCaptions = useCallback(async () => {
     if (!accessToken || !activeJob) return;
@@ -1851,6 +2125,12 @@ const Editor = () => {
     const captionsEnabledForJob = true;
     const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
     const verticalCaptionTextForJob = effectiveVerticalCaptionText;
+    const activeCaptionDefaults =
+      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const resolvedCaptionTextColor = normalizeCaptionHexColor(verticalCaptionTextColor, activeCaptionDefaults.textColor);
+    const resolvedCaptionOutlineColor = normalizeCaptionHexColor(verticalCaptionOutlineColor, activeCaptionDefaults.outlineColor);
+    const resolvedCaptionBoxColor = normalizeCaptionHexColor(verticalCaptionBoxColor, activeCaptionDefaults.boxColor);
+    const resolvedShadowStrength = Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX));
     const resolvedVerticalClipCount = Math.max(
       1,
       verticalClipCount || (Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls.length : 0) || 8,
@@ -1860,17 +2140,20 @@ const Editor = () => {
         ? {
             enabled: true,
             autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
-            preset: verticalCaptionPreset,
+            preset: VERTICAL_CAPTION_PRESET_TO_BACKEND[verticalCaptionPreset],
             text: verticalCaptionTextForJob,
-            fontId: verticalCaptionFontId,
+            fontId: VERTICAL_CAPTION_FONT_TO_BACKEND[verticalCaptionFontId],
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
-            outlineColor: normalizeCaptionHexColor(
-              verticalCaptionOutlineColor,
-              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-            ),
+            textColor: resolvedCaptionTextColor,
+            accentColor: activeCaptionDefaults.accentColor,
+            outlineColor: resolvedCaptionOutlineColor,
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            boxEnabled: verticalCaptionBoxEnabled,
+            boxColor: resolvedCaptionBoxColor,
             animation: verticalCaptionAnimation,
-            shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
+            shadowEnabled: resolvedShadowStrength > 0,
+            shadowBlur: Math.round((resolvedShadowStrength / 100) * 42),
+            shadowStrength: resolvedShadowStrength,
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
@@ -1892,6 +2175,7 @@ const Editor = () => {
           },
           ...(requestedMode === "vertical" ? { renderMode: "vertical" as const } : {}),
           ...(requestedMode === "vertical" ? { verticalClipCount: resolvedVerticalClipCount } : {}),
+          ...(requestedMode === "vertical" ? { verticalClipDurationSeconds } : {}),
           ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
           ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
         }),
@@ -1929,15 +2213,19 @@ const Editor = () => {
     selectedQuality,
     toast,
     verticalCaptionAnimation,
+    verticalCaptionBoxColor,
+    verticalCaptionBoxEnabled,
     verticalCaptionFontId,
     verticalCaptionFontSize,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
     verticalCaptionShadowStrength,
+    verticalCaptionTextColor,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     verticalCaptionPreset,
     verticalClipCount,
+    verticalClipDurationSeconds,
     useTranscriptForCaptions,
   ]);
 
@@ -2058,6 +2346,22 @@ const Editor = () => {
         .filter(Boolean);
       const clipUrls = Array.from(new Set(candidates));
 
+      if (activeJob.renderMode === "vertical" && clipUrls.length <= 1) {
+        const refreshed = await apiFetch<{ job: JobDetail }>(`/api/jobs/${activeJob.id}`, { token: accessToken });
+        if (refreshed?.job) {
+          setActiveJob((prev) => (prev ? { ...prev, ...refreshed.job } : prev));
+          const refreshedCandidates = [
+            ...(Array.isArray(refreshed.job.outputUrls) ? refreshed.job.outputUrls : []),
+            refreshed.job.outputUrl,
+          ]
+            .map((url) => (typeof url === "string" ? url.trim() : ""))
+            .filter(Boolean);
+          for (const url of refreshedCandidates) {
+            if (!clipUrls.includes(url)) clipUrls.push(url);
+          }
+        }
+      }
+
       if (clipUrls.length === 0) {
         const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url`, { token: accessToken });
         setActiveJob((prev) => (prev ? { ...prev, outputUrl: data.url } : prev));
@@ -2101,6 +2405,9 @@ const Editor = () => {
         : [],
     [activeJob?.outputUrls],
   );
+  const isVerticalActiveJob = activeJob?.renderMode === "vertical";
+  const showDownloadAllClips = Boolean(activeJob) && (isVerticalActiveJob || activeOutputUrls.length > 1);
+  const downloadAllClipCount = activeOutputUrls.length > 0 ? activeOutputUrls.length : 1;
   const previewOutputUrl = activeJob?.outputUrl || activeOutputUrls[0] || "";
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const optimizationHighlights = useMemo(() => {
@@ -2175,14 +2482,27 @@ const Editor = () => {
     }
     return normalized;
   }, [effectiveVerticalCaptionText, useTranscriptForCaptions]);
+  const activeCaptionDefaults =
+    VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
   const previewCaptionOutlineColor = normalizeCaptionHexColor(
     verticalCaptionOutlineColor,
-    VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+    activeCaptionDefaults.outlineColor,
+  );
+  const previewCaptionTextColor = normalizeCaptionHexColor(
+    verticalCaptionTextColor,
+    activeCaptionDefaults.textColor,
+  );
+  const previewCaptionBoxColor = normalizeCaptionHexColor(
+    verticalCaptionBoxColor,
+    activeCaptionDefaults.boxColor,
   );
   const previewCaptionTheme =
     VERTICAL_CAPTION_PREVIEW_THEMES[verticalCaptionPreset] ?? VERTICAL_CAPTION_PREVIEW_THEMES[DEFAULT_VERTICAL_CAPTION_STYLE];
   const previewCaptionShadowStrength = clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX) / 100;
-  const previewCaptionTextShadow = `${previewCaptionTheme.textShadow}, 0 ${Math.round(2 + previewCaptionShadowStrength * 8)}px ${
+  const previewCaptionBackground = verticalCaptionBoxEnabled ? `#${previewCaptionBoxColor}` : previewCaptionTheme.background;
+  const previewCaptionBorderColor = verticalCaptionBoxEnabled ? `#${previewCaptionBoxColor}` : previewCaptionTheme.borderColor;
+  const previewCaptionTextShadowBase = verticalCaptionBoxEnabled ? "0 2px 6px rgba(0, 0, 0, 0.65)" : previewCaptionTheme.textShadow;
+  const previewCaptionTextShadow = `${previewCaptionTextShadowBase}, 0 ${Math.round(2 + previewCaptionShadowStrength * 8)}px ${
     Math.round(8 + previewCaptionShadowStrength * 18)
   }px rgba(0, 0, 0, ${(0.35 + previewCaptionShadowStrength * 0.45).toFixed(2)})`;
   const previewCaptionBoxShadow = `${previewCaptionTheme.boxShadow}, 0 ${Math.round(6 + previewCaptionShadowStrength * 14)}px ${
@@ -3540,8 +3860,20 @@ const Editor = () => {
                             </button>
                           ))}
                         </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {VERTICAL_CLIP_DURATION_OPTIONS.map((seconds) => (
+                            <button
+                              key={seconds}
+                              type="button"
+                              className={verticalModeChipClass(verticalClipDurationSeconds === seconds)}
+                              onClick={() => setVerticalClipDurationSeconds(seconds)}
+                            >
+                              {seconds === 60 ? "1 minute" : "30 seconds"}
+                            </button>
+                          ))}
+                        </div>
                         <p className="vertical-mode-note text-[11px] text-muted-foreground">
-                          Choose how many ranked clips to generate in one render batch.
+                          Choose clip count plus max clip length. Vertical exports are capped to {verticalClipDurationSeconds === 60 ? "1 minute" : "30 seconds"} each.
                         </p>
                       </div>
 
@@ -3607,24 +3939,62 @@ const Editor = () => {
                                     </select>
                                   </label>
                                   <label className="space-y-1">
+                                    <span className="text-[11px] text-muted-foreground">Text color</span>
+                                    <input
+                                      type="color"
+                                      className="vertical-mode-select h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
+                                      value={`#${normalizeCaptionHexColor(verticalCaptionTextColor, activeCaptionDefaults.textColor)}`}
+                                      onChange={(event) =>
+                                        setVerticalCaptionTextColor(
+                                          normalizeCaptionHexColor(event.target.value, activeCaptionDefaults.textColor),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <label className="space-y-1">
                                     <span className="text-[11px] text-muted-foreground">Outline color</span>
                                     <input
                                       type="color"
                                       className="vertical-mode-select h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
                                       value={`#${normalizeCaptionHexColor(
                                         verticalCaptionOutlineColor,
-                                        VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                        activeCaptionDefaults.outlineColor,
                                       )}`}
                                       onChange={(event) =>
                                         setVerticalCaptionOutlineColor(
                                           normalizeCaptionHexColor(
                                             event.target.value,
-                                            VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                            activeCaptionDefaults.outlineColor,
                                           ),
                                         )
                                       }
                                     />
                                   </label>
+                                  <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-2 sm:col-span-2">
+                                    <label className="inline-flex items-center gap-2 text-[11px] text-foreground">
+                                      <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 accent-primary"
+                                        checked={verticalCaptionBoxEnabled}
+                                        onChange={(event) => setVerticalCaptionBoxEnabled(event.target.checked)}
+                                      />
+                                      Solid caption box around text
+                                    </label>
+                                    <label className="space-y-1 block">
+                                      <span className="text-[11px] text-muted-foreground">Box color</span>
+                                      <input
+                                        type="color"
+                                        className="vertical-mode-select h-9 w-full rounded-lg border border-border/50 bg-background/40 p-1 disabled:opacity-50"
+                                        value={`#${normalizeCaptionHexColor(verticalCaptionBoxColor, activeCaptionDefaults.boxColor)}`}
+                                        onChange={(event) =>
+                                          setVerticalCaptionBoxColor(
+                                            normalizeCaptionHexColor(event.target.value, activeCaptionDefaults.boxColor),
+                                          )
+                                        }
+                                        disabled={!verticalCaptionBoxEnabled}
+                                      />
+                                    </label>
+                                  </div>
                                   <label className="space-y-2 sm:col-span-2">
                                     <span className="text-[11px] text-muted-foreground">
                                       Outline width ({verticalCaptionOutlineWidth}px)
@@ -3847,9 +4217,9 @@ const Editor = () => {
                                     lineHeight: 1.12,
                                     whiteSpace: "pre-line",
                                     transform: "translate(-50%, -50%)",
-                                    color: previewCaptionTheme.textColor,
-                                    background: previewCaptionTheme.background,
-                                    borderColor: previewCaptionTheme.borderColor,
+                                    color: `#${previewCaptionTextColor}`,
+                                    background: previewCaptionBackground,
+                                    borderColor: previewCaptionBorderColor,
                                     boxShadow: previewCaptionBoxShadow,
                                     WebkitTextStroke:
                                       previewCaptionOutlinePx > 0
@@ -3886,7 +4256,7 @@ const Editor = () => {
                         <div>
                           <p className="vertical-mode-section-title text-xs font-medium text-foreground">Render Vertical Clips</p>
                           <p className="text-[11px] text-muted-foreground">
-                            Create {verticalClipCount} ranked short-form clips with the current caption settings.
+                            Create {verticalClipCount} ranked short-form clips (up to {verticalClipDurationSeconds === 60 ? "1 minute" : "30 seconds"} each) with the current caption settings.
                           </p>
                         </div>
                         <div className="flex flex-col gap-2">
@@ -4064,7 +4434,7 @@ const Editor = () => {
                           <Button size="sm" variant="outline" onClick={() => openVideoAnalysisWithFocus("retention")}>
                             Feedback Deep Dive
                           </Button>
-                          {activeOutputUrls.length > 1 ? (
+                          {showDownloadAllClips ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -4073,7 +4443,7 @@ const Editor = () => {
                               onClick={() => void handleDownloadAllClips()}
                             >
                               {downloadAllPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                              Download all clips
+                              Download all clips ({downloadAllClipCount})
                             </Button>
                           ) : null}
                           <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
@@ -4792,7 +5162,7 @@ const Editor = () => {
                 Feedback Deep Dive
               </Button>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                {activeOutputUrls.length > 1 ? (
+                {showDownloadAllClips ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -4806,7 +5176,7 @@ const Editor = () => {
                     }}
                   >
                     {downloadAllPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    All Clips ({activeOutputUrls.length})
+                    All Clips ({downloadAllClipCount})
                   </Button>
                 ) : null}
                 <Button
