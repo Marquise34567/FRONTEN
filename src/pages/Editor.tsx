@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
@@ -125,6 +125,39 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none" },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
+const DEFAULT_SUBTITLE_STYLE = "basic_clean";
+const VERTICAL_CAPTION_FONT_SIZE_MIN = 30;
+const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
+const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
+const VERTICAL_CAPTION_POSITION_MIN = 0.02;
+const VERTICAL_CAPTION_POSITION_MAX = 0.98;
+const VERTICAL_CAPTION_BOX_WIDTH_MIN = 35;
+const VERTICAL_CAPTION_BOX_WIDTH_MAX = 96;
+const VERTICAL_CAPTION_BOX_WIDTH_DEFAULT = 82;
+const CAPTION_PREVIEW_BASE_WIDTH = 1080;
+
+const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> = {
+  impact: '"Impact", "Arial Black", "Inter", sans-serif',
+  sans_bold: '"Inter", "Segoe UI", sans-serif',
+  condensed: '"Arial Narrow", "Inter", sans-serif',
+  serif_bold: '"Georgia", "Times New Roman", serif',
+  display_black: '"Poppins", "Space Grotesk", "Inter", sans-serif',
+  mono_bold: '"Consolas", "Roboto Mono", monospace',
+};
+
+type CaptionDragState = {
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+};
+
+type CaptionResizeState = {
+  startClientX: number;
+  startClientY: number;
+  startFontSize: number;
+  startBoxWidthPct: number;
+};
 
 type JobStatus =
   | "queued"
@@ -467,6 +500,30 @@ const truncateText = (value: string, max = 120) => {
   return `${value.slice(0, Math.max(0, max - 3))}...`;
 };
 
+const clampCaptionPosition = (value: number) =>
+  Number(clamp(value, VERTICAL_CAPTION_POSITION_MIN, VERTICAL_CAPTION_POSITION_MAX).toFixed(4));
+
+const extractTranscriptCueTexts = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      const item = asRecord(entry);
+      if (!item) return "";
+      const text = typeof item.text === "string" ? item.text.trim() : "";
+      return text;
+    })
+    .filter(Boolean)
+    .slice(0, 220);
+};
+
+const buildCaptionTextFromTranscriptLines = (lines: string[]) =>
+  normalizeVerticalCaptionTextForJob(
+    lines
+      .map((line) => String(line || "").trim())
+      .filter(Boolean)
+      .join("\n"),
+  );
+
 const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -805,6 +862,20 @@ const sameJobDetail = (prev: JobDetail | null, next: JobDetail | null) => {
 };
 
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
+const inferFileExtensionFromUrl = (url: string) => {
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    const pathname = parsed.pathname || "";
+    const dotIndex = pathname.lastIndexOf(".");
+    if (dotIndex >= 0) {
+      const ext = pathname.slice(dotIndex).toLowerCase();
+      if (/^\.[a-z0-9]{2,6}$/.test(ext)) return ext;
+    }
+  } catch {
+    // fallback below
+  }
+  return ".mp4";
+};
 
 const Editor = () => {
   const [isDragging, setIsDragging] = useState(false);
@@ -818,6 +889,7 @@ const Editor = () => {
   const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [downloadAllPending, setDownloadAllPending] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [analysisDetailFocus, setAnalysisDetailFocus] = useState<AnalysisDetailFocus>("retention");
   const [analysisExplorerTab, setAnalysisExplorerTab] = useState<AnalysisExplorerTab>("hooks");
@@ -851,8 +923,20 @@ const Editor = () => {
   const [verticalCaptionAnimation, setVerticalCaptionAnimation] = useState<VerticalCaptionAnimationOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
   );
+  const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState<number>(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
+  const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
+  const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
+  const [verticalCaptionBoxWidthPct, setVerticalCaptionBoxWidthPct] = useState<number>(VERTICAL_CAPTION_BOX_WIDTH_DEFAULT);
+  const [useTranscriptForCaptions, setUseTranscriptForCaptions] = useState<boolean>(true);
+  const [editableTranscriptText, setEditableTranscriptText] = useState<string>("");
+  const [transcriptSourceJobId, setTranscriptSourceJobId] = useState<string | null>(null);
+  const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
+  const verticalCaptionPreviewRef = useRef<HTMLDivElement | null>(null);
+  const [verticalPreviewFrameWidth, setVerticalPreviewFrameWidth] = useState<number>(360);
+  const [captionDragState, setCaptionDragState] = useState<CaptionDragState | null>(null);
+  const [captionResizeState, setCaptionResizeState] = useState<CaptionResizeState | null>(null);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -1154,6 +1238,104 @@ const Editor = () => {
     };
   }, [verticalPreviewUrl]);
 
+  const beginCaptionDrag = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCaptionDragState({
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: verticalCaptionPositionX,
+        startY: verticalCaptionPositionY,
+      });
+    },
+    [verticalCaptionPositionX, verticalCaptionPositionY],
+  );
+
+  const beginCaptionResize = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCaptionResizeState({
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startFontSize: verticalCaptionFontSize,
+        startBoxWidthPct: verticalCaptionBoxWidthPct,
+      });
+    },
+    [verticalCaptionBoxWidthPct, verticalCaptionFontSize],
+  );
+
+  const resetCaptionBoxPlacement = useCallback(() => {
+    setVerticalCaptionPositionX(0.5);
+    setVerticalCaptionPositionY(0.84);
+    setVerticalCaptionFontSize(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
+    setVerticalCaptionBoxWidthPct(VERTICAL_CAPTION_BOX_WIDTH_DEFAULT);
+  }, []);
+
+  useEffect(() => {
+    const target = verticalCaptionPreviewRef.current;
+    if (!target) return;
+    const update = () => setVerticalPreviewFrameWidth(Math.max(1, target.clientWidth || 1));
+    update();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(() => update());
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [verticalPreviewUrl]);
+
+  useEffect(() => {
+    if (!captionDragState) return;
+    const onMove = (event: PointerEvent) => {
+      const rect = verticalCaptionPreviewRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const deltaX = (event.clientX - captionDragState.startClientX) / rect.width;
+      const deltaY = (event.clientY - captionDragState.startClientY) / rect.height;
+      setVerticalCaptionPositionX(clampCaptionPosition(captionDragState.startX + deltaX));
+      setVerticalCaptionPositionY(clampCaptionPosition(captionDragState.startY + deltaY));
+    };
+    const onEnd = () => setCaptionDragState(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  }, [captionDragState]);
+
+  useEffect(() => {
+    if (!captionResizeState) return;
+    const onMove = (event: PointerEvent) => {
+      const rect = verticalCaptionPreviewRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const deltaY = captionResizeState.startClientY - event.clientY;
+      const deltaX = event.clientX - captionResizeState.startClientX;
+      setVerticalCaptionFontSize(
+        Math.round(clamp(captionResizeState.startFontSize + deltaY * 0.65, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
+      );
+      const widthDeltaPct = (deltaX / rect.width) * 100;
+      setVerticalCaptionBoxWidthPct(
+        clamp(captionResizeState.startBoxWidthPct + widthDeltaPct, VERTICAL_CAPTION_BOX_WIDTH_MIN, VERTICAL_CAPTION_BOX_WIDTH_MAX),
+      );
+    };
+    const onEnd = () => setCaptionResizeState(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  }, [captionResizeState]);
+
   useEffect(() => {
     if (!activeJob) return;
     setQualityByJob((prev) => {
@@ -1242,7 +1424,9 @@ const Editor = () => {
     }
     if (!accessToken) return;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
-    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const captionsEnabledForJob = true;
+    const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
+    const verticalCaptionTextForJob = effectiveVerticalCaptionText;
     const verticalCaptionsPayload =
       requestedMode === "vertical"
         ? {
@@ -1251,12 +1435,15 @@ const Editor = () => {
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
             fontId: verticalCaptionFontId,
+            fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
             outlineColor: normalizeCaptionHexColor(
               verticalCaptionOutlineColor,
               VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            positionX: clampCaptionPosition(verticalCaptionPositionX),
+            positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
         : null;
     if (maxRendersPerMonth !== null && maxRendersPerMonth !== undefined && (rendersRemaining ?? 0) <= 0) {
@@ -1276,6 +1463,13 @@ const Editor = () => {
             filename: file.name,
             contentType: file.type,
             renderMode: requestedMode,
+            autoCaptions: captionsEnabledForJob,
+            subtitleStyle: subtitleStyleForJob,
+            subtitles: {
+              enabled: captionsEnabledForJob,
+              preset: subtitleStyleForJob,
+              style: subtitleStyleForJob,
+            },
             ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
@@ -1425,6 +1619,13 @@ const Editor = () => {
           method: 'POST',
           body: JSON.stringify({
             key: create.inputPath,
+            autoCaptions: captionsEnabledForJob,
+            subtitleStyle: subtitleStyleForJob,
+            subtitles: {
+              enabled: captionsEnabledForJob,
+              preset: subtitleStyleForJob,
+              style: subtitleStyleForJob,
+            },
             ...(requestedMode === "vertical" ? { renderMode: "vertical" as const } : {}),
             ...(requestedMode === "vertical" ? { verticalClipCount: renderOptions?.verticalClipCount ?? verticalClipCount } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
@@ -1483,6 +1684,8 @@ const Editor = () => {
         toast({ title: "Unsupported file type", description: "Please upload an MP4 or MKV file." });
         return;
       }
+      setCaptionDragState(null);
+      setCaptionResizeState(null);
       setPendingVerticalFile(file);
       setVerticalPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -1503,6 +1706,108 @@ const Editor = () => {
     });
   }, [handleFile, pendingVerticalFile, toast, verticalClipCount]);
 
+  const handleReprocessCaptions = useCallback(async () => {
+    if (!accessToken || !activeJob) return;
+    const status = normalizeStatus(activeJob.status);
+    if (status !== "ready" && status !== "failed") {
+      toast({
+        title: "Job still processing",
+        description: "Wait for the current job to finish, then re-render with the updated captions.",
+      });
+      return;
+    }
+
+    const requestedMode = activeJob.renderMode === "vertical" ? "vertical" : "horizontal";
+    const captionsEnabledForJob = true;
+    const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
+    const verticalCaptionTextForJob = effectiveVerticalCaptionText;
+    const resolvedVerticalClipCount = Math.max(
+      1,
+      verticalClipCount || (Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls.length : 0) || 8,
+    );
+    const verticalCaptionsPayload =
+      requestedMode === "vertical"
+        ? {
+            enabled: true,
+            autoGenerate: verticalCaptionTextForJob.length === 0,
+            preset: verticalCaptionPreset,
+            text: verticalCaptionTextForJob,
+            fontId: verticalCaptionFontId,
+            fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
+            outlineColor: normalizeCaptionHexColor(
+              verticalCaptionOutlineColor,
+              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            animation: verticalCaptionAnimation,
+            positionX: clampCaptionPosition(verticalCaptionPositionX),
+            positionY: clampCaptionPosition(verticalCaptionPositionY),
+          }
+        : null;
+
+    setReprocessingJobId(activeJob.id);
+    try {
+      await apiFetch(`/api/jobs/${activeJob.id}/reprocess`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          requestedQuality: selectedQuality,
+          autoCaptions: captionsEnabledForJob,
+          subtitleStyle: subtitleStyleForJob,
+          subtitles: {
+            enabled: captionsEnabledForJob,
+            preset: subtitleStyleForJob,
+            style: subtitleStyleForJob,
+          },
+          ...(requestedMode === "vertical" ? { renderMode: "vertical" as const } : {}),
+          ...(requestedMode === "vertical" ? { verticalClipCount: resolvedVerticalClipCount } : {}),
+          ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
+          ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
+        }),
+      });
+
+      setJobs((prev) => prev.map((job) => (job.id === activeJob.id ? { ...job, status: "queued", progress: 1 } : job)));
+      setActiveJob((prev) => {
+        if (!prev || prev.id !== activeJob.id) return prev;
+        return {
+          ...prev,
+          status: "queued",
+          progress: 1,
+          error: null,
+          outputUrl: null,
+          outputUrls: null,
+        };
+      });
+      await Promise.allSettled([fetchJobs(), fetchJob(activeJob.id), refetchMe()]);
+      toast({
+        title: "Re-render queued",
+        description: "Updated transcript and caption layout will be applied to the next render.",
+      });
+    } catch (err: any) {
+      toast({ title: "Re-render failed", description: err?.message || "Please try again." });
+    } finally {
+      setReprocessingJobId((current) => (current === activeJob.id ? null : current));
+    }
+  }, [
+    accessToken,
+    activeJob,
+    effectiveVerticalCaptionText,
+    fetchJob,
+    fetchJobs,
+    refetchMe,
+    selectedQuality,
+    toast,
+    verticalCaptionAnimation,
+    verticalCaptionFontId,
+    verticalCaptionFontSize,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionPositionX,
+    verticalCaptionPositionY,
+    verticalCaptionPreset,
+    verticalClipCount,
+  ]);
+
   const handlePickFile = () => fileInputRef.current?.click();
 
   const handleDrop = (event: React.DragEvent) => {
@@ -1522,6 +1827,8 @@ const Editor = () => {
     if (isVerticalMode) {
       next.delete("mode");
       setPendingVerticalFile(null);
+      setCaptionDragState(null);
+      setCaptionResizeState(null);
       setVerticalPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
@@ -1568,6 +1875,21 @@ const Editor = () => {
     [],
   );
 
+  const triggerUrlDownload = (url: string, fileName?: string) => {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    if (fileName) anchor.download = fileName;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    try {
+      anchor.click();
+    } finally {
+      document.body.removeChild(anchor);
+    }
+  };
+
   const handleDownload = async () => {
     if (!accessToken || !activeJob) return false;
     try {
@@ -1576,16 +1898,59 @@ const Editor = () => {
         (Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls.find((url) => typeof url === "string" && url.trim()) : null) ||
         null;
       if (existing) {
-        window.open(existing, "_blank");
+        const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "render";
+        triggerUrlDownload(existing, `${baseName}${inferFileExtensionFromUrl(existing)}`);
         return true;
       }
       const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url`, { token: accessToken });
       setActiveJob((prev) => (prev ? { ...prev, outputUrl: data.url } : prev));
-      window.open(data.url, "_blank");
+      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "render";
+      triggerUrlDownload(data.url, `${baseName}${inferFileExtensionFromUrl(data.url)}`);
       return true;
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
       return false;
+    }
+  };
+
+  const handleDownloadAllClips = async () => {
+    if (!accessToken || !activeJob || downloadAllPending) return false;
+    setDownloadAllPending(true);
+    try {
+      const candidates = [
+        ...(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : []),
+        activeJob.outputUrl,
+      ]
+        .map((url) => (typeof url === "string" ? url.trim() : ""))
+        .filter(Boolean);
+      const clipUrls = Array.from(new Set(candidates));
+
+      if (clipUrls.length === 0) {
+        const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/output-url`, { token: accessToken });
+        setActiveJob((prev) => (prev ? { ...prev, outputUrl: data.url } : prev));
+        clipUrls.push(data.url);
+      }
+
+      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "render";
+      const total = clipUrls.length;
+      clipUrls.forEach((url, index) => {
+        const suffix = total > 1 ? `-clip-${String(index + 1).padStart(2, "0")}` : "";
+        const fileName = `${baseName}${suffix}${inferFileExtensionFromUrl(url)}`;
+        window.setTimeout(() => {
+          triggerUrlDownload(url, fileName);
+        }, index * 220);
+      });
+
+      toast({
+        title: "Downloads started",
+        description: `Started download for ${total} clip${total === 1 ? "" : "s"}.`,
+      });
+      return true;
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err?.message || "Please try again." });
+      return false;
+    } finally {
+      setDownloadAllPending(false);
     }
   };
 
@@ -1617,6 +1982,70 @@ const Editor = () => {
     activeJob && (activeJob as any).retention && typeof (activeJob as any).retention === "object"
       ? ((activeJob as any).retention as Record<string, unknown>)
       : null;
+  const activeTranscriptCueTexts = useMemo(() => {
+    const transcriptSource =
+      activeAnalysis?.transcript_cues ||
+      activeAnalysis?.transcriptCues ||
+      activeAnalysis?.transcript ||
+      activeAnalysis?.captions ||
+      activeAnalysis?.subtitle_cues ||
+      [];
+    return extractTranscriptCueTexts(transcriptSource);
+  }, [activeAnalysis]);
+  const activeTranscriptLineCount = activeTranscriptCueTexts.length;
+
+  useEffect(() => {
+    const jobId = activeJob?.id ?? null;
+    if (!jobId) {
+      setEditableTranscriptText("");
+      setTranscriptSourceJobId(null);
+      return;
+    }
+    if (
+      transcriptSourceJobId !== jobId ||
+      (!editableTranscriptText.trim() && activeTranscriptCueTexts.length > 0)
+    ) {
+      setEditableTranscriptText(activeTranscriptCueTexts.join("\n"));
+      setTranscriptSourceJobId(jobId);
+    }
+  }, [activeJob?.id, activeTranscriptCueTexts, editableTranscriptText, transcriptSourceJobId]);
+
+  const transcriptCaptionTextForJob = useMemo(
+    () => buildCaptionTextFromTranscriptLines(editableTranscriptText.split(/\r?\n/g)),
+    [editableTranscriptText],
+  );
+  const manualCaptionTextForJob = useMemo(
+    () => normalizeVerticalCaptionTextForJob(verticalCaptionText),
+    [verticalCaptionText],
+  );
+  const effectiveVerticalCaptionText = useMemo(() => {
+    if (useTranscriptForCaptions && transcriptCaptionTextForJob.length > 0) {
+      return transcriptCaptionTextForJob;
+    }
+    return manualCaptionTextForJob;
+  }, [manualCaptionTextForJob, transcriptCaptionTextForJob, useTranscriptForCaptions]);
+  const verticalCaptionPreviewScale = useMemo(
+    () => clamp(verticalPreviewFrameWidth / CAPTION_PREVIEW_BASE_WIDTH, 0.18, 1),
+    [verticalPreviewFrameWidth],
+  );
+  const previewCaptionFontSizePx = Math.round(verticalCaptionFontSize * verticalCaptionPreviewScale);
+  const previewCaptionOutlinePx = Math.round(verticalCaptionOutlineWidth * verticalCaptionPreviewScale);
+  const previewCaptionText = useMemo(() => {
+    const normalized = normalizeVerticalCaptionTextForJob(effectiveVerticalCaptionText);
+    if (!normalized) return "Auto captions preview";
+    if (useTranscriptForCaptions) {
+      const firstLine = normalized
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .find(Boolean);
+      return firstLine || "Auto captions preview";
+    }
+    return normalized;
+  }, [effectiveVerticalCaptionText, useTranscriptForCaptions]);
+  const previewCaptionOutlineColor = normalizeCaptionHexColor(
+    verticalCaptionOutlineColor,
+    VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+  );
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
     activeAnalysis?.framesAnalyzed,
@@ -3032,29 +3461,191 @@ const Editor = () => {
                       />
                       <span className="text-[10px] text-muted-foreground">Set to 0 for no outline.</span>
                     </label>
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-[11px] text-muted-foreground">Caption size ({Math.round(verticalCaptionFontSize)}px)</span>
+                      <input
+                        type="range"
+                        min={VERTICAL_CAPTION_FONT_SIZE_MIN}
+                        max={VERTICAL_CAPTION_FONT_SIZE_MAX}
+                        step={1}
+                        value={verticalCaptionFontSize}
+                        onChange={(event) =>
+                          setVerticalCaptionFontSize(
+                            Math.round(clamp(Number(event.target.value), VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
+                          )
+                        }
+                        className="w-full accent-primary"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">
+                        Position X ({Math.round(verticalCaptionPositionX * 100)}%)
+                      </span>
+                      <input
+                        type="range"
+                        min={VERTICAL_CAPTION_POSITION_MIN}
+                        max={VERTICAL_CAPTION_POSITION_MAX}
+                        step={0.01}
+                        value={verticalCaptionPositionX}
+                        onChange={(event) => setVerticalCaptionPositionX(clampCaptionPosition(Number(event.target.value)))}
+                        className="w-full accent-primary"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-muted-foreground">
+                        Position Y ({Math.round(verticalCaptionPositionY * 100)}%)
+                      </span>
+                      <input
+                        type="range"
+                        min={VERTICAL_CAPTION_POSITION_MIN}
+                        max={VERTICAL_CAPTION_POSITION_MAX}
+                        step={0.01}
+                        value={verticalCaptionPositionY}
+                        onChange={(event) => setVerticalCaptionPositionY(clampCaptionPosition(Number(event.target.value)))}
+                        className="w-full accent-primary"
+                      />
+                    </label>
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-[11px] text-muted-foreground">
+                        Caption box width ({Math.round(verticalCaptionBoxWidthPct)}%)
+                      </span>
+                      <input
+                        type="range"
+                        min={VERTICAL_CAPTION_BOX_WIDTH_MIN}
+                        max={VERTICAL_CAPTION_BOX_WIDTH_MAX}
+                        step={1}
+                        value={verticalCaptionBoxWidthPct}
+                        onChange={(event) =>
+                          setVerticalCaptionBoxWidthPct(
+                            clamp(Number(event.target.value), VERTICAL_CAPTION_BOX_WIDTH_MIN, VERTICAL_CAPTION_BOX_WIDTH_MAX),
+                          )
+                        }
+                        className="w-full accent-primary"
+                      />
+                    </label>
+                    <div className="md:col-span-2 flex items-center justify-end">
+                      <Button type="button" variant="outline" size="sm" onClick={resetCaptionBoxPlacement}>
+                        Reset caption box
+                      </Button>
+                    </div>
                   </div>
 
                   <label className="space-y-1 block">
                     <span className="text-[11px] text-muted-foreground">Custom caption text (optional)</span>
                     <textarea
                       value={verticalCaptionText}
-                      onChange={(event) => setVerticalCaptionText(event.target.value)}
+                      onChange={(event) => {
+                        setVerticalCaptionText(event.target.value);
+                        if (event.target.value.trim().length > 0) setUseTranscriptForCaptions(false);
+                      }}
                       placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
                       className="min-h-[96px] w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground"
                     />
                   </label>
 
+                  <div className="rounded-xl border border-border/60 bg-muted/10 p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium text-foreground">AI Transcript (selected job)</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Transcript lines: {activeTranscriptLineCount}. Captions are generated from this transcript by default.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditableTranscriptText(activeTranscriptCueTexts.join("\n"))}
+                        disabled={activeTranscriptLineCount === 0}
+                      >
+                        Reset transcript text
+                      </Button>
+                    </div>
+                    <textarea
+                      value={editableTranscriptText}
+                      onChange={(event) => {
+                        setEditableTranscriptText(event.target.value);
+                        setUseTranscriptForCaptions(true);
+                      }}
+                      placeholder="Transcript appears here after analysis. Edit lines, then render again."
+                      className="min-h-[120px] w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-[11px] text-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-primary"
+                          checked={useTranscriptForCaptions}
+                          onChange={(event) => setUseTranscriptForCaptions(event.target.checked)}
+                        />
+                        Use transcript as caption source
+                      </label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setVerticalCaptionText(editableTranscriptText);
+                          setUseTranscriptForCaptions(false);
+                        }}
+                        disabled={!editableTranscriptText.trim()}
+                      >
+                        Copy transcript to custom text
+                      </Button>
+                    </div>
+                    {activeTranscriptLineCount === 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Transcript appears after the backend finishes analysis for a job.
+                      </p>
+                    )}
+                  </div>
+
                   {!verticalPreviewUrl ? (
                     <p className="text-xs text-muted-foreground">Upload a file to prepare a vertical render.</p>
                   ) : (
                     <div className="space-y-3">
-                      <div className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80">
+                      <div
+                        ref={verticalCaptionPreviewRef}
+                        className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80"
+                      >
                         <video src={verticalPreviewUrl} controls className="w-full max-h-[380px] object-contain" />
+                        <div className="pointer-events-none absolute inset-0">
+                          <div
+                            className="pointer-events-auto absolute z-20 cursor-move rounded-lg border border-white/55 bg-black/28 px-3 py-2 text-center font-black tracking-[0.02em] text-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.85)]"
+                            style={{
+                              left: `${verticalCaptionPositionX * 100}%`,
+                              top: `${verticalCaptionPositionY * 100}%`,
+                              maxWidth: `${verticalCaptionBoxWidthPct}%`,
+                              fontFamily: VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId],
+                              fontSize: `${Math.max(12, previewCaptionFontSizePx)}px`,
+                              lineHeight: 1.12,
+                              whiteSpace: "pre-line",
+                              transform: "translate(-50%, -50%)",
+                              WebkitTextStroke:
+                                previewCaptionOutlinePx > 0
+                                  ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
+                                  : "0px transparent",
+                              textShadow:
+                                previewCaptionOutlinePx > 0
+                                  ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35)`
+                                  : "none",
+                            }}
+                            onPointerDown={beginCaptionDrag}
+                          >
+                            {previewCaptionText}
+                            <button
+                              type="button"
+                              className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
+                              onPointerDown={beginCaptionResize}
+                              aria-label="Resize caption box"
+                            />
+                          </div>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                           <MousePointerClick className="w-3.5 h-3.5" />
-                          Vertical style: {VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === verticalCaptionPreset)?.label}
+                          Drag the caption box to move it. Use the corner handle or sliders to resize.
                         </p>
                         <Button
                           type="button"
@@ -3065,6 +3656,26 @@ const Editor = () => {
                           <ScissorsSquare className="w-4 h-4" />
                           Create Vertical Clips
                         </Button>
+                        {activeJob?.renderMode === "vertical" && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2"
+                            disabled={
+                              !!reprocessingJobId ||
+                              !activeJob ||
+                              (normalizeStatus(activeJob.status) !== "ready" && normalizeStatus(activeJob.status) !== "failed")
+                            }
+                            onClick={handleReprocessCaptions}
+                          >
+                            {reprocessingJobId === activeJob.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ScissorsSquare className="h-4 w-4" />
+                            )}
+                            Re-render Captions
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -3209,6 +3820,18 @@ const Editor = () => {
                           <Button size="sm" variant="outline" onClick={() => openVideoAnalysisWithFocus("retention")}>
                             Feedback Deep Dive
                           </Button>
+                          {activeOutputUrls.length > 1 ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-2"
+                              disabled={downloadAllPending}
+                              onClick={() => void handleDownloadAllClips()}
+                            >
+                              {downloadAllPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                              Download all clips
+                            </Button>
+                          ) : null}
                           <Button size="sm" className="gap-2" onClick={() => setExportOpen(true)}>
                             <Download className="w-4 h-4" /> Open Export
                           </Button>
@@ -3924,17 +4547,36 @@ const Editor = () => {
               >
                 Feedback Deep Dive
               </Button>
-              <Button
-                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
-                onClick={async () => {
-                  const didStartDownload = await handleDownload();
-                  if (didStartDownload) {
-                    setExportOpen(false);
-                  }
-                }}
-              >
-                <Download className="w-4 h-4" /> Final MP4
-              </Button>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                {activeOutputUrls.length > 1 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2 sm:w-auto"
+                    disabled={downloadAllPending}
+                    onClick={async () => {
+                      const didStartDownload = await handleDownloadAllClips();
+                      if (didStartDownload) {
+                        setExportOpen(false);
+                      }
+                    }}
+                  >
+                    {downloadAllPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    All Clips ({activeOutputUrls.length})
+                  </Button>
+                ) : null}
+                <Button
+                  className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                  onClick={async () => {
+                    const didStartDownload = await handleDownload();
+                    if (didStartDownload) {
+                      setExportOpen(false);
+                    }
+                  }}
+                >
+                  <Download className="w-4 h-4" /> Final MP4
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
