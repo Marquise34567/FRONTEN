@@ -346,6 +346,73 @@ const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, Vertical
   instagram_reels: "bold_clean_box",
   youtube: "cinema_punch",
 };
+const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> = {
+  impact: '"Impact", "Arial Black", "Inter", sans-serif',
+  sans_bold: '"Inter", "Segoe UI", sans-serif',
+  condensed: '"Arial Narrow", "Inter", sans-serif',
+  serif_bold: '"Georgia", "Times New Roman", serif',
+  display_black: '"Poppins", "Space Grotesk", "Inter", sans-serif',
+  mono_bold: '"Consolas", "Roboto Mono", monospace',
+};
+const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
+  VerticalCaptionPresetOptionId,
+  { textColor: string; boxColor: string; borderColor: string; glowColor: string }
+> = {
+  basic_clean: {
+    textColor: "#F8FAFC",
+    boxColor: "rgba(2, 6, 23, 0.5)",
+    borderColor: "rgba(255, 255, 255, 0.36)",
+    glowColor: "rgba(15, 23, 42, 0.5)",
+  },
+  mrbeast_animated: {
+    textColor: "#FFFFFF",
+    boxColor: "rgba(161, 98, 7, 0.32)",
+    borderColor: "rgba(251, 191, 36, 0.8)",
+    glowColor: "rgba(251, 191, 36, 0.44)",
+  },
+  neon_glow: {
+    textColor: "#67E8F9",
+    boxColor: "rgba(17, 24, 39, 0.64)",
+    borderColor: "rgba(34, 211, 238, 0.72)",
+    glowColor: "rgba(34, 211, 238, 0.46)",
+  },
+  bold_clean_box: {
+    textColor: "#FFFFFF",
+    boxColor: "rgba(0, 0, 0, 0.72)",
+    borderColor: "rgba(248, 250, 252, 0.8)",
+    glowColor: "rgba(15, 23, 42, 0.42)",
+  },
+  rage_mode: {
+    textColor: "#FDE68A",
+    boxColor: "rgba(127, 29, 29, 0.56)",
+    borderColor: "rgba(251, 191, 36, 0.82)",
+    glowColor: "rgba(251, 146, 60, 0.52)",
+  },
+  ice_pop: {
+    textColor: "#E0F2FE",
+    boxColor: "rgba(12, 74, 110, 0.56)",
+    borderColor: "rgba(125, 211, 252, 0.75)",
+    glowColor: "rgba(56, 189, 248, 0.5)",
+  },
+  retro_wave: {
+    textColor: "#F5D0FE",
+    boxColor: "rgba(88, 28, 135, 0.55)",
+    borderColor: "rgba(244, 114, 182, 0.72)",
+    glowColor: "rgba(236, 72, 153, 0.5)",
+  },
+  glitch_pop: {
+    textColor: "#E5E7EB",
+    boxColor: "rgba(15, 23, 42, 0.74)",
+    borderColor: "rgba(148, 163, 184, 0.72)",
+    glowColor: "rgba(129, 140, 248, 0.44)",
+  },
+  cinema_punch: {
+    textColor: "#FFFBEB",
+    boxColor: "rgba(120, 53, 15, 0.56)",
+    borderColor: "rgba(253, 230, 138, 0.78)",
+    glowColor: "rgba(251, 191, 36, 0.4)",
+  },
+};
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
 const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
@@ -3459,6 +3526,16 @@ const Editor = () => {
     const bottomHeight = canvasHeight - topHeight;
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
+    const captionPalette =
+      VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const captionOutlineColor = normalizeCaptionHexColor(
+      verticalCaptionOutlineColor,
+      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "0F172A",
+    );
+    const captionFontFamily = VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId] ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
+    const captionRawText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const captionTextForPreview = captionRawText || "Auto captions preview";
 
     const drawVideoRegion = (
       src: WebcamCrop,
@@ -3500,6 +3577,51 @@ const Editor = () => {
       }
       ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
     };
+    const drawRoundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
+      const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + width - r, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+      ctx.lineTo(x + width, y + height - r);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      ctx.lineTo(x + r, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    };
+    const wrapCaptionText = (text: string, maxWidth: number, maxLines: number) => {
+      const tokens = text
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .filter(Boolean);
+      if (tokens.length === 0) return [];
+      const lines: string[] = [];
+      let current = tokens[0];
+      for (let i = 1; i < tokens.length; i += 1) {
+        const token = tokens[i];
+        const candidate = `${current} ${token}`;
+        if (ctx.measureText(candidate).width <= maxWidth) {
+          current = candidate;
+          continue;
+        }
+        lines.push(current);
+        current = token;
+        if (lines.length >= maxLines - 1) {
+          const remaining = [current, ...tokens.slice(i + 1)].join(" ");
+          let clipped = remaining;
+          while (clipped.length > 1 && ctx.measureText(`${clipped}...`).width > maxWidth) {
+            clipped = clipped.slice(0, -1);
+          }
+          lines.push(clipped.length < remaining.length ? `${clipped}...` : clipped);
+          return lines;
+        }
+      }
+      lines.push(current);
+      return lines.slice(0, maxLines);
+    };
 
     let raf = 0;
     const render = () => {
@@ -3530,6 +3652,77 @@ const Editor = () => {
           ctx.lineTo(canvasWidth, topHeight + 0.5);
           ctx.stroke();
         }
+
+        if (autoCaptionsEnabled) {
+          const now = performance.now();
+          let animationScale = 1;
+          let animationYOffset = 0;
+          let animationOpacity = 1;
+          if (verticalCaptionAnimation === "pop") {
+            animationScale = 1 + Math.sin(now / 190) * 0.03;
+          } else if (verticalCaptionAnimation === "slide") {
+            animationYOffset = Math.sin(now / 440) * 4;
+          } else if (verticalCaptionAnimation === "fade") {
+            animationOpacity = 0.76 + Math.abs(Math.sin(now / 460)) * 0.24;
+          } else if (verticalCaptionAnimation === "bounce") {
+            animationYOffset = -Math.abs(Math.sin(now / 210)) * 7;
+          } else if (verticalCaptionAnimation === "glitch") {
+            animationScale = 1 + Math.sin(now / 120) * 0.01;
+          }
+
+          const baseFontPx = Math.round((singleLayout ? canvasHeight : bottomHeight) * 0.115);
+          const fontPx = clamp(baseFontPx, 20, 62);
+          const outlinePx = Math.max(0, Math.round(verticalCaptionOutlineWidth * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width)));
+          const centerY = singleLayout ? canvasHeight * 0.82 : topHeight + bottomHeight * 0.74;
+          const maxTextWidth = canvasWidth * 0.82;
+
+          ctx.save();
+          ctx.globalAlpha = animationOpacity;
+          ctx.translate(canvasWidth / 2, centerY + animationYOffset);
+          ctx.scale(animationScale, animationScale);
+          ctx.font = `900 ${fontPx}px ${captionFontFamily}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          const lines = wrapCaptionText(captionTextForPreview, maxTextWidth, 3);
+          if (lines.length > 0) {
+            const lineHeight = Math.round(fontPx * 1.08);
+            const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
+            const boxWidth = Math.min(maxTextWidth, blockTextWidth + fontPx * 0.92);
+            const boxHeight = lineHeight * lines.length + fontPx * 0.72;
+            const boxX = -boxWidth / 2;
+            const boxY = -boxHeight / 2;
+            drawRoundedRect(boxX, boxY, boxWidth, boxHeight, Math.max(10, Math.round(fontPx * 0.22)));
+            ctx.fillStyle = captionPalette.boxColor;
+            ctx.fill();
+            ctx.lineWidth = Math.max(1, outlinePx * 0.45);
+            ctx.strokeStyle = captionPalette.borderColor;
+            ctx.stroke();
+
+            ctx.shadowColor = captionPalette.glowColor;
+            ctx.shadowBlur = Math.round(fontPx * 0.24);
+            const centerOffset = ((lines.length - 1) * lineHeight) / 2;
+            for (let idx = 0; idx < lines.length; idx += 1) {
+              const line = lines[idx];
+              const y = idx * lineHeight - centerOffset;
+              if (outlinePx > 0) {
+                ctx.strokeStyle = `#${captionOutlineColor}`;
+                ctx.lineWidth = outlinePx;
+                ctx.lineJoin = "round";
+                ctx.strokeText(line, 0, y);
+              }
+              ctx.fillStyle = captionPalette.textColor;
+              ctx.fillText(line, 0, y);
+              if (verticalCaptionAnimation === "glitch") {
+                ctx.fillStyle = "rgba(255, 0, 120, 0.42)";
+                ctx.fillText(line, -1.5, y);
+                ctx.fillStyle = "rgba(0, 255, 255, 0.42)";
+                ctx.fillText(line, 1.5, y);
+              }
+            }
+          }
+          ctx.restore();
+        }
       }
       raf = window.requestAnimationFrame(render);
     };
@@ -3544,7 +3737,21 @@ const Editor = () => {
     return () => {
       window.cancelAnimationFrame(raf);
     };
-  }, [verticalPreviewUrl, sourceVideoMeta, effectiveWebcamCrop, bottomFitMode, topHeightPx, skipManualWebcamCrop]);
+  }, [
+    verticalPreviewUrl,
+    sourceVideoMeta,
+    effectiveWebcamCrop,
+    bottomFitMode,
+    topHeightPx,
+    skipManualWebcamCrop,
+    autoCaptionsEnabled,
+    verticalCaptionAnimation,
+    verticalCaptionFontId,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionPreset,
+    verticalCaptionText,
+  ]);
 
   const startVerticalRender = async () => {
     if (!pendingVerticalFile) {
