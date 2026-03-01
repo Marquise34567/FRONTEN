@@ -525,6 +525,114 @@
     backdrop-filter: blur(12px);
   }
 
+  .vertical-mode-step-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid hsl(var(--primary) / 0.34);
+    border-radius: 999px;
+    padding: 0.18rem 0.58rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+  }
+
+  .vertical-mode-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .vertical-mode-kpi {
+    border: 1px solid hsl(var(--border) / 0.62);
+    border-radius: 0.75rem;
+    padding: 0.45rem 0.6rem;
+    background: linear-gradient(145deg, hsl(var(--card) / 0.72), hsl(var(--card) / 0.5));
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.05);
+  }
+
+  .vertical-mode-kpi-label {
+    display: block;
+    font-size: 0.62rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .vertical-mode-kpi-value {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+
+  .vertical-mode-selection-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .vertical-mode-selection-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.22rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border) / 0.62);
+    background: hsl(var(--background) / 0.42);
+    font-size: 0.64rem;
+    color: hsl(var(--foreground) / 0.9);
+  }
+
+  .vertical-mode-quick-style-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  @media (min-width: 640px) {
+    .vertical-mode-quick-style-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .vertical-mode-quick-style {
+    text-align: left;
+    border: 1px solid hsl(var(--border) / 0.62);
+    border-radius: 0.72rem;
+    padding: 0.46rem 0.52rem;
+    background: linear-gradient(150deg, hsl(var(--card) / 0.66), hsl(var(--card) / 0.44));
+    transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+  }
+
+  .vertical-mode-quick-style:hover {
+    border-color: hsl(var(--primary) / 0.52);
+    background: linear-gradient(150deg, hsl(var(--primary) / 0.18), hsl(var(--card) / 0.48));
+    transform: translateY(-1px);
+  }
+
+  .vertical-mode-quick-style.is-active {
+    border-color: hsl(var(--primary) / 0.64);
+    background: linear-gradient(150deg, hsl(var(--primary) / 0.24), hsl(var(--card) / 0.5));
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.24);
+  }
+
+  .vertical-mode-quick-style-name {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+
+  .vertical-mode-quick-style-desc {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.62rem;
+    line-height: 1.25;
+    color: hsl(var(--muted-foreground));
+  }
+
   .vertical-mode-source-preview {
     box-shadow:
       inset 0 1px 0 hsl(var(--foreground) / 0.08),
@@ -605,58 +713,24 @@
     border-color: hsl(var(--border) / 0.62);
     background: hsl(var(--card) / 0.54);
     box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.04);
-    /* Make the caption textarea compact (small but enough for a sentence).
-       Aggressively override Tailwind utilities like `flex` and `w-full`. */
     box-sizing: border-box;
-    max-width: 360px !important;
-    min-width: 160px;
-  }
-
-  /* Stronger override targeting the actual textarea element to neutralize `flex`/`w-full`. */
-  textarea.vertical-mode-textarea {
-    display: inline-block !important;
-    flex: none !important;
-    width: auto !important;
-    max-width: 360px !important;
-    min-width: 160px !important;
-  }
-
-  /* Constrain the vertical builder card so it appears smaller on wide screens
-     but remains full-width on small screens. */
-  .vertical-mode-shell {
-    box-sizing: border-box;
-    width: 100%;
-    max-width: 640px;
-    margin-left: auto;
-    margin-right: auto;
-    padding: 1rem; /* reduce outer shell padding */
-  }
-
-  .vertical-mode-panel {
-    box-sizing: border-box;
-    width: 100%;
-    max-width: 560px;
-  }
-
-  /* Make the panel narrower on medium+ screens and keep it full-width on small screens */
-  @media (min-width: 640px) {
-    .vertical-mode-panel {
-      max-width: 360px;
-      margin-left: 0;
-      margin-right: 0;
-    }
-  }
-
-  /* Ensure the textarea fills the constrained panel width */
-  .vertical-mode-panel textarea.vertical-mode-textarea {
     width: 100% !important;
+    min-width: 0;
+    max-width: none !important;
+    display: block !important;
+    flex: 1 1 auto !important;
+  }
+
+  textarea.vertical-mode-textarea {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
     display: block !important;
     box-sizing: border-box !important;
   }
 
-  /* Reduce default textarea min-height inside the panel so the card is shorter */
   .vertical-mode-panel textarea.vertical-mode-textarea {
-    min-height: 56px !important;
+    min-height: 92px !important;
     height: auto !important;
     padding-top: 0.5rem !important;
     padding-bottom: 0.5rem !important;

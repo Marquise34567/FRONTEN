@@ -87,7 +87,11 @@ type VerticalCaptionPresetOptionId =
   | "story_pop"
   | "street_block"
   | "clean_solid"
-  | "aqua_burst";
+  | "aqua_burst"
+  | "midnight_chrome"
+  | "sunset_flash"
+  | "newsroom_clean"
+  | "mint_pop";
 type VerticalCaptionFontOptionId =
   | "impact"
   | "sans_bold"
@@ -98,7 +102,11 @@ type VerticalCaptionFontOptionId =
   | "poster_bold"
   | "grotesk_tight"
   | "street_sans"
-  | "classic_serif";
+  | "classic_serif"
+  | "league_spartan"
+  | "archivo_black"
+  | "dm_serif"
+  | "rubik_mono";
 type BackendVerticalCaptionPresetId =
   | "basic_clean"
   | "mrbeast_animated"
@@ -124,13 +132,17 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{ id: VerticalCaptionPresetOptionId;
   { id: "rage_mode", label: "TikTok Punch", description: "High-energy caption look for TikTok pacing." },
   { id: "street_block", label: "Street Block", description: "Hard solid caption block with thick outline." },
   { id: "clean_solid", label: "Solid Caption Box", description: "Full solid-color caption container for max readability." },
+  { id: "midnight_chrome", label: "Midnight Chrome", description: "Premium dark chrome subtitles for polished edits." },
   { id: "bold_clean_box", label: "IG Reels Clean", description: "Readable box caption style for Reels." },
+  { id: "sunset_flash", label: "Sunset Flash", description: "Warm high-contrast captions for emotional hooks." },
   { id: "cinema_punch", label: "YouTube Shorts Bold", description: "High-contrast Shorts-style captions." },
+  { id: "newsroom_clean", label: "Newsroom Clean", description: "Authority-first lower-third style captioning." },
   { id: "mrbeast_animated", label: "Creator Hype", description: "Punchy pop captions with big outlines." },
   { id: "story_pop", label: "Story Pop", description: "Soft creator captions for story-style edits." },
   { id: "basic_clean", label: "Minimal", description: "Simple clean subtitles with subtle outline." },
   { id: "neon_glow", label: "Neon Glow", description: "Stylized neon look for energetic edits." },
   { id: "aqua_burst", label: "Aqua Burst", description: "Bright cyan style for energetic short clips." },
+  { id: "mint_pop", label: "Mint Pop", description: "Clean mint-accent style for crisp narration clips." },
   { id: "ice_pop", label: "Ice Pop", description: "Cool-blue pop style." },
   { id: "retro_wave", label: "Retro Wave", description: "Retro colorful caption style." },
   { id: "glitch_pop", label: "Glitch Pop", description: "Glitch-style captions for high motion clips." },
@@ -147,6 +159,10 @@ const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; la
   { id: "grotesk_tight", label: "Grotesk Tight" },
   { id: "street_sans", label: "Street Sans" },
   { id: "classic_serif", label: "Classic Serif" },
+  { id: "league_spartan", label: "League Spartan" },
+  { id: "archivo_black", label: "Archivo Black" },
+  { id: "dm_serif", label: "DM Serif" },
+  { id: "rubik_mono", label: "Rubik Mono" },
 ];
 const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOptionId; label: string }> = [
   { id: "none", label: "Static" },
@@ -158,6 +174,7 @@ const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOp
 ];
 const VERTICAL_CLIP_DURATION_OPTIONS: VerticalClipDurationOption[] = [30, 60];
 const DEFAULT_VERTICAL_CLIP_DURATION_SECONDS: VerticalClipDurationOption = 30;
+const getVerticalDurationLabel = (seconds: VerticalClipDurationOption) => (seconds === 60 ? "1 minute" : "30 seconds");
 const VERTICAL_CAPTION_PRESET_TO_BACKEND: Record<VerticalCaptionPresetOptionId, BackendVerticalCaptionPresetId> = {
   basic_clean: "basic_clean",
   mrbeast_animated: "mrbeast_animated",
@@ -173,6 +190,10 @@ const VERTICAL_CAPTION_PRESET_TO_BACKEND: Record<VerticalCaptionPresetOptionId, 
   street_block: "rage_mode",
   clean_solid: "bold_clean_box",
   aqua_burst: "neon_glow",
+  midnight_chrome: "cinema_punch",
+  sunset_flash: "mrbeast_animated",
+  newsroom_clean: "bold_clean_box",
+  mint_pop: "neon_glow",
 };
 const VERTICAL_CAPTION_FONT_TO_BACKEND: Record<VerticalCaptionFontOptionId, BackendVerticalCaptionFontId> = {
   impact: "impact",
@@ -185,6 +206,10 @@ const VERTICAL_CAPTION_FONT_TO_BACKEND: Record<VerticalCaptionFontOptionId, Back
   grotesk_tight: "condensed",
   street_sans: "sans_bold",
   classic_serif: "serif_bold",
+  league_spartan: "sans_bold",
+  archivo_black: "impact",
+  dm_serif: "serif_bold",
+  rubik_mono: "mono_bold",
 };
 const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   VerticalCaptionPresetOptionId,
@@ -354,6 +379,50 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     animation: "slide",
     shadowStrength: 64,
   },
+  midnight_chrome: {
+    fontId: "league_spartan",
+    textColor: "F8FAFC",
+    accentColor: "94A3B8",
+    outlineColor: "030712",
+    outlineWidth: 7,
+    boxEnabled: true,
+    boxColor: "0F172A",
+    animation: "fade",
+    shadowStrength: 54,
+  },
+  sunset_flash: {
+    fontId: "archivo_black",
+    textColor: "FFF7ED",
+    accentColor: "FB923C",
+    outlineColor: "431407",
+    outlineWidth: 9,
+    boxEnabled: true,
+    boxColor: "7C2D12",
+    animation: "pop",
+    shadowStrength: 66,
+  },
+  newsroom_clean: {
+    fontId: "dm_serif",
+    textColor: "F8FAFC",
+    accentColor: "CBD5E1",
+    outlineColor: "0B1220",
+    outlineWidth: 4,
+    boxEnabled: true,
+    boxColor: "1E293B",
+    animation: "none",
+    shadowStrength: 32,
+  },
+  mint_pop: {
+    fontId: "rubik_mono",
+    textColor: "ECFEFF",
+    accentColor: "5EEAD4",
+    outlineColor: "042F2E",
+    outlineWidth: 6,
+    boxEnabled: true,
+    boxColor: "134E4A",
+    animation: "slide",
+    shadowStrength: 58,
+  },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const DEFAULT_SUBTITLE_STYLE = "basic_clean";
@@ -380,6 +449,10 @@ const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> 
   grotesk_tight: '"Oswald", "Arial Narrow", "Inter", sans-serif',
   street_sans: '"Montserrat", "Arial Black", "Inter", sans-serif',
   classic_serif: '"Palatino Linotype", "Book Antiqua", "Georgia", serif',
+  league_spartan: '"League Spartan", "Montserrat", "Inter", sans-serif',
+  archivo_black: '"Archivo Black", "Impact", "Arial Black", sans-serif',
+  dm_serif: '"DM Serif Display", "Georgia", "Times New Roman", serif',
+  rubik_mono: '"Rubik Mono One", "Consolas", "Roboto Mono", monospace',
 };
 const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, VerticalCaptionPreviewTheme> = {
   basic_clean: {
@@ -479,6 +552,34 @@ const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, Ver
     borderColor: "rgba(34, 211, 238, 0.9)",
     boxShadow: "0 0 22px rgba(14, 165, 233, 0.38)",
     textShadow: "0 0 12px rgba(34, 211, 238, 0.5)",
+  },
+  midnight_chrome: {
+    textColor: "#F8FAFC",
+    background: "linear-gradient(165deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.66))",
+    borderColor: "rgba(148, 163, 184, 0.82)",
+    boxShadow: "0 16px 30px -18px rgba(2, 6, 23, 0.95)",
+    textShadow: "0 3px 10px rgba(2, 6, 23, 0.82)",
+  },
+  sunset_flash: {
+    textColor: "#FFF7ED",
+    background: "linear-gradient(165deg, rgba(194, 65, 12, 0.84), rgba(124, 45, 18, 0.72))",
+    borderColor: "rgba(251, 146, 60, 0.92)",
+    boxShadow: "0 18px 30px -18px rgba(124, 45, 18, 0.88)",
+    textShadow: "0 3px 10px rgba(67, 20, 7, 0.88)",
+  },
+  newsroom_clean: {
+    textColor: "#F8FAFC",
+    background: "linear-gradient(160deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.76))",
+    borderColor: "rgba(148, 163, 184, 0.74)",
+    boxShadow: "0 14px 24px -16px rgba(15, 23, 42, 0.9)",
+    textShadow: "0 2px 8px rgba(15, 23, 42, 0.78)",
+  },
+  mint_pop: {
+    textColor: "#ECFEFF",
+    background: "linear-gradient(165deg, rgba(19, 78, 74, 0.82), rgba(15, 118, 110, 0.68))",
+    borderColor: "rgba(94, 234, 212, 0.88)",
+    boxShadow: "0 0 22px rgba(45, 212, 191, 0.3)",
+    textShadow: "0 2px 9px rgba(4, 47, 46, 0.8)",
   },
 };
 const VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS: Record<VerticalCaptionAnimationOptionId, string> = {
@@ -1256,6 +1357,10 @@ const Editor = () => {
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(8);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<VerticalClipDurationOption>(
+    DEFAULT_VERTICAL_CLIP_DURATION_SECONDS,
+  );
+  const [verticalRenderConfirmOpen, setVerticalRenderConfirmOpen] = useState(false);
+  const [pendingVerticalDurationChoice, setPendingVerticalDurationChoice] = useState<VerticalClipDurationOption>(
     DEFAULT_VERTICAL_CLIP_DURATION_SECONDS,
   );
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
@@ -2087,28 +2192,41 @@ const Editor = () => {
       setCaptionDragState(null);
       setCaptionResizeState(null);
       setIsVerticalBuilderHidden(false);
+      setPendingVerticalDurationChoice(verticalClipDurationSeconds);
       setPendingVerticalFile(file);
       setVerticalPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(file);
       });
     },
-    [toast],
+    [toast, verticalClipDurationSeconds],
   );
 
-  const startVerticalRender = useCallback(async () => {
+  const startVerticalRender = useCallback(async (durationOverride?: VerticalClipDurationOption) => {
     if (!pendingVerticalFile) {
       toast({ title: "Choose a file", description: "Upload a video before creating vertical clips." });
       return;
     }
+    const resolvedDuration = durationOverride === 60 ? 60 : 30;
+    setVerticalClipDurationSeconds(resolvedDuration);
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount,
-      verticalClipDurationSeconds,
+      verticalClipDurationSeconds: resolvedDuration,
     });
     if (!ok) return;
+    setVerticalRenderConfirmOpen(false);
     setIsVerticalBuilderHidden(true);
-  }, [handleFile, pendingVerticalFile, toast, verticalClipCount, verticalClipDurationSeconds]);
+  }, [handleFile, pendingVerticalFile, toast, verticalClipCount]);
+
+  const openVerticalRenderConfirm = useCallback(() => {
+    if (!pendingVerticalFile) {
+      toast({ title: "Choose a file", description: "Upload a video before creating vertical clips." });
+      return;
+    }
+    setPendingVerticalDurationChoice(verticalClipDurationSeconds);
+    setVerticalRenderConfirmOpen(true);
+  }, [pendingVerticalFile, toast, verticalClipDurationSeconds]);
 
   const handleReprocessCaptions = useCallback(async () => {
     if (!accessToken || !activeJob) return;
@@ -2500,7 +2618,10 @@ const Editor = () => {
     VERTICAL_CAPTION_PREVIEW_THEMES[verticalCaptionPreset] ?? VERTICAL_CAPTION_PREVIEW_THEMES[DEFAULT_VERTICAL_CAPTION_STYLE];
   const previewCaptionShadowStrength = clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX) / 100;
   const previewCaptionBackground = verticalCaptionBoxEnabled ? `#${previewCaptionBoxColor}` : previewCaptionTheme.background;
-  const previewCaptionBorderColor = verticalCaptionBoxEnabled ? `#${previewCaptionBoxColor}` : previewCaptionTheme.borderColor;
+  const previewCaptionBorderColor = verticalCaptionBoxEnabled ? `#${previewCaptionOutlineColor}` : previewCaptionTheme.borderColor;
+  const previewCaptionBorderWidth = verticalCaptionBoxEnabled
+    ? Math.max(2, Math.round(Math.max(1, previewCaptionOutlinePx * 0.6)))
+    : 1;
   const previewCaptionTextShadowBase = verticalCaptionBoxEnabled ? "0 2px 6px rgba(0, 0, 0, 0.65)" : previewCaptionTheme.textShadow;
   const previewCaptionTextShadow = `${previewCaptionTextShadowBase}, 0 ${Math.round(2 + previewCaptionShadowStrength * 8)}px ${
     Math.round(8 + previewCaptionShadowStrength * 18)
@@ -2509,6 +2630,9 @@ const Editor = () => {
     Math.round(14 + previewCaptionShadowStrength * 24)
   }px rgba(0, 0, 0, ${(0.28 + previewCaptionShadowStrength * 0.35).toFixed(2)})`;
   const previewCaptionAnimationClass = VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS[verticalCaptionAnimation];
+  const selectedVerticalStyle = VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === verticalCaptionPreset) ?? null;
+  const selectedVerticalFont = VERTICAL_CAPTION_FONT_OPTIONS.find((option) => option.id === verticalCaptionFontId) ?? null;
+  const selectedVerticalAnimation = VERTICAL_CAPTION_ANIMATION_OPTIONS.find((option) => option.id === verticalCaptionAnimation) ?? null;
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
     activeAnalysis?.framesAnalyzed,
@@ -3839,14 +3963,25 @@ const Editor = () => {
                       <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
+                            <p className="vertical-mode-step-badge">Step 1 · Clip Plan</p>
                             <p className="vertical-mode-title text-sm font-medium text-foreground">Vertical Clip Builder</p>
                             <p className="vertical-mode-subtitle text-xs text-muted-foreground mt-1">
-                              Create TikTok/Reels/Shorts captions with modern styling and live placement controls.
+                              Build TikTok/Reels/Shorts outputs with explicit clip count, clip length, and caption direction.
                             </p>
                           </div>
                           <Badge variant="secondary" className="vertical-mode-status-badge w-fit text-[10px]">
-                            Caption-first workflow
+                            Pro workflow
                           </Badge>
+                        </div>
+                        <div className="vertical-mode-kpi-grid">
+                          <div className="vertical-mode-kpi">
+                            <span className="vertical-mode-kpi-label">Clip count</span>
+                            <span className="vertical-mode-kpi-value">{verticalClipCount}</span>
+                          </div>
+                          <div className="vertical-mode-kpi">
+                            <span className="vertical-mode-kpi-label">Max length</span>
+                            <span className="vertical-mode-kpi-value">{getVerticalDurationLabel(verticalClipDurationSeconds)}</span>
+                          </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           {[8, 10, 12, 15, 20].map((count) => (
@@ -3866,24 +4001,30 @@ const Editor = () => {
                               key={seconds}
                               type="button"
                               className={verticalModeChipClass(verticalClipDurationSeconds === seconds)}
-                              onClick={() => setVerticalClipDurationSeconds(seconds)}
+                              onClick={() => {
+                                setVerticalClipDurationSeconds(seconds);
+                                setPendingVerticalDurationChoice(seconds);
+                              }}
                             >
-                              {seconds === 60 ? "1 minute" : "30 seconds"}
+                              {getVerticalDurationLabel(seconds)}
                             </button>
                           ))}
                         </div>
                         <p className="vertical-mode-note text-[11px] text-muted-foreground">
-                          Choose clip count plus max clip length. Vertical exports are capped to {verticalClipDurationSeconds === 60 ? "1 minute" : "30 seconds"} each.
+                          Vertical exports are capped at your selected duration. Choose it now, and confirm again before render.
                         </p>
                       </div>
 
                       <div className="vertical-mode-panel space-y-2 rounded-2xl border p-4">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="vertical-mode-section-title text-xs font-medium text-foreground">Custom caption text (optional)</p>
+                          <div>
+                            <p className="vertical-mode-step-badge">Step 2 · Caption System</p>
+                            <p className="vertical-mode-section-title text-xs font-medium text-foreground">Custom caption text (optional)</p>
+                          </div>
                           <Popover>
                             <PopoverTrigger asChild>
                               <Button type="button" variant="outline" size="sm" className="h-8 text-[11px]">
-                                Style
+                                Open Style Studio
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent
@@ -4106,6 +4247,33 @@ const Editor = () => {
                             </PopoverContent>
                           </Popover>
                         </div>
+                        <div className="vertical-mode-selection-row">
+                          <span className="vertical-mode-selection-pill">
+                            Style: {selectedVerticalStyle?.label || "Custom"}
+                          </span>
+                          <span className="vertical-mode-selection-pill">
+                            Font: {selectedVerticalFont?.label || "Custom"}
+                          </span>
+                          <span className="vertical-mode-selection-pill">
+                            Motion: {selectedVerticalAnimation?.label || "Static"}
+                          </span>
+                          <span className="vertical-mode-selection-pill">
+                            Box: {verticalCaptionBoxEnabled ? "Solid On" : "Off"}
+                          </span>
+                        </div>
+                        <div className="vertical-mode-quick-style-grid">
+                          {VERTICAL_CAPTION_STYLE_OPTIONS.slice(0, 8).map((option) => (
+                            <button
+                              key={`quick-style-${option.id}`}
+                              type="button"
+                              className={`vertical-mode-quick-style ${verticalCaptionPreset === option.id ? "is-active" : ""}`}
+                              onClick={() => applyVerticalCaptionPreset(option.id)}
+                            >
+                              <span className="vertical-mode-quick-style-name">{option.label}</span>
+                              <span className="vertical-mode-quick-style-desc">{option.description}</span>
+                            </button>
+                          ))}
+                        </div>
                         <Textarea
                           value={verticalCaptionText}
                           onChange={(event) => {
@@ -4124,6 +4292,7 @@ const Editor = () => {
                   <div className="vertical-mode-panel rounded-2xl border p-4 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
+                        <p className="vertical-mode-step-badge">Step 2 · Transcript Input</p>
                         <p className="vertical-mode-section-title text-xs font-medium text-foreground">AI Transcript (selected job)</p>
                         <p className="text-[11px] text-muted-foreground">
                           Transcript lines: {activeTranscriptLineCount}. Captions are generated from this transcript by default.
@@ -4185,6 +4354,7 @@ const Editor = () => {
                       <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
+                            <p className="vertical-mode-step-badge">Step 3 · Preview Placement</p>
                             <p className="vertical-mode-section-title text-xs font-medium text-foreground">Live Caption Preview</p>
                             <p className="text-[11px] text-muted-foreground">
                               Click or drag anywhere on the preview to place captions. Fine tune with the Style popup.
@@ -4220,6 +4390,7 @@ const Editor = () => {
                                     color: `#${previewCaptionTextColor}`,
                                     background: previewCaptionBackground,
                                     borderColor: previewCaptionBorderColor,
+                                    borderWidth: `${previewCaptionBorderWidth}px`,
                                     boxShadow: previewCaptionBoxShadow,
                                     WebkitTextStroke:
                                       previewCaptionOutlinePx > 0
@@ -4254,9 +4425,10 @@ const Editor = () => {
 
                       <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
                         <div>
+                          <p className="vertical-mode-step-badge">Step 4 · Render + Export</p>
                           <p className="vertical-mode-section-title text-xs font-medium text-foreground">Render Vertical Clips</p>
                           <p className="text-[11px] text-muted-foreground">
-                            Create {verticalClipCount} ranked short-form clips (up to {verticalClipDurationSeconds === 60 ? "1 minute" : "30 seconds"} each) with the current caption settings.
+                            Create {verticalClipCount} ranked short-form clips (up to {getVerticalDurationLabel(verticalClipDurationSeconds)} each) with the current caption settings.
                           </p>
                         </div>
                         <div className="flex flex-col gap-2">
@@ -4264,11 +4436,23 @@ const Editor = () => {
                             type="button"
                             className="vertical-mode-cta w-full gap-2"
                             disabled={!pendingVerticalFile || !!uploadingJobId}
-                            onClick={startVerticalRender}
+                            onClick={openVerticalRenderConfirm}
                           >
                             <ScissorsSquare className="w-4 h-4" />
-                            Create Vertical Clips
+                            Choose Duration + Render
                           </Button>
+                          {showDownloadAllClips ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full gap-2"
+                              disabled={downloadAllPending}
+                              onClick={() => void handleDownloadAllClips()}
+                            >
+                              {downloadAllPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                              Download All Clips ({downloadAllClipCount})
+                            </Button>
+                          ) : null}
                           {activeJob?.renderMode === "vertical" && (
                             <Button
                               type="button"
@@ -5106,6 +5290,48 @@ const Editor = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={verticalRenderConfirmOpen} onOpenChange={setVerticalRenderConfirmOpen}>
+        <DialogContent className="max-w-md bg-background/95 backdrop-blur-xl border border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display">Confirm Vertical Render</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Choose the max clip length before rendering. This applies to every exported vertical clip.
+            </p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {VERTICAL_CLIP_DURATION_OPTIONS.map((seconds) => (
+                <button
+                  key={`render-confirm-duration-${seconds}`}
+                  type="button"
+                  className={`vertical-mode-chip w-full justify-center ${pendingVerticalDurationChoice === seconds ? "is-active" : ""}`}
+                  onClick={() => setPendingVerticalDurationChoice(seconds)}
+                >
+                  {getVerticalDurationLabel(seconds)}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Batch: {verticalClipCount} clips · Max length per clip: {getVerticalDurationLabel(pendingVerticalDurationChoice)}.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setVerticalRenderConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="gap-2"
+                disabled={!pendingVerticalFile || !!uploadingJobId}
+                onClick={() => void startVerticalRender(pendingVerticalDurationChoice)}
+              >
+                {uploadingJobId ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScissorsSquare className="h-4 w-4" />}
+                Render {verticalClipCount} Clips
+              </Button>
             </div>
           </div>
         </DialogContent>
