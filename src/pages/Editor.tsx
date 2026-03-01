@@ -7452,7 +7452,7 @@ const Editor = () => {
                     </p>
                   </div>
 
-                  <div className={`grid gap-3 ${verticalPreviewUrl ? "lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start" : ""}`}>
+                  <div className="grid gap-3">
                     <div className="vertical-mode-panel space-y-2 rounded-xl border border-border/40 bg-card/45 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
@@ -7662,36 +7662,6 @@ const Editor = () => {
                         Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
                       </p>
                     </div>
-
-                    {verticalPreviewUrl && (
-                      <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
-                        <video
-                          ref={verticalCompositionVideoRef}
-                          src={verticalPreviewUrl}
-                          preload="metadata"
-                          muted
-                          loop
-                          playsInline
-                          className="hidden"
-                        />
-                        <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
-                        <div className="mx-auto w-full max-w-[300px]">
-                          <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
-                            <canvas
-                              ref={verticalCompositionCanvasRef}
-                              className={`h-full w-full rounded-lg border border-border/50 bg-black touch-none select-none ${
-                                verticalCaptionDragState ? "cursor-grabbing" : "cursor-grab"
-                              }`}
-                              onPointerDown={beginVerticalCaptionDrag}
-                            />
-                            <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-border/50" />
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">
-                          Click or drag anywhere in the preview to move captions, then use Style sliders to adjust size and drop shadow.
-                        </p>
-                      </div>
-                    )}
                   </div>
 
                   {!verticalPreviewUrl && (
@@ -7702,7 +7672,7 @@ const Editor = () => {
 
                   {verticalPreviewUrl && (
                     <div className="space-y-4">
-                      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
                         <div className="space-y-3">
                           {!skipManualWebcamCrop ? (
                             <div className="flex flex-wrap items-center gap-2">
@@ -7804,6 +7774,33 @@ const Editor = () => {
                         </div>
 
                         <div className="space-y-3">
+                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
+                            <video
+                              ref={verticalCompositionVideoRef}
+                              src={verticalPreviewUrl}
+                              preload="metadata"
+                              muted
+                              loop
+                              playsInline
+                              className="hidden"
+                            />
+                            <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
+                            <div className="mx-auto w-full max-w-[300px]">
+                              <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
+                                <canvas
+                                  ref={verticalCompositionCanvasRef}
+                                  className={`h-full w-full rounded-lg border border-border/50 bg-black touch-none select-none ${
+                                    verticalCaptionDragState ? "cursor-grabbing" : "cursor-grab"
+                                  }`}
+                                  onPointerDown={beginVerticalCaptionDrag}
+                                />
+                                <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-border/50" />
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              Click or drag anywhere in the preview to move captions, then use Style sliders to adjust size and drop shadow.
+                            </p>
+                          </div>
                           <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
                             {!skipManualWebcamCrop ? (
                               <>
