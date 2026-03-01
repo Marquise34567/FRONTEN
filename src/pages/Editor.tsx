@@ -7677,103 +7677,144 @@ const Editor = () => {
                     <div className="space-y-4">
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
                         <div className="space-y-3">
-                          {!skipManualWebcamCrop ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs"
-                                onClick={() => {
-                                  if (!sourceVideoMeta) return;
-                                  setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
-                                  setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-                                }}
-                              >
-                                Reset crop
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs"
-                                onClick={() => {
-                                  if (!sourceVideoMeta) return;
-                                  setWebcamCrop((prev) =>
-                                    normalizeWebcamCrop(
-                                      {
-                                        x: 0,
-                                        y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
-                                        w: sourceVideoMeta.width,
-                                        h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
-                                      },
-                                      sourceVideoMeta,
-                                    ),
-                                  );
-                                }}
-                              >
-                                Snap to full width
-                              </Button>
-                            </div>
-                          ) : null}
-
-                          <div
-                            ref={sourcePreviewRef}
-                            className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
-                            style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
-                          >
-                            <video
-                              ref={verticalSourceVideoRef}
-                              src={verticalPreviewUrl}
-                              preload={previewPreload}
-                              controls
-                              onLoadedMetadata={handleVerticalSourceMetadata}
-                              className="h-full w-full object-contain"
-                            />
-                            {!skipManualWebcamCrop && webcamCropStyle && (
-                              <div
-                                className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
-                                style={webcamCropStyle}
-                                onPointerDown={(event) => beginCropInteraction("move", event)}
-                              >
-                                {webcamPaddingPx > 0 && webcamCrop && (
-                                  <div
-                                    className="absolute border border-foreground/70 border-dashed pointer-events-none"
-                                    style={{
-                                      left: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.w) * 100}%`,
-                                      top: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.h) * 100}%`,
-                                      width: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.w) * 100}%`,
-                                      height: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.h) * 100}%`,
-                                    }}
-                                  />
-                                )}
-                                {([
-                                  { key: "nw", className: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize" },
-                                  { key: "n", className: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize" },
-                                  { key: "ne", className: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize" },
-                                  { key: "e", className: "right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
-                                  { key: "se", className: "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize" },
-                                  { key: "s", className: "left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize" },
-                                  { key: "sw", className: "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize" },
-                                  { key: "w", className: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
-                                ] as { key: CropHandle; className: string }[]).map((handle) => (
-                                  <span
-                                    key={handle.key}
-                                    className={`absolute h-3.5 w-3.5 rounded-full border border-foreground/70 bg-primary shadow ${handle.className}`}
-                                    onPointerDown={(event) => beginCropInteraction(handle.key, event)}
-                                  />
-                                ))}
+                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/45 p-3 space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <p className="text-xs font-medium text-foreground">Manual Webcam Selector</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Drag the crop box for the top strip. Move inside to reposition and drag handles to resize.
+                                </p>
                               </div>
-                            )}
+                              <Badge variant="secondary" className="text-[10px]">
+                                {skipManualWebcamCrop ? "Manual crop off" : "Manual crop on"}
+                              </Badge>
+                            </div>
+
+                            {!skipManualWebcamCrop ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 gap-1.5 text-xs"
+                                  onClick={() => {
+                                    if (!sourceVideoMeta) return;
+                                    setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
+                                    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
+                                  }}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  Reset crop
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 gap-1.5 text-xs"
+                                  onClick={() => {
+                                    if (!sourceVideoMeta) return;
+                                    setWebcamCrop((prev) =>
+                                      normalizeWebcamCrop(
+                                        {
+                                          x: 0,
+                                          y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
+                                          w: sourceVideoMeta.width,
+                                          h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
+                                        },
+                                        sourceVideoMeta,
+                                      ),
+                                    );
+                                  }}
+                                >
+                                  <Monitor className="h-3.5 w-3.5" />
+                                  Snap full width
+                                </Button>
+                              </div>
+                            ) : null}
+
+                            <div
+                              ref={sourcePreviewRef}
+                              className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
+                              style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
+                            >
+                              <video
+                                ref={verticalSourceVideoRef}
+                                src={verticalPreviewUrl}
+                                preload={previewPreload}
+                                controls
+                                onLoadedMetadata={handleVerticalSourceMetadata}
+                                className="h-full w-full object-contain"
+                              />
+                              {!skipManualWebcamCrop && webcamCropStyle && (
+                                <div
+                                  className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
+                                  style={{
+                                    ...webcamCropStyle,
+                                    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.38)",
+                                  }}
+                                  onPointerDown={(event) => beginCropInteraction("move", event)}
+                                >
+                                  <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
+                                    Top strip
+                                  </span>
+                                  {webcamPaddingPx > 0 && webcamCrop && (
+                                    <div
+                                      className="absolute border border-foreground/70 border-dashed pointer-events-none"
+                                      style={{
+                                        left: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.w) * 100}%`,
+                                        top: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.h) * 100}%`,
+                                        width: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.w) * 100}%`,
+                                        height: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.h) * 100}%`,
+                                      }}
+                                    />
+                                  )}
+                                  {([
+                                    { key: "nw", className: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize" },
+                                    { key: "n", className: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize" },
+                                    { key: "ne", className: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize" },
+                                    { key: "e", className: "right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
+                                    { key: "se", className: "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize" },
+                                    { key: "s", className: "left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize" },
+                                    { key: "sw", className: "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize" },
+                                    { key: "w", className: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
+                                  ] as { key: CropHandle; className: string }[]).map((handle) => (
+                                    <span
+                                      key={handle.key}
+                                      className={`absolute h-4 w-4 rounded-full border-2 border-background/80 bg-primary shadow-lg ring-1 ring-primary/55 ${handle.className}`}
+                                      onPointerDown={(event) => beginCropInteraction(handle.key, event)}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              {sourceVideoMeta ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Source {Math.round(sourceVideoMeta.width)} x {Math.round(sourceVideoMeta.height)}
+                                </Badge>
+                              ) : null}
+                              {!skipManualWebcamCrop && webcamCrop ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Crop {Math.round(webcamCrop.w)} x {Math.round(webcamCrop.h)}
+                                </Badge>
+                              ) : null}
+                              {!skipManualWebcamCrop && webcamCrop ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Offset {Math.round(webcamCrop.x)}, {Math.round(webcamCrop.y)}
+                                </Badge>
+                              ) : null}
+                            </div>
+
+                            <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                              <MousePointerClick className="w-3.5 h-3.5" />
+                              {skipManualWebcamCrop
+                                ? "Manual webcam crop is disabled. Source framing will be used."
+                                : webcamCrop
+                                ? "Drag the crop region to set your top webcam strip framing."
+                                : "Webcam crop initializes when video metadata loads."}
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                            <MousePointerClick className="w-3.5 h-3.5" />
-                            {skipManualWebcamCrop
-                              ? "Manual webcam crop is disabled. Source framing will be used."
-                              : webcamCrop
-                              ? `Crop: ${Math.round(webcamCrop.w)} x ${Math.round(webcamCrop.h)}px at (${Math.round(webcamCrop.x)}, ${Math.round(webcamCrop.y)})`
-                              : "Webcam crop initializes when video metadata loads."}
-                          </p>
                         </div>
 
                         <div className="space-y-3">
