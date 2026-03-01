@@ -1565,7 +1565,6 @@ const Editor = () => {
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
-  const [editorSettingsPopupOpen, setEditorSettingsPopupOpen] = useState(false);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
@@ -6902,6 +6901,14 @@ const Editor = () => {
                     <MapIcon className="h-4 w-4" />
                     <span>Help</span>
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={topToolbarToggleClass(false)}
+                    onClick={() => navigate("/settings")}
+                  >
+                    Account Settings
+                  </Button>
                   <Button onClick={handlePickFile} className="w-full min-h-12 rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
                     <Plus className="w-4 h-4" /> {t("editor.newProject")}
                   </Button>
@@ -6923,7 +6930,7 @@ const Editor = () => {
                     type="button"
                     onClick={() => {
                       if (hideEditorControlsPanel) {
-                        setEditorSettingsPopupOpen(true);
+                        setHideEditorControlsPanel(false);
                         return;
                       }
                       setHideEditorControlsPanel(true);
@@ -6948,7 +6955,7 @@ const Editor = () => {
                         size="sm"
                         variant="outline"
                         className="min-h-10 rounded-lg border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
-                        onClick={() => setEditorSettingsPopupOpen(true)}
+                        onClick={() => setHideEditorControlsPanel(false)}
                       >
                         {t("editor.settings.openShort")}
                       </Button>
@@ -9346,18 +9353,6 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
-
-      <Dialog open={editorSettingsPopupOpen} onOpenChange={setEditorSettingsPopupOpen}>
-        <DialogContent className="h-[85vh] w-[95vw] max-w-[1100px] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:p-6">
-          <DialogHeader>
-            <DialogTitle>{t("editor.settings.title")}</DialogTitle>
-            <DialogDescription>Manage advanced editor settings without leaving this page.</DialogDescription>
-          </DialogHeader>
-          <div className="mt-2 h-[calc(85vh-7rem)] overflow-hidden rounded-md border border-border/50 bg-muted/20">
-            <iframe src="/settings" title={t("editor.settings.title")} className="h-full w-full border-0" />
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={editorGuideOpen}
