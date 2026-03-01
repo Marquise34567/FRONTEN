@@ -33,6 +33,20 @@ const isCoolFeature = (feature: string) => {
   return COOL_FEATURE_KEYWORDS.some((keyword) => normalized.includes(keyword));
 };
 
+const subtitleAccessLabel = (tier: PlanTier) => {
+  const allowed = PLAN_CONFIG[tier].allowedSubtitlePresets;
+  if (allowed === "ALL") return "All styles";
+  if (!allowed.length) return "Locked";
+  if (allowed.length === 1) return "1 style";
+  return `${allowed.length} styles`;
+};
+
+const exportLabel = (tier: PlanTier) => {
+  const quality = PLAN_CONFIG[tier].exportQuality;
+  if (quality === "4k") return "4K";
+  return quality.toUpperCase();
+};
+
 const UpgradeModal = ({
   open,
   onOpenChange,
@@ -66,6 +80,13 @@ const UpgradeModal = ({
             const tierIndex = PLAN_TIERS.indexOf(tier);
             const unlockedByCurrentPlan = tierIndex <= currentPlanIndex;
             const isLifetime = plan.lifetime;
+            const detailRows = [
+              { label: "Export", value: exportLabel(tier) },
+              { label: "Renders", value: `${plan.maxRendersPerMonth}/mo` },
+              { label: "Subtitles", value: subtitleAccessLabel(tier) },
+              { label: "Queue", value: plan.priority ? "Priority" : "Standard" },
+              { label: "Watermark", value: plan.watermark ? "On" : "Off" },
+            ];
             return (
               <div
                 key={tier}
@@ -79,9 +100,20 @@ const UpgradeModal = ({
                   <h4 className="text-sm font-semibold text-foreground">{plan.name}</h4>
                   {isCurrent && <Badge variant="secondary">Current</Badge>}
                 </div>
+                <p className="mb-2 text-[11px] text-muted-foreground">{plan.description}</p>
                 <div className="text-2xl font-bold text-foreground mb-2">
                   {plan.priceLabel}
                   {!isLifetime && plan.priceMonthly > 0 && <span className="text-xs text-muted-foreground">/mo</span>}
+                </div>
+                <div className="mb-2 rounded-lg border border-white/10 bg-white/5 p-2">
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {detailRows.map((row) => (
+                      <div key={`${tier}-${row.label}`} className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-muted-foreground">{row.label}</span>
+                        <span className="font-semibold text-foreground">{row.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <ul className="space-y-1.5">
                   {plan.features.map((feature) => (

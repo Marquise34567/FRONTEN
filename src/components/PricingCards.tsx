@@ -23,6 +23,20 @@ const isCoolFeature = (feature: string) => {
   return COOL_FEATURE_KEYWORDS.some((keyword) => normalized.includes(keyword));
 };
 
+const subtitleAccessLabel = (tier: PlanTier) => {
+  const allowed = PLAN_CONFIG[tier].allowedSubtitlePresets;
+  if (allowed === "ALL") return "All styles";
+  if (!allowed.length) return "Locked";
+  if (allowed.length === 1) return "1 style";
+  return `${allowed.length} styles`;
+};
+
+const exportLabel = (tier: PlanTier) => {
+  const quality = PLAN_CONFIG[tier].exportQuality;
+  if (quality === "4k") return "4K";
+  return quality.toUpperCase();
+};
+
 type PricingCardsProps = {
   currentTier?: string;
   isAuthenticated: boolean;
@@ -85,6 +99,13 @@ const PricingCards = ({
           ? "Billed annually"
           : "Billed monthly";
         const renderLimitLabel = `${plan.maxRendersPerMonth} renders / month`;
+        const detailRows = [
+          { label: "Export", value: exportLabel(tier) },
+          { label: "Subtitles", value: subtitleAccessLabel(tier) },
+          { label: "Queue", value: plan.priority ? "Priority" : "Standard" },
+          { label: "Watermark", value: plan.watermark ? "On" : "Off" },
+          { label: "Auto Zoom", value: `${plan.autoZoomMax.toFixed(2)}x` },
+        ];
 
         return (
           <div
@@ -149,6 +170,22 @@ const PricingCards = ({
               <p className="text-xs text-muted-foreground mt-1">{billingNote}</p>
               <p className="text-xs text-muted-foreground mt-1">{renderLimitLabel}</p>
             </div>
+            <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Plan Details
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {detailRows.map((row) => (
+                  <div key={`${tier}-${row.label}`} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-muted-foreground">{row.label}</span>
+                    <span className="font-semibold text-foreground">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Included Features
+            </p>
             <ul className="space-y-2 text-sm text-foreground mb-4">
               {plan.features.map((feature) => (
                 <li
