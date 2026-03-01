@@ -356,12 +356,12 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   description: string;
   platformHint?: string;
 }> = [
-  { id: "rage_mode", label: "TikTok Punch", description: "High-energy punchy captions with stronger motion.", platformHint: "TikTok" },
+  { id: "rage_mode", label: "CapCut Kinetic", description: "Fast kinetic pops with aggressive mobile readability.", platformHint: "TikTok" },
   { id: "bold_clean_box", label: "Reels Clean Box", description: "Clear white captions in a high-readability box.", platformHint: "IG Reels" },
   { id: "cinema_punch", label: "Shorts Bold", description: "High-contrast cinematic styling for Shorts.", platformHint: "YouTube Shorts" },
-  { id: "mrbeast_animated", label: "Creator Hype", description: "Punchy animated captions for hook-heavy edits." },
-  { id: "basic_clean", label: "Minimal Clean", description: "Simple, clean captions with subtle styling." },
-  { id: "neon_glow", label: "Neon Glow", description: "Bright stylized look for high-energy clips." },
+  { id: "mrbeast_animated", label: "Opus Pop", description: "Word-level hype captions with creator-style pop timing." },
+  { id: "basic_clean", label: "Minimal Bold", description: "Minimal layout with clean bold readability." },
+  { id: "neon_glow", label: "High Energy Neon", description: "Bright neon pulse look for high-energy clips." },
   { id: "ice_pop", label: "Ice Pop", description: "Cool-toned pop look for gaming and reaction clips." },
   { id: "retro_wave", label: "Retro Wave", description: "Colorful retro styling with bold presence." },
   { id: "glitch_pop", label: "Glitch Pop", description: "Techy glitch-inspired styling for energetic moments." },
@@ -375,18 +375,53 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     outlineWidth: number;
     animation: VerticalCaptionAnimationOptionId;
     shadowStrength: number;
+    animationSpeed: number;
+    highlightWords: boolean;
+    autoEmphasis: boolean;
+    autoEmoji: boolean;
+    removeFillers: boolean;
   }
 > = {
-  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34 },
-  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62 },
-  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide", shadowStrength: 70 },
-  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46 },
-  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76 },
-  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62 },
-  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide", shadowStrength: 68 },
-  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch", shadowStrength: 74 },
-  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58 },
-  shadow_strike: { fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92 },
+  basic_clean: {
+    fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34,
+    animationSpeed: 1.0, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+  },
+  mrbeast_animated: {
+    fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62,
+    animationSpeed: 1.08, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  neon_glow: {
+    fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide", shadowStrength: 70,
+    animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  bold_clean_box: {
+    fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46,
+    animationSpeed: 0.96, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+  },
+  rage_mode: {
+    fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76,
+    animationSpeed: 1.14, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  ice_pop: {
+    fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62,
+    animationSpeed: 1.06, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  retro_wave: {
+    fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide", shadowStrength: 68,
+    animationSpeed: 1.1, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  glitch_pop: {
+    fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch", shadowStrength: 74,
+    animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+  },
+  cinema_punch: {
+    fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58,
+    animationSpeed: 0.92, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+  },
+  shadow_strike: {
+    fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92,
+    animationSpeed: 1.02, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: false,
+  },
 };
 const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, VerticalCaptionPresetOptionId> = {
   tiktok: "rage_mode",
@@ -472,6 +507,10 @@ const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
 const VERTICAL_CAPTION_SHADOW_MIN = 0;
 const VERTICAL_CAPTION_SHADOW_MAX = 100;
+const VERTICAL_CAPTION_ANIMATION_SPEED_MIN = 0.5;
+const VERTICAL_CAPTION_ANIMATION_SPEED_MAX = 2.2;
+const clampVerticalCaptionAnimationSpeed = (value: number) =>
+  Number(clamp(value, VERTICAL_CAPTION_ANIMATION_SPEED_MIN, VERTICAL_CAPTION_ANIMATION_SPEED_MAX).toFixed(2));
 const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
 const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
   { key: "format", label: "Format" },
