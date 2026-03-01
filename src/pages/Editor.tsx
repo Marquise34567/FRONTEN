@@ -104,6 +104,14 @@ const PIPELINE_STEPS = [
   { key: "ready", label: "Ready" },
 ] as const;
 
+type PipelineStepKey = (typeof PIPELINE_STEPS)[number]["key"];
+
+type PipelineStepHoverDetail = {
+  title: string;
+  summary: string;
+  lines: string[];
+};
+
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
   uploading: "Uploading",
@@ -361,6 +369,30 @@ const formatTimelineClock = (seconds: number) => {
   const mins = Math.floor(safe / 60);
   const secs = Math.floor(safe % 60);
   return `${mins}:${String(secs).padStart(2, "0")}`;
+};
+
+const formatMegabytes = (bytes: number | null | undefined) => {
+  const parsed = Number(bytes);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const mb = parsed / MB;
+  if (mb >= 100) return `${Math.round(mb)} MB`;
+  if (mb >= 10) return `${mb.toFixed(1)} MB`;
+  return `${mb.toFixed(2)} MB`;
+};
+
+const formatTokenLabel = (value: string) =>
+  String(value || "")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
+
+const truncateText = (value: string, max = 120) => {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(0, max - 3))}...`;
 };
 
 const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
@@ -2211,6 +2243,352 @@ const Editor = () => {
   const etaLabel = formatEta(etaSeconds);
   const etaSuffix = etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
 
+  const pipelineStepHoverDetails: Record<PipelineStepKey, PipelineStepHoverDetail> = (() => {
+    const idleDetails: Record<PipelineStepKey, PipelineStepHoverDetail> = {
+      queued: {
+        title: "Queued",
+        summary: "Waiting for processing resources.",
+        lines: [
+          "Upload a file to start the edit pipeline.",
+          "Once queued, AutoEditor starts processing automatically.",
+        ],
+      },
+      uploading: {
+        title: "Uploading",
+        summary: "Video upload and ingest stage.",
+        lines: [
+          "Source video is chunk-uploaded to the processing backend.",
+          "Analysis starts immediately after upload completes.",
+        ],
+      },
+      analyzing: {
+        title: "Analyzing",
+        summary: "Scene, transcript, and retention signal analysis.",
+        lines: [
+          "Frame analysis and signal extraction run in this stage.",
+          "Hover here during processing to see scan progress updates.",
+        ],
+      },
+      hooking: {
+        title: "Hook",
+        summary: "Selecting the strongest opening moment.",
+        lines: [
+          "The model scores hook candidates and picks the best opener.",
+          "Selection favors strong curiosity and payoff pressure.",
+        ],
+      },
+      cutting: {
+        title: "Cuts",
+        summary: "Removing low-retention sections.",
+        lines: [
+          "Low-engagement windows are trimmed and timeline ranges updated.",
+          "Cut decisions target stronger completion and fewer skips.",
+        ],
+      },
+      pacing: {
+        title: "Pacing",
+        summary: "Balancing rhythm and interruptions.",
+        lines: [
+          "Pattern interrupts and pace adjustments are applied here.",
+          "The planner protects important context while keeping speed up.",
+        ],
+      },
+      story: {
+        title: "Story",
+        summary: "Narrative continuity and quality gating.",
+        lines: [
+          "Story order is validated against retention and coherence checks.",
+          "Risk windows are reviewed before final render.",
+        ],
+      },
+      subtitling: {
+        title: "Subtitles",
+        summary: "Caption timing and styling.",
+        lines: [
+          "Subtitle generation maps transcript cues to the edited timeline.",
+          "Chosen subtitle style is applied before export.",
+        ],
+      },
+      rendering: {
+        title: "Rendering",
+        summary: "Final export pass.",
+        lines: [
+          "All selected edits are burned into the final output.",
+          "Output file quality and final retention score are finalized.",
+        ],
+      },
+      ready: {
+        title: "Ready",
+        summary: "Export completed.",
+        lines: [
+          "Your edited video is ready for review and download.",
+          "Open Feedback Deep Dive to inspect retention diagnostics.",
+        ],
+      },
+    };
+
+    if (!activeJob) return idleDetails;
+
+    const pipelineSteps = asRecord(activeAnalysis?.pipelineSteps);
+    const readMeta = (stepKeys: string[]) => {
+      if (!pipelineSteps) return null;
+      for (const stepKey of stepKeys) {
+        const state = asRecord(pipelineSteps[stepKey]);
+        const meta = asRecord(state?.meta);
+        if (meta) return meta;
+      }
+      return null;
+    };
+
+    const hookMeta = readMeta(["HOOK_SELECT_AND_AUDIT", "HOOK_SCORING", "BEST_MOMENT_SCORING"]);
+    const cutsMeta = readMeta(["BOREDOM_SCORING", "TIMELINE_REORDER"]);
+    const pacingMeta = readMeta(["PACING_AND_INTERRUPTS", "PACING_ENFORCEMENT"]);
+    const storyMeta = readMeta(["STORY_QUALITY_GATE", "STORY_REORDER"]);
+    const renderMeta = readMeta(["RENDER_FINAL"]);
+    const retentionMeta = readMeta(["RETENTION_SCORE"]);
+
+    const selectedHookMeta = asRecord(hookMeta?.selectedHook) ?? asRecord(hookMeta?.hook);
+    const selectedHookStart = firstFiniteNumber(
+      selectedHookStartSec,
+      selectedHookMeta?.start,
+      selectedHookMeta?.startSec,
+      selectedHookMeta?.hook_start_time,
+    );
+    const selectedHookEnd = firstFiniteNumber(
+      selectedHookEndSec,
+      selectedHookMeta?.end,
+      selectedHookMeta?.endSec,
+      selectedHookStart !== null
+        ? firstFiniteNumber(
+            selectedHookMeta?.duration !== undefined ? selectedHookStart + Number(selectedHookMeta?.duration) : null,
+            selectedHookMeta?.durationSec !== undefined ? selectedHookStart + Number(selectedHookMeta?.durationSec) : null,
+          )
+        : null,
+    );
+    const hookRangeLine =
+      selectedHookStart !== null
+        ? `Selected hook: ${formatTimelineClock(selectedHookStart)}-${
+            selectedHookEnd !== null ? formatTimelineClock(selectedHookEnd) : "live"
+          }.`
+        : "Selecting the strongest opening range now.";
+    const hookTopCandidates = Array.isArray(hookMeta?.topCandidates) ? hookMeta.topCandidates.length : 0;
+    const hookCandidateCount = Math.max(hookExplorerCandidates.length, hookTopCandidates);
+    const hookReasonRaw =
+      (typeof hookExplorerCandidates[0]?.reason === "string" && hookExplorerCandidates[0].reason) ||
+      (typeof selectedHookMeta?.reason === "string" && selectedHookMeta.reason) ||
+      (typeof selectedHookMeta?.hook_reason === "string" && selectedHookMeta.hook_reason) ||
+      "";
+    const hookReason = hookReasonRaw ? `Current rationale: ${truncateText(hookReasonRaw, 118)}` : null;
+
+    const boredomRangesRaw =
+      (Array.isArray(activeEditPlan?.boredomRanges) && activeEditPlan?.boredomRanges) ||
+      (Array.isArray(activeEditPlan?.boredom_ranges) && activeEditPlan?.boredom_ranges) ||
+      [];
+    const removedRangeCount = Math.max(
+      boredomRangesRaw.length,
+      Array.isArray(cutsMeta?.removedRanges) ? cutsMeta.removedRanges.length : 0,
+    );
+    const removedSeconds = firstFiniteNumber(cutsMeta?.totalRemovedSeconds, cutsMeta?.total_removed_seconds);
+
+    const storyAttemptCount = Math.max(
+      0,
+      Math.round(
+        firstFiniteNumber(
+          storyMeta?.attemptCount,
+          storyMeta?.attempt_count,
+          Array.isArray(storyMeta?.attempts) ? storyMeta?.attempts.length : null,
+        ) ?? 0,
+      ),
+    );
+    const editPlanSegmentCount = Array.isArray(activeEditPlan?.segments) ? activeEditPlan.segments.length : null;
+    const storySegmentCount = Math.max(
+      0,
+      Math.round(firstFiniteNumber(storyMeta?.segmentCount, storyMeta?.segment_count, editPlanSegmentCount) ?? 0),
+    );
+
+    const transcriptCuesRaw =
+      activeAnalysis?.transcript_cues ||
+      activeAnalysis?.transcriptCues ||
+      activeAnalysis?.transcript ||
+      activeAnalysis?.captions ||
+      activeAnalysis?.subtitle_cues;
+    const transcriptCueCount = Array.isArray(transcriptCuesRaw) ? transcriptCuesRaw.length : 0;
+    const subtitlePresetRaw =
+      (typeof activeAnalysis?.subtitleStyle === "string" && activeAnalysis?.subtitleStyle) ||
+      (typeof activeAnalysis?.subtitle_style === "string" && activeAnalysis?.subtitle_style) ||
+      (typeof activeAnalysis?.verticalCaptionPreset === "string" && activeAnalysis?.verticalCaptionPreset) ||
+      (typeof activeAnalysis?.vertical_caption_preset === "string" && activeAnalysis?.vertical_caption_preset) ||
+      "";
+    const subtitlePreset = subtitlePresetRaw ? formatTokenLabel(subtitlePresetRaw) : null;
+
+    const renderSegmentCount = Math.max(
+      0,
+      Math.round(
+        firstFiniteNumber(
+          renderMeta?.segmentCount,
+          renderMeta?.segment_count,
+          renderMeta?.outputTarget,
+          renderMeta?.requestedClipCount,
+        ) ?? 0,
+      ),
+    );
+    const projectedRetention = toScore100(
+      retentionMeta?.score,
+      retentionMeta?.retention_score,
+      retentionMeta?.judge && asRecord(retentionMeta.judge)?.retention_score,
+      activeJob?.retentionScore,
+    );
+
+    const uploadProgressValue = Math.round(clamp(firstFiniteNumber(uploadProgress, activeJob.progress) ?? 0, 0, 100));
+    const uploadedMb = formatMegabytes(uploadBytesUploaded);
+    const totalMb = formatMegabytes(uploadBytesTotal);
+    const targetQualityLabel = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p").toUpperCase();
+    const queueCreatedLabel = new Date(activeJob.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const pacingDensityLabel =
+      patternInterruptDensityValue !== null ? ` (${patternInterruptDensityValue.toFixed(3)}/s density)` : "";
+    const pacingSignalRaw =
+      (typeof plannerProtectionChanges[0] === "string" && plannerProtectionChanges[0]) ||
+      (typeof pacingMeta?.reason === "string" && pacingMeta.reason) ||
+      "";
+
+    return {
+      queued: {
+        title: "Queued",
+        summary: "The job is staged and waiting for a processing slot.",
+        lines: [
+          `Queued at ${queueCreatedLabel}.`,
+          `Target export quality: ${targetQualityLabel}.`,
+          "Upload and analysis start automatically once resources are available.",
+        ],
+      },
+      uploading: {
+        title: "Uploading",
+        summary: "Video chunks are streaming into the editor backend.",
+        lines: [
+          uploadedMb && totalMb
+            ? `Uploaded ${uploadedMb} of ${totalMb} (${uploadProgressValue}%).`
+            : `Upload progress: ${uploadProgressValue}%.`,
+          "Multipart ingest is active to keep large files reliable.",
+          "As soon as upload completes, analysis and edit planning begin.",
+        ],
+      },
+      analyzing: {
+        title: "Analyzing",
+        summary: "Frame, transcript, emotion, and retention signals are being extracted.",
+        lines: [
+          fullScanProgressLabel,
+          estimatedDurationSec !== null
+            ? `Detected source runtime: ${formatTimelineClock(estimatedDurationSec)}.`
+            : "Detecting runtime and scene boundaries.",
+          `Analysis confidence: ${formatScore(analysisConfidenceScore)} / 100 across ${emotionMoments.length} emotion checkpoints.`,
+        ],
+      },
+      hooking: {
+        title: "Hook",
+        summary: "Choosing the strongest opener to maximize early hold.",
+        lines: [
+          `Hook candidates scored: ${hookCandidateCount}.`,
+          hookRangeLine,
+          hookReason || "Scoring curiosity, payoff timing, and audit pass/fail now.",
+        ],
+      },
+      cutting: {
+        title: "Cuts",
+        summary: "Pruning low-retention sections and rebuilding timeline flow.",
+        lines: [
+          `Trim windows identified: ${removedRangeCount}.`,
+          removedSeconds !== null
+            ? `Estimated low-signal footage removed: ${removedSeconds.toFixed(1)}s.`
+            : `Risk windows monitored: ${riskExplorerWindows.length}.`,
+          `Action planner produced ${actionExplorerItems.length} timeline action items.`,
+        ],
+      },
+      pacing: {
+        title: "Pacing",
+        summary: "Applying rhythm controls to keep watch-through momentum.",
+        lines: [
+          `Pattern interrupts active: ${patternInterruptCountValue}${pacingDensityLabel}.`,
+          `Planner pacing adjustments: ${plannerPacingAdjustmentCount}.`,
+          pacingSignalRaw
+            ? `Retention protection: ${truncateText(pacingSignalRaw, 118)}`
+            : "Pacing guard is balancing tempo without damaging key context.",
+        ],
+      },
+      story: {
+        title: "Story",
+        summary: "Story structure and quality gate checks before final output.",
+        lines: [
+          `Current structured segments: ${storySegmentCount || 0}.`,
+          `Story quality gate attempts: ${storyAttemptCount}.`,
+          `High-risk narrative windows tracked: ${riskExplorerWindows.length}.`,
+        ],
+      },
+      subtitling: {
+        title: "Subtitles",
+        summary: "Generating timed captions aligned to the edited timeline.",
+        lines: [
+          subtitlePreset ? `Subtitle preset: ${subtitlePreset}.` : "Using automatic subtitle styling.",
+          transcriptCueCount > 0
+            ? `Transcript cues mapped: ${transcriptCueCount}.`
+            : "Transcript cue map is still being assembled.",
+          "Caption timing is synced before final rendering.",
+        ],
+      },
+      rendering: {
+        title: "Rendering",
+        summary: "Compositing the final edit and preparing export files.",
+        lines: [
+          `Render progress: ${Math.round(clamp(toFiniteNumber(activeJob.progress) ?? 0, 0, 100))}%.`,
+          renderSegmentCount > 0
+            ? `Rendering ${renderSegmentCount} final timeline segments.`
+            : "Applying timeline edits, overlays, and final output settings.",
+          projectedRetention !== null
+            ? `Projected retention score: ${formatScore(projectedRetention)} / 100.`
+            : "Final retention score is being confirmed.",
+        ],
+      },
+      ready: {
+        title: "Ready",
+        summary: "The final cut is exported and available for review.",
+        lines: [
+          `Retention score: ${formatScore(finalRetentionScore)} / 100 (${retentionDeltaLabel}).`,
+          `Export quality: ${targetQualityLabel}.`,
+          optimizationHighlights[0]
+            ? truncateText(optimizationHighlights[0], 118)
+            : "Open Feedback Deep Dive for detailed optimization notes.",
+        ],
+      },
+    };
+  })();
+
+  const pipelineHoverStatusLabel = (stepKey: PipelineStepKey, stepIndex: number) => {
+    if (!activeJob) return "Idle";
+    const normalized = normalizeStatus(activeJob.status);
+    const live = !isTerminalStatus(activeJob.status) && activeStepKey === stepKey;
+    if (live) return "Live now";
+    if (normalized === "failed") {
+      if (currentStepIndex !== -1 && stepIndex < currentStepIndex) return "Completed";
+      if (activeStepKey === stepKey) return "Failed";
+      return "Stopped";
+    }
+    if (normalized === "ready") return "Completed";
+    if (currentStepIndex !== -1 && stepIndex < currentStepIndex) return "Completed";
+    return "Pending";
+  };
+
+  const pipelineHoverStatusClass = (statusLabel: string, isLive: boolean) => {
+    if (isLive || statusLabel === "Live now") {
+      return "border-primary/45 bg-primary/15 text-primary";
+    }
+    if (statusLabel === "Failed" || statusLabel === "Stopped") {
+      return "border-destructive/45 bg-destructive/15 text-destructive";
+    }
+    if (statusLabel === "Completed") {
+      return "border-success/40 bg-success/12 text-success";
+    }
+    return "border-border/65 bg-muted/35 text-muted-foreground";
+  };
+
   return (
     <GlowBackdrop>
       <Navbar />
@@ -2383,24 +2761,56 @@ const Editor = () => {
                     <div className="flex flex-wrap gap-2">
                       {PIPELINE_STEPS.map((step, idx) => {
                         const active = currentStepIndex !== -1 && idx <= currentStepIndex && activeJob.status !== "failed";
+                        const live = !isTerminalStatus(activeJob.status) && activeStepKey === step.key;
+                        const hoverDetail = pipelineStepHoverDetails[step.key];
+                        const hoverStatusLabel = pipelineHoverStatusLabel(step.key, idx);
                         return (
-                          <Badge
-                            key={step.key}
-                            variant="secondary"
-                            className={`border ${
-                              active
-                                ? "border-primary/30 text-primary bg-primary/10"
-                                : "border-border/50 text-muted-foreground bg-muted/30"
-                            }`}
-                          >
-                            {step.label}
-                          </Badge>
+                          <Tooltip key={step.key}>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Badge
+                                  variant="secondary"
+                                  className={`cursor-help border transition-colors ${
+                                    active
+                                      ? "border-primary/30 text-primary bg-primary/10"
+                                      : "border-border/50 text-muted-foreground bg-muted/30"
+                                  } ${live ? "pipeline-step-live" : ""}`}
+                                >
+                                  {step.label}
+                                </Badge>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="pipeline-hover-card w-[18rem] p-3 text-left">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold text-foreground">{hoverDetail.title}</p>
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${pipelineHoverStatusClass(
+                                      hoverStatusLabel,
+                                      live,
+                                    )}`}
+                                  >
+                                    {hoverStatusLabel}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">{hoverDetail.summary}</p>
+                                <div className="space-y-1.5">
+                                  {hoverDetail.lines.map((line, lineIndex) => (
+                                    <p key={`${step.key}-hover-line-${lineIndex}`} className="text-[11px] leading-relaxed text-foreground/90">
+                                      {line}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
                         );
                       })}
                       {normalizeStatus(activeJob.status) === "failed" && (
                         <Badge variant="destructive">Failed</Badge>
                       )}
                     </div>
+                    <p className="text-[11px] text-muted-foreground/80">Hover each stage to see live edit actions as they happen.</p>
 
                     {!isTerminalStatus(activeJob.status) && (
                       <div className="space-y-2">
