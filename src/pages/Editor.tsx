@@ -6,6 +6,9 @@ import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -79,7 +82,8 @@ type VerticalCaptionPresetOptionId =
   | "ice_pop"
   | "retro_wave"
   | "glitch_pop"
-  | "cinema_punch";
+  | "cinema_punch"
+  | "shadow_strike";
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionPreviewTheme = {
@@ -100,6 +104,7 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{ id: VerticalCaptionPresetOptionId;
   { id: "ice_pop", label: "Ice Pop", description: "Cool-blue pop style." },
   { id: "retro_wave", label: "Retro Wave", description: "Retro colorful caption style." },
   { id: "glitch_pop", label: "Glitch Pop", description: "Glitch-style captions for high motion clips." },
+  { id: "shadow_strike", label: "Shadow Strike", description: "Bold, cinematic captions with a heavy drop shadow." },
 ];
 const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; label: string }> = [
   { id: "impact", label: "Impact" },
@@ -119,23 +124,32 @@ const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOp
 ];
 const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   VerticalCaptionPresetOptionId,
-  { fontId: VerticalCaptionFontOptionId; outlineColor: string; outlineWidth: number; animation: VerticalCaptionAnimationOptionId }
+  {
+    fontId: VerticalCaptionFontOptionId;
+    outlineColor: string;
+    outlineWidth: number;
+    animation: VerticalCaptionAnimationOptionId;
+    shadowStrength: number;
+  }
 > = {
-  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none" },
-  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop" },
-  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide" },
-  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none" },
-  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce" },
-  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop" },
-  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide" },
-  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch" },
-  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none" },
+  basic_clean: { fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34 },
+  mrbeast_animated: { fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62 },
+  neon_glow: { fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide", shadowStrength: 70 },
+  bold_clean_box: { fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46 },
+  rage_mode: { fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76 },
+  ice_pop: { fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62 },
+  retro_wave: { fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide", shadowStrength: 68 },
+  glitch_pop: { fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch", shadowStrength: 74 },
+  cinema_punch: { fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58 },
+  shadow_strike: { fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92 },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const DEFAULT_SUBTITLE_STYLE = "basic_clean";
 const VERTICAL_CAPTION_FONT_SIZE_MIN = 30;
 const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
+const VERTICAL_CAPTION_SHADOW_MIN = 0;
+const VERTICAL_CAPTION_SHADOW_MAX = 100;
 const VERTICAL_CAPTION_POSITION_MIN = 0.02;
 const VERTICAL_CAPTION_POSITION_MAX = 0.98;
 const VERTICAL_CAPTION_BOX_WIDTH_MIN = 35;
@@ -214,6 +228,13 @@ const VERTICAL_CAPTION_PREVIEW_THEMES: Record<VerticalCaptionPresetOptionId, Ver
     borderColor: "rgba(253, 230, 138, 0.84)",
     boxShadow: "0 0 18px rgba(251, 191, 36, 0.34)",
     textShadow: "0 0 10px rgba(251, 191, 36, 0.44)",
+  },
+  shadow_strike: {
+    textColor: "#F8FAFC",
+    background: "linear-gradient(165deg, rgba(15, 23, 42, 0.78), rgba(2, 6, 23, 0.58))",
+    borderColor: "rgba(148, 163, 184, 0.86)",
+    boxShadow: "0 18px 30px -14px rgba(2, 6, 23, 0.95)",
+    textShadow: "0 4px 12px rgba(2, 6, 23, 0.78)",
   },
 };
 const VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS: Record<VerticalCaptionAnimationOptionId, string> = {
@@ -1004,6 +1025,9 @@ const Editor = () => {
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
   );
   const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState<number>(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
+  const [verticalCaptionShadowStrength, setVerticalCaptionShadowStrength] = useState<number>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].shadowStrength,
+  );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [verticalCaptionBoxWidthPct, setVerticalCaptionBoxWidthPct] = useState<number>(VERTICAL_CAPTION_BOX_WIDTH_DEFAULT);
@@ -1045,6 +1069,7 @@ const Editor = () => {
     setVerticalCaptionOutlineColor(defaults.outlineColor);
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
     setVerticalCaptionAnimation(defaults.animation);
+    setVerticalCaptionShadowStrength(defaults.shadowStrength);
   }, []);
 
   const fetchJobs = useCallback(async () => {
@@ -1312,6 +1337,13 @@ const Editor = () => {
     };
   }, []);
 
+  // Listen for explicit popover-triggered open events (from PopoverTrigger wrapper)
+  useEffect(() => {
+    const onOpen = () => setSettingsOpen(true);
+    window.addEventListener("open-editor-settings", onOpen as EventListener);
+    return () => window.removeEventListener("open-editor-settings", onOpen as EventListener);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (verticalPreviewUrl) URL.revokeObjectURL(verticalPreviewUrl);
@@ -1333,6 +1365,22 @@ const Editor = () => {
     [verticalCaptionPositionX, verticalCaptionPositionY],
   );
 
+  const beginCaptionDragFromPreview = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const rect = verticalCaptionPreviewRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const nextX = clampCaptionPosition((event.clientX - rect.left) / rect.width);
+    const nextY = clampCaptionPosition((event.clientY - rect.top) / rect.height);
+    setVerticalCaptionPositionX(nextX);
+    setVerticalCaptionPositionY(nextY);
+    setCaptionDragState({
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: nextX,
+      startY: nextY,
+    });
+  }, []);
+
   const beginCaptionResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0) return;
@@ -1353,7 +1401,8 @@ const Editor = () => {
     setVerticalCaptionPositionY(0.84);
     setVerticalCaptionFontSize(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
     setVerticalCaptionBoxWidthPct(VERTICAL_CAPTION_BOX_WIDTH_DEFAULT);
-  }, []);
+    setVerticalCaptionShadowStrength(VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].shadowStrength);
+  }, [verticalCaptionPreset]);
 
   useEffect(() => {
     const target = verticalCaptionPreviewRef.current;
@@ -1522,6 +1571,7 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
@@ -1820,6 +1870,7 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
@@ -1882,6 +1933,7 @@ const Editor = () => {
     verticalCaptionFontSize,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
+    verticalCaptionShadowStrength,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     verticalCaptionPreset,
@@ -2129,6 +2181,13 @@ const Editor = () => {
   );
   const previewCaptionTheme =
     VERTICAL_CAPTION_PREVIEW_THEMES[verticalCaptionPreset] ?? VERTICAL_CAPTION_PREVIEW_THEMES[DEFAULT_VERTICAL_CAPTION_STYLE];
+  const previewCaptionShadowStrength = clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX) / 100;
+  const previewCaptionTextShadow = `${previewCaptionTheme.textShadow}, 0 ${Math.round(2 + previewCaptionShadowStrength * 8)}px ${
+    Math.round(8 + previewCaptionShadowStrength * 18)
+  }px rgba(0, 0, 0, ${(0.35 + previewCaptionShadowStrength * 0.45).toFixed(2)})`;
+  const previewCaptionBoxShadow = `${previewCaptionTheme.boxShadow}, 0 ${Math.round(6 + previewCaptionShadowStrength * 14)}px ${
+    Math.round(14 + previewCaptionShadowStrength * 24)
+  }px rgba(0, 0, 0, ${(0.28 + previewCaptionShadowStrength * 0.35).toFixed(2)})`;
   const previewCaptionAnimationClass = VERTICAL_CAPTION_PREVIEW_ANIMATION_CLASS[verticalCaptionAnimation];
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
@@ -3303,6 +3362,41 @@ const Editor = () => {
     return "border-border/65 bg-muted/35 text-muted-foreground";
   };
 
+  const verticalModeChipClass = (active: boolean) =>
+    `vertical-mode-chip inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all ${active ? "is-active" : ""}`;
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Listen for clicks on any 'Open' buttons and open the full settings popup.
+  useEffect(() => {
+    const handler = (e: any) => {
+      try {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const btn = target.closest?.('button') as HTMLButtonElement | null;
+        if (!btn) return;
+        const text = (btn.innerText || '').trim();
+        // Only intercept the 'Open' button inside the vertical builder panel
+        if (text.toLowerCase() === 'open' && btn.closest?.('.vertical-mode-panel')) {
+          try {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+          } catch (err) {}
+          setSettingsOpen(true);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    // Listen to pointerdown and click in capture phase to stop popover handlers early
+    document.addEventListener('pointerdown', handler, true);
+    document.addEventListener('click', handler, true);
+    return () => {
+      document.removeEventListener('pointerdown', handler, true);
+      document.removeEventListener('click', handler, true);
+    };
+  }, []);
   return (
     <GlowBackdrop>
       <Navbar />
@@ -3314,6 +3408,20 @@ const Editor = () => {
               <p className="text-muted-foreground mt-1">Ship edits faster with live preview and real-time feedback</p>
             </div>
             <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-4" onClick={() => setSettingsOpen(true)}>
+                Open Settings
+              </Button>
+
+              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <DialogContent className="w-[90vw] max-w-[1100px] h-[85vh]">
+                  <DialogHeader>
+                    <DialogTitle>Editor Settings</DialogTitle>
+                  </DialogHeader>
+                  <div className="mt-2 h-[calc(85vh-64px)]">
+                    <iframe src="/settings" title="Editor Settings" className="w-full h-full border-0 rounded-md" />
+                  </div>
+                </DialogContent>
+              </Dialog>
               {me && (
                 <>
                   {isDevAccount && (
@@ -3442,195 +3550,248 @@ const Editor = () => {
               </div>
 
               {isVerticalMode && (
-                <div className="glass-card p-5 space-y-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Vertical Caption Builder</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Create TikTok/Reels/Shorts-style vertical captions with custom font and outline.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {[8, 10, 12, 15, 20].map((count) => (
-                        <button
-                          key={count}
-                          type="button"
-                          className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                            verticalClipCount === count
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border/60 text-muted-foreground hover:border-primary/40"
-                          }`}
-                          onClick={() => setVerticalClipCount(count)}
-                        >
-                          {count} clips
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                <div className="glass-card vertical-mode-shell p-5 sm:p-6">
+                  <div className="vertical-mode-layout">
+                    <div className="vertical-mode-column space-y-4">
+                      <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="vertical-mode-title text-sm font-medium text-foreground">Vertical Clip Builder</p>
+                            <p className="vertical-mode-subtitle text-xs text-muted-foreground mt-1">
+                              Create TikTok/Reels/Shorts captions with modern styling and live placement controls.
+                            </p>
+                          </div>
+                          <Badge variant="secondary" className="vertical-mode-status-badge w-fit text-[10px]">
+                            Caption-first workflow
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {[8, 10, 12, 15, 20].map((count) => (
+                            <button
+                              key={count}
+                              type="button"
+                              className={verticalModeChipClass(verticalClipCount === count)}
+                              onClick={() => setVerticalClipCount(count)}
+                            >
+                              {count} clips
+                            </button>
+                          ))}
+                        </div>
+                        <p className="vertical-mode-note text-[11px] text-muted-foreground">
+                          Choose how many ranked clips to generate in one render batch.
+                        </p>
+                      </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Caption style</span>
-                      <select
-                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                        value={verticalCaptionPreset}
-                        onChange={(event) => applyVerticalCaptionPreset(event.target.value as VerticalCaptionPresetOptionId)}
-                      >
-                        {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => (
-                          <option key={option.id} value={option.id} className="bg-background text-foreground">
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Font</span>
-                      <select
-                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                        value={verticalCaptionFontId}
-                        onChange={(event) => setVerticalCaptionFontId(event.target.value as VerticalCaptionFontOptionId)}
-                      >
-                        {VERTICAL_CAPTION_FONT_OPTIONS.map((fontOption) => (
-                          <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
-                            {fontOption.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Animation</span>
-                      <select
-                        className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                        value={verticalCaptionAnimation}
-                        onChange={(event) => setVerticalCaptionAnimation(event.target.value as VerticalCaptionAnimationOptionId)}
-                      >
-                        {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
-                          <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
-                            {animationOption.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">Outline color</span>
-                      <input
-                        type="color"
-                        className="h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
-                        value={`#${normalizeCaptionHexColor(
-                          verticalCaptionOutlineColor,
-                          VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                        )}`}
-                        onChange={(event) =>
-                          setVerticalCaptionOutlineColor(
-                            normalizeCaptionHexColor(
-                              event.target.value,
-                              VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1 md:col-span-2">
-                      <span className="text-[11px] text-muted-foreground">
-                        Outline width ({verticalCaptionOutlineWidth}px)
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={24}
-                        step={1}
-                        value={verticalCaptionOutlineWidth}
-                        onChange={(event) => setVerticalCaptionOutlineWidth(clamp(Number(event.target.value), 0, 24))}
-                        className="w-full accent-primary"
-                      />
-                      <span className="text-[10px] text-muted-foreground">Set to 0 for no outline.</span>
-                    </label>
-                    <label className="space-y-1 md:col-span-2">
-                      <span className="text-[11px] text-muted-foreground">Caption size ({Math.round(verticalCaptionFontSize)}px)</span>
-                      <input
-                        type="range"
-                        min={VERTICAL_CAPTION_FONT_SIZE_MIN}
-                        max={VERTICAL_CAPTION_FONT_SIZE_MAX}
-                        step={1}
-                        value={verticalCaptionFontSize}
-                        onChange={(event) =>
-                          setVerticalCaptionFontSize(
-                            Math.round(clamp(Number(event.target.value), VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
-                          )
-                        }
-                        className="w-full accent-primary"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">
-                        Position X ({Math.round(verticalCaptionPositionX * 100)}%)
-                      </span>
-                      <input
-                        type="range"
-                        min={VERTICAL_CAPTION_POSITION_MIN}
-                        max={VERTICAL_CAPTION_POSITION_MAX}
-                        step={0.01}
-                        value={verticalCaptionPositionX}
-                        onChange={(event) => setVerticalCaptionPositionX(clampCaptionPosition(Number(event.target.value)))}
-                        className="w-full accent-primary"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-[11px] text-muted-foreground">
-                        Position Y ({Math.round(verticalCaptionPositionY * 100)}%)
-                      </span>
-                      <input
-                        type="range"
-                        min={VERTICAL_CAPTION_POSITION_MIN}
-                        max={VERTICAL_CAPTION_POSITION_MAX}
-                        step={0.01}
-                        value={verticalCaptionPositionY}
-                        onChange={(event) => setVerticalCaptionPositionY(clampCaptionPosition(Number(event.target.value)))}
-                        className="w-full accent-primary"
-                      />
-                    </label>
-                    <label className="space-y-1 md:col-span-2">
-                      <span className="text-[11px] text-muted-foreground">
-                        Caption box width ({Math.round(verticalCaptionBoxWidthPct)}%)
-                      </span>
-                      <input
-                        type="range"
-                        min={VERTICAL_CAPTION_BOX_WIDTH_MIN}
-                        max={VERTICAL_CAPTION_BOX_WIDTH_MAX}
-                        step={1}
-                        value={verticalCaptionBoxWidthPct}
-                        onChange={(event) =>
-                          setVerticalCaptionBoxWidthPct(
-                            clamp(Number(event.target.value), VERTICAL_CAPTION_BOX_WIDTH_MIN, VERTICAL_CAPTION_BOX_WIDTH_MAX),
-                          )
-                        }
-                        className="w-full accent-primary"
-                      />
-                    </label>
-                    <div className="md:col-span-2 flex items-center justify-end">
-                      <Button type="button" variant="outline" size="sm" onClick={resetCaptionBoxPlacement}>
-                        Reset caption box
-                      </Button>
-                    </div>
-                  </div>
+                      <div className="vertical-mode-panel space-y-2 rounded-2xl border p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="vertical-mode-section-title text-xs font-medium text-foreground">Custom caption text (optional)</p>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button type="button" variant="outline" size="sm" className="h-8 text-[11px]">
+                                Style
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="end"
+                              className="w-[min(94vw,460px)] max-h-[70vh] overflow-y-auto border border-border/60 bg-card/95 p-3"
+                            >
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="vertical-mode-section-title text-xs font-medium text-foreground">Caption Styling</p>
+                                  <span className="text-[10px] text-muted-foreground">Applied to preview in real time</span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <label className="space-y-1">
+                                    <span className="text-[11px] text-muted-foreground">Caption style</span>
+                                    <select
+                                      className="vertical-mode-select w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                                      value={verticalCaptionPreset}
+                                      onChange={(event) => applyVerticalCaptionPreset(event.target.value as VerticalCaptionPresetOptionId)}
+                                    >
+                                      {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => (
+                                        <option key={option.id} value={option.id} className="bg-background text-foreground">
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-[11px] text-muted-foreground">Font</span>
+                                    <select
+                                      className="vertical-mode-select w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                                      value={verticalCaptionFontId}
+                                      onChange={(event) => setVerticalCaptionFontId(event.target.value as VerticalCaptionFontOptionId)}
+                                    >
+                                      {VERTICAL_CAPTION_FONT_OPTIONS.map((fontOption) => (
+                                        <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
+                                          {fontOption.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-[11px] text-muted-foreground">Animation</span>
+                                    <select
+                                      className="vertical-mode-select w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                                      value={verticalCaptionAnimation}
+                                      onChange={(event) => setVerticalCaptionAnimation(event.target.value as VerticalCaptionAnimationOptionId)}
+                                    >
+                                      {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
+                                        <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
+                                          {animationOption.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1">
+                                    <span className="text-[11px] text-muted-foreground">Outline color</span>
+                                    <input
+                                      type="color"
+                                      className="vertical-mode-select h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
+                                      value={`#${normalizeCaptionHexColor(
+                                        verticalCaptionOutlineColor,
+                                        VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                      )}`}
+                                      onChange={(event) =>
+                                        setVerticalCaptionOutlineColor(
+                                          normalizeCaptionHexColor(
+                                            event.target.value,
+                                            VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                          ),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <label className="space-y-2 sm:col-span-2">
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Outline width ({verticalCaptionOutlineWidth}px)
+                                    </span>
+                                    <Slider
+                                      min={0}
+                                      max={24}
+                                      step={1}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionOutlineWidth]}
+                                      onValueChange={(values) => setVerticalCaptionOutlineWidth(clamp(Math.round(values?.[0] ?? 0), 0, 24))}
+                                    />
+                                    <span className="text-[10px] text-muted-foreground">Set to 0 for no outline.</span>
+                                  </label>
+                                  <label className="space-y-2 sm:col-span-2">
+                                    <span className="text-[11px] text-muted-foreground">Caption size ({Math.round(verticalCaptionFontSize)}px)</span>
+                                    <Slider
+                                      min={VERTICAL_CAPTION_FONT_SIZE_MIN}
+                                      max={VERTICAL_CAPTION_FONT_SIZE_MAX}
+                                      step={1}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionFontSize]}
+                                      onValueChange={(values) =>
+                                        setVerticalCaptionFontSize(
+                                          Math.round(
+                                            clamp(
+                                              values?.[0] ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT,
+                                              VERTICAL_CAPTION_FONT_SIZE_MIN,
+                                              VERTICAL_CAPTION_FONT_SIZE_MAX,
+                                            ),
+                                          ),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <label className="space-y-2 sm:col-span-2">
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Drop shadow ({Math.round(verticalCaptionShadowStrength)}%)
+                                    </span>
+                                    <Slider
+                                      min={VERTICAL_CAPTION_SHADOW_MIN}
+                                      max={VERTICAL_CAPTION_SHADOW_MAX}
+                                      step={1}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionShadowStrength]}
+                                      onValueChange={(values) =>
+                                        setVerticalCaptionShadowStrength(
+                                          Math.round(
+                                            clamp(
+                                              values?.[0] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].shadowStrength,
+                                              VERTICAL_CAPTION_SHADOW_MIN,
+                                              VERTICAL_CAPTION_SHADOW_MAX,
+                                            ),
+                                          ),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <label className="space-y-2">
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Position X ({Math.round(verticalCaptionPositionX * 100)}%)
+                                    </span>
+                                    <Slider
+                                      min={VERTICAL_CAPTION_POSITION_MIN}
+                                      max={VERTICAL_CAPTION_POSITION_MAX}
+                                      step={0.01}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionPositionX]}
+                                      onValueChange={(values) => setVerticalCaptionPositionX(clampCaptionPosition(values?.[0] ?? verticalCaptionPositionX))}
+                                    />
+                                  </label>
+                                  <label className="space-y-2">
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Position Y ({Math.round(verticalCaptionPositionY * 100)}%)
+                                    </span>
+                                    <Slider
+                                      min={VERTICAL_CAPTION_POSITION_MIN}
+                                      max={VERTICAL_CAPTION_POSITION_MAX}
+                                      step={0.01}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionPositionY]}
+                                      onValueChange={(values) => setVerticalCaptionPositionY(clampCaptionPosition(values?.[0] ?? verticalCaptionPositionY))}
+                                    />
+                                  </label>
+                                  <label className="space-y-2 sm:col-span-2">
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Caption box width ({Math.round(verticalCaptionBoxWidthPct)}%)
+                                    </span>
+                                    <Slider
+                                      min={VERTICAL_CAPTION_BOX_WIDTH_MIN}
+                                      max={VERTICAL_CAPTION_BOX_WIDTH_MAX}
+                                      step={1}
+                                      className="vertical-mode-slider"
+                                      value={[verticalCaptionBoxWidthPct]}
+                                      onValueChange={(values) =>
+                                        setVerticalCaptionBoxWidthPct(
+                                          clamp(values?.[0] ?? VERTICAL_CAPTION_BOX_WIDTH_DEFAULT, VERTICAL_CAPTION_BOX_WIDTH_MIN, VERTICAL_CAPTION_BOX_WIDTH_MAX),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <div className="sm:col-span-2 flex items-center justify-end">
+                                    <Button type="button" variant="outline" size="sm" onClick={resetCaptionBoxPlacement}>
+                                      Reset caption box
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <Textarea
+                          value={verticalCaptionText}
+                          onChange={(event) => {
+                            setVerticalCaptionText(event.target.value);
+                            if (event.target.value.trim().length > 0) setUseTranscriptForCaptions(false);
+                          }}
+                          placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
+                          className="vertical-mode-textarea min-h-[112px] resize-y text-sm text-foreground"
+                          style={{ width: "320px", display: "inline-block" }}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          Leave blank to auto-generate captions from transcript timing.
+                        </p>
+                      </div>
 
-                  <label className="space-y-1 block">
-                    <span className="text-[11px] text-muted-foreground">Custom caption text (optional)</span>
-                    <textarea
-                      value={verticalCaptionText}
-                      onChange={(event) => {
-                        setVerticalCaptionText(event.target.value);
-                        if (event.target.value.trim().length > 0) setUseTranscriptForCaptions(false);
-                      }}
-                      placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
-                      className="min-h-[96px] w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground"
-                    />
-                  </label>
-
-                  <div className="rounded-xl border border-border/60 bg-muted/10 p-3 space-y-2">
+                  <div className="vertical-mode-panel rounded-2xl border p-4 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-xs font-medium text-foreground">AI Transcript (selected job)</p>
+                        <p className="vertical-mode-section-title text-xs font-medium text-foreground">AI Transcript (selected job)</p>
                         <p className="text-[11px] text-muted-foreground">
                           Transcript lines: {activeTranscriptLineCount}. Captions are generated from this transcript by default.
                         </p>
@@ -3645,14 +3806,15 @@ const Editor = () => {
                         Reset transcript text
                       </Button>
                     </div>
-                    <textarea
+                    <Textarea
                       value={editableTranscriptText}
                       onChange={(event) => {
                         setEditableTranscriptText(event.target.value);
                         setUseTranscriptForCaptions(true);
                       }}
                       placeholder="Transcript appears here after analysis. Edit lines, then render again."
-                      className="min-h-[120px] w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground"
+                      className="vertical-mode-textarea min-h-[132px] resize-y text-sm text-foreground"
+                      style={{ width: "320px", display: "inline-block" }}
                     />
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <label className="inline-flex items-center gap-2 text-[11px] text-foreground">
@@ -3684,91 +3846,120 @@ const Editor = () => {
                     )}
                   </div>
 
-                  {!verticalPreviewUrl ? (
-                    <p className="text-xs text-muted-foreground">Upload a file to prepare a vertical render.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      <div
-                        ref={verticalCaptionPreviewRef}
-                        className="relative rounded-xl overflow-hidden border border-border/40 bg-black/80"
-                      >
-                        <video src={verticalPreviewUrl} controls className="w-full max-h-[380px] object-contain" />
-                        <div className="pointer-events-none absolute inset-0">
-                          <div
-                            className="vertical-caption-preview-shell pointer-events-auto absolute z-20 cursor-move rounded-lg border px-3 py-2 text-center font-black tracking-[0.02em]"
-                            style={{
-                              left: `${verticalCaptionPositionX * 100}%`,
-                              top: `${verticalCaptionPositionY * 100}%`,
-                              maxWidth: `${verticalCaptionBoxWidthPct}%`,
-                              fontFamily: VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId],
-                              fontSize: `${Math.max(12, previewCaptionFontSizePx)}px`,
-                              lineHeight: 1.12,
-                              whiteSpace: "pre-line",
-                              transform: "translate(-50%, -50%)",
-                              color: previewCaptionTheme.textColor,
-                              background: previewCaptionTheme.background,
-                              borderColor: previewCaptionTheme.borderColor,
-                              boxShadow: previewCaptionTheme.boxShadow,
-                              WebkitTextStroke:
-                                previewCaptionOutlinePx > 0
-                                  ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
-                                  : "0px transparent",
-                              textShadow:
-                                previewCaptionOutlinePx > 0
-                                  ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35), ${previewCaptionTheme.textShadow}`
-                                  : previewCaptionTheme.textShadow,
-                            }}
-                            onPointerDown={beginCaptionDrag}
-                          >
-                            <span className={`vertical-caption-preview-text${previewCaptionAnimationClass ? ` ${previewCaptionAnimationClass}` : ""}`}>
-                              {previewCaptionText}
-                            </span>
-                            <button
-                              type="button"
-                              className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
-                              onPointerDown={beginCaptionResize}
-                              aria-label="Resize caption box"
-                            />
+                    </div>
+
+                    <div className="vertical-mode-column space-y-4">
+                      <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="vertical-mode-section-title text-xs font-medium text-foreground">Live Caption Preview</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Click or drag anywhere on the preview to place captions. Fine tune with the Style popup.
+                            </p>
                           </div>
+                          <Badge variant="secondary" className="vertical-mode-status-badge w-fit text-[10px]">
+                            {verticalPreviewUrl ? "Preview ready" : "Awaiting upload"}
+                          </Badge>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                          <MousePointerClick className="w-3.5 h-3.5" />
-                          Drag the caption box to move it. Use the corner handle or sliders to resize.
-                        </p>
-                        <Button
-                          type="button"
-                          className="gap-2"
-                          disabled={!pendingVerticalFile || !!uploadingJobId}
-                          onClick={startVerticalRender}
-                        >
-                          <ScissorsSquare className="w-4 h-4" />
-                          Create Vertical Clips
-                        </Button>
-                        {activeJob?.renderMode === "vertical" && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="gap-2"
-                            disabled={
-                              !!reprocessingJobId ||
-                              !activeJob ||
-                              (normalizeStatus(activeJob.status) !== "ready" && normalizeStatus(activeJob.status) !== "failed")
-                            }
-                            onClick={handleReprocessCaptions}
-                          >
-                            {reprocessingJobId === activeJob.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <ScissorsSquare className="h-4 w-4" />
-                            )}
-                            Re-render Captions
-                          </Button>
+
+                        {!verticalPreviewUrl ? (
+                          <p className="vertical-mode-note text-xs text-muted-foreground">Upload a file to prepare a vertical render preview.</p>
+                        ) : (
+                          <>
+                            <div
+                              ref={verticalCaptionPreviewRef}
+                              className="vertical-mode-source-preview relative rounded-xl overflow-hidden border border-border/40 bg-black/80"
+                              onPointerDown={beginCaptionDragFromPreview}
+                            >
+                              <video src={verticalPreviewUrl} controls className="w-full max-h-[520px] object-contain" />
+                              <div className="pointer-events-none absolute inset-0">
+                                <div
+                                  className="vertical-caption-preview-shell pointer-events-auto absolute z-20 cursor-move rounded-lg border px-3 py-2 text-center font-black tracking-[0.02em]"
+                                  style={{
+                                    left: `${verticalCaptionPositionX * 100}%`,
+                                    top: `${verticalCaptionPositionY * 100}%`,
+                                    maxWidth: `${verticalCaptionBoxWidthPct}%`,
+                                    fontFamily: VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId],
+                                    fontSize: `${Math.max(12, previewCaptionFontSizePx)}px`,
+                                    lineHeight: 1.12,
+                                    whiteSpace: "pre-line",
+                                    transform: "translate(-50%, -50%)",
+                                    color: previewCaptionTheme.textColor,
+                                    background: previewCaptionTheme.background,
+                                    borderColor: previewCaptionTheme.borderColor,
+                                    boxShadow: previewCaptionBoxShadow,
+                                    WebkitTextStroke:
+                                      previewCaptionOutlinePx > 0
+                                        ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
+                                        : "0px transparent",
+                                    textShadow:
+                                      previewCaptionOutlinePx > 0
+                                        ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35), ${previewCaptionTextShadow}`
+                                        : previewCaptionTextShadow,
+                                  }}
+                                  onPointerDown={beginCaptionDrag}
+                                >
+                                  <span className={`vertical-caption-preview-text${previewCaptionAnimationClass ? ` ${previewCaptionAnimationClass}` : ""}`}>
+                                    {previewCaptionText}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
+                                    onPointerDown={beginCaptionResize}
+                                    aria-label="Resize caption box"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <p className="vertical-mode-note text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                              <MousePointerClick className="w-3.5 h-3.5" />
+                              Click or drag in the preview to move captions. Use the corner handle or sliders to resize.
+                            </p>
+                          </>
                         )}
                       </div>
+
+                      <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
+                        <div>
+                          <p className="vertical-mode-section-title text-xs font-medium text-foreground">Render Vertical Clips</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Create {verticalClipCount} ranked short-form clips with the current caption settings.
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Button
+                            type="button"
+                            className="vertical-mode-cta w-full gap-2"
+                            disabled={!pendingVerticalFile || !!uploadingJobId}
+                            onClick={startVerticalRender}
+                          >
+                            <ScissorsSquare className="w-4 h-4" />
+                            Create Vertical Clips
+                          </Button>
+                          {activeJob?.renderMode === "vertical" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full gap-2"
+                              disabled={
+                                !!reprocessingJobId ||
+                                !activeJob ||
+                                (normalizeStatus(activeJob.status) !== "ready" && normalizeStatus(activeJob.status) !== "failed")
+                              }
+                              onClick={handleReprocessCaptions}
+                            >
+                              {reprocessingJobId === activeJob.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ScissorsSquare className="h-4 w-4" />
+                              )}
+                              Re-render Captions
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 
