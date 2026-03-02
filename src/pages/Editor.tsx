@@ -1003,6 +1003,18 @@ const formatPlatformLabel = (value?: string | null) => {
   return formatNicheLabel(normalized);
 };
 
+const toObjectRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const formatNaturalList = (items: string[]) => {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+};
+
 const formatHookTimestamp = (seconds: number) => {
   const safe = Math.max(0, Number(seconds) || 0);
   const minutes = Math.floor(safe / 60);
@@ -4642,6 +4654,10 @@ const Editor = () => {
   }, [activeJob]);
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const activeRenderSettings =
+    activeJob && (activeJob as any).renderSettings && typeof (activeJob as any).renderSettings === "object"
+      ? ((activeJob as any).renderSettings as Record<string, unknown>)
+      : null;
   const exportFeedbackEntries = useMemo(
     () => buildExportFeedbackEntries(activeJob?.analysis ?? {}),
     [activeJob?.id, activeJob?.analysis],
@@ -4654,6 +4670,77 @@ const Editor = () => {
   const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
     ? activeAnalysis.metadata_summary
     : null;
+  const fullAutoProfileRaw =
+    toObjectRecord(activeAnalysis?.fullAutoYoutube) ??
+    toObjectRecord(activeAnalysis?.full_auto_youtube) ??
+    toObjectRecord(activeRenderSettings?.fullAutoYoutube) ??
+    toObjectRecord(activeRenderSettings?.full_auto_youtube);
+  const fullAutoAppliedSettings = toObjectRecord(fullAutoProfileRaw?.appliedSettings);
+  const fullAutoTransitionPack = Array.isArray(fullAutoProfileRaw?.transitionPack)
+    ? fullAutoProfileRaw.transitionPack.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const fullAutoSoundFxPack = Array.isArray(fullAutoProfileRaw?.soundFxPack)
+    ? fullAutoProfileRaw.soundFxPack.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const fullAutoMusicPlan = toObjectRecord(fullAutoProfileRaw?.musicPlan);
+  const fullAutoEnabledForActiveJob = Boolean(
+    fullAutoProfileRaw &&
+      (
+        fullAutoProfileRaw.enabled === true ||
+        fullAutoProfileRaw.mode === "full_auto_youtube" ||
+        typeof fullAutoProfileRaw.target === "string" ||
+        typeof fullAutoProfileRaw.vibe === "string" ||
+        fullAutoAppliedSettings
+      ),
+  );
+  const fullAutoEditorAddedSummary = (() => {
+    if (!fullAutoEnabledForActiveJob) return null;
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const addLabel = (value: string | null) => {
+      const label = String(value || "").trim();
+      if (!label) return;
+      const dedupeKey = label.toLowerCase();
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      labels.push(label);
+    };
+
+    if (fullAutoAppliedSettings?.smartZoom === true) addLabel("smart zoom reframing");
+    if (fullAutoAppliedSettings?.transitions === true || fullAutoTransitionPack.length > 0) addLabel("transitions");
+    if (fullAutoAppliedSettings?.soundFx === true || fullAutoSoundFxPack.length > 0) addLabel("sound effects");
+    if (fullAutoAppliedSettings?.autoCaptions === true) {
+      const subtitleStyle = typeof fullAutoAppliedSettings?.subtitleStyle === "string"
+        ? fullAutoAppliedSettings.subtitleStyle.trim()
+        : "";
+      addLabel(subtitleStyle ? `${formatNicheLabel(subtitleStyle)} auto captions` : "auto captions");
+    }
+    if (fullAutoMusicPlan?.ducking === true) addLabel("background music ducking");
+    if (fullAutoProfileRaw?.preferAiBroll === true) addLabel("AI B-roll assist");
+    if (fullAutoAppliedSettings?.hookSelectionMode === "auto") addLabel("auto hook selection");
+    const maxCuts = Number(fullAutoAppliedSettings?.maxCuts);
+    if (Number.isFinite(maxCuts) && maxCuts > 0) addLabel(`up to ${Math.round(maxCuts)} auto cuts`);
+    const editorMode = typeof fullAutoAppliedSettings?.editorMode === "string"
+      ? fullAutoAppliedSettings.editorMode.trim().toLowerCase()
+      : "";
+    if (editorMode && editorMode !== "auto") addLabel(`${formatNicheLabel(editorMode)} pacing mode`);
+
+    if (labels.length > 0) return `Editor added: ${formatNaturalList(labels.slice(0, 6))}.`;
+
+    const fallbackHighlight = Array.isArray(fullAutoProfileRaw?.highlights)
+      ? fullAutoProfileRaw.highlights.find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      : null;
+    if (fallbackHighlight) {
+      const cleanHighlight = fallbackHighlight.trim().replace(/[.!?]+$/, "");
+      if (cleanHighlight) return `Editor added: ${cleanHighlight}.`;
+    }
+    return "Editor added: Full Auto YouTube optimizations.";
+  })();
+  const showFullAutoEditorAddedSummary = Boolean(
+    fullAutoEnabledForActiveJob &&
+      normalizedActiveStatus === "ready" &&
+      fullAutoEditorAddedSummary,
+  );
   const metadataClipSummaries: Array<{
     clip: number;
     predictedCompletion: number | null;
@@ -9139,6 +9226,9 @@ const Editor = () => {
                           </p>
                           {hookReason ? (
                             <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
+                          ) : null}
+                          {showFullAutoEditorAddedSummary ? (
+                            <p className="mt-1 text-xs text-primary/90">{fullAutoEditorAddedSummary}</p>
                           ) : null}
                         </div>
                         <div
