@@ -168,6 +168,51 @@ const normalizeCaptionHexColor = (value: string, fallback: string) => {
   return fallback;
 };
 
+const PREVIEW_FILLER_TOKENS = new Set(["um", "uh", "like", "basically", "literally", "actually", "honestly", "seriously"]);
+const PREVIEW_EMOJI_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+const PREVIEW_EMPHASIS_TOKENS = new Set([
+  "crazy", "insane", "wild", "shocking", "secret", "proof", "never", "always", "must", "now", "stop",
+  "wait", "watch", "listen", "important", "viral", "breaking", "unbelievable", "cannot", "can't", "cant",
+  "no", "way", "how", "why", "what",
+]);
+const PREVIEW_EMOJI_RULES: Array<{ pattern: RegExp; emoji: string }> = [
+  { pattern: /(crazy|insane|wild|shocking|wtf|no\s*way)/i, emoji: "🤯" },
+  { pattern: /(fire|hot|viral|legend|win|clutch|hype)/i, emoji: "🔥" },
+  { pattern: /(laugh|funny|lol|lmao|joke)/i, emoji: "😂" },
+  { pattern: /(watch|look|wait|listen|secret|proof)/i, emoji: "👀" },
+];
+const normalizePreviewToken = (value: string) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/(^[^a-z0-9']+|[^a-z0-9']+$)/g, "");
+const shouldPreviewEmphasis = (value: string) => {
+  const token = normalizePreviewToken(value);
+  if (!token) return false;
+  if (PREVIEW_EMPHASIS_TOKENS.has(token)) return true;
+  if (/\d/.test(token)) return true;
+  return String(value || "").trim().toUpperCase() === String(value || "").trim() && token.length >= 3;
+};
+const removePreviewFillers = (value: string) => {
+  const words = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((word) => word.trim())
+    .filter(Boolean);
+  if (!words.length) return "";
+  const filtered = words.filter((word) => !PREVIEW_FILLER_TOKENS.has(normalizePreviewToken(word)));
+  return (filtered.length ? filtered : words).join(" ").replace(/\s+([,.!?;:])/g, "$1").trim();
+};
+const inferPreviewEmoji = (value: string) => {
+  const sample = String(value || "").trim();
+  if (!sample) return "";
+  for (const rule of PREVIEW_EMOJI_RULES) {
+    if (rule.pattern.test(sample)) return rule.emoji;
+  }
+  return "";
+};
+
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const VERTICAL_CAPTION_POSITION_MIN = 0.02;
@@ -1647,6 +1692,21 @@ const Editor = () => {
   const [verticalCaptionShadowStrength, setVerticalCaptionShadowStrength] = useState<number>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].shadowStrength,
   );
+  const [verticalCaptionAnimationSpeed, setVerticalCaptionAnimationSpeed] = useState<number>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animationSpeed,
+  );
+  const [verticalCaptionHighlightWords, setVerticalCaptionHighlightWords] = useState<boolean>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].highlightWords,
+  );
+  const [verticalCaptionAutoEmphasis, setVerticalCaptionAutoEmphasis] = useState<boolean>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].autoEmphasis,
+  );
+  const [verticalCaptionAutoEmoji, setVerticalCaptionAutoEmoji] = useState<boolean>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].autoEmoji,
+  );
+  const [verticalCaptionRemoveFillers, setVerticalCaptionRemoveFillers] = useState<boolean>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].removeFillers,
+  );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
@@ -1946,6 +2006,11 @@ const Editor = () => {
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
     setVerticalCaptionAnimation(defaults.animation);
     setVerticalCaptionShadowStrength(defaults.shadowStrength);
+    setVerticalCaptionAnimationSpeed(defaults.animationSpeed);
+    setVerticalCaptionHighlightWords(defaults.highlightWords);
+    setVerticalCaptionAutoEmphasis(defaults.autoEmphasis);
+    setVerticalCaptionAutoEmoji(defaults.autoEmoji);
+    setVerticalCaptionRemoveFillers(defaults.removeFillers);
   }, []);
 
   const applyPlatformVerticalCaptionPreset = useCallback(
@@ -3149,6 +3214,11 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            highlightWords: verticalCaptionHighlightWords,
+            autoEmphasis: verticalCaptionAutoEmphasis,
+            autoEmoji: verticalCaptionAutoEmoji,
+            removeFillers: verticalCaptionRemoveFillers,
             shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
@@ -3757,7 +3827,12 @@ const Editor = () => {
     );
     const captionFontFamily = VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId] ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
     const captionRawText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
-    const captionTextForPreview = captionRawText || "Auto captions preview";
+    const captionBaseText = captionRawText || "Auto captions preview";
+    const captionNoFillers = verticalCaptionRemoveFillers ? removePreviewFillers(captionBaseText) : captionBaseText;
+    const captionAutoEmoji = verticalCaptionAutoEmoji ? inferPreviewEmoji(captionNoFillers) : "";
+    const captionTextForPreview = captionAutoEmoji && !PREVIEW_EMOJI_PATTERN.test(captionNoFillers)
+      ? `${captionNoFillers} ${captionAutoEmoji}`
+      : captionNoFillers;
 
     const drawVideoRegion = (
       src: WebcamCrop,
@@ -3863,19 +3938,21 @@ const Editor = () => {
 
         if (isVerticalMode || autoCaptionsEnabled) {
           const now = performance.now();
+          const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
+          const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
           let animationScale = 1;
           let animationYOffset = 0;
           let animationOpacity = 1;
           if (verticalCaptionAnimation === "pop") {
-            animationScale = 1 + Math.sin(now / 190) * 0.03;
+            animationScale = 1 + Math.sin(now / timing(190)) * 0.03;
           } else if (verticalCaptionAnimation === "slide") {
-            animationYOffset = Math.sin(now / 440) * 4;
+            animationYOffset = Math.sin(now / timing(440)) * 4;
           } else if (verticalCaptionAnimation === "fade") {
-            animationOpacity = 0.76 + Math.abs(Math.sin(now / 460)) * 0.24;
+            animationOpacity = 0.76 + Math.abs(Math.sin(now / timing(460))) * 0.24;
           } else if (verticalCaptionAnimation === "bounce") {
-            animationYOffset = -Math.abs(Math.sin(now / 210)) * 7;
+            animationYOffset = -Math.abs(Math.sin(now / timing(210))) * 7;
           } else if (verticalCaptionAnimation === "glitch") {
-            animationScale = 1 + Math.sin(now / 120) * 0.01;
+            animationScale = 1 + Math.sin(now / timing(120)) * 0.01;
           }
 
           const fontPx = Math.round(
@@ -3896,7 +3973,7 @@ const Editor = () => {
           ctx.translate(centerX, centerY + animationYOffset);
           ctx.scale(animationScale, animationScale);
           ctx.font = `900 ${fontPx}px ${captionFontFamily}`;
-          ctx.textAlign = "center";
+          ctx.textAlign = "left";
           ctx.textBaseline = "middle";
 
           const lines = wrapCaptionText(captionTextForPreview, maxTextWidth, 3);
@@ -3916,22 +3993,51 @@ const Editor = () => {
             ctx.shadowBlur = Math.round(fontPx * (0.08 + captionShadowStrength * 0.52));
             ctx.shadowOffsetY = Math.round(fontPx * 0.05 * captionShadowStrength);
             const centerOffset = ((lines.length - 1) * lineHeight) / 2;
+            const allTokens = captionTextForPreview
+              .replace(/\s+/g, " ")
+              .trim()
+              .split(" ")
+              .filter(Boolean);
+            const highlightedTokenIndex =
+              verticalCaptionHighlightWords && allTokens.length > 1
+                ? Math.floor((now / Math.max(90, 320 / Math.max(0.5, animSpeed))) % allTokens.length)
+                : -1;
+            let tokenCursor = 0;
             for (let idx = 0; idx < lines.length; idx += 1) {
               const line = lines[idx];
               const y = idx * lineHeight - centerOffset;
-              if (outlinePx > 0) {
-                ctx.strokeStyle = `#${captionOutlineColor}`;
-                ctx.lineWidth = outlinePx;
-                ctx.lineJoin = "round";
-                ctx.strokeText(line, 0, y);
-              }
-              ctx.fillStyle = captionPalette.textColor;
-              ctx.fillText(line, 0, y);
-              if (verticalCaptionAnimation === "glitch") {
-                ctx.fillStyle = "rgba(255, 0, 120, 0.42)";
-                ctx.fillText(line, -1.5, y);
-                ctx.fillStyle = "rgba(0, 255, 255, 0.42)";
-                ctx.fillText(line, 1.5, y);
+              const lineWords = line.split(" ").filter(Boolean);
+              if (!lineWords.length) continue;
+              const measuredWords = lineWords.map((word, wordIndex) => {
+                const isLast = wordIndex === lineWords.length - 1;
+                const display = isLast ? word : `${word} `;
+                return {
+                  word,
+                  display,
+                  width: ctx.measureText(display).width,
+                };
+              });
+              const totalLineWidth = measuredWords.reduce((sum, entry) => sum + entry.width, 0);
+              let cursorX = -totalLineWidth / 2;
+              for (const entry of measuredWords) {
+                const isHighlighted = tokenCursor === highlightedTokenIndex;
+                const isEmphasis = verticalCaptionAutoEmphasis ? shouldPreviewEmphasis(entry.word) : false;
+                if (outlinePx > 0) {
+                  ctx.strokeStyle = `#${captionOutlineColor}`;
+                  ctx.lineWidth = outlinePx;
+                  ctx.lineJoin = "round";
+                  ctx.strokeText(entry.display, cursorX, y);
+                }
+                ctx.fillStyle = isHighlighted || isEmphasis ? captionPalette.borderColor : captionPalette.textColor;
+                ctx.fillText(entry.display, cursorX, y);
+                if (verticalCaptionAnimation === "glitch") {
+                  ctx.fillStyle = "rgba(255, 0, 120, 0.42)";
+                  ctx.fillText(entry.display, cursorX - 1.5, y);
+                  ctx.fillStyle = "rgba(0, 255, 255, 0.42)";
+                  ctx.fillText(entry.display, cursorX + 1.5, y);
+                }
+                cursorX += entry.width;
+                tokenCursor += 1;
               }
             }
           } else {
@@ -3964,11 +4070,16 @@ const Editor = () => {
     skipManualWebcamCrop,
     autoCaptionsEnabled,
     verticalCaptionAnimation,
+    verticalCaptionAnimationSpeed,
     verticalCaptionFontSize,
     verticalCaptionFontId,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
     verticalCaptionShadowStrength,
+    verticalCaptionHighlightWords,
+    verticalCaptionAutoEmphasis,
+    verticalCaptionAutoEmoji,
+    verticalCaptionRemoveFillers,
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     verticalCaptionPreset,
@@ -4298,6 +4409,11 @@ const Editor = () => {
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
+            animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            highlightWords: verticalCaptionHighlightWords,
+            autoEmphasis: verticalCaptionAutoEmphasis,
+            autoEmoji: verticalCaptionAutoEmoji,
+            removeFillers: verticalCaptionRemoveFillers,
             shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
@@ -4415,6 +4531,11 @@ const Editor = () => {
       subtitleStyleDraft,
       ultraPipelineMode,
       verticalCaptionAnimation,
+      verticalCaptionAnimationSpeed,
+      verticalCaptionHighlightWords,
+      verticalCaptionAutoEmphasis,
+      verticalCaptionAutoEmoji,
+      verticalCaptionRemoveFillers,
       verticalCaptionFontSize,
       verticalCaptionFontId,
       verticalCaptionOutlineColor,
@@ -7909,6 +8030,25 @@ const Editor = () => {
                                   </select>
                                 </label>
                                 <label className="space-y-1">
+                                  <span className="text-[11px] text-muted-foreground">
+                                    Animation speed ({verticalCaptionAnimationSpeed.toFixed(2)}x)
+                                  </span>
+                                  <Slider
+                                    min={VERTICAL_CAPTION_ANIMATION_SPEED_MIN}
+                                    max={VERTICAL_CAPTION_ANIMATION_SPEED_MAX}
+                                    step={0.02}
+                                    className="editor-settings-slider"
+                                    value={[verticalCaptionAnimationSpeed]}
+                                    onValueChange={(values) =>
+                                      setVerticalCaptionAnimationSpeed(
+                                        clampVerticalCaptionAnimationSpeed(
+                                          values?.[0] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].animationSpeed,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </label>
+                                <label className="space-y-1">
                                   <span className="text-[11px] text-muted-foreground">Outline color</span>
                                   <input
                                     type="color"
@@ -7982,6 +8122,36 @@ const Editor = () => {
                                     }
                                   />
                                 </label>
+                                <div className="sm:col-span-2 grid grid-cols-1 gap-2">
+                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                                    <span className="text-[11px] text-muted-foreground">Word highlight (karaoke)</span>
+                                    <Switch
+                                      checked={verticalCaptionHighlightWords}
+                                      onCheckedChange={(checked) => setVerticalCaptionHighlightWords(Boolean(checked))}
+                                    />
+                                  </label>
+                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                                    <span className="text-[11px] text-muted-foreground">Auto keyword emphasis</span>
+                                    <Switch
+                                      checked={verticalCaptionAutoEmphasis}
+                                      onCheckedChange={(checked) => setVerticalCaptionAutoEmphasis(Boolean(checked))}
+                                    />
+                                  </label>
+                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                                    <span className="text-[11px] text-muted-foreground">Auto emoji hooks</span>
+                                    <Switch
+                                      checked={verticalCaptionAutoEmoji}
+                                      onCheckedChange={(checked) => setVerticalCaptionAutoEmoji(Boolean(checked))}
+                                    />
+                                  </label>
+                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                                    <span className="text-[11px] text-muted-foreground">Remove filler words</span>
+                                    <Switch
+                                      checked={verticalCaptionRemoveFillers}
+                                      onCheckedChange={(checked) => setVerticalCaptionRemoveFillers(Boolean(checked))}
+                                    />
+                                  </label>
+                                </div>
                                 <label className="space-y-1">
                                   <span className="text-[11px] text-muted-foreground">
                                     Position X ({Math.round(verticalCaptionPositionX * 100)}%)
