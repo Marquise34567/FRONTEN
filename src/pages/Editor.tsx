@@ -261,6 +261,7 @@ type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bou
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
+type UploadModePromptSelection = PipelinePowerMode | "full_auto_youtube";
 type FullAutoYoutubeTarget = "auto" | "long_form" | "shorts";
 type FullAutoYoutubeVibe = "auto" | "hype" | "cinematic" | "chill" | "education";
 type HookSelectionMode = "manual" | "auto";
@@ -603,6 +604,35 @@ const PIPELINE_POWER_MODE_OPTIONS: Array<{
     value: "retention_king",
     label: "Retention King",
     description: "Retention-engineering playbook that aggressively hunts drop-off windows and curiosity loops.",
+  },
+];
+const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
+  value: UploadModePromptSelection;
+  label: string;
+  description: string;
+  premium?: boolean;
+}> = [
+  {
+    value: "standard",
+    label: "Standard",
+    description: "Balanced default for most videos with your current retention profile.",
+  },
+  {
+    value: "ultra",
+    label: "Ultra Mode",
+    description: "Fast upload + processing path tuned for speed and high-energy output.",
+    premium: true,
+  },
+  {
+    value: "retention_king",
+    label: "Retention King",
+    description: "Aggressive retention-engineering to attack drop-off windows.",
+    premium: true,
+  },
+  {
+    value: "full_auto_youtube",
+    label: "Full Auto YouTube",
+    description: "Auto-tunes cuts, captions, transitions, and YouTube packaging.",
   },
 ];
 const FULL_AUTO_YOUTUBE_TARGET_OPTIONS: Array<{ value: FullAutoYoutubeTarget; label: string; description: string }> = [
@@ -1663,6 +1693,12 @@ const Editor = () => {
   const [activeJob, setActiveJob] = useState<JobDetail | null>(null);
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
+  const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
+  const [pendingUploadSelection, setPendingUploadSelection] = useState<{
+    file: File;
+    fileCount: number;
+    mode: "horizontal" | "vertical";
+  } | null>(null);
   const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
@@ -3190,6 +3226,10 @@ const Editor = () => {
       mode?: "horizontal" | "vertical";
       verticalClipCount?: number;
       verticalMode?: VerticalModePayload | null;
+      uploadModeOverride?: {
+        pipelinePowerMode?: PipelinePowerMode;
+        fullAutoYoutubeEnabled?: boolean;
+      };
     },
   ) => {
     if (!isAllowedUploadFile(file)) {
@@ -3198,10 +3238,14 @@ const Editor = () => {
     }
     if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
+    const resolvedPipelinePowerMode = renderOptions?.uploadModeOverride?.pipelinePowerMode ?? pipelinePowerMode;
+    const resolvedFullAutoYoutubeEnabled = typeof renderOptions?.uploadModeOverride?.fullAutoYoutubeEnabled === "boolean"
+      ? renderOptions.uploadModeOverride.fullAutoYoutubeEnabled
+      : fullAutoYoutubeEnabled;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
-    const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
-    const fastModeForJob = ultraPipelineMode;
+    const editorModeForJob = mapEditorModeForBackend(editorMode, resolvedPipelinePowerMode);
+    const fastModeForJob = isUltraPipelineMode(resolvedPipelinePowerMode);
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
@@ -3236,7 +3280,7 @@ const Editor = () => {
             positionY: clampCaptionPosition(verticalCaptionPositionY),
           }
         : null;
-    const fullAutoYoutubePayload = fullAutoYoutubeEnabled
+    const fullAutoYoutubePayload = resolvedFullAutoYoutubeEnabled
       ? {
           enabled: true,
           target: fullAutoYoutubeTarget,
@@ -3278,7 +3322,7 @@ const Editor = () => {
               longFormClarityVsSpeed,
               tangentKiller,
               fastMode: fastModeForJob,
-              pipelinePowerMode,
+              pipelinePowerMode: resolvedPipelinePowerMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -3305,7 +3349,7 @@ const Editor = () => {
               longFormClarityVsSpeed,
               tangentKiller,
               fastMode: fastModeForJob,
-              pipelinePowerMode,
+              pipelinePowerMode: resolvedPipelinePowerMode,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -4164,19 +4208,36 @@ const Editor = () => {
     trackEditorEvent,
   ]);
 
-  const handleSelectedFile = useCallback((file: File, fileCount = 1) => {
+  const continueWithSelectedFile = useCallback((
+    file: File,
+    fileCount = 1,
+    selectionMode: "horizontal" | "vertical" = isVerticalMode ? "vertical" : "horizontal",
+    uploadModeOverride?: {
+      pipelinePowerMode?: PipelinePowerMode;
+      fullAutoYoutubeEnabled?: boolean;
+    },
+  ) => {
     if (fileCount > 1) {
       toast({
         title: "Multiple files detected",
         description: "Using the first selected file.",
       });
     }
-    if (isVerticalMode) {
+    if (selectionMode === "vertical") {
       prepareVerticalFile(file);
       return;
     }
-    void handleFile(file);
+    void handleFile(file, { mode: "horizontal", uploadModeOverride });
   }, [handleFile, isVerticalMode, prepareVerticalFile, toast]);
+
+  const handleSelectedFile = useCallback((file: File, fileCount = 1) => {
+    setPendingUploadSelection({
+      file,
+      fileCount,
+      mode: isVerticalMode ? "vertical" : "horizontal",
+    });
+    setUploadModePromptOpen(true);
+  }, [isVerticalMode]);
 
   const handleFileInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -6516,6 +6577,9 @@ const Editor = () => {
       ? "Run Binge Optimizer"
       : "Pick Clip & Run Binge Optimizer"
     : "Run Binge Optimizer";
+  const uploadModePromptActiveSelection: UploadModePromptSelection = fullAutoYoutubeEnabled
+    ? "full_auto_youtube"
+    : pipelinePowerMode;
 
   const handleSelectPipelinePowerMode = (mode: PipelinePowerMode) => {
     if (mode !== "standard" && !paidTier) {
@@ -6534,6 +6598,70 @@ const Editor = () => {
       metadata: { mode },
     });
   };
+
+  const closeUploadModePrompt = useCallback(() => {
+    setUploadModePromptOpen(false);
+    setPendingUploadSelection(null);
+  }, []);
+
+  const handleSelectUploadModePrompt = useCallback((selection: UploadModePromptSelection) => {
+    const pending = pendingUploadSelection;
+    if (!pending) return;
+
+    if ((selection === "ultra" || selection === "retention_king") && !paidTier) {
+      setTrialUpgradeOpen(true);
+      toast({
+        title: "Premium mode locked",
+        description: "Ultra Mode and Retention King are available on paid plans.",
+      });
+      return;
+    }
+
+    const uploadModeOverride =
+      selection === "full_auto_youtube"
+        ? { pipelinePowerMode: "standard" as PipelinePowerMode, fullAutoYoutubeEnabled: true }
+        : { pipelinePowerMode: selection as PipelinePowerMode, fullAutoYoutubeEnabled: false };
+
+    if (selection === "full_auto_youtube") {
+      setFullAutoYoutubeEnabled(true);
+      if (pipelinePowerMode !== "standard") {
+        handleSelectPipelinePowerMode("standard");
+      }
+    } else {
+      setFullAutoYoutubeEnabled(false);
+      handleSelectPipelinePowerMode(selection as PipelinePowerMode);
+    }
+
+    trackEditorEvent("upload_mode_prompt_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        selection,
+        mode: pending.mode,
+      },
+    });
+
+    closeUploadModePrompt();
+    continueWithSelectedFile(
+      pending.file,
+      pending.fileCount,
+      pending.mode,
+      uploadModeOverride,
+    );
+  }, [
+    activeSubtitlePreset,
+    closeUploadModePrompt,
+    continueWithSelectedFile,
+    handleSelectPipelinePowerMode,
+    paidTier,
+    pendingUploadSelection,
+    pipelinePowerMode,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    toast,
+    trackEditorEvent,
+  ]);
 
   useEffect(() => {
     if (pipelinePowerMode === "standard") return;
@@ -10020,6 +10148,99 @@ const Editor = () => {
           </div>
         </motion.div>
       </main>
+
+      <Dialog
+        open={uploadModePromptOpen}
+        onOpenChange={(open) => {
+          if (!open) closeUploadModePrompt();
+        }}
+      >
+        <DialogContent
+          className="max-w-[calc(100vw-1rem)] overflow-hidden border border-primary/40 bg-[radial-gradient(140%_200%_at_0%_0%,hsl(var(--primary)/0.24),transparent_54%),radial-gradient(140%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.2),transparent_60%),linear-gradient(152deg,hsl(var(--card)/0.9),hsl(var(--card)/0.76))] p-0 backdrop-blur-xl sm:max-w-2xl [&>button]:hidden"
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          <div className="relative p-5 sm:p-6">
+            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+              <span className="absolute -left-16 top-[-4.5rem] h-44 w-44 rounded-full bg-primary/22 blur-3xl" />
+              <span className="absolute right-[-4.25rem] top-[-3.5rem] h-36 w-36 rounded-full bg-[hsl(var(--glow-secondary)/0.18)] blur-3xl" />
+            </div>
+            <DialogHeader className="relative z-10">
+              <DialogTitle className="text-xl font-display text-foreground">Choose Upload Power Mode</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Before upload starts, choose how aggressively the editor should process this video.
+              </DialogDescription>
+            </DialogHeader>
+
+            {pendingUploadSelection ? (
+              <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/45 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected file</p>
+                <p className="mt-1 truncate text-sm text-foreground">{pendingUploadSelection.file.name}</p>
+              </div>
+            ) : null}
+
+            <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-2">
+              {UPLOAD_MODE_PROMPT_OPTIONS.map((option) => {
+                const locked = Boolean(option.premium && !paidTier);
+                const active = uploadModePromptActiveSelection === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`hero-platform-pill flex items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                      active
+                        ? "border-primary/65 bg-primary/14 shadow-[0_14px_30px_-20px_hsl(var(--primary)/0.9)]"
+                        : "border-border/55 bg-card/40"
+                    } ${locked ? "cursor-not-allowed opacity-70" : "hover:border-primary/55 hover:bg-primary/10"}`}
+                    onClick={() => {
+                      if (locked) return;
+                      handleSelectUploadModePrompt(option.value);
+                    }}
+                    disabled={locked}
+                  >
+                    <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                      active ? "bg-primary/25 text-primary" : "bg-background/60 text-muted-foreground"
+                    }`}>
+                      {option.value === "ultra" ? (
+                        <Zap className="h-4 w-4" />
+                      ) : option.value === "retention_king" ? (
+                        <Crown className="h-4 w-4" />
+                      ) : option.value === "full_auto_youtube" ? (
+                        <Wand2 className="h-4 w-4" />
+                      ) : (
+                        <Gauge className="h-4 w-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{option.label}</span>
+                        {locked ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-muted-foreground">
+                {paidTier ? "Paid plan detected: all power modes available." : "Free plan: Standard and Full Auto YouTube are available."}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="hero-cta-button hero-cta-secondary w-full rounded-full sm:w-auto"
+                onClick={closeUploadModePrompt}
+              >
+                Cancel Upload
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={editorGuideOpen}
