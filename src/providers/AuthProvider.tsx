@@ -103,8 +103,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         supabase.auth.signOut().catch(() => {});
       }
     });
-    const onExpired = () => {
-      // on global auth expired event, sign out to clear session and update UI
+    const onExpired = async () => {
+      // Try one refresh before forcing logout to avoid transient 401 sign-outs.
+      try {
+        if (typeof supabase.auth.refreshSession === "function") {
+          const { data } = await supabase.auth.refreshSession();
+          const refreshed = toActiveSession(data?.session);
+          if (refreshed) {
+            setSession(refreshed);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {}
       try {
         setSession(null);
         setLoading(false);
