@@ -1944,6 +1944,16 @@ const Index = () => {
               </Link>
             </motion.div>
           </motion.section>
+
+          <div className="mt-16 pb-2 text-center">
+            <p className="text-xs text-muted-foreground">Your data matters. Read how we collect and protect it.</p>
+            <Link
+              to="/privacy-policy"
+              className="mt-2 inline-flex text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Privacy Policy
+            </Link>
+          </div>
         </div>
             </main>
           </div>

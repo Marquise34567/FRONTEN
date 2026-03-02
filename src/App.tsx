@@ -11,6 +11,7 @@ import JobDetail from "./pages/JobDetail";
 import Pricing from "./pages/Pricing";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import BillingSuccess from "./pages/BillingSuccess";
 import GoogleTagSetup from "./pages/GoogleTagSetup";
 import ControlPanel from "./pages/ControlPanel";
@@ -136,6 +137,7 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/pricing" element={<Pricing />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/billing/success" element={<BillingSuccess />} />
               <Route path="/preview/google-ads-tracking" element={<GoogleTagSetup />} />
               <Route
