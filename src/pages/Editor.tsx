@@ -272,7 +272,7 @@ type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
-type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3";
+type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3" | "top_human_guard";
 type AchievementSignal = {
   id: "retention_beast" | "hook_master" | "post_now";
   title: string;
@@ -1947,6 +1947,7 @@ const Editor = () => {
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -3859,6 +3860,7 @@ const Editor = () => {
       coldStartAutopilot: coldStartAutopilotEnabled,
       continuityFirstMode: continuityFirstEnabled,
       exploreX3Mode: exploreX3Enabled,
+      topHumanGuardMode: topHumanGuardEnabled,
       creatorStyleLock: creatorStyleLockForJob,
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
@@ -5069,6 +5071,7 @@ const Editor = () => {
           coldStartAutopilot: coldStartAutopilotEnabled,
           continuityFirstMode: continuityFirstEnabled,
           exploreX3Mode: exploreX3Enabled,
+          topHumanGuardMode: topHumanGuardEnabled,
           creatorStyleLock: creatorStyleLockForJob,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
@@ -5212,6 +5215,7 @@ const Editor = () => {
       creatorStyleLockPercent,
       editorMode,
       exploreX3Enabled,
+      topHumanGuardEnabled,
       fetchJob,
       fetchJobs,
       fullAutoYoutubeEnabled,
@@ -6870,6 +6874,12 @@ const Editor = () => {
       activeAnalysis?.exploreX3Mode ??
       activeAnalysis?.explore_x3_mode,
     );
+    const topHumanGuard = parseBooleanLike(
+      activeRenderSettings?.topHumanGuardMode ??
+      activeRenderSettings?.top_human_guard_mode ??
+      activeAnalysis?.topHumanGuardMode ??
+      activeAnalysis?.top_human_guard_mode,
+    );
     const styleLockPercent = parseCreatorStyleLockPercent(
       activeRenderSettings?.creatorStyleLock ??
       activeRenderSettings?.creator_style_lock ??
@@ -6880,6 +6890,7 @@ const Editor = () => {
     setColdStartAutopilotEnabled(coldStart ?? false);
     setContinuityFirstEnabled(continuityFirst ?? false);
     setExploreX3Enabled(exploreX3 ?? false);
+    setTopHumanGuardEnabled(topHumanGuard ?? false);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
@@ -7841,10 +7852,11 @@ const Editor = () => {
                   coldStartAutopilotEnabled,
                   continuityFirstEnabled,
                   exploreX3Enabled,
+                  topHumanGuardEnabled,
                 ].filter(Boolean).length} active
               </Badge>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
               {([
                 {
                   id: "cold_start_autopilot" as CreatorLearningMode,
@@ -7869,6 +7881,14 @@ const Editor = () => {
                   active: exploreX3Enabled,
                   onToggle: () => setExploreX3Enabled((prev) => !prev),
                   Icon: Trophy,
+                },
+                {
+                  id: "top_human_guard" as CreatorLearningMode,
+                  label: "Top-Human Guard",
+                  description: "Fail closed on weak cuts. No forced low-signal fallback exports.",
+                  active: topHumanGuardEnabled,
+                  onToggle: () => setTopHumanGuardEnabled((prev) => !prev),
+                  Icon: Crown,
                 },
               ]).map((mode) => (
                 <button
@@ -8549,7 +8569,7 @@ const Editor = () => {
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
+              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
             </p>
           </div>
         ) : null}
@@ -8838,6 +8858,11 @@ const Editor = () => {
                             {exploreX3Enabled ? (
                               <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
                                 Explore x3
+                              </span>
+                            ) : null}
+                            {topHumanGuardEnabled ? (
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                                Top-Human Guard
                               </span>
                             ) : null}
                             <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
@@ -11384,6 +11409,7 @@ const Editor = () => {
                 <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
                 <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
                 <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
+                <p><span className="font-medium">Top-Human Guard:</span> Strict fail-closed quality gate. If no variant clears bar, export is blocked instead of force-rendered.</p>
                 <p><span className="font-medium">Creator Style Lock:</span> Sets how strongly your historical style profile influences final cut decisions.</p>
                 <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
                 <p><span className="font-medium">Outcome Learning:</span> YouTube trust weighting scales up as more synced outcomes arrive for your connected channel.</p>
