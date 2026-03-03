@@ -265,7 +265,9 @@ export const useExportNotification = ({
 
     const canPrompt = source === "manual_enable" || source === "export_start" || requestPermissionOnMount;
     if (!canPrompt) return current;
-    if (promptedRef.current && source !== "manual_enable") return current;
+    // Allow export-start prompts even if app-load already prompted once.
+    // This keeps a user-gesture path available to grant desktop notifications.
+    if (promptedRef.current && source === "app_load") return current;
 
     promptedRef.current = true;
     if (typeof window !== "undefined") {
@@ -316,6 +318,13 @@ export const useExportNotification = ({
 
     if (permission === "granted") {
       await showSystemNotification(payload);
+      return;
+    }
+    if (permission === "default") {
+      const dismissed =
+        typeof window !== "undefined" &&
+        window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
+      if (!dismissed) setShowEnableHint(true);
       return;
     }
     if (permission === "denied") {
