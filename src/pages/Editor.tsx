@@ -232,7 +232,7 @@ const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
-const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v2";
+const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v3";
 const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
 const CHECKOUT_SUCCESS_QUERY_KEYS = ["success", "session_id", "source", "trial", "tier", "endsAt"] as const;
 
@@ -1963,7 +1963,7 @@ const Editor = () => {
   const [tangentKiller, setTangentKiller] = useState(true);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
-  const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(false);
+  const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
