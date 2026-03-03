@@ -272,6 +272,7 @@ type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
+type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3";
 type AchievementSignal = {
   id: "retention_beast" | "hook_master" | "post_now";
   title: string;
@@ -564,6 +565,10 @@ const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
   },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
+const CREATOR_STYLE_LOCK_MIN = 0;
+const CREATOR_STYLE_LOCK_MAX = 100;
+const DEFAULT_CREATOR_STYLE_LOCK_PERCENT = 65;
+const clampCreatorStyleLockPercent = (value: number) => clamp(Math.round(value), CREATOR_STYLE_LOCK_MIN, CREATOR_STYLE_LOCK_MAX);
 const VERTICAL_CAPTION_FONT_SIZE_MIN = 30;
 const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
@@ -1266,6 +1271,21 @@ const formatFeedbackTimestamp = (iso: string | null) => {
   });
 };
 
+const parseBooleanLike = (value: unknown): boolean | null => {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (["1", "true", "yes", "on", "enabled", "enable"].includes(normalized)) return true;
+  if (["0", "false", "no", "off", "disabled", "disable"].includes(normalized)) return false;
+  return null;
+};
+
+const parseCreatorStyleLockPercent = (value: unknown): number | null => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return clampCreatorStyleLockPercent(numeric);
+};
+
 const parseYouTubeVideoInput = (value: unknown): string | null => {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -1891,6 +1911,10 @@ const Editor = () => {
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("standard");
+  const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
+  const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
+  const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
+  const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
     isVerticalMode ? "shorts" : "auto",
@@ -1984,6 +2008,7 @@ const Editor = () => {
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
   const achievementShownRef = useRef<Record<string, Record<string, boolean>>>({});
   const powerModeSyncJobRef = useRef<string | null>(null);
+  const advancedModesSyncJobRef = useRef<string | null>(null);
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
@@ -3362,6 +3387,7 @@ const Editor = () => {
     setHookSelectorOpen(false);
     if (!activeJob?.id) {
       powerModeSyncJobRef.current = null;
+      advancedModesSyncJobRef.current = null;
     }
   }, [activeJob?.id]);
 
@@ -3656,6 +3682,13 @@ const Editor = () => {
     const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
     const editorModeForJob = mapEditorModeForBackend(editorMode, resolvedPipelinePowerMode);
     const fastModeForJob = isUltraPipelineMode(resolvedPipelinePowerMode);
+    const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
+    const adaptiveLearningPayload = {
+      coldStartAutopilot: coldStartAutopilotEnabled,
+      continuityFirstMode: continuityFirstEnabled,
+      exploreX3Mode: exploreX3Enabled,
+      creatorStyleLock: creatorStyleLockForJob,
+    };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
@@ -3735,6 +3768,7 @@ const Editor = () => {
               tangentKiller,
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
+              ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -3762,6 +3796,7 @@ const Editor = () => {
               tangentKiller,
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
+              ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
@@ -4832,6 +4867,7 @@ const Editor = () => {
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
         const fastModeForJob = ultraPipelineMode;
+        const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
         const hookSelectionModeForJob =
@@ -4858,6 +4894,10 @@ const Editor = () => {
           tangentKiller,
           fastMode: fastModeForJob,
           pipelinePowerMode,
+          coldStartAutopilot: coldStartAutopilotEnabled,
+          continuityFirstMode: continuityFirstEnabled,
+          exploreX3Mode: exploreX3Enabled,
+          creatorStyleLock: creatorStyleLockForJob,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
           subtitles: {
@@ -4995,7 +5035,11 @@ const Editor = () => {
     [
       accessToken,
       autoCaptionsEnabled,
+      coldStartAutopilotEnabled,
+      continuityFirstEnabled,
+      creatorStyleLockPercent,
       editorMode,
+      exploreX3Enabled,
       fetchJob,
       fetchJobs,
       fullAutoYoutubeEnabled,
@@ -6626,6 +6670,39 @@ const Editor = () => {
     setPipelinePowerMode(next);
   }, [activeAnalysis, activeJob?.id, paidTier]);
   useEffect(() => {
+    if (!activeJob?.id) return;
+    if (advancedModesSyncJobRef.current === activeJob.id) return;
+    const coldStart = parseBooleanLike(
+      activeRenderSettings?.coldStartAutopilot ??
+      activeRenderSettings?.cold_start_autopilot ??
+      activeAnalysis?.coldStartAutopilot ??
+      activeAnalysis?.cold_start_autopilot,
+    );
+    const continuityFirst = parseBooleanLike(
+      activeRenderSettings?.continuityFirstMode ??
+      activeRenderSettings?.continuity_first_mode ??
+      activeAnalysis?.continuityFirstMode ??
+      activeAnalysis?.continuity_first_mode,
+    );
+    const exploreX3 = parseBooleanLike(
+      activeRenderSettings?.exploreX3Mode ??
+      activeRenderSettings?.explore_x3_mode ??
+      activeAnalysis?.exploreX3Mode ??
+      activeAnalysis?.explore_x3_mode,
+    );
+    const styleLockPercent = parseCreatorStyleLockPercent(
+      activeRenderSettings?.creatorStyleLock ??
+      activeRenderSettings?.creator_style_lock ??
+      activeAnalysis?.creatorStyleLock ??
+      activeAnalysis?.creator_style_lock,
+    );
+    advancedModesSyncJobRef.current = activeJob.id;
+    setColdStartAutopilotEnabled(coldStart ?? false);
+    setContinuityFirstEnabled(continuityFirst ?? false);
+    setExploreX3Enabled(exploreX3 ?? false);
+    setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
+  }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
+  useEffect(() => {
     if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
     if (achievementSignals.length === 0) return;
     const shownForJob = achievementShownRef.current[activeJob.id] || {};
@@ -7571,6 +7648,86 @@ const Editor = () => {
               </p>
             ) : null}
           </div>
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Advanced Learning Modes</p>
+                <p className="text-xs text-muted-foreground">
+                  Cold-start defaults, continuity-first hardening, explore-x3 policy search, and creator-style weighting.
+                </p>
+              </div>
+              <Badge className="border-border/55 bg-background/50 text-muted-foreground">
+                {[
+                  coldStartAutopilotEnabled,
+                  continuityFirstEnabled,
+                  exploreX3Enabled,
+                ].filter(Boolean).length} active
+              </Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+              {([
+                {
+                  id: "cold_start_autopilot" as CreatorLearningMode,
+                  label: "Cold-Start Autopilot",
+                  description: "Use conservative low-data defaults until enough real outcome signal exists.",
+                  active: coldStartAutopilotEnabled,
+                  onToggle: () => setColdStartAutopilotEnabled((prev) => !prev),
+                  Icon: Gauge,
+                },
+                {
+                  id: "continuity_first" as CreatorLearningMode,
+                  label: "Continuity-First",
+                  description: "Stricter boundary critic behavior and slower pacing for smoother cuts.",
+                  active: continuityFirstEnabled,
+                  onToggle: () => setContinuityFirstEnabled((prev) => !prev),
+                  Icon: ShieldCheck,
+                },
+                {
+                  id: "explore_x3" as CreatorLearningMode,
+                  label: "Explore x3",
+                  description: "Run three policy candidates and auto-promote winners via outcome feedback.",
+                  active: exploreX3Enabled,
+                  onToggle: () => setExploreX3Enabled((prev) => !prev),
+                  Icon: Trophy,
+                },
+              ]).map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={sectionPillClass(mode.active)}
+                  onClick={mode.onToggle}
+                  aria-pressed={mode.active}
+                  aria-label={mode.label}
+                >
+                  <div className="flex flex-col items-center">
+                    <mode.Icon className="h-5 w-5" aria-hidden />
+                    <span className="mt-1 text-[11px]">{mode.label}</span>
+                    <span className="mt-1 text-center text-[10px] text-muted-foreground">{mode.description}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-2.5">
+              <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                <span>Creator Style Lock</span>
+                <span>{clampCreatorStyleLockPercent(creatorStyleLockPercent)}%</span>
+              </div>
+              <Slider
+                min={CREATOR_STYLE_LOCK_MIN}
+                max={CREATOR_STYLE_LOCK_MAX}
+                step={1}
+                className="editor-settings-slider"
+                value={[clampCreatorStyleLockPercent(creatorStyleLockPercent)]}
+                onValueChange={(values) => {
+                  const next = Number(values?.[0] ?? creatorStyleLockPercent);
+                  setCreatorStyleLockPercent(clampCreatorStyleLockPercent(next));
+                }}
+              />
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Lower = prioritize global winner policies. Higher = follow this creator's learned style profile more aggressively.
+              </p>
+            </div>
+          </div>
           {renderYouTubeOutcomeLoopCard({
             title: "Editor Settings: YouTube Auth + Learning",
             subtitle: "This connection is per account and feeds the live outcome loop used by the editor modes.",
@@ -8187,6 +8344,9 @@ const Editor = () => {
             <p className="mt-1 text-[11px] text-muted-foreground">
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
             </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
+            </p>
           </div>
         ) : null}
 
@@ -8460,6 +8620,24 @@ const Editor = () => {
                             </span>
                             <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
                               {activeEditorModeLabel}
+                            </span>
+                            {coldStartAutopilotEnabled ? (
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                                Cold-Start
+                              </span>
+                            ) : null}
+                            {continuityFirstEnabled ? (
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                                Continuity-First
+                              </span>
+                            ) : null}
+                            {exploreX3Enabled ? (
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                                Explore x3
+                              </span>
+                            ) : null}
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              Style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%
                             </span>
                             <span className="rounded-full border border-primary/35 bg-primary/10 px-2.5 py-1 text-primary">
                               {activePlatformRecommendation.label}
@@ -10999,6 +11177,10 @@ const Editor = () => {
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
                 <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
                 <p><span className="font-medium">Power Modes:</span> Standard/Ultra/Retention King changes exploration depth and drop-off pressure while continuity checks stay enforced.</p>
+                <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
+                <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
+                <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
+                <p><span className="font-medium">Creator Style Lock:</span> Sets how strongly your historical style profile influences final cut decisions.</p>
                 <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
                 <p><span className="font-medium">Outcome Learning:</span> YouTube trust weighting scales up as more synced outcomes arrive for your connected channel.</p>
               </div>
