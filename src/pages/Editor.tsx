@@ -7571,6 +7571,12 @@ const Editor = () => {
               </p>
             ) : null}
           </div>
+          {renderYouTubeOutcomeLoopCard({
+            title: "Editor Settings: YouTube Auth + Learning",
+            subtitle: "This connection is per account and feeds the live outcome loop used by the editor modes.",
+            compact: true,
+            showModeImpact: true,
+          })}
 
           <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
             <div className="mb-3 flex items-center justify-between">
@@ -7995,6 +8001,206 @@ const Editor = () => {
       : (EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto");
   const activeTargetPlatformLabel =
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
+  const renderYouTubeOutcomeLoopCard = ({
+    title = "YouTube Outcome Loop",
+    subtitle = "Connect channel -> map job/video -> sync retention outcomes -> tune policy over time.",
+    compact = false,
+    showModeImpact = false,
+    className = "",
+  }: {
+    title?: string;
+    subtitle?: string;
+    compact?: boolean;
+    showModeImpact?: boolean;
+    className?: string;
+  } = {}) => {
+    const shellClassName = compact
+      ? `rounded-xl border border-border/50 bg-muted/15 p-3 ${className}`.trim()
+      : `retention-summary-card glass-card rounded-xl p-3 ${className}`.trim();
+    const statusClassName = youtubeConnected
+      ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-200"
+      : "border-border/55 bg-background/50 text-muted-foreground";
+
+    return (
+      <div className={shellClassName}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+          </div>
+          <Badge className={statusClassName}>
+            {youtubeOAuthStatusLoading
+              ? "Checking..."
+              : youtubeConnected
+                ? "Connected"
+                : "Not connected"}
+          </Badge>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Badge className="border-primary/35 bg-primary/10 text-foreground">
+            Boundary critic hard gate
+          </Badge>
+          <Badge className={activeYouTubeSignal?.coldStartMode ? "border-amber-400/35 bg-amber-500/10 text-amber-100" : "border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}>
+            {activeYouTubeSignal
+              ? activeYouTubeSignal.coldStartMode
+                ? `Cold-start trust ${activeYouTubeTrustPercent ?? 0}%`
+                : `Outcome trust ${activeYouTubeTrustPercent ?? 0}%`
+              : "Waiting for synced outcomes"}
+          </Badge>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!youtubeConnected ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              disabled={!youtubeOAuthConfigured || youtubeConnectBusy}
+              onClick={() => void handleConnectYouTubeOAuth()}
+            >
+              {youtubeConnectBusy ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Connect YouTube
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-full px-3 text-[11px]"
+              disabled={youtubeDisconnectBusy}
+              onClick={() => void handleDisconnectYouTubeOAuth()}
+            >
+              {youtubeDisconnectBusy ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <X className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Disconnect YouTube
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 rounded-full px-3 text-[11px]"
+            disabled={
+              !youtubeConnected ||
+              !activeJob?.id ||
+              youtubeSyncingJobId === activeJob.id
+            }
+            onClick={() => void handleSyncYouTubeAnalyticsForJob()}
+          >
+            {youtubeSyncingJobId === activeJob?.id ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Sync Analytics
+          </Button>
+        </div>
+
+        {!youtubeOAuthConfigured ? (
+          <p className="mt-2 text-[11px] text-amber-200">
+            OAuth config missing: {youtubeStatusMissingConfig.length > 0 ? youtubeStatusMissingConfig.join(", ") : "server credentials"}
+          </p>
+        ) : null}
+
+        {youtubeConnected ? (
+          <p className="mt-2 text-[11px] text-foreground/90">
+            Channel: {youtubeOAuthStatus?.channelTitle || youtubeOAuthStatus?.channelId || "Connected account"}
+          </p>
+        ) : (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Cold-start is normal for new creators. The engine stays on boundary critic + in-app watch/skip/thumb feedback until outcome signal grows.
+          </p>
+        )}
+
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <input
+            value={activeYouTubeVideoDraft}
+            onChange={(event) => {
+              if (!activeJob?.id) return;
+              const nextValue = event.target.value;
+              setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: nextValue }));
+            }}
+            placeholder="Paste YouTube URL or 11-char video ID"
+            disabled={!activeJob?.id}
+            className="h-9 rounded-md border border-border/60 bg-background/50 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-65"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 px-3 text-[11px]"
+            disabled={!activeJob?.id || youtubeVideoLinkingJobId === activeJob.id}
+            onClick={() => void handleLinkYouTubeVideoToJob()}
+          >
+            {youtubeVideoLinkingJobId === activeJob?.id ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Save Link
+          </Button>
+        </div>
+
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Linked video: {activeLinkedYouTubeVideoId || "not linked yet"}
+        </p>
+
+        {activeYouTubeSignal ? (
+          <div className={`mt-3 rounded-md border p-2 ${activeYouTubeSignal.coldStartMode ? "border-amber-400/35 bg-amber-500/10" : "border-emerald-400/35 bg-emerald-500/10"}`}>
+            <p className="text-xs text-foreground/90">
+              {activeYouTubeSignal.coldStartMode ? "Cold-start mode active" : "Outcome trust unlocked"} ·
+              trust {activeYouTubeTrustPercent ?? 0}%
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Signal volume: {activeYouTubeSignal.qualifyingVideos}/{activeYouTubeSignal.requiredVideos} videos ·
+              avg views/video {activeYouTubeAverageViewsLabel} ·
+              current video views {activeYouTubeCurrentViewsLabel}
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Strong YouTube weighting starts around &gt;= {activeYouTubeSignal.requiredVideos} videos and about {activeYouTubeSignal.requiredAverageViewsPerVideo}-{activeYouTubeSignal.highTrustAverageViewsPerVideo} views/video.
+            </p>
+            <p className="mt-1 text-[11px] text-foreground/85">{activeYouTubeSignal.recommendation}</p>
+          </div>
+        ) : (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Boundary-label critic + live outcome loop are running. YouTube trust increases automatically after consistent signal volume.
+          </p>
+        )}
+
+        {showModeImpact ? (
+          <div className="mt-3 rounded-md border border-border/50 bg-background/35 p-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">How modes affect decisions</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Safe/Balanced/Viral controls candidate pacing aggression, then boundary critic blocks rough joins.
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Standard/Ultra/Retention King changes exploration depth and policy pressure, not continuity safety rules.
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              YouTube trust weighting grows over time and personalizes future edits for this connected channel.
+            </p>
+          </div>
+        ) : null}
+
+        {activeYouTubeLastSyncedAt ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Last sync: {formatFeedbackTimestamp(activeYouTubeLastSyncedAt)}
+            {activeYouTubeDateRange?.startDate && activeYouTubeDateRange?.endDate
+              ? ` (${String(activeYouTubeDateRange.startDate)} -> ${String(activeYouTubeDateRange.endDate)})`
+              : ""}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <Suspense fallback={<Fragment />}><GlowBackdrop>
@@ -9307,6 +9513,11 @@ const Editor = () => {
                         </ol>
                       </div>
                     </div>
+                    {renderYouTubeOutcomeLoopCard({
+                      title: "Live Outcome Loop",
+                      subtitle: "YouTube auth, job/video mapping, and analytics sync are now directly available in the live pipeline.",
+                      compact: true,
+                    })}
 
                     {normalizedActiveStatus === "ready" && (
                       <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
@@ -9898,156 +10109,7 @@ const Editor = () => {
                         </div>
                       </div>
 
-                      <div className="retention-summary-card glass-card rounded-xl p-3">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube Outcome Loop</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Connect channel -&gt; map job/video -&gt; sync retention outcomes -&gt; tune policy over time.
-                            </p>
-                          </div>
-                          <Badge className={youtubeConnected ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-200" : "border-border/55 bg-background/50 text-muted-foreground"}>
-                            {youtubeOAuthStatusLoading
-                              ? "Checking..."
-                              : youtubeConnected
-                                ? "Connected"
-                                : "Not connected"}
-                          </Badge>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {!youtubeConnected ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-8 rounded-full px-3 text-[11px]"
-                              disabled={!youtubeOAuthConfigured || youtubeConnectBusy}
-                              onClick={() => void handleConnectYouTubeOAuth()}
-                            >
-                              {youtubeConnectBusy ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Play className="mr-1.5 h-3.5 w-3.5" />
-                              )}
-                              Connect YouTube
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full px-3 text-[11px]"
-                              disabled={youtubeDisconnectBusy}
-                              onClick={() => void handleDisconnectYouTubeOAuth()}
-                            >
-                              {youtubeDisconnectBusy ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <X className="mr-1.5 h-3.5 w-3.5" />
-                              )}
-                              Disconnect YouTube
-                            </Button>
-                          )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 rounded-full px-3 text-[11px]"
-                            disabled={
-                              !youtubeConnected ||
-                              !activeJob?.id ||
-                              youtubeSyncingJobId === activeJob.id
-                            }
-                            onClick={() => void handleSyncYouTubeAnalyticsForJob()}
-                          >
-                            {youtubeSyncingJobId === activeJob?.id ? (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                            )}
-                            Sync Analytics
-                          </Button>
-                        </div>
-
-                        {!youtubeOAuthConfigured ? (
-                          <p className="mt-2 text-[11px] text-amber-200">
-                            OAuth config missing: {youtubeStatusMissingConfig.length > 0 ? youtubeStatusMissingConfig.join(", ") : "server credentials"}
-                          </p>
-                        ) : null}
-
-                        {youtubeConnected ? (
-                          <p className="mt-2 text-[11px] text-foreground/90">
-                            Channel: {youtubeOAuthStatus?.channelTitle || youtubeOAuthStatus?.channelId || "Connected account"}
-                          </p>
-                        ) : (
-                          <p className="mt-2 text-[11px] text-muted-foreground">
-                            Cold-start is normal for new creators. Until enough outcome signal builds, boundary critic + in-app watch/skip/thumb signals stay primary.
-                          </p>
-                        )}
-
-                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                          <input
-                            value={activeYouTubeVideoDraft}
-                            onChange={(event) => {
-                              if (!activeJob?.id) return;
-                              const nextValue = event.target.value;
-                              setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: nextValue }));
-                            }}
-                            placeholder="Paste YouTube URL or 11-char video ID"
-                            className="h-9 rounded-md border border-border/60 bg-background/50 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-9 px-3 text-[11px]"
-                            disabled={!activeJob?.id || youtubeVideoLinkingJobId === activeJob.id}
-                            onClick={() => void handleLinkYouTubeVideoToJob()}
-                          >
-                            {youtubeVideoLinkingJobId === activeJob?.id ? (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                            )}
-                            Save Link
-                          </Button>
-                        </div>
-
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          Linked video: {activeLinkedYouTubeVideoId || "not linked yet"}
-                        </p>
-
-                        {activeYouTubeSignal ? (
-                          <div className={`mt-3 rounded-md border p-2 ${activeYouTubeSignal.coldStartMode ? "border-amber-400/35 bg-amber-500/10" : "border-emerald-400/35 bg-emerald-500/10"}`}>
-                            <p className="text-xs text-foreground/90">
-                              {activeYouTubeSignal.coldStartMode ? "Cold-start mode active" : "Outcome trust unlocked"} ·
-                              trust {activeYouTubeTrustPercent ?? 0}%
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              Signal volume: {activeYouTubeSignal.qualifyingVideos}/{activeYouTubeSignal.requiredVideos} videos ·
-                              avg views/video {activeYouTubeAverageViewsLabel} ·
-                              current video views {activeYouTubeCurrentViewsLabel}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              Strong YouTube weighting starts around &gt;= {activeYouTubeSignal.requiredVideos} videos and about {activeYouTubeSignal.requiredAverageViewsPerVideo}-{activeYouTubeSignal.highTrustAverageViewsPerVideo} views/video.
-                            </p>
-                            <p className="mt-1 text-[11px] text-foreground/85">{activeYouTubeSignal.recommendation}</p>
-                          </div>
-                        ) : (
-                          <p className="mt-3 text-[11px] text-muted-foreground">
-                            Boundary-label critic + live outcome loop are running. YouTube trust increases automatically after consistent signal volume.
-                          </p>
-                        )}
-
-                        {activeYouTubeLastSyncedAt ? (
-                          <p className="mt-2 text-[11px] text-muted-foreground">
-                            Last sync: {formatFeedbackTimestamp(activeYouTubeLastSyncedAt)}
-                            {activeYouTubeDateRange?.startDate && activeYouTubeDateRange?.endDate
-                              ? ` (${String(activeYouTubeDateRange.startDate)} -> ${String(activeYouTubeDateRange.endDate)})`
-                              : ""}
-                          </p>
-                        ) : null}
-                      </div>
+                      {renderYouTubeOutcomeLoopCard()}
 
                       <div className="retention-summary-card retention-summary-timeline-block glass-card rounded-xl p-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -10924,6 +10986,7 @@ const Editor = () => {
                 <p className="text-xs text-foreground/90"><span className="font-medium">Editor Mode:</span> Force style strategy (reaction, commentary, vlog, gaming, sports, education, or auto).</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Show/Hide Jobs:</span> Toggle recent jobs panel.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Auto Hook:</span> Opening hook is selected automatically from top timeline moments.</p>
+                <p className="text-xs text-foreground/90"><span className="font-medium">Connect YouTube + Sync Analytics:</span> Link your channel/video so outcomes train future edits for your account.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Create Vertical Clips:</span> Render ranked short clips in vertical mode.</p>
                 <p className="text-xs text-foreground/90"><span className="font-medium">Open Export / Open Clips:</span> Download final output files.</p>
               </div>
@@ -10934,8 +10997,10 @@ const Editor = () => {
               <div className="mt-2 space-y-2 text-xs text-foreground/90">
                 <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
-                <p><span className="font-medium">Retention Profiles:</span> Safe = conservative, Balanced = adaptive default, Viral = fastest pacing (best for short-form).</p>
+                <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
+                <p><span className="font-medium">Power Modes:</span> Standard/Ultra/Retention King changes exploration depth and drop-off pressure while continuity checks stay enforced.</p>
                 <p><span className="font-medium">Platform Profiles:</span> Adjusts pacing, caption defaults, and export tuning for each social platform.</p>
+                <p><span className="font-medium">Outcome Learning:</span> YouTube trust weighting scales up as more synced outcomes arrive for your connected channel.</p>
               </div>
             </div>
 
