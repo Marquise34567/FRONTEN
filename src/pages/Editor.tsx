@@ -894,6 +894,39 @@ type YouTubeSyncJobFeedbackResponse = {
     reason?: string;
   } | null;
 };
+type YouTubeReferenceStyleProfile = {
+  retentionStrategyProfile?: RetentionStrategyProfile;
+  retentionTargetPlatform?: RetentionTargetPlatform;
+  maxCuts?: number;
+  subtitleStyle?: string;
+  autoCaptions?: boolean;
+  confidence?: number;
+  source?: "public_metrics" | "public_metrics_plus_analytics";
+};
+type YouTubeReferenceStyleResponse = {
+  ok?: boolean;
+  videoId?: string;
+  title?: string;
+  profile?: YouTubeReferenceStyleProfile | null;
+  reasoning?: string[];
+  metrics?: {
+    durationSeconds?: number | null;
+    engagementRate?: number;
+    averageViewPercentage?: number | null;
+    hookHoldPercent?: number | null;
+  } | null;
+};
+type YouTubeReferenceStyleApplied = {
+  videoId: string;
+  title: string;
+  appliedAt: string;
+  retentionStrategyProfile: RetentionStrategyProfile;
+  retentionTargetPlatform: RetentionTargetPlatform;
+  maxCuts: number;
+  subtitleStyle: string;
+  confidence: number | null;
+  source: string | null;
+};
 type ExportFeedbackEntry = {
   id: string;
   at: string | null;
@@ -1962,9 +1995,12 @@ const Editor = () => {
   const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
   const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
   const [youtubeOAuthBusyAction, setYouTubeOAuthBusyAction] = useState<"connect" | "exchange" | "disconnect" | null>(null);
+  const [youtubeVideoDraftLoose, setYouTubeVideoDraftLoose] = useState("");
   const [youtubeVideoDraftByJob, setYouTubeVideoDraftByJob] = useState<Record<string, string>>({});
   const [youtubeVideoLinkingJobId, setYoutubeVideoLinkingJobId] = useState<string | null>(null);
   const [youtubeSyncingJobId, setYoutubeSyncingJobId] = useState<string | null>(null);
+  const [youtubeStyleApplying, setYoutubeStyleApplying] = useState(false);
+  const [youtubeReferenceStyleApplied, setYoutubeReferenceStyleApplied] = useState<YouTubeReferenceStyleApplied | null>(null);
   const [youtubeSignalByJob, setYouTubeSignalByJob] = useState<Record<string, YouTubeSignalState | null>>({});
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
@@ -2723,6 +2759,142 @@ const Editor = () => {
       setYoutubeSyncingJobId((current) => (current === jobId ? null : current));
     }
   }, [accessToken, activeJob?.id, fetchJob, toast, youtubeVideoDraftByJob]);
+
+  const handleApplyYouTubeReferenceStyle = useCallback(async () => {
+    if (!accessToken) return;
+    const linkedFromAnalysis = parseYouTubeVideoInput(
+      (activeJob?.analysis as any)?.youtube_video_id ??
+      (activeJob?.analysis as any)?.youtubeVideoId ??
+      (activeJob?.analysis as any)?.youtube_sync?.videoId ??
+      (activeJob?.analysis as any)?.youtubeSync?.videoId,
+    );
+    const rawValue = String(
+      (activeJob?.id ? youtubeVideoDraftByJob[activeJob.id] : "") ||
+      linkedFromAnalysis ||
+      youtubeVideoDraftLoose ||
+      "",
+    ).trim();
+    const videoId = parseYouTubeVideoInput(rawValue);
+    if (!videoId) {
+      toast({
+        title: "Missing YouTube video",
+        description: "Paste a valid YouTube URL or 11-character video ID first.",
+      });
+      return;
+    }
+
+    setYoutubeStyleApplying(true);
+    try {
+      const data = await apiFetch<YouTubeReferenceStyleResponse>("/api/feedback/youtube/reference-style", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ videoId }),
+      });
+      const profile = data?.profile;
+      if (!profile) {
+        throw new Error("Reference style profile was missing from the server response.");
+      }
+
+      const nextRetentionStrategyProfile: RetentionStrategyProfile =
+        profile.retentionStrategyProfile === "safe" ||
+        profile.retentionStrategyProfile === "balanced" ||
+        profile.retentionStrategyProfile === "viral"
+          ? profile.retentionStrategyProfile
+          : retentionStrategyProfile;
+      const nextRetentionTargetPlatform: RetentionTargetPlatform =
+        profile.retentionTargetPlatform === "tiktok" ||
+        profile.retentionTargetPlatform === "instagram_reels" ||
+        profile.retentionTargetPlatform === "youtube"
+          ? profile.retentionTargetPlatform
+          : retentionTargetPlatform;
+      const nextMaxCuts = Number.isFinite(Number(profile.maxCuts))
+        ? clamp(Math.round(Number(profile.maxCuts)), MAX_CUTS_MIN, MAX_CUTS_MAX)
+        : maxCutsRequested;
+      const suggestedSubtitleStyle = normalizeSubtitleStyleFromSettings(
+        String(profile.subtitleStyle || subtitleStyleDraft),
+      );
+      const suggestedSubtitlePreset = parseSubtitleStyleConfig(suggestedSubtitleStyle).preset;
+      const subtitleStyleAllowed = isSubtitlePresetAllowed(suggestedSubtitlePreset);
+      const nextSubtitleStyle = subtitleStyleAllowed ? suggestedSubtitleStyle : subtitleStyleDraft;
+      const nextAutoCaptions =
+        typeof profile.autoCaptions === "boolean" ? profile.autoCaptions : autoCaptionsEnabled;
+      const confidenceValue = Number(profile.confidence);
+      const confidence = Number.isFinite(confidenceValue) ? clamp01(confidenceValue) : null;
+      const sourceLabel = typeof profile.source === "string" ? profile.source : null;
+
+      menuTouchedRef.current.strategy = true;
+      menuTouchedRef.current.targetPlatform = true;
+      setRetentionStrategyProfile(nextRetentionStrategyProfile);
+      setRetentionTargetPlatform(nextRetentionTargetPlatform);
+      setMaxCutsRequested(nextMaxCuts);
+      setAutoCaptionsEnabled(nextAutoCaptions);
+      setSubtitleStyleDraft(nextSubtitleStyle);
+      setSubtitleStyleDirty(true);
+      if (isVerticalMode) {
+        setVerticalCaptionPreset(PLATFORM_VERTICAL_CAPTION_PRESET[nextRetentionTargetPlatform]);
+      }
+      if (activeJob?.id) {
+        setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: videoId }));
+      } else {
+        setYouTubeVideoDraftLoose(videoId);
+      }
+      setYoutubeReferenceStyleApplied({
+        videoId,
+        title: String(data?.title || "").trim() || `YouTube video ${videoId}`,
+        appliedAt: new Date().toISOString(),
+        retentionStrategyProfile: nextRetentionStrategyProfile,
+        retentionTargetPlatform: nextRetentionTargetPlatform,
+        maxCuts: nextMaxCuts,
+        subtitleStyle: nextSubtitleStyle,
+        confidence,
+        source: sourceLabel,
+      });
+
+      trackEditorEvent("youtube_reference_style_applied", {
+        retentionProfile: nextRetentionStrategyProfile,
+        targetPlatform: nextRetentionTargetPlatform,
+        captionStyle: parseSubtitleStyleConfig(nextSubtitleStyle).preset,
+        metadata: {
+          videoId,
+          maxCuts: nextMaxCuts,
+          confidence,
+          source: sourceLabel,
+          subtitleStyleLockedFallback: !subtitleStyleAllowed,
+          reasoning: Array.isArray(data?.reasoning) ? data.reasoning.slice(0, 4) : [],
+        },
+      });
+
+      const profileLabel = RETENTION_PROFILE_OPTIONS.find((entry) => entry.value === nextRetentionStrategyProfile)?.label || "Balanced";
+      const platformLabel = PLATFORM_OPTIONS.find((entry) => entry.value === nextRetentionTargetPlatform)?.label || "YouTube";
+      const fallbackNote = subtitleStyleAllowed ? "" : " Caption style fallback kept your current preset due plan limits.";
+      toast({
+        title: "Reference style applied",
+        description: `${profileLabel} · ${platformLabel} · ${nextMaxCuts} cuts.${fallbackNote}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Reference style failed",
+        description: err?.message || "Could not build settings from that YouTube video.",
+      });
+    } finally {
+      setYoutubeStyleApplying(false);
+    }
+  }, [
+    accessToken,
+    activeJob?.analysis,
+    activeJob?.id,
+    autoCaptionsEnabled,
+    isSubtitlePresetAllowed,
+    isVerticalMode,
+    maxCutsRequested,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    subtitleStyleDraft,
+    toast,
+    trackEditorEvent,
+    youtubeVideoDraftByJob,
+    youtubeVideoDraftLoose,
+  ]);
 
   const getHookWindowSeconds = useCallback((job?: JobDetail | null) => {
     const analysis = (job?.analysis ?? {}) as any;
@@ -5186,8 +5358,9 @@ const Editor = () => {
     activeYouTubeSync?.videoId,
   );
   const activeYouTubeVideoDraft = activeJob?.id
-    ? (youtubeVideoDraftByJob[activeJob.id] ?? activeLinkedYouTubeVideoId ?? "")
-    : "";
+    ? (youtubeVideoDraftByJob[activeJob.id] ?? activeLinkedYouTubeVideoId ?? youtubeVideoDraftLoose ?? "")
+    : youtubeVideoDraftLoose;
+  const canApplyYouTubeReferenceStyle = Boolean(parseYouTubeVideoInput(activeYouTubeVideoDraft));
   const activeYouTubeSignalFromAnalysis =
     normalizeYouTubeSignalState(activeYouTubeSync?.signalState) ??
     normalizeYouTubeSignalState(activeAnalysis?.retention_feedback?.youtubeSignal) ??
@@ -5208,6 +5381,13 @@ const Editor = () => {
   const activeYouTubeLastSyncedAt = activeYouTubeSync?.lastSyncedAt && typeof activeYouTubeSync.lastSyncedAt === "string"
     ? activeYouTubeSync.lastSyncedAt
     : null;
+  const youtubeReferenceStyleAppliedAtLabel = youtubeReferenceStyleApplied?.appliedAt
+    ? formatFeedbackTimestamp(youtubeReferenceStyleApplied.appliedAt)
+    : null;
+  const youtubeReferenceStyleConfidenceLabel =
+    youtubeReferenceStyleApplied?.confidence !== null && youtubeReferenceStyleApplied?.confidence !== undefined
+      ? `${Math.round(clamp01(youtubeReferenceStyleApplied.confidence) * 100)}% confidence`
+      : null;
   const youtubeConnected = Boolean(youtubeOAuthStatus?.connected);
   const youtubeOAuthConfigured = youtubeOAuthStatus?.authConfigured !== false;
   const youtubeConnectBusy = youtubeOAuthBusyAction === "connect" || youtubeOAuthBusyAction === "exchange";
@@ -8259,6 +8439,21 @@ const Editor = () => {
             )}
             Sync Analytics
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 rounded-full px-3 text-[11px]"
+            disabled={!canApplyYouTubeReferenceStyle || youtubeStyleApplying}
+            onClick={() => void handleApplyYouTubeReferenceStyle()}
+          >
+            {youtubeStyleApplying ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Apply Ref Style
+          </Button>
         </div>
 
         {!youtubeOAuthConfigured ? (
@@ -8281,12 +8476,14 @@ const Editor = () => {
           <input
             value={activeYouTubeVideoDraft}
             onChange={(event) => {
-              if (!activeJob?.id) return;
               const nextValue = event.target.value;
-              setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: nextValue }));
+              if (activeJob?.id) {
+                setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: nextValue }));
+                return;
+              }
+              setYouTubeVideoDraftLoose(nextValue);
             }}
             placeholder="Paste YouTube URL or 11-char video ID"
-            disabled={!activeJob?.id}
             className="h-9 rounded-md border border-border/60 bg-background/50 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-65"
           />
           <Button
@@ -8309,6 +8506,13 @@ const Editor = () => {
         <p className="mt-2 text-[11px] text-muted-foreground">
           Linked video: {activeLinkedYouTubeVideoId || "not linked yet"}
         </p>
+        {youtubeReferenceStyleApplied ? (
+          <p className="mt-1 text-[11px] text-foreground/90">
+            Ref style: {formatNicheLabel(youtubeReferenceStyleApplied.retentionStrategyProfile)} · {formatPlatformLabel(youtubeReferenceStyleApplied.retentionTargetPlatform)} · {youtubeReferenceStyleApplied.maxCuts} cuts · {formatNicheLabel(parseSubtitleStyleConfig(youtubeReferenceStyleApplied.subtitleStyle).preset)} captions
+            {youtubeReferenceStyleConfidenceLabel ? ` · ${youtubeReferenceStyleConfidenceLabel}` : ""}
+            {youtubeReferenceStyleAppliedAtLabel ? ` · applied ${youtubeReferenceStyleAppliedAtLabel}` : ""}
+          </p>
+        ) : null}
 
         {activeYouTubeSignal ? (
           <div className={`mt-3 rounded-md border p-2 ${activeYouTubeSignal.coldStartMode ? "border-amber-400/35 bg-amber-500/10" : "border-emerald-400/35 bg-emerald-500/10"}`}>
@@ -11189,7 +11393,7 @@ const Editor = () => {
             <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Privacy And Terms</p>
               <p className="mt-2 text-xs text-foreground/90">
-                By using the editor, you agree to the service terms. Review how uploads and processing are handled in the privacy policy.
+                By using the editor, you agree to the service terms. Review privacy details and the full editor workflow guide.
               </p>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <a
@@ -11199,6 +11403,14 @@ const Editor = () => {
                   className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                 >
                   Privacy Policy
+                </a>
+                <a
+                  href="/how-editor-works"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  How The Editor Works
                 </a>
                 <a
                   href="https://www.autoeditor.app/terms"
