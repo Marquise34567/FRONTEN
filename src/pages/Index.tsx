@@ -1947,12 +1947,21 @@ const Index = () => {
 
           <div className="mt-16 pb-2 text-center">
             <p className="text-xs text-muted-foreground">Your data matters. Read how we collect and protect it.</p>
-            <Link
-              to="/privacy-policy"
-              className="mt-2 inline-flex text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            >
-              Privacy Policy
-            </Link>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Link
+                to="/privacy-policy"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Privacy Policy
+              </Link>
+              <span aria-hidden="true" className="opacity-70">-</span>
+              <Link
+                to="/how-editor-works"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                How The Editor Works
+              </Link>
+            </div>
           </div>
         </div>
             </main>
