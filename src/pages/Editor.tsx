@@ -21,6 +21,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
+import { useExportNotification } from "@/hooks/use-export-notification";
 import { useMe } from "@/hooks/use-me";
 import { PLAN_CONFIG, PLAN_TIERS, QUALITY_ORDER, clampQualityForTier, isPaidTier, normalizeQuality, type ExportQuality, type PlanTier } from "@shared/planConfig";
 import {
@@ -258,6 +259,8 @@ type VerticalCaptionPresetOptionId =
   | "shadow_strike";
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
+type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
+type VerticalVoicePresetOptionId = "none" | "deep" | "helium" | "radio" | "robot";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
@@ -396,6 +399,18 @@ const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOp
   { id: "bounce", label: "Bounce" },
   { id: "glitch", label: "Glitch" },
 ];
+const VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS: Array<{ id: VerticalCaptionDynamicModeOptionId; label: string }> = [
+  { id: "classic", label: "Classic Lines" },
+  { id: "karaoke_word", label: "Karaoke Word" },
+  { id: "kinetic_word", label: "Kinetic Rapid" },
+];
+const VERTICAL_VOICE_PRESET_OPTIONS: Array<{ id: VerticalVoicePresetOptionId; label: string }> = [
+  { id: "none", label: "Original Voice" },
+  { id: "deep", label: "Deep" },
+  { id: "helium", label: "Helium" },
+  { id: "radio", label: "Radio" },
+  { id: "robot", label: "Robot" },
+];
 const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   id: VerticalCaptionPresetOptionId;
   label: string;
@@ -420,6 +435,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     outlineColor: string;
     outlineWidth: number;
     animation: VerticalCaptionAnimationOptionId;
+    dynamicMode: VerticalCaptionDynamicModeOptionId;
     shadowStrength: number;
     animationSpeed: number;
     highlightWords: boolean;
@@ -430,43 +446,43 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
 > = {
   basic_clean: {
     fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34,
-    animationSpeed: 1.0, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+    dynamicMode: "classic", animationSpeed: 1.0, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   mrbeast_animated: {
     fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62,
-    animationSpeed: 1.08, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "karaoke_word", animationSpeed: 1.08, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   neon_glow: {
     fontId: "condensed", outlineColor: "071E28", outlineWidth: 6, animation: "slide", shadowStrength: 70,
-    animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "kinetic_word", animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   bold_clean_box: {
     fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46,
-    animationSpeed: 0.96, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+    dynamicMode: "classic", animationSpeed: 0.96, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
     fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76,
-    animationSpeed: 1.14, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "kinetic_word", animationSpeed: 1.14, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   ice_pop: {
     fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62,
-    animationSpeed: 1.06, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "karaoke_word", animationSpeed: 1.06, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   retro_wave: {
     fontId: "display_black", outlineColor: "25003A", outlineWidth: 9, animation: "slide", shadowStrength: 68,
-    animationSpeed: 1.1, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "kinetic_word", animationSpeed: 1.1, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   glitch_pop: {
     fontId: "mono_bold", outlineColor: "111827", outlineWidth: 8, animation: "glitch", shadowStrength: 74,
-    animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    dynamicMode: "kinetic_word", animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   cinema_punch: {
     fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58,
-    animationSpeed: 0.92, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+    dynamicMode: "classic", animationSpeed: 0.92, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   shadow_strike: {
     fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92,
-    animationSpeed: 1.02, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: false,
+    dynamicMode: "classic", animationSpeed: 1.02, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: false,
   },
 };
 const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, VerticalCaptionPresetOptionId> = {
@@ -580,7 +596,7 @@ const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; de
   { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
 ];
 const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
-  auto: { aggression: 62, clarityVsSpeed: 58, tangentKiller: true },
+  auto: { aggression: 72, clarityVsSpeed: 46, tangentKiller: true },
   balanced: { aggression: 45, clarityVsSpeed: 68, tangentKiller: false },
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
@@ -1719,6 +1735,20 @@ const Editor = () => {
   const { accessToken, signOut } = useAuth();
   const { t } = useTranslation("common");
   const { toast } = useToast();
+  const {
+    notificationPermission,
+    showEnableNotificationHint,
+    ensureNotificationPermission,
+    dismissEnableNotificationHint,
+    notifyExportComplete,
+  } = useExportNotification({
+    toast,
+    logoUrl: "/logo.png",
+    fallbackLogoUrl: "/favicon-32x32.png",
+    requestPermissionOnMount: true,
+    playSound: true,
+    flashTitle: true,
+  });
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
   const [verticalClipCount, setVerticalClipCount] = useState(0);
@@ -1736,6 +1766,10 @@ const Editor = () => {
   const [verticalCaptionAnimation, setVerticalCaptionAnimation] = useState<VerticalCaptionAnimationOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
   );
+  const [verticalCaptionDynamicMode, setVerticalCaptionDynamicMode] = useState<VerticalCaptionDynamicModeOptionId>(
+    VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].dynamicMode,
+  );
+  const [verticalVoicePreset, setVerticalVoicePreset] = useState<VerticalVoicePresetOptionId>("none");
   const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState<number>(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
   const [verticalCaptionShadowStrength, setVerticalCaptionShadowStrength] = useState<number>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].shadowStrength,
@@ -1774,9 +1808,9 @@ const Editor = () => {
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
   const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
-  const [longFormAggression, setLongFormAggression] = useState(45);
-  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(68);
-  const [tangentKiller, setTangentKiller] = useState(false);
+  const [longFormAggression, setLongFormAggression] = useState(72);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(46);
+  const [tangentKiller, setTangentKiller] = useState(true);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
@@ -2053,6 +2087,7 @@ const Editor = () => {
     setVerticalCaptionOutlineColor(defaults.outlineColor);
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
     setVerticalCaptionAnimation(defaults.animation);
+    setVerticalCaptionDynamicMode(defaults.dynamicMode);
     setVerticalCaptionShadowStrength(defaults.shadowStrength);
     setVerticalCaptionAnimationSpeed(defaults.animationSpeed);
     setVerticalCaptionHighlightWords(defaults.highlightWords);
@@ -3020,15 +3055,56 @@ const Editor = () => {
       for (const id of transitioned) {
         ;(async () => {
           try {
-            // ensure entitlements/settings are loaded
-            if (entitlements === null && accessToken) {
-              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
-              setEntitlements(d?.entitlements ?? null);
+            const summaryJob = jobs.find((x) => x.id === id);
+            const normalizedTitle = summaryJob
+              ? displayName(summaryJob).replace(/\.[^/.]+$/, "").trim()
+              : "";
+            let fileName: string | undefined;
+            let url: string | undefined;
+            if (summaryJob && isLikelyVideoUrl((summaryJob as any).outputUrl)) {
+              url = String((summaryJob as any).outputUrl);
+              fileName = (summaryJob as any).fileName ?? undefined;
+            } else if (accessToken) {
+              try {
+                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
+                url = isLikelyVideoUrl(resp?.job?.outputUrl) ? String(resp?.job?.outputUrl) : undefined;
+                fileName = resp?.job?.fileName ?? undefined;
+              } catch (error) {
+                // fallback to download-url endpoint
+              }
             }
-            if (autoDownloadEnabled === null) {
+            if (!url && accessToken) {
+              try {
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: "POST", token: accessToken });
+                url = out.url;
+              } catch (error) {
+                // Continue with editor deep-link only.
+              }
+            }
+
+            const editorUrl = typeof window !== "undefined"
+              ? `${window.location.origin}/editor?jobId=${encodeURIComponent(id)}`
+              : null;
+            await notifyExportComplete({
+              jobId: id,
+              title: normalizedTitle || "edited video",
+              downloadUrl: url || null,
+              editorUrl,
+            });
+
+            // ensure entitlements/settings are loaded
+            let resolvedEntitlements = entitlements;
+            if (resolvedEntitlements === null && accessToken) {
+              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
+              resolvedEntitlements = d?.entitlements ?? null;
+              setEntitlements(resolvedEntitlements);
+            }
+            let resolvedAutoDownloadEnabled = autoDownloadEnabled;
+            if (resolvedAutoDownloadEnabled === null) {
               if (accessToken) {
                 const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
-                setAutoDownloadEnabled(Boolean(s?.settings?.autoDownload));
+                resolvedAutoDownloadEnabled = Boolean(s?.settings?.autoDownload);
+                setAutoDownloadEnabled(resolvedAutoDownloadEnabled);
                 setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
@@ -3042,40 +3118,26 @@ const Editor = () => {
                 }
               } else {
                 const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
-                setAutoDownloadEnabled(local === 'true');
+                resolvedAutoDownloadEnabled = local === "true";
+                setAutoDownloadEnabled(resolvedAutoDownloadEnabled);
               }
             }
             // decide whether to auto-download
-            const allowed = entitlements?.autoDownloadAllowed ?? false;
-            const enabled = autoDownloadEnabled ?? false;
+            const allowed = resolvedEntitlements?.autoDownloadAllowed ?? false;
+            const enabled = resolvedAutoDownloadEnabled ?? false;
             const downloadedKey = `auto_downloaded_${id}`;
             if (!allowed || !enabled) return;
             if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
 
-            // fetch job detail to get URL or fileName
-            const j = jobs.find((x) => x.id === id);
-            let fileName: string | undefined;
-            let url: string | undefined;
-            if (j && isLikelyVideoUrl((j as any).outputUrl)) {
-              url = String((j as any).outputUrl);
-              fileName = (j as any).fileName ?? undefined;
-            } else {
+            if (!url && accessToken) {
               try {
-                const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
-                url = isLikelyVideoUrl(resp?.job?.outputUrl) ? String(resp?.job?.outputUrl) : undefined;
-                fileName = resp?.job?.fileName ?? undefined;
-              } catch (e) {
-                // fallback to download-url endpoint
-              }
-            }
-            if (!url) {
-              try {
-                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: 'POST', token: accessToken });
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: "POST", token: accessToken });
                 url = out.url;
-              } catch (e) {
+              } catch (error) {
                 return;
               }
             }
+            if (!url) return;
 
             // attempt programmatic download
             const a = document.createElement('a');
@@ -3087,10 +3149,11 @@ const Editor = () => {
             try {
               a.click();
               const telemetryJob: JobDetail = {
-                ...(j as any),
+                ...(summaryJob as any),
                 id,
                 status: "ready",
-                analysis: (j as any)?.analysis ?? null,
+                createdAt: summaryJob?.createdAt || new Date().toISOString(),
+                analysis: (summaryJob as any)?.analysis ?? null,
               };
               submitDownloadFeedback(telemetryJob, 0, "frontend_auto_download");
               // assume success; if browser blocked, user can tap in modal
@@ -3112,7 +3175,7 @@ const Editor = () => {
         })();
       }
     }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, submitDownloadFeedback]);
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -3237,6 +3300,7 @@ const Editor = () => {
       return false;
     }
     if (!accessToken) return false;
+    void ensureNotificationPermission("export_start");
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
     const resolvedPipelinePowerMode = renderOptions?.uploadModeOverride?.pipelinePowerMode ?? pipelinePowerMode;
     const resolvedFullAutoYoutubeEnabled = typeof renderOptions?.uploadModeOverride?.fullAutoYoutubeEnabled === "boolean"
@@ -3271,6 +3335,8 @@ const Editor = () => {
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
             animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            dynamicMode: verticalCaptionDynamicMode,
+            voicePreset: verticalVoicePreset,
             highlightWords: verticalCaptionHighlightWords,
             autoEmphasis: verticalCaptionAutoEmphasis,
             autoEmoji: verticalCaptionAutoEmoji,
@@ -4410,6 +4476,7 @@ const Editor = () => {
   const handleRedoRender = useCallback(
     async (job: JobDetail) => {
       if (!accessToken || !job?.id) return;
+      void ensureNotificationPermission("export_start");
       setReprocessingJobId(job.id);
       try {
         const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
@@ -4483,6 +4550,8 @@ const Editor = () => {
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
             animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            dynamicMode: verticalCaptionDynamicMode,
+            voicePreset: verticalVoicePreset,
             highlightWords: verticalCaptionHighlightWords,
             autoEmphasis: verticalCaptionAutoEmphasis,
             autoEmoji: verticalCaptionAutoEmoji,
@@ -4605,10 +4674,12 @@ const Editor = () => {
       ultraPipelineMode,
       verticalCaptionAnimation,
       verticalCaptionAnimationSpeed,
+      verticalCaptionDynamicMode,
       verticalCaptionHighlightWords,
       verticalCaptionAutoEmphasis,
       verticalCaptionAutoEmoji,
       verticalCaptionRemoveFillers,
+      verticalVoicePreset,
       verticalCaptionFontSize,
       verticalCaptionFontId,
       verticalCaptionOutlineColor,
@@ -4618,6 +4689,7 @@ const Editor = () => {
       verticalCaptionPositionY,
       verticalCaptionPreset,
       verticalCaptionText,
+      ensureNotificationPermission,
       toast,
     ],
   );
@@ -8245,6 +8317,34 @@ const Editor = () => {
                                   </select>
                                 </label>
                                 <label className="space-y-1">
+                                  <span className="text-[11px] text-muted-foreground">Dynamic captions</span>
+                                  <select
+                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                                    value={verticalCaptionDynamicMode}
+                                    onChange={(event) => setVerticalCaptionDynamicMode(event.target.value as VerticalCaptionDynamicModeOptionId)}
+                                  >
+                                    {VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS.map((modeOption) => (
+                                      <option key={modeOption.id} value={modeOption.id} className="bg-background text-foreground">
+                                        {modeOption.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] text-muted-foreground">Voice changer</span>
+                                  <select
+                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                                    value={verticalVoicePreset}
+                                    onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
+                                  >
+                                    {VERTICAL_VOICE_PRESET_OPTIONS.map((voiceOption) => (
+                                      <option key={voiceOption.id} value={voiceOption.id} className="bg-background text-foreground">
+                                        {voiceOption.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1">
                                   <span className="text-[11px] text-muted-foreground">
                                     Animation speed ({verticalCaptionAnimationSpeed.toFixed(2)}x)
                                   </span>
@@ -10368,6 +10468,53 @@ const Editor = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {showEnableNotificationHint ? (
+        <div className="fixed bottom-4 left-4 z-[130] w-[min(90vw,360px)] rounded-xl border border-border/70 bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-start gap-3">
+            <img
+              src="/logo.png"
+              alt="AutoEditor Logo"
+              width={24}
+              height={24}
+              className="mt-0.5 h-6 w-6 rounded object-cover"
+              onError={(event) => {
+                if (event.currentTarget.dataset.fallbackApplied === "true") return;
+                event.currentTarget.dataset.fallbackApplied = "true";
+                event.currentTarget.src = "/favicon-32x32.png";
+              }}
+            />
+            <div className="min-w-0 space-y-2">
+              <p className="text-sm font-medium text-foreground">Enable browser notifications</p>
+              <p className="text-xs text-muted-foreground">
+                Get export-ready alerts while using other tabs. Current permission:{" "}
+                <span className="font-medium text-foreground">{notificationPermission}</span>.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8"
+                  onClick={() => {
+                    void ensureNotificationPermission("manual_enable");
+                  }}
+                >
+                  Enable alerts
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8"
+                  onClick={dismissEnableNotificationHint}
+                >
+                  Not now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog
         open={trialUpgradeOpen}
