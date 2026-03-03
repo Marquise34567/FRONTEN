@@ -853,6 +853,42 @@ type RetentionFeedbackHistoryEntry = {
   completionPercent: number | null;
   manualScore: number | null;
 };
+type YouTubeSignalState = {
+  coldStartMode: boolean;
+  trustWeight: number;
+  qualifyingVideos: number;
+  requiredVideos: number;
+  averageViewsPerVideo: number | null;
+  currentVideoViews: number;
+  requiredAverageViewsPerVideo: number;
+  highTrustAverageViewsPerVideo: number;
+  recommendation: string;
+};
+type YouTubeOAuthStatusResponse = {
+  connected?: boolean;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  expiryDate?: string | null;
+  hasRefreshToken?: boolean;
+  scopes?: string[];
+  authConfigured?: boolean;
+  missingConfig?: string[];
+};
+type YouTubeLinkJobVideoResponse = {
+  ok?: boolean;
+  jobId?: string;
+  videoId?: string;
+};
+type YouTubeSyncJobFeedbackResponse = {
+  ok?: boolean;
+  jobId?: string;
+  videoId?: string;
+  youtubeSignal?: YouTubeSignalState | null;
+  feedbackLoop?: {
+    applied?: boolean;
+    reason?: string;
+  } | null;
+};
 type ExportFeedbackEntry = {
   id: string;
   at: string | null;
@@ -1228,6 +1264,62 @@ const formatFeedbackTimestamp = (iso: string | null) => {
     hour: "numeric",
     minute: "2-digit",
   });
+};
+
+const parseYouTubeVideoInput = (value: unknown): string | null => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) return raw;
+  try {
+    const asUrl = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const parsed = new URL(asUrl);
+    const hostname = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    if (hostname === "youtu.be") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+      return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+    }
+    if (!hostname.endsWith("youtube.com")) return null;
+    const watchId = parsed.searchParams.get("v") || "";
+    if (/^[a-zA-Z0-9_-]{11}$/.test(watchId)) return watchId;
+    const pathTokens = parsed.pathname.split("/").filter(Boolean);
+    const pathId = pathTokens.length >= 2 && (
+      pathTokens[0] === "shorts" ||
+      pathTokens[0] === "embed" ||
+      pathTokens[0] === "live" ||
+      pathTokens[0] === "v"
+    )
+      ? pathTokens[1]
+      : "";
+    return /^[a-zA-Z0-9_-]{11}$/.test(pathId) ? pathId : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeYouTubeSignalState = (value: unknown): YouTubeSignalState | null => {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  const trustWeight = Number(entry.trustWeight);
+  const qualifyingVideos = Number(entry.qualifyingVideos);
+  const requiredVideos = Number(entry.requiredVideos);
+  const avgViews = Number(entry.averageViewsPerVideo);
+  const currentViews = Number(entry.currentVideoViews);
+  const requiredAvgViews = Number(entry.requiredAverageViewsPerVideo);
+  const highTrustAvgViews = Number(entry.highTrustAverageViewsPerVideo);
+  const recommendation = String(entry.recommendation || "").trim();
+  if (!Number.isFinite(trustWeight)) return null;
+  if (!Number.isFinite(qualifyingVideos) || !Number.isFinite(requiredVideos)) return null;
+  return {
+    coldStartMode: Boolean(entry.coldStartMode),
+    trustWeight: clamp01(trustWeight),
+    qualifyingVideos: Math.max(0, Math.round(qualifyingVideos)),
+    requiredVideos: Math.max(1, Math.round(requiredVideos)),
+    averageViewsPerVideo: Number.isFinite(avgViews) ? Math.max(0, avgViews) : null,
+    currentVideoViews: Number.isFinite(currentViews) ? Math.max(0, currentViews) : 0,
+    requiredAverageViewsPerVideo: Number.isFinite(requiredAvgViews) ? Math.max(0, requiredAvgViews) : 0,
+    highTrustAverageViewsPerVideo: Number.isFinite(highTrustAvgViews) ? Math.max(0, highTrustAvgViews) : 0,
+    recommendation: recommendation || "YouTube retention signal updated.",
+  };
 };
 
 const normalizeCreatorFeedbackHistory = (analysis: any): CreatorFeedbackHistoryEntry[] => {
@@ -1843,6 +1935,13 @@ const Editor = () => {
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
+  const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
+  const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
+  const [youtubeOAuthBusyAction, setYouTubeOAuthBusyAction] = useState<"connect" | "exchange" | "disconnect" | null>(null);
+  const [youtubeVideoDraftByJob, setYouTubeVideoDraftByJob] = useState<Record<string, string>>({});
+  const [youtubeVideoLinkingJobId, setYoutubeVideoLinkingJobId] = useState<string | null>(null);
+  const [youtubeSyncingJobId, setYoutubeSyncingJobId] = useState<string | null>(null);
+  const [youtubeSignalByJob, setYouTubeSignalByJob] = useState<Record<string, YouTubeSignalState | null>>({});
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
   const [aModeEnabled, setAModeEnabled] = useState(true);
@@ -2445,6 +2544,161 @@ const Editor = () => {
     [accessToken, toast, signOut],
   );
 
+  const fetchYouTubeOAuthStatus = useCallback(async () => {
+    if (!accessToken) {
+      setYouTubeOAuthStatus(null);
+      setYouTubeOAuthStatusLoading(false);
+      return;
+    }
+    setYouTubeOAuthStatusLoading(true);
+    try {
+      const data = await apiFetch<YouTubeOAuthStatusResponse>("/api/feedback/youtube/oauth/status", {
+        token: accessToken,
+      });
+      setYouTubeOAuthStatus(data || null);
+    } catch (err: any) {
+      setYouTubeOAuthStatus(null);
+      if (err instanceof ApiError && err.status === 401) {
+        setAuthError(true);
+        toast({ title: "Session expired", description: "Please sign in again." });
+        try {
+          await signOut();
+        } catch (error) {
+          // ignore
+        }
+      }
+    } finally {
+      setYouTubeOAuthStatusLoading(false);
+    }
+  }, [accessToken, signOut, toast]);
+
+  const handleConnectYouTubeOAuth = useCallback(async () => {
+    if (!accessToken) return;
+    setYouTubeOAuthBusyAction("connect");
+    try {
+      const data = await apiFetch<{ authUrl?: string }>("/api/feedback/youtube/oauth/authorize", {
+        method: "POST",
+        token: accessToken,
+      });
+      const authUrl = String(data?.authUrl || "").trim();
+      if (!authUrl) {
+        throw new Error("YouTube OAuth authorize URL was missing.");
+      }
+      window.location.assign(authUrl);
+      return;
+    } catch (err: any) {
+      toast({
+        title: "Connect YouTube failed",
+        description: err?.message || "Unable to start Google sign-in flow.",
+      });
+    } finally {
+      setYouTubeOAuthBusyAction((current) => (current === "connect" ? null : current));
+    }
+  }, [accessToken, toast]);
+
+  const handleDisconnectYouTubeOAuth = useCallback(async () => {
+    if (!accessToken) return;
+    setYouTubeOAuthBusyAction("disconnect");
+    try {
+      await apiFetch<{ ok?: boolean }>("/api/feedback/youtube/oauth/disconnect", {
+        method: "POST",
+        token: accessToken,
+      });
+      await fetchYouTubeOAuthStatus();
+      toast({
+        title: "YouTube disconnected",
+        description: "Channel access was removed from this account.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Disconnect failed",
+        description: err?.message || "Unable to disconnect YouTube right now.",
+      });
+    } finally {
+      setYouTubeOAuthBusyAction((current) => (current === "disconnect" ? null : current));
+    }
+  }, [accessToken, fetchYouTubeOAuthStatus, toast]);
+
+  const handleLinkYouTubeVideoToJob = useCallback(async () => {
+    if (!accessToken || !activeJob?.id) return;
+    const jobId = activeJob.id;
+    const rawValue = String(youtubeVideoDraftByJob[jobId] || "").trim();
+    const videoId = parseYouTubeVideoInput(rawValue);
+    if (!videoId) {
+      toast({
+        title: "Invalid YouTube video",
+        description: "Paste a valid YouTube URL or 11-character video ID.",
+      });
+      return;
+    }
+    setYoutubeVideoLinkingJobId(jobId);
+    try {
+      await apiFetch<YouTubeLinkJobVideoResponse>("/api/feedback/youtube/job-video/link", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          jobId,
+          videoId,
+        }),
+      });
+      setYouTubeVideoDraftByJob((prev) => ({ ...prev, [jobId]: videoId }));
+      await fetchJob(jobId);
+      toast({
+        title: "Video linked",
+        description: "This job is now mapped to the selected YouTube video.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Link failed",
+        description: err?.message || "Could not save this YouTube mapping.",
+      });
+    } finally {
+      setYoutubeVideoLinkingJobId((current) => (current === jobId ? null : current));
+    }
+  }, [accessToken, activeJob?.id, fetchJob, toast, youtubeVideoDraftByJob]);
+
+  const handleSyncYouTubeAnalyticsForJob = useCallback(async () => {
+    if (!accessToken || !activeJob?.id) return;
+    const jobId = activeJob.id;
+    const rawValue = String(youtubeVideoDraftByJob[jobId] || "").trim();
+    const parsedVideoId = rawValue ? parseYouTubeVideoInput(rawValue) : null;
+    if (rawValue && !parsedVideoId) {
+      toast({
+        title: "Invalid YouTube video",
+        description: "Paste a valid YouTube URL/ID or clear the field to use the linked value.",
+      });
+      return;
+    }
+    setYoutubeSyncingJobId(jobId);
+    try {
+      const payload: Record<string, unknown> = { jobId };
+      if (parsedVideoId) payload.videoId = parsedVideoId;
+      const data = await apiFetch<YouTubeSyncJobFeedbackResponse>("/api/feedback/youtube/analytics/sync-job-feedback", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify(payload),
+      });
+      const normalizedSignal = normalizeYouTubeSignalState(data?.youtubeSignal);
+      if (normalizedSignal) {
+        setYouTubeSignalByJob((prev) => ({ ...prev, [jobId]: normalizedSignal }));
+      }
+      await fetchJob(jobId);
+      toast({
+        title: normalizedSignal?.coldStartMode ? "Synced in cold-start mode" : "YouTube analytics synced",
+        description: normalizedSignal
+          ? `${Math.round(normalizedSignal.trustWeight * 100)}% trust weight applied to outcome tuning.`
+          : "Outcome feedback loop updated for this job.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Sync failed",
+        description: err?.message || "Could not sync YouTube analytics for this job.",
+      });
+    } finally {
+      setYoutubeSyncingJobId((current) => (current === jobId ? null : current));
+    }
+  }, [accessToken, activeJob?.id, fetchJob, toast, youtubeVideoDraftByJob]);
+
   const getHookWindowSeconds = useCallback((job?: JobDetail | null) => {
     const analysis = (job?.analysis ?? {}) as any;
     const hookStart = Number(analysis?.hook_start_time ?? analysis?.hook?.start ?? NaN);
@@ -2749,6 +3003,62 @@ const Editor = () => {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!accessToken || authError) {
+      setYouTubeOAuthStatus(null);
+      setYouTubeOAuthStatusLoading(false);
+      return;
+    }
+    void fetchYouTubeOAuthStatus();
+  }, [accessToken, authError, fetchYouTubeOAuthStatus]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const oauthCode = String(searchParams.get("code") || "").trim();
+    const oauthState = String(searchParams.get("state") || "").trim();
+    const oauthScope = String(searchParams.get("scope") || "").toLowerCase();
+    if (!oauthCode || !oauthState || !oauthScope.includes("youtube")) return;
+
+    let cancelled = false;
+    const exchange = async () => {
+      setYouTubeOAuthBusyAction("exchange");
+      try {
+        await apiFetch<{ ok?: boolean; connection?: unknown }>("/api/feedback/youtube/oauth/exchange", {
+          method: "POST",
+          token: accessToken,
+          body: JSON.stringify({
+            code: oauthCode,
+            state: oauthState,
+          }),
+        });
+        if (cancelled) return;
+        await fetchYouTubeOAuthStatus();
+        toast({
+          title: "YouTube connected",
+          description: "Channel access saved. You can now sync retention outcomes.",
+        });
+      } catch (err: any) {
+        if (cancelled) return;
+        toast({
+          title: "OAuth exchange failed",
+          description: err?.message || "Try connecting YouTube again.",
+        });
+      } finally {
+        if (!cancelled) {
+          setYouTubeOAuthBusyAction((current) => (current === "exchange" ? null : current));
+          const next = new URLSearchParams(searchParams);
+          ["code", "state", "scope", "authuser", "prompt", "hd"].forEach((key) => next.delete(key));
+          setSearchParams(next, { replace: true });
+        }
+      }
+    };
+    void exchange();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, fetchYouTubeOAuthStatus, searchParams, setSearchParams, toast]);
+
+  useEffect(() => {
     if (!accessToken) return;
     if (pageViewTrackedRef.current) return;
     trackEditorEvent("editor_page_view", {
@@ -2989,6 +3299,42 @@ const Editor = () => {
       statusStartRef.current[id] = { status: normalized, startedAt: Date.now(), startProgress: progress };
     }
   }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
+      ? (activeJob.analysis as Record<string, unknown>)
+      : {};
+    const linkedVideoId = parseYouTubeVideoInput(
+      analysis.youtube_video_id ??
+      analysis.youtubeVideoId ??
+      (analysis.youtube_sync as Record<string, unknown> | undefined)?.videoId ??
+      (analysis.youtubeSync as Record<string, unknown> | undefined)?.videoId,
+    );
+    if (linkedVideoId) {
+      setYouTubeVideoDraftByJob((prev) => {
+        const existing = String(prev[activeJob.id] || "").trim();
+        if (existing.length > 0) return prev;
+        return {
+          ...prev,
+          [activeJob.id]: linkedVideoId,
+        };
+      });
+    }
+    const youtubeSync = analysis.youtube_sync && typeof analysis.youtube_sync === "object"
+      ? (analysis.youtube_sync as Record<string, unknown>)
+      : {};
+    const retentionFeedback = analysis.retention_feedback && typeof analysis.retention_feedback === "object"
+      ? (analysis.retention_feedback as Record<string, unknown>)
+      : {};
+    const signal =
+      normalizeYouTubeSignalState(youtubeSync.signalState) ??
+      normalizeYouTubeSignalState(retentionFeedback.youtubeSignal) ??
+      normalizeYouTubeSignalState(retentionFeedback.youtube_signal);
+    if (signal) {
+      setYouTubeSignalByJob((prev) => (prev[activeJob.id] ? prev : { ...prev, [activeJob.id]: signal }));
+    }
+  }, [activeJob?.id, activeJob?.analysis]);
 
   useEffect(() => {
     if (!selectedJobId && jobs.length > 0) {
@@ -4787,6 +5133,44 @@ const Editor = () => {
   }, [activeJob]);
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
+    ? (activeAnalysis.youtube_sync as Record<string, unknown>)
+    : null;
+  const activeLinkedYouTubeVideoId = parseYouTubeVideoInput(
+    activeAnalysis?.youtube_video_id ??
+    activeAnalysis?.youtubeVideoId ??
+    activeYouTubeSync?.videoId,
+  );
+  const activeYouTubeVideoDraft = activeJob?.id
+    ? (youtubeVideoDraftByJob[activeJob.id] ?? activeLinkedYouTubeVideoId ?? "")
+    : "";
+  const activeYouTubeSignalFromAnalysis =
+    normalizeYouTubeSignalState(activeYouTubeSync?.signalState) ??
+    normalizeYouTubeSignalState(activeAnalysis?.retention_feedback?.youtubeSignal) ??
+    normalizeYouTubeSignalState(activeAnalysis?.retention_feedback?.youtube_signal);
+  const activeYouTubeSignal = activeJob?.id
+    ? (youtubeSignalByJob[activeJob.id] ?? activeYouTubeSignalFromAnalysis)
+    : activeYouTubeSignalFromAnalysis;
+  const activeYouTubeTrustPercent = activeYouTubeSignal ? Math.round(clamp01(activeYouTubeSignal.trustWeight) * 100) : null;
+  const activeYouTubeAverageViewsLabel = activeYouTubeSignal?.averageViewsPerVideo !== null && activeYouTubeSignal?.averageViewsPerVideo !== undefined
+    ? Math.round(activeYouTubeSignal.averageViewsPerVideo).toLocaleString()
+    : "n/a";
+  const activeYouTubeCurrentViewsLabel = activeYouTubeSignal
+    ? Math.round(activeYouTubeSignal.currentVideoViews).toLocaleString()
+    : "n/a";
+  const activeYouTubeDateRange = activeYouTubeSync?.dateRange && typeof activeYouTubeSync.dateRange === "object"
+    ? (activeYouTubeSync.dateRange as Record<string, unknown>)
+    : null;
+  const activeYouTubeLastSyncedAt = activeYouTubeSync?.lastSyncedAt && typeof activeYouTubeSync.lastSyncedAt === "string"
+    ? activeYouTubeSync.lastSyncedAt
+    : null;
+  const youtubeConnected = Boolean(youtubeOAuthStatus?.connected);
+  const youtubeOAuthConfigured = youtubeOAuthStatus?.authConfigured !== false;
+  const youtubeConnectBusy = youtubeOAuthBusyAction === "connect" || youtubeOAuthBusyAction === "exchange";
+  const youtubeDisconnectBusy = youtubeOAuthBusyAction === "disconnect";
+  const youtubeStatusMissingConfig = Array.isArray(youtubeOAuthStatus?.missingConfig)
+    ? youtubeOAuthStatus?.missingConfig?.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
   const activeRenderSettings =
     activeJob && (activeJob as any).renderSettings && typeof (activeJob as any).renderSettings === "object"
       ? ((activeJob as any).renderSettings as Record<string, unknown>)
@@ -9512,6 +9896,157 @@ const Editor = () => {
                           )}
                           <p className="mt-2 text-[11px] text-muted-foreground">Click chart for full retention breakdown.</p>
                         </div>
+                      </div>
+
+                      <div className="retention-summary-card glass-card rounded-xl p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube Outcome Loop</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Connect channel -&gt; map job/video -&gt; sync retention outcomes -&gt; tune policy over time.
+                            </p>
+                          </div>
+                          <Badge className={youtubeConnected ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-200" : "border-border/55 bg-background/50 text-muted-foreground"}>
+                            {youtubeOAuthStatusLoading
+                              ? "Checking..."
+                              : youtubeConnected
+                                ? "Connected"
+                                : "Not connected"}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!youtubeConnected ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-8 rounded-full px-3 text-[11px]"
+                              disabled={!youtubeOAuthConfigured || youtubeConnectBusy}
+                              onClick={() => void handleConnectYouTubeOAuth()}
+                            >
+                              {youtubeConnectBusy ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Play className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Connect YouTube
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full px-3 text-[11px]"
+                              disabled={youtubeDisconnectBusy}
+                              onClick={() => void handleDisconnectYouTubeOAuth()}
+                            >
+                              {youtubeDisconnectBusy ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <X className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Disconnect YouTube
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 rounded-full px-3 text-[11px]"
+                            disabled={
+                              !youtubeConnected ||
+                              !activeJob?.id ||
+                              youtubeSyncingJobId === activeJob.id
+                            }
+                            onClick={() => void handleSyncYouTubeAnalyticsForJob()}
+                          >
+                            {youtubeSyncingJobId === activeJob?.id ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            Sync Analytics
+                          </Button>
+                        </div>
+
+                        {!youtubeOAuthConfigured ? (
+                          <p className="mt-2 text-[11px] text-amber-200">
+                            OAuth config missing: {youtubeStatusMissingConfig.length > 0 ? youtubeStatusMissingConfig.join(", ") : "server credentials"}
+                          </p>
+                        ) : null}
+
+                        {youtubeConnected ? (
+                          <p className="mt-2 text-[11px] text-foreground/90">
+                            Channel: {youtubeOAuthStatus?.channelTitle || youtubeOAuthStatus?.channelId || "Connected account"}
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Cold-start is normal for new creators. Until enough outcome signal builds, boundary critic + in-app watch/skip/thumb signals stay primary.
+                          </p>
+                        )}
+
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <input
+                            value={activeYouTubeVideoDraft}
+                            onChange={(event) => {
+                              if (!activeJob?.id) return;
+                              const nextValue = event.target.value;
+                              setYouTubeVideoDraftByJob((prev) => ({ ...prev, [activeJob.id]: nextValue }));
+                            }}
+                            placeholder="Paste YouTube URL or 11-char video ID"
+                            className="h-9 rounded-md border border-border/60 bg-background/50 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-9 px-3 text-[11px]"
+                            disabled={!activeJob?.id || youtubeVideoLinkingJobId === activeJob.id}
+                            onClick={() => void handleLinkYouTubeVideoToJob()}
+                          >
+                            {youtubeVideoLinkingJobId === activeJob?.id ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            Save Link
+                          </Button>
+                        </div>
+
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Linked video: {activeLinkedYouTubeVideoId || "not linked yet"}
+                        </p>
+
+                        {activeYouTubeSignal ? (
+                          <div className={`mt-3 rounded-md border p-2 ${activeYouTubeSignal.coldStartMode ? "border-amber-400/35 bg-amber-500/10" : "border-emerald-400/35 bg-emerald-500/10"}`}>
+                            <p className="text-xs text-foreground/90">
+                              {activeYouTubeSignal.coldStartMode ? "Cold-start mode active" : "Outcome trust unlocked"} ·
+                              trust {activeYouTubeTrustPercent ?? 0}%
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Signal volume: {activeYouTubeSignal.qualifyingVideos}/{activeYouTubeSignal.requiredVideos} videos ·
+                              avg views/video {activeYouTubeAverageViewsLabel} ·
+                              current video views {activeYouTubeCurrentViewsLabel}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Strong YouTube weighting starts around &gt;= {activeYouTubeSignal.requiredVideos} videos and about {activeYouTubeSignal.requiredAverageViewsPerVideo}-{activeYouTubeSignal.highTrustAverageViewsPerVideo} views/video.
+                            </p>
+                            <p className="mt-1 text-[11px] text-foreground/85">{activeYouTubeSignal.recommendation}</p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-[11px] text-muted-foreground">
+                            Boundary-label critic + live outcome loop are running. YouTube trust increases automatically after consistent signal volume.
+                          </p>
+                        )}
+
+                        {activeYouTubeLastSyncedAt ? (
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Last sync: {formatFeedbackTimestamp(activeYouTubeLastSyncedAt)}
+                            {activeYouTubeDateRange?.startDate && activeYouTubeDateRange?.endDate
+                              ? ` (${String(activeYouTubeDateRange.startDate)} -> ${String(activeYouTubeDateRange.endDate)})`
+                              : ""}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="retention-summary-card retention-summary-timeline-block glass-card rounded-xl p-3">
