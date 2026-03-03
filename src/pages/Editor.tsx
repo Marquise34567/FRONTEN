@@ -7304,6 +7304,19 @@ const Editor = () => {
   const uploadModePromptActiveSelection: UploadModePromptSelection = fullAutoYoutubeEnabled
     ? "full_auto_youtube"
     : pipelinePowerMode;
+  const activeAdvancedLearningModeLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
+    if (continuityFirstEnabled) labels.push("Continuity-First");
+    if (exploreX3Enabled) labels.push("Explore x3");
+    if (topHumanGuardEnabled) labels.push("Top-Human Guard");
+    return labels;
+  }, [
+    coldStartAutopilotEnabled,
+    continuityFirstEnabled,
+    exploreX3Enabled,
+    topHumanGuardEnabled,
+  ]);
 
   const handleSelectPipelinePowerMode = (mode: PipelinePowerMode) => {
     if (mode !== "standard" && !paidTier) {
@@ -7848,12 +7861,7 @@ const Editor = () => {
                 </p>
               </div>
               <Badge className="border-border/55 bg-background/50 text-muted-foreground">
-                {[
-                  coldStartAutopilotEnabled,
-                  continuityFirstEnabled,
-                  exploreX3Enabled,
-                  topHumanGuardEnabled,
-                ].filter(Boolean).length} active
+                {activeAdvancedLearningModeLabels.length} active
               </Badge>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
@@ -7906,6 +7914,23 @@ const Editor = () => {
                   </div>
                 </button>
               ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Currently Active</p>
+              {activeAdvancedLearningModeLabels.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeAdvancedLearningModeLabels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] text-primary"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-muted-foreground">None active. Running with default learning behavior.</p>
+              )}
             </div>
             <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-2.5">
               <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
@@ -11327,6 +11352,20 @@ const Editor = () => {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-card/35 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                Advanced Learning Modes
+              </p>
+              <p className="mt-1 text-xs text-foreground">
+                Applied automatically to this upload.
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {activeAdvancedLearningModeLabels.length > 0
+                  ? `${activeAdvancedLearningModeLabels.join(" · ")} · Style lock ${clampCreatorStyleLockPercent(creatorStyleLockPercent)}%`
+                  : `No advanced toggles active · Style lock ${clampCreatorStyleLockPercent(creatorStyleLockPercent)}%`}
+              </p>
             </div>
 
             <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
