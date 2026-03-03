@@ -7539,7 +7539,7 @@ const Editor = () => {
     return () => window.clearTimeout(timer);
   }, [feedbackDeepDiveOpen, feedbackDeepDiveSection]);
 
-  const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral" | "dopamine") => {
+  const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
     menuTouchedRef.current.targetPlatform = true;
     menuTouchedRef.current.editorMode = true;
@@ -7556,28 +7556,12 @@ const Editor = () => {
       setRetentionTargetPlatform("instagram_reels");
       setEditorMode("auto");
       setMaxCutsRequested(8);
-    } else if (preset === "viral") {
+    } else {
       setRenderMode("vertical");
       setRetentionStrategyProfile("viral");
       setRetentionTargetPlatform("tiktok");
       setEditorMode("reaction");
       setMaxCutsRequested(12);
-    } else {
-      // Dopamine Hit: highest cut density + aggressive pacing defaults.
-      setRenderMode("vertical");
-      setRetentionStrategyProfile("viral");
-      setRetentionTargetPlatform("tiktok");
-      setEditorMode("reaction");
-      setMaxCutsRequested(MAX_CUTS_MAX);
-      setLongFormPreset("ultra");
-      setLongFormAggression(92);
-      setLongFormClarityVsSpeed(34);
-      setTangentKiller(true);
-      if (paidTier) {
-        setPipelinePowerMode("ultra");
-      } else if (pipelinePowerMode !== "standard") {
-        setPipelinePowerMode("standard");
-      }
     }
 
     if (!autoCaptionsEnabled) {
@@ -7591,8 +7575,6 @@ const Editor = () => {
       captionStyle: activeSubtitlePreset,
       metadata: {
         preset,
-        dopaminePacing: preset === "dopamine",
-        maxCuts: preset === "dopamine" ? MAX_CUTS_MAX : undefined,
       },
     });
   };
@@ -8759,7 +8741,7 @@ const Editor = () => {
                         </p>
                         <div className="mb-3 space-y-1.5">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">One-tap presets</p>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <button
                               type="button"
                               className={sectionPillClass(!isVerticalMode && retentionStrategyProfile === "safe" && maxCutsRequested <= 6)}
@@ -8791,22 +8773,6 @@ const Editor = () => {
                               <div className="flex flex-col items-center">
                                 <Flame className="h-5 w-5" aria-hidden />
                                 <span className="text-[11px] mt-1">Viral</span>
-                              </div>
-                            </button>
-                            <button
-                              type="button"
-                              className={sectionPillClass(
-                                isVerticalMode &&
-                                retentionStrategyProfile === "viral" &&
-                                maxCutsRequested >= 14 &&
-                                editorMode === "reaction",
-                              )}
-                              onClick={() => applyQuickSetupPreset("dopamine")}
-                              aria-label="Dopamine Hit preset"
-                            >
-                              <div className="flex flex-col items-center">
-                                <Zap className="h-5 w-5" aria-hidden />
-                                <span className="text-[11px] mt-1">Dopamine Hit</span>
                               </div>
                             </button>
                           </div>
