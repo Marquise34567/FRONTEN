@@ -120,6 +120,28 @@ const RouteViewTracker = () => {
   return null;
 };
 
+const YouTubeOAuthCallbackBridge = () => {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (loading) return;
+    if (location.pathname !== "/") return;
+
+    const params = new URLSearchParams(location.search);
+    const oauthCode = String(params.get("code") || "").trim();
+    const oauthState = String(params.get("state") || "").trim();
+    const oauthScope = String(params.get("scope") || "").toLowerCase();
+    if (!oauthCode || !oauthState || !oauthScope.includes("youtube")) return;
+    if (!user) return;
+
+    navigate(`/editor${location.search || ""}`, { replace: true });
+  }, [loading, location.pathname, location.search, navigate, user]);
+
+  return null;
+};
+
 const App = () => {
   useScreenProfile();
 
@@ -133,6 +155,7 @@ const App = () => {
           <Sonner />
           <BrowserRouter>
             <RouteViewTracker />
+            <YouTubeOAuthCallbackBridge />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
