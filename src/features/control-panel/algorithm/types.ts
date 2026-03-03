@@ -266,3 +266,112 @@ export type AutoOptimizeResponse = {
   suggestion: ImprovementSuggestion
   config: AlgorithmConfigVersion
 }
+
+export type IntelligenceBoundaryCriticModel = {
+  version: string
+  threshold: number
+  weights: {
+    continuity: number
+    context: number
+    motion: number
+    audio: number
+    narrative: number
+    bias: number
+  }
+  metrics: {
+    sampleCount: number
+    accuracy: number
+    precision: number
+    recall: number
+    f1: number
+  }
+  createdAt: string
+}
+
+export type IntelligenceBaselineStats = {
+  sampleCount: number
+  labeledBoundaryCount: number
+  goodBoundaryCount: number
+  badBoundaryCount: number
+  coveragePercent: number
+}
+
+export type CreatorStyleProfile = {
+  version: 1
+  userId: string
+  updatedAt: string
+  sampleCount: number
+  pacePreference: number
+  cutAggression: number
+  hookAggression: number
+  preferredTransitionStyle: "smooth" | "jump" | "mixed"
+  qualityBias: number
+  signals: {
+    avgWatchPercent: number | null
+    avgCompletionPercent: number | null
+    avgHookHoldPercent: number | null
+    avgRewatchRate: number | null
+  }
+}
+
+export type IntelligenceStatusResponse = {
+  ok: true
+  model: IntelligenceBoundaryCriticModel
+  baseline: IntelligenceBaselineStats
+  style: CreatorStyleProfile
+}
+
+export type IntelligenceBaselineSample = {
+  id: string
+  userId: string
+  sourceType: string
+  sourceJobId: string | null
+  videoUrl: string | null
+  durationSeconds: number | null
+  edl: unknown[]
+  boundaryLabels: Array<{
+    boundaryIndex: number
+    time: number
+    label: "good" | "bad"
+    continuity: number
+    context: number
+    motion: number
+    audio: number
+    narrative: number
+    notes: string | null
+  }>
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type IntelligenceBaselineSamplesResponse = {
+  ok: true
+  samples: IntelligenceBaselineSample[]
+}
+
+export type IntelligenceCollectBaselineResponse = {
+  ok: true
+  sample: IntelligenceBaselineSample
+}
+
+export type IntelligenceTrainBoundaryCriticResponse = {
+  ok: true
+  model: IntelligenceBoundaryCriticModel
+}
+
+export type IntelligencePromotionCandidate = {
+  policyId: string
+  baselinePolicyId: string
+  lift: number
+  zScore: number
+  sampleCount: number
+  baselineSampleCount: number
+  mean: number
+  baselineMean: number
+}
+
+export type IntelligencePromotionsResponse = {
+  ok: true
+  candidates: IntelligencePromotionCandidate[]
+}

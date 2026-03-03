@@ -200,6 +200,7 @@ const ControlPanelAlgorithm = () => {
   } | null>(null)
   const [analysisLimit, setAnalysisLimit] = useState("1000")
   const [analysisRange, setAnalysisRange] = useState("7d")
+  const [boundaryCriticMinSamples, setBoundaryCriticMinSamples] = useState("60")
   const [promptText, setPromptText] = useState(AUTOEDITOR_MASTER_PROMPT_TEMPLATE)
   const [promptSummary, setPromptSummary] = useState<string | null>(null)
   const [promptWarnings, setPromptWarnings] = useState<string[]>([])
@@ -270,6 +271,33 @@ const ControlPanelAlgorithm = () => {
     enabled: canLoad
   })
 
+  const intelligenceStatusQuery = useQuery({
+    queryKey: ["algorithm-intelligence-status"],
+    queryFn: () => algorithmApi.getIntelligenceStatus({ token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 7000
+  })
+
+  const baselineSamplesQuery = useQuery({
+    queryKey: ["algorithm-intelligence-baseline-samples"],
+    queryFn: () => algorithmApi.listBaselineSamples({ token: accessToken || "", limit: 25 }),
+    enabled: canLoad,
+    refetchInterval: 10000
+  })
+
+  const promotionCandidatesQuery = useQuery({
+    queryKey: ["algorithm-intelligence-promotions"],
+    queryFn: () =>
+      algorithmApi.getPolicyPromotionCandidates({
+        token: accessToken || "",
+        min_samples: 12,
+        min_lift: 2.5,
+        z_threshold: 1.96
+      }),
+    enabled: canLoad,
+    refetchInterval: 12000
+  })
+
   useEffect(() => {
     if (!activeConfigQuery.data?.config || paramsDirty) return
     setDraftParams(activeConfigQuery.data.config.params)
@@ -299,7 +327,10 @@ const ControlPanelAlgorithm = () => {
       queryClient.invalidateQueries({ queryKey: ["algorithm-scorecards"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-suggestions"] }),
       queryClient.invalidateQueries({ queryKey: ["algorithm-experiment-status"] }),
-      queryClient.invalidateQueries({ queryKey: ["algorithm-feedback-loop-status"] })
+      queryClient.invalidateQueries({ queryKey: ["algorithm-feedback-loop-status"] }),
+      queryClient.invalidateQueries({ queryKey: ["algorithm-intelligence-status"] }),
+      queryClient.invalidateQueries({ queryKey: ["algorithm-intelligence-baseline-samples"] }),
+      queryClient.invalidateQueries({ queryKey: ["algorithm-intelligence-promotions"] })
     ])
   }
 
@@ -450,6 +481,42 @@ const ControlPanelAlgorithm = () => {
     onError: (error) => {
       setSampleTestResult(null)
       setActionError((error as Error).message || "Sample test failed.")
+    }
+  })
+
+  const collectBaselineMutation = useMutation({
+    mutationFn: ({ job_id }: { job_id: string }) =>
+      algorithmApi.collectBaselineSample({
+        token: accessToken || "",
+        job_id
+      }),
+    onSuccess: async (result) => {
+      setActionError(null)
+      setActionSuccess(`Baseline sample captured (${result.sample.id.slice(0, 8)}).`)
+      await refreshAlgorithmQueries()
+    },
+    onError: (error) => {
+      setActionSuccess(null)
+      setActionError((error as Error).message || "Baseline sample collection failed.")
+    }
+  })
+
+  const trainBoundaryCriticMutation = useMutation({
+    mutationFn: () =>
+      algorithmApi.trainBoundaryCritic({
+        token: accessToken || "",
+        min_samples: clamp(Math.round(toNumber(boundaryCriticMinSamples, 60)), 20, 5000)
+      }),
+    onSuccess: async (result) => {
+      setActionError(null)
+      setActionSuccess(
+        `Boundary critic trained: ${result.model.version} (F1 ${result.model.metrics.f1.toFixed(3)}).`
+      )
+      await refreshAlgorithmQueries()
+    },
+    onError: (error) => {
+      setActionSuccess(null)
+      setActionError((error as Error).message || "Boundary critic training failed.")
     }
   })
 
@@ -614,6 +681,12 @@ const ControlPanelAlgorithm = () => {
   const activeConfig = activeConfigQuery.data?.config || null
   const feedbackSnapshot = feedbackLoopStatusQuery.data?.status?.brain_snapshot || null
   const feedbackSignals = feedbackSnapshot?.recent_signals || []
+  const intelligenceStatus = intelligenceStatusQuery.data || null
+  const baselineStats = intelligenceStatus?.baseline || null
+  const boundaryModel = intelligenceStatus?.model || null
+  const creatorStyleProfile = intelligenceStatus?.style || null
+  const baselineSamples = baselineSamplesQuery.data?.samples || []
+  const promotionCandidates = promotionCandidatesQuery.data?.candidates || []
   const liveDotClass = canLoad ? "bg-emerald-400" : "bg-slate-500"
 
   return (
@@ -1167,6 +1240,126 @@ const ControlPanelAlgorithm = () => {
                   </Button>
                 </motion.div>
               ))}
+
+              <Card className="border-slate-700/80 bg-slate-900/65">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-xs">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-200" />
+                      Editor Intelligence
+                    </span>
+                    <Badge className="bg-emerald-500/20 text-emerald-100">
+                      {baselineStats?.sampleCount || 0} baseline
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-[11px]">
+                  <div className="grid grid-cols-2 gap-2 text-slate-300">
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Labeled cuts: {baselineStats?.labeledBoundaryCount || 0}
+                    </p>
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Coverage: {(baselineStats?.coveragePercent || 0).toFixed(1)}%
+                    </p>
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Good boundaries: {baselineStats?.goodBoundaryCount || 0}
+                    </p>
+                    <p className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-1.5">
+                      Bad boundaries: {baselineStats?.badBoundaryCount || 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-2 text-slate-300">
+                    <p className="font-semibold text-slate-100">
+                      Boundary Critic: {boundaryModel?.version || "unavailable"}
+                    </p>
+                    <p className="mt-1 text-slate-400">
+                      F1 {boundaryModel?.metrics.f1?.toFixed(3) || "0.000"} | Precision{" "}
+                      {boundaryModel?.metrics.precision?.toFixed(3) || "0.000"} | Recall{" "}
+                      {boundaryModel?.metrics.recall?.toFixed(3) || "0.000"}
+                    </p>
+                    <p className="text-slate-400">
+                      Threshold {boundaryModel?.threshold?.toFixed(3) || "0.000"} | Train samples{" "}
+                      {boundaryModel?.metrics.sampleCount || 0}
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!selectedSampleJobId || collectBaselineMutation.isPending}
+                    onClick={() => collectBaselineMutation.mutate({ job_id: selectedSampleJobId })}
+                    className="w-full bg-emerald-500/85 text-slate-950 hover:bg-emerald-400"
+                  >
+                    Collect Baseline From Selected Sample
+                  </Button>
+
+                  <div className="grid grid-cols-[1fr_140px] gap-2">
+                    <input
+                      type="number"
+                      value={boundaryCriticMinSamples}
+                      onChange={(event) => setBoundaryCriticMinSamples(event.target.value)}
+                      min={20}
+                      max={5000}
+                      step={1}
+                      className="h-8 rounded-md border border-slate-700 bg-slate-900/70 px-2 text-xs text-slate-100"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={trainBoundaryCriticMutation.isPending}
+                      onClick={() => trainBoundaryCriticMutation.mutate()}
+                      className="bg-cyan-500/85 text-slate-950 hover:bg-cyan-400"
+                    >
+                      Train Critic
+                    </Button>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Promotion Candidates</p>
+                    {promotionCandidates.length ? (
+                      promotionCandidates.slice(0, 4).map((candidate) => (
+                        <div
+                          key={`${candidate.policyId}-${candidate.baselinePolicyId}`}
+                          className="rounded-md border border-slate-700/80 bg-slate-950/65 px-2 py-1.5 text-slate-300"
+                        >
+                          <p className="line-clamp-1 text-slate-100">{candidate.policyId}</p>
+                          <p className="text-[10px] text-slate-400">
+                            lift +{candidate.lift.toFixed(2)} | z {candidate.zScore.toFixed(2)} | n{" "}
+                            {candidate.sampleCount}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-md border border-dashed border-slate-700/80 bg-slate-950/60 px-2 py-2 text-slate-400">
+                        No statistically significant promotion candidates yet.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-md border border-slate-700/80 bg-slate-950/60 px-2 py-2 text-slate-300">
+                    <p className="font-semibold text-slate-100">Creator Style Profile</p>
+                    <p className="mt-1">
+                      Pace {creatorStyleProfile?.pacePreference?.toFixed(3) || "0.000"} | Cut{" "}
+                      {creatorStyleProfile?.cutAggression?.toFixed(3) || "0.000"} | Hook{" "}
+                      {creatorStyleProfile?.hookAggression?.toFixed(3) || "0.000"}
+                    </p>
+                    <p>
+                      Transition {creatorStyleProfile?.preferredTransitionStyle || "smooth"} | Quality bias{" "}
+                      {creatorStyleProfile?.qualityBias?.toFixed(3) || "0.000"}
+                    </p>
+                    <p className="text-slate-400">
+                      Avg watch {formatSignalPercent(creatorStyleProfile?.signals.avgWatchPercent ?? null)} | Completion{" "}
+                      {formatSignalPercent(creatorStyleProfile?.signals.avgCompletionPercent ?? null)}
+                    </p>
+                    <p className="text-slate-400">
+                      Hook hold {formatSignalPercent(creatorStyleProfile?.signals.avgHookHoldPercent ?? null)} | Rewatch{" "}
+                      {formatSignalPercent(creatorStyleProfile?.signals.avgRewatchRate ?? null)}
+                    </p>
+                    <p className="text-slate-400">Baseline samples loaded: {baselineSamples.length}</p>
+                  </div>
+                </CardContent>
+              </Card>
 
               <Card className="border-slate-700/80 bg-slate-900/65">
                 <CardHeader className="pb-2">

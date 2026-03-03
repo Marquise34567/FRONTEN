@@ -8,6 +8,11 @@ import type {
   AnalyzeResponse,
   FeedbackLoopStatusResponse,
   ExperimentStatusResponse,
+  IntelligenceBaselineSamplesResponse,
+  IntelligenceCollectBaselineResponse,
+  IntelligencePromotionsResponse,
+  IntelligenceStatusResponse,
+  IntelligenceTrainBoundaryCriticResponse,
   ImprovementSuggestion,
   PromptApplyResponse,
   RenderQualityMetric,
@@ -193,5 +198,49 @@ export const algorithmApi = {
         job_id,
         ...(params ? { params } : {})
       })
-    })
+    }),
+
+  getIntelligenceStatus: ({ token }: TokenInput) =>
+    apiFetch<IntelligenceStatusResponse>("/api/intelligence/status", withToken(token)),
+
+  listBaselineSamples: ({ token, limit = 20 }: TokenInput & { limit?: number }) =>
+    apiFetch<IntelligenceBaselineSamplesResponse>(
+      `/api/intelligence/baseline/samples?limit=${encodeURIComponent(String(limit))}`,
+      withToken(token)
+    ),
+
+  collectBaselineSample: ({ token, job_id }: TokenInput & { job_id: string }) =>
+    apiFetch<IntelligenceCollectBaselineResponse>("/api/intelligence/baseline/collect", {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify({
+        jobId: job_id
+      })
+    }),
+
+  trainBoundaryCritic: ({ token, min_samples = 60 }: TokenInput & { min_samples?: number }) =>
+    apiFetch<IntelligenceTrainBoundaryCriticResponse>("/api/intelligence/boundary-critic/train", {
+      ...withToken(token),
+      method: "POST",
+      body: JSON.stringify({
+        minSamples: min_samples
+      })
+    }),
+
+  getPolicyPromotionCandidates: ({
+    token,
+    min_samples = 12,
+    min_lift = 2.5,
+    z_threshold = 1.96
+  }: TokenInput & {
+    min_samples?: number
+    min_lift?: number
+    z_threshold?: number
+  }) =>
+    apiFetch<IntelligencePromotionsResponse>(
+      `/api/intelligence/ab/promotions?minSamples=${encodeURIComponent(String(min_samples))}&minLift=${encodeURIComponent(
+        String(min_lift)
+      )}&zThreshold=${encodeURIComponent(String(z_threshold))}`,
+      withToken(token)
+    )
 }
