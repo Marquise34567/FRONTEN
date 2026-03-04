@@ -222,7 +222,7 @@ const clampCaptionPosition = (value: number) =>
   Number(clamp(value, VERTICAL_CAPTION_POSITION_MIN, VERTICAL_CAPTION_POSITION_MAX).toFixed(4));
 const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
-const DEFAULT_MAX_CUTS = 8;
+const DEFAULT_MAX_CUTS = 12;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
@@ -356,6 +356,53 @@ const resolveEffectiveRetentionAggressionLevel = ({
   if (base === "low" || base === "viral") return base;
   // Auto long-form defaults should match the B profile baseline.
   return "high";
+};
+const AUTO_MODE_V3_DEFAULTS = {
+  strategyProfile: "viral" as RetentionStrategyProfile,
+  aggressionLevel: "high" as RetentionAggressionLevel,
+  longFormPreset: "aggressive" as LongFormPreset,
+  longFormAggression: 88,
+  longFormClarityVsSpeed: 44,
+};
+const resolveAutoModeV3Defaults = ({
+  editorMode,
+  pipelinePowerMode,
+  strategyProfile,
+  aggressionLevel,
+  maxCuts,
+  longFormPreset,
+  longFormAggression,
+  longFormClarityVsSpeed,
+}: {
+  editorMode: BackendEditorModeSelection;
+  pipelinePowerMode: PipelinePowerMode;
+  strategyProfile: RetentionStrategyProfile;
+  aggressionLevel: RetentionAggressionLevel;
+  maxCuts: number | null;
+  longFormPreset: LongFormPreset;
+  longFormAggression: number;
+  longFormClarityVsSpeed: number;
+}) => {
+  const autoModeStandard = pipelinePowerMode === "standard" && editorMode === "auto";
+  if (!autoModeStandard) {
+    return {
+      strategyProfile,
+      aggressionLevel,
+      maxCuts,
+      longFormPreset,
+      longFormAggression,
+      longFormClarityVsSpeed,
+    };
+  }
+  const legacyAutoBaseline = strategyProfile === "balanced" && longFormPreset === "auto";
+  return {
+    strategyProfile: legacyAutoBaseline ? AUTO_MODE_V3_DEFAULTS.strategyProfile : strategyProfile,
+    aggressionLevel: legacyAutoBaseline ? AUTO_MODE_V3_DEFAULTS.aggressionLevel : aggressionLevel,
+    maxCuts: null,
+    longFormPreset: longFormPreset === "auto" ? AUTO_MODE_V3_DEFAULTS.longFormPreset : longFormPreset,
+    longFormAggression: Math.max(longFormAggression, AUTO_MODE_V3_DEFAULTS.longFormAggression),
+    longFormClarityVsSpeed: Math.min(longFormClarityVsSpeed, AUTO_MODE_V3_DEFAULTS.longFormClarityVsSpeed),
+  };
 };
 const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
   {
@@ -614,7 +661,7 @@ const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; de
   { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
 ];
 const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
-  auto: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
+  auto: { aggression: 88, clarityVsSpeed: 44, tangentKiller: true },
   balanced: { aggression: 45, clarityVsSpeed: 82, tangentKiller: false },
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
@@ -1980,9 +2027,9 @@ const Editor = () => {
   const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
-  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
-  const [longFormAggression, setLongFormAggression] = useState(72);
-  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(52);
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("aggressive");
+  const [longFormAggression, setLongFormAggression] = useState(88);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(44);
   const [tangentKiller, setTangentKiller] = useState(true);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
@@ -1995,7 +2042,7 @@ const Editor = () => {
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
-  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("viral");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
   );
@@ -3880,6 +3927,16 @@ const Editor = () => {
       longFormPreset,
     });
     const editorModeForJob = mapEditorModeForBackend(editorMode, resolvedPipelinePowerMode);
+    const autoModeV3Defaults = resolveAutoModeV3Defaults({
+      editorMode: editorModeForJob,
+      pipelinePowerMode: resolvedPipelinePowerMode,
+      strategyProfile: effectiveRetentionStrategyProfile,
+      aggressionLevel: effectiveRetentionAggressionLevel,
+      maxCuts: maxCutsRequested,
+      longFormPreset,
+      longFormAggression,
+      longFormClarityVsSpeed,
+    });
     const fastModeForJob = isUltraPipelineMode(resolvedPipelinePowerMode);
     const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
     const adaptiveLearningPayload = {
@@ -3954,17 +4011,17 @@ const Editor = () => {
               filename: file.name,
               contentType: file.type,
               renderMode: "vertical" as const,
-              retentionAggressionLevel: effectiveRetentionAggressionLevel,
-              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
+              retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
-              maxCuts: maxCutsRequested,
+              maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               hookSelectionMode: defaultHookSelectionMode,
-              longFormPreset,
-              longFormAggression,
-              longFormClarityVsSpeed,
+              longFormPreset: autoModeV3Defaults.longFormPreset,
+              longFormAggression: autoModeV3Defaults.longFormAggression,
+              longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
@@ -3982,17 +4039,17 @@ const Editor = () => {
               filename: file.name,
               contentType: file.type,
               renderMode: "horizontal" as const,
-              retentionAggressionLevel: effectiveRetentionAggressionLevel,
-              retentionStrategyProfile: effectiveRetentionStrategyProfile,
+              retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
+              retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
               onlyHookAndCut,
-              maxCuts: maxCutsRequested,
+              maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               hookSelectionMode: defaultHookSelectionMode,
-              longFormPreset,
-              longFormAggression,
-              longFormClarityVsSpeed,
+              longFormPreset: autoModeV3Defaults.longFormPreset,
+              longFormAggression: autoModeV3Defaults.longFormAggression,
+              longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
@@ -4189,19 +4246,19 @@ const Editor = () => {
           body: JSON.stringify({
             key: create.inputPath,
             onlyHookAndCut,
-            retentionAggressionLevel: effectiveRetentionAggressionLevel,
-            retentionStrategyProfile: effectiveRetentionStrategyProfile,
+            retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
+            retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
             retentionTargetPlatform,
             platformProfile: retentionTargetPlatform,
             autoCaptions: captionsEnabledForJob,
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
-            maxCuts: maxCutsRequested,
+            maxCuts: autoModeV3Defaults.maxCuts,
             editorMode: editorModeForJob,
             hookSelectionMode: defaultHookSelectionMode,
-            longFormPreset,
-            longFormAggression,
-            longFormClarityVsSpeed,
+            longFormPreset: autoModeV3Defaults.longFormPreset,
+            longFormAggression: autoModeV3Defaults.longFormAggression,
+            longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
             tangentKiller,
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
@@ -5066,6 +5123,16 @@ const Editor = () => {
           longFormPreset,
         });
         const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
+        const autoModeV3Defaults = resolveAutoModeV3Defaults({
+          editorMode: editorModeForJob,
+          pipelinePowerMode,
+          strategyProfile: effectiveRetentionStrategyProfile,
+          aggressionLevel: effectiveRetentionAggressionLevel,
+          maxCuts: maxCutsRequested,
+          longFormPreset,
+          longFormAggression,
+          longFormClarityVsSpeed,
+        });
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
@@ -5084,17 +5151,17 @@ const Editor = () => {
           );
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
-          retentionAggressionLevel: effectiveRetentionAggressionLevel,
-          retentionStrategyProfile: effectiveRetentionStrategyProfile,
+          retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
+          retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
           retentionTargetPlatform,
           platformProfile: retentionTargetPlatform,
           onlyHookAndCut,
-          maxCuts: maxCutsRequested,
+          maxCuts: autoModeV3Defaults.maxCuts,
           editorMode: editorModeForJob,
           hookSelectionMode: hookSelectionModeForJob,
-          longFormPreset,
-          longFormAggression,
-          longFormClarityVsSpeed,
+          longFormPreset: autoModeV3Defaults.longFormPreset,
+          longFormAggression: autoModeV3Defaults.longFormAggression,
+          longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
           tangentKiller,
           fastMode: fastModeForJob,
           pipelinePowerMode,
