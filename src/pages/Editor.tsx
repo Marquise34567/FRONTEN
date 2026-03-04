@@ -601,8 +601,8 @@ const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; de
   { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
 ];
 const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
-  auto: { aggression: 72, clarityVsSpeed: 46, tangentKiller: true },
-  balanced: { aggression: 45, clarityVsSpeed: 68, tangentKiller: false },
+  auto: { aggression: 45, clarityVsSpeed: 82, tangentKiller: false },
+  balanced: { aggression: 45, clarityVsSpeed: 82, tangentKiller: false },
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
 };
@@ -1957,10 +1957,10 @@ const Editor = () => {
   const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
-  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
-  const [longFormAggression, setLongFormAggression] = useState(72);
-  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(46);
-  const [tangentKiller, setTangentKiller] = useState(true);
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("balanced");
+  const [longFormAggression, setLongFormAggression] = useState(45);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(82);
+  const [tangentKiller, setTangentKiller] = useState(false);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
