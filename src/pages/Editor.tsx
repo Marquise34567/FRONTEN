@@ -601,7 +601,7 @@ const LONG_FORM_PRESET_OPTIONS: Array<{ value: LongFormPreset; label: string; de
   { value: "ultra", label: "Ultra", description: "28-40 cuts/min, maximum tightening, 0.12s silence target." },
 ];
 const LONG_FORM_PRESET_DEFAULTS: Record<LongFormPreset, { aggression: number; clarityVsSpeed: number; tangentKiller: boolean }> = {
-  auto: { aggression: 45, clarityVsSpeed: 82, tangentKiller: false },
+  auto: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   balanced: { aggression: 45, clarityVsSpeed: 82, tangentKiller: false },
   aggressive: { aggression: 72, clarityVsSpeed: 52, tangentKiller: true },
   ultra: { aggression: 92, clarityVsSpeed: 36, tangentKiller: true },
@@ -1238,6 +1238,16 @@ const normalizeJobVideoOutputs = (job: JobDetail): JobDetail => {
     outputUrl: urls[0] ?? null,
     outputUrls: urls.length > 0 ? urls : null,
   };
+};
+
+const RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN =
+  /long_form_[a-z0-9_]*defaults_[0-9]{4}_[0-9]{2}_[0-9]{2}/i;
+
+const sanitizeRetentionSummaryModeText = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) return null;
+  return RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(text) ? null : text;
 };
 
 const interpolateRetentionAtSec = (points: RetentionPoint[], targetSec: number) => {
@@ -1957,10 +1967,10 @@ const Editor = () => {
   const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
-  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("balanced");
-  const [longFormAggression, setLongFormAggression] = useState(45);
-  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(82);
-  const [tangentKiller, setTangentKiller] = useState(false);
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("aggressive");
+  const [longFormAggression, setLongFormAggression] = useState(72);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(52);
+  const [tangentKiller, setTangentKiller] = useState(true);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
@@ -5635,24 +5645,16 @@ const Editor = () => {
           : activeAnalysis?.videoAutoDetect && typeof activeAnalysis.videoAutoDetect === "object"
             ? activeAnalysis.videoAutoDetect
             : null;
-  const detectedAutoPreset =
-    typeof autoDetectProfile?.preset === "string"
-      ? autoDetectProfile.preset
-      : null;
-  const detectedAutoStyle =
-    typeof autoDetectProfile?.style === "string"
-      ? autoDetectProfile.style
-      : null;
-  const detectedAutoContentType =
+  const detectedAutoPreset = sanitizeRetentionSummaryModeText(autoDetectProfile?.preset);
+  const detectedAutoStyle = sanitizeRetentionSummaryModeText(autoDetectProfile?.style);
+  const detectedAutoContentType = sanitizeRetentionSummaryModeText(
     typeof autoDetectProfile?.contentType === "string"
       ? autoDetectProfile.contentType
       : typeof autoDetectProfile?.content_type === "string"
         ? autoDetectProfile.content_type
-        : null;
-  const detectedAutoFormat =
-    typeof autoDetectProfile?.format === "string"
-      ? autoDetectProfile.format
-      : null;
+        : null,
+  );
+  const detectedAutoFormat = sanitizeRetentionSummaryModeText(autoDetectProfile?.format);
   const retentionKingBlendPctDisplay =
     Number.isFinite(Number(autoDetectProfile?.retentionKingBlendPct))
       ? Number(autoDetectProfile.retentionKingBlendPct)
@@ -5760,9 +5762,21 @@ const Editor = () => {
       return hookVariants[0] || null;
     })();
   const retentionImprovements: string[] = Array.isArray(metadataRetention?.improvements)
-    ? metadataRetention.improvements.filter((line: unknown) => typeof line === "string").slice(0, 8)
+    ? metadataRetention.improvements
+        .filter(
+          (line: unknown) =>
+            typeof line === "string" &&
+            !RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(line),
+        )
+        .slice(0, 8)
     : Array.isArray(activeJob?.optimizationNotes)
-      ? activeJob.optimizationNotes.filter((line: unknown) => typeof line === "string").slice(0, 8)
+      ? activeJob.optimizationNotes
+          .filter(
+            (line: unknown) =>
+              typeof line === "string" &&
+              !RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(line),
+          )
+          .slice(0, 8)
       : [];
   const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
     ? Number(activeJob?.retentionScore)
