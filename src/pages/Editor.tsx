@@ -344,6 +344,19 @@ const STRATEGY_TO_AGGRESSION: Record<RetentionStrategyProfile, RetentionAggressi
   balanced: "medium",
   viral: "viral",
 };
+const resolveEffectiveRetentionAggressionLevel = ({
+  strategyProfile,
+  longFormPreset,
+}: {
+  strategyProfile: RetentionStrategyProfile;
+  longFormPreset: LongFormPreset;
+}): RetentionAggressionLevel => {
+  const base = STRATEGY_TO_AGGRESSION[strategyProfile];
+  if (longFormPreset !== "auto") return base;
+  if (base === "low" || base === "viral") return base;
+  // Auto long-form defaults should match the B profile baseline.
+  return "high";
+};
 const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
   {
     value: "safe",
@@ -1967,7 +1980,7 @@ const Editor = () => {
   const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
-  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("aggressive");
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("auto");
   const [longFormAggression, setLongFormAggression] = useState(72);
   const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(52);
   const [tangentKiller, setTangentKiller] = useState(true);
@@ -3862,7 +3875,10 @@ const Editor = () => {
       ? renderOptions.uploadModeOverride.fullAutoYoutubeEnabled
       : fullAutoYoutubeEnabled;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
-    const effectiveRetentionAggressionLevel = STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile];
+    const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
+      strategyProfile: effectiveRetentionStrategyProfile,
+      longFormPreset,
+    });
     const editorModeForJob = mapEditorModeForBackend(editorMode, resolvedPipelinePowerMode);
     const fastModeForJob = isUltraPipelineMode(resolvedPipelinePowerMode);
     const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
@@ -5045,6 +5061,10 @@ const Editor = () => {
       setReprocessingJobId(job.id);
       try {
         const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+        const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
+          strategyProfile: effectiveRetentionStrategyProfile,
+          longFormPreset,
+        });
         const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
@@ -5064,7 +5084,7 @@ const Editor = () => {
           );
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
-          retentionAggressionLevel: STRATEGY_TO_AGGRESSION[effectiveRetentionStrategyProfile],
+          retentionAggressionLevel: effectiveRetentionAggressionLevel,
           retentionStrategyProfile: effectiveRetentionStrategyProfile,
           retentionTargetPlatform,
           platformProfile: retentionTargetPlatform,
