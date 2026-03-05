@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Fragment, lazy, Suspense } from "react";
@@ -6812,6 +6812,39 @@ const Editor = () => {
         ? `${Math.max(1, activeOutputUrls.length || verticalClipCount || 1)} clip(s) ready`
         : "Export package is ready",
   };
+  const pipelinePopupStatus = activeJob
+    ? normalizeStatus(activeJob.status)
+    : uploadingJobId
+      ? "uploading"
+      : null;
+  const showPipelineStatusPopup = Boolean(
+    pipelinePopupStatus &&
+      !isTerminalStatus(pipelinePopupStatus) &&
+      (activeJob || uploadingJobId),
+  );
+  const pipelinePopupVisualProgress = showPipelineStatusPopup
+    ? clamp(
+        Math.max(
+          pipelinePopupStatus === "uploading"
+            ? 6
+            : 10,
+          activeJob ? Number(activeJob.progress ?? 0) : uploadProgress,
+        ),
+        0,
+        100,
+      )
+    : 0;
+  const pipelinePopupStageLabel = pipelinePopupStatus
+    ? PIPELINE_STEPS.find((step) => step.key === stepKeyForStatus(pipelinePopupStatus))?.label ||
+      STATUS_LABELS[pipelinePopupStatus] ||
+      "Processing"
+    : "Processing";
+  const pipelinePopupDetail = pipelinePopupStatus
+    ? stepMicroCopy[stepKeyForStatus(pipelinePopupStatus)] ||
+      stepMicroCopy[pipelinePopupStatus] ||
+      "Running real-time retention pipeline tasks"
+    : "";
+  const pipelinePopupJobId = activeJob?.id || uploadingJobId || null;
   const pipelineRows = PIPELINE_STEPS.map((step, idx) => {
     let state: "done" | "active" | "pending" | "failed" = "pending";
     if (normalizedActiveStatus === "ready") {
@@ -8729,6 +8762,56 @@ const Editor = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: performanceConstrained ? 0.2 : 0.5 }}
         >
+          <AnimatePresence>
+            {showPipelineStatusPopup ? (
+              <motion.aside
+                key={`${pipelinePopupJobId || "upload"}-${pipelinePopupStatus}`}
+                initial={{ opacity: 0, y: 20, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+                className="pointer-events-none fixed bottom-5 right-4 z-[85] w-[min(92vw,360px)]"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <div className="rounded-2xl border border-primary/35 bg-background/75 px-3.5 py-3 shadow-[0_18px_42px_-24px_hsl(var(--primary)/0.95)] backdrop-blur-md">
+                  <div className="flex items-start gap-3">
+                    <motion.div
+                      animate={runtimeProfile.reducedMotion ? undefined : { rotate: 360 }}
+                      transition={
+                        runtimeProfile.reducedMotion
+                          ? undefined
+                          : { duration: 1.15, repeat: Infinity, ease: "linear" }
+                      }
+                      className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/35 bg-primary/10 text-primary"
+                    >
+                      <Loader2 className="h-4 w-4" />
+                    </motion.div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-primary/90">Live Pipeline</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{pipelinePopupStageLabel}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{pipelinePopupDetail}</p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 border-primary/35 bg-primary/10 text-[11px] text-foreground">
+                      {Math.round(pipelinePopupVisualProgress)}%
+                    </Badge>
+                  </div>
+                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-primary/12">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-primary via-primary/85 to-glow-secondary"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pipelinePopupVisualProgress}%` }}
+                      transition={{ duration: 0.28, ease: "easeOut" }}
+                    />
+                  </div>
+                  {pipelinePopupJobId ? (
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">Job {pipelinePopupJobId.slice(0, 8)}</p>
+                  ) : null}
+                </div>
+              </motion.aside>
+            ) : null}
+          </AnimatePresence>
+
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
