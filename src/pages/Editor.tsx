@@ -1943,6 +1943,7 @@ const Editor = () => {
   const uploadStartRef = useRef<Record<string, number>>({});
   const jobFileSizeRef = useRef<Record<string, number>>({});
   const statusStartRef = useRef<Record<string, { status: string; startedAt: number; startProgress: number }>>({});
+  const lastKnownJobIdRef = useRef<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2137,6 +2138,16 @@ const Editor = () => {
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
+  useEffect(() => {
+    if (!selectedJobId) return;
+    lastKnownJobIdRef.current = selectedJobId;
+    try {
+      window.sessionStorage.setItem("editor:last-job-id", selectedJobId);
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, [selectedJobId]);
+
   const { data: me, refetch: refetchMe } = useMe({
     refetchInterval: hasActiveJobs ? livePollingIntervalMs : false,
   });
@@ -2665,10 +2676,12 @@ const Editor = () => {
           setAuthError(true)
           toast({ title: "Session expired", description: "Please sign in again." })
           try { await signOut() } catch (e) {}
+        } else if (err instanceof ApiError && err.status === 404) {
+          setJobs((prev) => prev.filter((job) => job.id !== jobId));
+          setActiveJob((prev) => (prev?.id === jobId ? null : prev));
         } else {
           toast({ title: "Failed to load job", description: "Please refresh and try again." });
         }
-        setActiveJob(null);
       } finally {
         setLoadingJob(false);
       }
@@ -3605,18 +3618,27 @@ const Editor = () => {
   }, [activeJob?.id, activeJob?.analysis]);
 
   useEffect(() => {
-    if (!selectedJobId && jobs.length > 0) {
-      const next = new URLSearchParams(searchParams);
-      next.set("jobId", jobs[0].id);
-      setSearchParams(next, { replace: true });
+    if (selectedJobId) return;
+    let fallbackJobId = activeJob?.id || jobs[0]?.id || lastKnownJobIdRef.current;
+    if (!fallbackJobId && typeof window !== "undefined") {
+      try {
+        fallbackJobId = window.sessionStorage.getItem("editor:last-job-id") || "";
+      } catch (error) {
+        // ignore storage failures
+      }
     }
-  }, [jobs, searchParams, selectedJobId, setSearchParams]);
+    if (!fallbackJobId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("jobId", fallbackJobId);
+    setSearchParams(next, { replace: true });
+  }, [activeJob?.id, jobs, searchParams, selectedJobId, setSearchParams]);
 
   useEffect(() => {
-    if (!selectedJobId || !accessToken || authError) {
+    if (!accessToken || authError) {
       setActiveJob(null);
       return;
     }
+    if (!selectedJobId) return;
     fetchJob(selectedJobId);
     setExportOpen(false);
   }, [selectedJobId, accessToken, authError, fetchJob]);
@@ -12093,8 +12115,3 @@ const Editor = () => {
 };
 
 export default Editor;
-
-
-
-
-
