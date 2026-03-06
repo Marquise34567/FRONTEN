@@ -1323,6 +1323,22 @@ const inferFileExtensionFromUrl = (url: string) => {
   return ".mp4";
 };
 
+const appendVideoCacheBust = (url: string, cacheKey: string) => {
+  const normalized = typeof url === "string" ? url.trim() : "";
+  const key = String(cacheKey || "").trim();
+  if (!normalized || !key) return normalized;
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://autoeditor.local";
+    const parsed = new URL(normalized, base);
+    parsed.searchParams.set("aev", key);
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) return parsed.toString();
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    const separator = normalized.includes("?") ? "&" : "?";
+    return `${normalized}${separator}aev=${encodeURIComponent(key)}`;
+  }
+};
+
 const Editor = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -1393,6 +1409,7 @@ const Editor = () => {
   const [verticalCaptionBoxColor, setVerticalCaptionBoxColor] = useState<string>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].boxColor,
   );
+  const [captionsEnabled, setCaptionsEnabled] = useState<boolean>(true);
   const [useTranscriptForCaptions, setUseTranscriptForCaptions] = useState<boolean>(true);
   const [editableTranscriptText, setEditableTranscriptText] = useState<string>("");
   const [transcriptSourceJobId, setTranscriptSourceJobId] = useState<string | null>(null);
@@ -1913,7 +1930,7 @@ const Editor = () => {
     }
     if (!accessToken) return false;
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
-    const captionsEnabledForJob = true;
+    const captionsEnabledForJob = captionsEnabled;
     const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
     const verticalCaptionTextForJob = effectiveVerticalCaptionText;
     const activeCaptionDefaults =
@@ -1927,8 +1944,8 @@ const Editor = () => {
     const verticalCaptionsPayload =
       requestedMode === "vertical"
         ? {
-            enabled: true,
-            autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
+            enabled: captionsEnabledForJob,
+            autoGenerate: captionsEnabledForJob && (useTranscriptForCaptions || verticalCaptionTextForJob.length === 0),
             preset: VERTICAL_CAPTION_PRESET_TO_BACKEND[verticalCaptionPreset],
             text: verticalCaptionTextForJob,
             fontId: VERTICAL_CAPTION_FONT_TO_BACKEND[verticalCaptionFontId],
@@ -2240,7 +2257,7 @@ const Editor = () => {
     }
 
     const requestedMode = activeJob.renderMode === "vertical" ? "vertical" : "horizontal";
-    const captionsEnabledForJob = true;
+    const captionsEnabledForJob = captionsEnabled;
     const subtitleStyleForJob = DEFAULT_SUBTITLE_STYLE;
     const verticalCaptionTextForJob = effectiveVerticalCaptionText;
     const activeCaptionDefaults =
@@ -2256,8 +2273,8 @@ const Editor = () => {
     const verticalCaptionsPayload =
       requestedMode === "vertical"
         ? {
-            enabled: true,
-            autoGenerate: useTranscriptForCaptions || verticalCaptionTextForJob.length === 0,
+            enabled: captionsEnabledForJob,
+            autoGenerate: captionsEnabledForJob && (useTranscriptForCaptions || verticalCaptionTextForJob.length === 0),
             preset: VERTICAL_CAPTION_PRESET_TO_BACKEND[verticalCaptionPreset],
             text: verticalCaptionTextForJob,
             fontId: VERTICAL_CAPTION_FONT_TO_BACKEND[verticalCaptionFontId],
@@ -2344,6 +2361,7 @@ const Editor = () => {
     verticalCaptionPreset,
     verticalClipCount,
     verticalClipDurationSeconds,
+    captionsEnabled,
     useTranscriptForCaptions,
   ]);
 
@@ -2516,17 +2534,40 @@ const Editor = () => {
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
     : -1;
+  const activePreviewCacheKey = useMemo(() => {
+    if (!activeJob) return "";
+    const analysis =
+      activeJob.analysis && typeof activeJob.analysis === "object" && !Array.isArray(activeJob.analysis)
+        ? (activeJob.analysis as Record<string, unknown>)
+        : null;
+    const runtime =
+      (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
+      (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
+      null;
+    return [
+      String(runtime?.heartbeatAt || runtime?.startedAt || ""),
+      String(analysis?.pipelineUpdatedAt || ""),
+      String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
+      String(activeJob.status || ""),
+      String(activeJob.progress ?? ""),
+    ]
+      .filter((part) => part.length > 0)
+      .join("|");
+  }, [activeJob]);
   const activeOutputUrls = useMemo(
     () =>
       Array.isArray(activeJob?.outputUrls)
-        ? activeJob.outputUrls.filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+        ? activeJob.outputUrls
+            .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+            .map((url) => appendVideoCacheBust(url, activePreviewCacheKey))
+            .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
         : [],
-    [activeJob?.outputUrls],
+    [activeJob?.outputUrls, activePreviewCacheKey],
   );
   const isVerticalActiveJob = activeJob?.renderMode === "vertical";
   const showDownloadAllClips = Boolean(activeJob) && (isVerticalActiveJob || activeOutputUrls.length > 1);
   const downloadAllClipCount = activeOutputUrls.length > 0 ? activeOutputUrls.length : 1;
-  const previewOutputUrl = activeJob?.outputUrl || activeOutputUrls[0] || "";
+  const previewOutputUrl = appendVideoCacheBust(activeJob?.outputUrl || activeOutputUrls[0] || "", activePreviewCacheKey);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
   const optimizationHighlights = useMemo(() => {
     if (!Array.isArray(activeJob?.optimizationNotes)) return [];
@@ -4021,12 +4062,22 @@ const Editor = () => {
                             <p className="vertical-mode-step-badge">Step 2 · Caption System</p>
                             <p className="vertical-mode-section-title text-xs font-medium text-foreground">Custom caption text (optional)</p>
                           </div>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button type="button" variant="outline" size="sm" className="h-8 text-[11px]">
-                                Open Style Studio
-                              </Button>
-                            </PopoverTrigger>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant={captionsEnabled ? "outline" : "default"}
+                              size="sm"
+                              className="h-8 text-[11px]"
+                              onClick={() => setCaptionsEnabled((prev) => !prev)}
+                            >
+                              {captionsEnabled ? "Turn Off Captions" : "Turn On Captions"}
+                            </Button>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button type="button" variant="outline" size="sm" className="h-8 text-[11px]">
+                                  Open Style Studio
+                                </Button>
+                              </PopoverTrigger>
                             <PopoverContent
                               align="end"
                               className="w-[min(94vw,460px)] max-h-[70vh] overflow-y-auto border border-border/60 bg-card/95 p-3"
@@ -4245,7 +4296,8 @@ const Editor = () => {
                                 </div>
                               </div>
                             </PopoverContent>
-                          </Popover>
+                            </Popover>
+                          </div>
                         </div>
                         <div className="vertical-mode-selection-row">
                           <span className="vertical-mode-selection-pill">
@@ -4260,6 +4312,7 @@ const Editor = () => {
                           <span className="vertical-mode-selection-pill">
                             Box: {verticalCaptionBoxEnabled ? "Solid On" : "Off"}
                           </span>
+                          <span className="vertical-mode-selection-pill">Captions: {captionsEnabled ? "On" : "Off"}</span>
                         </div>
                         <div className="vertical-mode-quick-style-grid">
                           {VERTICAL_CAPTION_STYLE_OPTIONS.slice(0, 8).map((option) => (
@@ -4372,53 +4425,61 @@ const Editor = () => {
                             <div
                               ref={verticalCaptionPreviewRef}
                               className="vertical-mode-source-preview relative rounded-xl overflow-hidden border border-border/40 bg-black/80"
-                              onPointerDown={beginCaptionDragFromPreview}
+                              onPointerDown={captionsEnabled ? beginCaptionDragFromPreview : undefined}
                             >
                               <video src={verticalPreviewUrl} controls className="w-full max-h-[520px] object-contain" />
                               <div className="pointer-events-none absolute inset-0">
-                                <div
-                                  className="vertical-caption-preview-shell pointer-events-auto absolute z-20 cursor-move rounded-lg border px-3 py-2 text-center font-black tracking-[0.02em]"
-                                  style={{
-                                    left: `${verticalCaptionPositionX * 100}%`,
-                                    top: `${verticalCaptionPositionY * 100}%`,
-                                    maxWidth: `${verticalCaptionBoxWidthPct}%`,
-                                    fontFamily: VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId],
-                                    fontSize: `${Math.max(12, previewCaptionFontSizePx)}px`,
-                                    lineHeight: 1.12,
-                                    whiteSpace: "pre-line",
-                                    transform: "translate(-50%, -50%)",
-                                    color: `#${previewCaptionTextColor}`,
-                                    background: previewCaptionBackground,
-                                    borderColor: previewCaptionBorderColor,
-                                    borderWidth: `${previewCaptionBorderWidth}px`,
-                                    boxShadow: previewCaptionBoxShadow,
-                                    WebkitTextStroke:
-                                      previewCaptionOutlinePx > 0
-                                        ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
-                                        : "0px transparent",
-                                    textShadow:
-                                      previewCaptionOutlinePx > 0
-                                        ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35), ${previewCaptionTextShadow}`
-                                        : previewCaptionTextShadow,
-                                  }}
-                                  onPointerDown={beginCaptionDrag}
-                                >
-                                  <span className={`vertical-caption-preview-text${previewCaptionAnimationClass ? ` ${previewCaptionAnimationClass}` : ""}`}>
-                                    {previewCaptionText}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
-                                    onPointerDown={beginCaptionResize}
-                                    aria-label="Resize caption box"
-                                  />
-                                </div>
+                                {captionsEnabled ? (
+                                  <div
+                                    className="vertical-caption-preview-shell pointer-events-auto absolute z-20 cursor-move rounded-lg border px-3 py-2 text-center font-black tracking-[0.02em]"
+                                    style={{
+                                      left: `${verticalCaptionPositionX * 100}%`,
+                                      top: `${verticalCaptionPositionY * 100}%`,
+                                      maxWidth: `${verticalCaptionBoxWidthPct}%`,
+                                      fontFamily: VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId],
+                                      fontSize: `${Math.max(12, previewCaptionFontSizePx)}px`,
+                                      lineHeight: 1.12,
+                                      whiteSpace: "pre-line",
+                                      transform: "translate(-50%, -50%)",
+                                      color: `#${previewCaptionTextColor}`,
+                                      background: previewCaptionBackground,
+                                      borderColor: previewCaptionBorderColor,
+                                      borderWidth: `${previewCaptionBorderWidth}px`,
+                                      boxShadow: previewCaptionBoxShadow,
+                                      WebkitTextStroke:
+                                        previewCaptionOutlinePx > 0
+                                          ? `${previewCaptionOutlinePx}px #${previewCaptionOutlineColor}`
+                                          : "0px transparent",
+                                      textShadow:
+                                        previewCaptionOutlinePx > 0
+                                          ? `0 0 ${Math.max(2, previewCaptionOutlinePx + 1)}px rgba(0,0,0,0.35), ${previewCaptionTextShadow}`
+                                          : previewCaptionTextShadow,
+                                    }}
+                                    onPointerDown={beginCaptionDrag}
+                                  >
+                                    <span className={`vertical-caption-preview-text${previewCaptionAnimationClass ? ` ${previewCaptionAnimationClass}` : ""}`}>
+                                      {previewCaptionText}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="absolute -right-2 -bottom-2 h-4 w-4 rounded-full border border-white/70 bg-primary shadow"
+                                      onPointerDown={beginCaptionResize}
+                                      aria-label="Resize caption box"
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
-                            <p className="vertical-mode-note text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                              <MousePointerClick className="w-3.5 h-3.5" />
-                              Click or drag in the preview to move captions. Use the corner handle or sliders to resize.
-                            </p>
+                            {captionsEnabled ? (
+                              <p className="vertical-mode-note text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                                <MousePointerClick className="w-3.5 h-3.5" />
+                                Click or drag in the preview to move captions. Use the corner handle or sliders to resize.
+                              </p>
+                            ) : (
+                              <p className="vertical-mode-note text-xs text-muted-foreground">
+                                Captions are off. Turn captions on to place and preview them.
+                              </p>
+                            )}
                           </>
                         )}
                       </div>
