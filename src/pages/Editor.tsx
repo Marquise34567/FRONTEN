@@ -1288,6 +1288,42 @@ const sanitizeVideoUrlList = (values: Array<unknown>) => {
   return result;
 };
 
+const appendVideoCacheBust = (url: string, cacheKey: string) => {
+  const normalized = normalizeUrlCandidate(url);
+  const key = String(cacheKey || "").trim();
+  if (!normalized || !key) return normalized;
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://autoeditor.local";
+    const parsed = new URL(normalized, base);
+    parsed.searchParams.set("aev", key);
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) return parsed.toString();
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    const separator = normalized.includes("?") ? "&" : "?";
+    return `${normalized}${separator}aev=${encodeURIComponent(key)}`;
+  }
+};
+
+const buildJobPreviewCacheKey = (job: JobDetail | null) => {
+  if (!job) return "";
+  const analysis =
+    job.analysis && typeof job.analysis === "object" && !Array.isArray(job.analysis)
+      ? (job.analysis as Record<string, unknown>)
+      : null;
+  const runtimeRaw =
+    (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
+    (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
+    null;
+  const parts = [
+    String(runtimeRaw?.heartbeatAt || runtimeRaw?.startedAt || ""),
+    String(analysis?.pipelineUpdatedAt || ""),
+    String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
+    String(job.status || ""),
+    String(job.progress ?? ""),
+  ].filter((value) => value.length > 0);
+  return parts.join("|");
+};
+
 const normalizeJobVideoOutputs = (job: JobDetail): JobDetail => {
   const urls = sanitizeVideoUrlList([
     ...(Array.isArray(job.outputUrls) ? job.outputUrls : []),
@@ -5463,13 +5499,19 @@ const Editor = () => {
     normalizedActiveStatus === "queued" || normalizedActiveStatus === "uploading"
       ? "Cancel Queue"
       : "Cancel Job";
+  const activePreviewCacheKey = useMemo(() => buildJobPreviewCacheKey(activeJob), [activeJob]);
   const activeOutputUrls = useMemo(() => {
     if (!activeJob) return [] as string[];
-    const urls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : []);
+    const urls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [])
+      .map((url) => appendVideoCacheBust(url, activePreviewCacheKey))
+      .filter((url) => isLikelyVideoUrl(url));
     if (urls.length > 0) return urls;
-    if (isLikelyVideoUrl(activeJob.outputUrl)) return [String(activeJob.outputUrl)];
+    if (isLikelyVideoUrl(activeJob.outputUrl)) {
+      const preview = appendVideoCacheBust(String(activeJob.outputUrl), activePreviewCacheKey);
+      return preview ? [preview] : [];
+    }
     return [];
-  }, [activeJob]);
+  }, [activeJob, activePreviewCacheKey]);
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
