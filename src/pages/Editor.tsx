@@ -673,18 +673,18 @@ const PIPELINE_POWER_MODE_OPTIONS: Array<{
 }> = [
   {
     value: "standard",
-    label: "Standard",
-    description: "Balanced pipeline behavior using your current retention profile and editor mode.",
+    label: "Balanced",
+    description: "Middle ground between speed and quality using your current retention profile and editor mode.",
   },
   {
     value: "ultra",
-    label: "Ultra Mode",
-    description: "Dynamic binge playbook + ultra-fast processing/upload path for maximum output speed.",
+    label: "Fast",
+    description: "Fastest upload + processing path for speed-first output.",
   },
   {
     value: "retention_king",
-    label: "Retention King",
-    description: "Retention-engineering playbook that aggressively hunts drop-off windows and curiosity loops.",
+    label: "Quality",
+    description: "Deeper retention pass for stronger hook choice, tighter story flow, and cleaner drop-off control.",
   },
 ];
 const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
@@ -695,19 +695,19 @@ const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
 }> = [
   {
     value: "standard",
-    label: "Standard",
-    description: "Balanced default for most videos with your current retention profile.",
+    label: "Balanced",
+    description: "Balanced default for most videos when you want speed and quality in the middle.",
   },
   {
     value: "ultra",
-    label: "Ultra Mode",
-    description: "Fast upload + processing path tuned for speed and high-energy output.",
+    label: "Fast",
+    description: "Fast upload + processing path tuned for quickest turnaround.",
     premium: true,
   },
   {
     value: "retention_king",
-    label: "Retention King",
-    description: "Aggressive retention-engineering to attack drop-off windows.",
+    label: "Quality",
+    description: "Deeper analysis path tuned for stronger retention and better edit decisions.",
     premium: true,
   },
   {
@@ -4012,7 +4012,8 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
+    // Long-form exports stay caption-free; captions are forced on only for vertical clips.
+    const captionsEnabledForJob = requestedMode === "vertical";
     const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
@@ -5200,7 +5201,7 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = requestedMode === "vertical" ? true : autoCaptionsEnabled;
+        const captionsEnabledForJob = requestedMode === "vertical";
         const fastModeForJob = ultraPipelineMode;
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -7527,7 +7528,7 @@ const Editor = () => {
       setTrialUpgradeOpen(true);
       toast({
         title: "Premium mode locked",
-        description: "Ultra Mode and Retention King are available on paid plans.",
+        description: "Fast and Quality modes are available on paid plans.",
       });
       return;
     }
@@ -7553,7 +7554,7 @@ const Editor = () => {
       setTrialUpgradeOpen(true);
       toast({
         title: "Premium mode locked",
-        description: "Ultra Mode and Retention King are available on paid plans.",
+        description: "Fast and Quality modes are available on paid plans.",
       });
       return;
     }
@@ -8011,7 +8012,7 @@ const Editor = () => {
               <div>
                 <p className="text-sm font-semibold text-foreground">Power Modes</p>
                 <p className="text-xs text-muted-foreground">
-                  Ultra Mode and Retention King push dedicated pipeline playbooks with stronger retention pressure.
+                  Choose between a balanced default, a fast path, or a deeper quality pass.
                 </p>
               </div>
               <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
@@ -8051,8 +8052,8 @@ const Editor = () => {
             {pipelinePowerMode !== "standard" ? (
               <p className="mt-2 text-[11px] text-primary/90">
                 {pipelinePowerMode === "ultra"
-                  ? "Ultra Mode active: fast-mode upload/process + dynamic binge playbook."
-                  : "Retention King active: retention-engineering playbook + aggressive drop-off elimination."}
+                  ? "Fast mode active: accelerated upload/process + speed-first binge playbook."
+                  : "Quality mode active: deeper retention analysis + stronger drop-off elimination."}
               </p>
             ) : null}
           </div>
@@ -8581,9 +8582,9 @@ const Editor = () => {
   const activeRetentionLabel =
     RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label ?? "Balanced";
   const activeEditorModeLabel = pipelinePowerMode === "ultra"
-    ? "Ultra Mode"
+    ? "Fast"
     : pipelinePowerMode === "retention_king"
-      ? "Retention King"
+      ? "Quality"
       : (EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto");
   const activeTargetPlatformLabel =
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
@@ -8792,7 +8793,7 @@ const Editor = () => {
               Safe/Balanced/Viral controls candidate pacing aggression, then boundary critic blocks rough joins.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Standard/Ultra/Retention King changes exploration depth and policy pressure, not continuity safety rules.
+              Balanced/Fast/Quality changes exploration depth and policy pressure, not continuity safety rules.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
@@ -9443,11 +9444,11 @@ const Editor = () => {
                   )}
                   {ultraPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Ultra Mode active: accelerated upload + processing path enabled.
+                      Fast mode active: accelerated upload + processing path enabled.
                     </p>
                   ) : retentionKingPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Retention King active: deep retention-engineering analysis enabled.
+                      Quality mode active: deeper retention analysis enabled.
                     </p>
                   ) : null}
                   {uploadingJobId && (
@@ -10503,10 +10504,10 @@ const Editor = () => {
                       <div className="mode-stats-shell rounded-xl border p-3 sm:p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                            {activePipelinePowerMode === "ultra" ? "Ultra Mode Feedback Analysis" : "Retention King Feedback Analysis"}
+                            {activePipelinePowerMode === "ultra" ? "Fast Mode Feedback Analysis" : "Quality Mode Feedback Analysis"}
                           </p>
                           <Badge className="border-primary/40 bg-primary/15 text-primary-foreground">
-                            {activePipelinePowerMode === "ultra" ? "Dynamic Binge Logic" : "Retention Engineer Logic"}
+                            {activePipelinePowerMode === "ultra" ? "Fast Path Logic" : "Quality Pass Logic"}
                           </Badge>
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -11022,7 +11023,7 @@ const Editor = () => {
                             ) : null}
                             {retentionKingBlendPctDisplay !== null ? (
                               <p>
-                                Retention King blend: {retentionKingBlendPctDisplay.toFixed(1)}%
+                                Quality blend: {retentionKingBlendPctDisplay.toFixed(1)}%
                                 {retentionKingBlendLevelDisplay ? ` (${formatNicheLabel(retentionKingBlendLevelDisplay)})` : ""}
                               </p>
                             ) : null}
@@ -11549,9 +11550,9 @@ const Editor = () => {
               <span className="absolute right-[-4.25rem] top-[-3.5rem] h-36 w-36 rounded-full bg-[hsl(var(--glow-secondary)/0.18)] blur-3xl" />
             </div>
             <DialogHeader className="relative z-10">
-              <DialogTitle className="text-xl font-display text-foreground">Choose Upload Power Mode</DialogTitle>
+              <DialogTitle className="text-xl font-display text-foreground">Choose Upload Mode</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Before upload starts, choose how aggressively the editor should process this video.
+                Before upload starts, choose whether this render should prioritize balance, speed, or quality.
               </DialogDescription>
             </DialogHeader>
 
@@ -11698,7 +11699,7 @@ const Editor = () => {
                 <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
                 <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
-                <p><span className="font-medium">Power Modes:</span> Standard/Ultra/Retention King changes exploration depth and drop-off pressure while continuity checks stay enforced.</p>
+                <p><span className="font-medium">Power Modes:</span> Balanced/Fast/Quality changes exploration depth and drop-off pressure while continuity checks stay enforced.</p>
                 <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
                 <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
                 <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
