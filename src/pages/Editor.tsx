@@ -679,12 +679,12 @@ const PIPELINE_POWER_MODE_OPTIONS: Array<{
   {
     value: "ultra",
     label: "Fast",
-    description: "Fastest upload + processing path for speed-first output.",
+    description: "Speed-first path that skips long-form transcript analysis for the quickest turnaround.",
   },
   {
     value: "retention_king",
     label: "Quality",
-    description: "Deeper retention pass for stronger hook choice, tighter story flow, and cleaner drop-off control.",
+    description: "Transcript-guided hook and cut analysis for stronger edit decisions on long-form renders.",
   },
 ];
 const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
@@ -701,13 +701,13 @@ const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
   {
     value: "ultra",
     label: "Fast",
-    description: "Fast upload + processing path tuned for quickest turnaround.",
+    description: "Fast upload + processing path that skips long-form transcript analysis.",
     premium: true,
   },
   {
     value: "retention_king",
     label: "Quality",
-    description: "Deeper analysis path tuned for stronger retention and better edit decisions.",
+    description: "Transcript-guided analysis path tuned for better hook choice and cleaner long-form cuts.",
     premium: true,
   },
   {
@@ -2056,7 +2056,7 @@ const Editor = () => {
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
-  const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("standard");
+  const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("retention_king");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
@@ -2209,6 +2209,7 @@ const Editor = () => {
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
   const paidTier = isPaidTier(tier);
+  const subscriptionResolved = !accessToken || me !== undefined;
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
@@ -3686,9 +3687,10 @@ const Editor = () => {
   }, [selectedJobId, accessToken, authError, fetchJob]);
 
   useEffect(() => {
+    if (!subscriptionResolved) return;
     if (paidTier || pipelinePowerMode === "standard") return;
     setPipelinePowerMode("standard");
-  }, [paidTier, pipelinePowerMode]);
+  }, [paidTier, pipelinePowerMode, subscriptionResolved]);
 
   useEffect(() => {
     setHookSelectorOpen(false);
@@ -7616,9 +7618,9 @@ const Editor = () => {
       return;
     }
     setRetentionStrategyProfile("viral");
-    setLongFormPreset("aggressive");
-    setLongFormAggression((prev) => Math.max(prev, 88));
-    setLongFormClarityVsSpeed((prev) => Math.min(prev, 44));
+    setLongFormPreset("ultra");
+    setLongFormAggression((prev) => Math.max(prev, LONG_FORM_PRESET_DEFAULTS.ultra.aggression));
+    setLongFormClarityVsSpeed((prev) => Math.min(prev, LONG_FORM_PRESET_DEFAULTS.ultra.clarityVsSpeed));
     setTangentKiller(true);
   }, [pipelinePowerMode]);
 
@@ -8012,7 +8014,7 @@ const Editor = () => {
               <div>
                 <p className="text-sm font-semibold text-foreground">Power Modes</p>
                 <p className="text-xs text-muted-foreground">
-                  Choose between a balanced default, a fast path, or a deeper quality pass.
+                  Balanced keeps the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook picking on.
                 </p>
               </div>
               <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
@@ -8052,8 +8054,8 @@ const Editor = () => {
             {pipelinePowerMode !== "standard" ? (
               <p className="mt-2 text-[11px] text-primary/90">
                 {pipelinePowerMode === "ultra"
-                  ? "Fast mode active: accelerated upload/process + speed-first binge playbook."
-                  : "Quality mode active: deeper retention analysis + stronger drop-off elimination."}
+                  ? "Fast mode active: accelerated upload/process + long-form transcript skip enabled."
+                  : "Quality mode active: transcript-guided hook analysis + aggressive binge cut profile enabled."}
               </p>
             ) : null}
           </div>
@@ -8793,7 +8795,7 @@ const Editor = () => {
               Safe/Balanced/Viral controls candidate pacing aggression, then boundary critic blocks rough joins.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Balanced/Fast/Quality changes exploration depth and policy pressure, not continuity safety rules.
+              Balanced keeps the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
@@ -9444,11 +9446,11 @@ const Editor = () => {
                   )}
                   {ultraPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Fast mode active: accelerated upload + processing path enabled.
+                      Fast mode active: accelerated upload + long-form transcript skip enabled.
                     </p>
                   ) : retentionKingPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Quality mode active: deeper retention analysis enabled.
+                      Quality mode active: transcript-guided hook analysis enabled.
                     </p>
                   ) : null}
                   {uploadingJobId && (
@@ -11552,7 +11554,7 @@ const Editor = () => {
             <DialogHeader className="relative z-10">
               <DialogTitle className="text-xl font-display text-foreground">Choose Upload Mode</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Before upload starts, choose whether this render should prioritize balance, speed, or quality.
+                Before upload starts, choose whether this render should stay balanced, skip long-form transcript analysis for speed, or keep transcript-guided hook selection on for quality.
               </DialogDescription>
             </DialogHeader>
 
@@ -11625,7 +11627,7 @@ const Editor = () => {
 
             <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[11px] text-muted-foreground">
-                {paidTier ? "Paid plan detected: all power modes available." : "Free plan: Standard and Full Auto YouTube are available."}
+                {paidTier ? "Paid plan detected: all power modes available." : "Free plan: Balanced and Full Auto YouTube are available."}
               </p>
               <Button
                 type="button"
@@ -11699,7 +11701,7 @@ const Editor = () => {
                 <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
                 <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
-                <p><span className="font-medium">Power Modes:</span> Balanced/Fast/Quality changes exploration depth and drop-off pressure while continuity checks stay enforced.</p>
+                <p><span className="font-medium">Power Modes:</span> Balanced is the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.</p>
                 <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
                 <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
                 <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
