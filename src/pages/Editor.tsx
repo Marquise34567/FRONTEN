@@ -1022,9 +1022,7 @@ const PIPELINE_STEPS = [
   { key: "hooking", label: "Hook" },
   { key: "cutting", label: "Cut" },
   { key: "pacing", label: "Binge Optimize" },
-  { key: "subtitling", label: "Caption" },
-  { key: "rendering", label: "Render" },
-  { key: "ready", label: "Ready" },
+  { key: "ready", label: "Download Ready" },
 ] as const;
 const RETENTION_GOAL_PERCENT = 70;
 const DEFAULT_AUTO_HOOK_DURATION_SEC = 8;
@@ -1040,18 +1038,18 @@ const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
-  uploading: "Uploading",
-  analyzing: "Analyzing",
+  uploading: "Upload",
+  analyzing: "Analyze",
   hooking: "Hook",
   cutting: "Cut",
   pacing: "Binge Optimize",
   story: "Binge Optimize",
-  subtitling: "Caption",
-  audio: "Audio",
-  retention: "Retention",
-  rendering: "Rendering",
-  completed: "Ready",
-  ready: "Ready",
+  subtitling: "Binge Optimize",
+  audio: "Binge Optimize",
+  retention: "Binge Optimize",
+  rendering: "Binge Optimize",
+  completed: "Download Ready",
+  ready: "Download Ready",
   failed: "Failed",
 };
 
@@ -1108,8 +1106,16 @@ const isTerminalStatus = (status?: JobStatus | string | null) => {
 const stepKeyForStatus = (status?: JobStatus | string | null) => {
   const normalized = normalizeStatus(status);
   if (normalized === "queued") return "uploading";
-  if (normalized === "story") return "pacing";
-  if (normalized === "audio" || normalized === "retention") return "rendering";
+  if (
+    normalized === "pacing" ||
+    normalized === "story" ||
+    normalized === "subtitling" ||
+    normalized === "audio" ||
+    normalized === "retention" ||
+    normalized === "rendering"
+  ) {
+    return "pacing";
+  }
   return normalized;
 };
 
@@ -5976,7 +5982,7 @@ const Editor = () => {
         ? "hooking"
         : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
           ? "pacing"
-          : "rendering"
+          : "pacing"
       : null;
   const failedStepIndex = failedStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === failedStepKey)
