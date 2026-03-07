@@ -88,6 +88,25 @@ const getConnection = (): ConnectionLike | null => {
   return nav.connection ?? nav.mozConnection ?? nav.webkitConnection ?? null;
 };
 
+const LOCAL_OUTPUT_DOWNLOAD_PATH_RE = /^\/api\/jobs\/[^/]+\/local-output$/i;
+
+const getResolvedUrlPathname = (value: string) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const fallbackBase = typeof window !== "undefined"
+      ? window.location.origin
+      : (API_URL || "http://localhost");
+    return new URL(raw, fallbackBase).pathname;
+  } catch {
+    return "";
+  }
+};
+
+const isAuthRequiredDownloadUrl = (value: string) => (
+  LOCAL_OUTPUT_DOWNLOAD_PATH_RE.test(getResolvedUrlPathname(value))
+);
+
 const readRuntimeProfile = (): RuntimeProfile => {
   const connection = getConnection();
   const effectiveType = String(connection?.effectiveType || "").trim().toLowerCase() || null;
@@ -3177,6 +3196,53 @@ const Editor = () => {
     [buildFeedbackPayloadFromTelemetry, postRetentionFeedback],
   );
 
+  const triggerFileDownload = useCallback(
+    async (url: string, fileName?: string) => {
+      const resolvedUrl = String(url || "").trim();
+      if (!resolvedUrl) throw new Error("download_url_missing");
+      if (isAuthRequiredDownloadUrl(resolvedUrl)) {
+        if (!accessToken) throw new Error("download_auth_required");
+        const response = await fetch(resolvedUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`download_request_failed_${response.status}`);
+        }
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        if (fileName) link.download = fileName;
+        link.rel = "noopener";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        try {
+          link.click();
+        } finally {
+          document.body.removeChild(link);
+          window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1500);
+        }
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = resolvedUrl;
+      if (fileName) link.download = fileName;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      try {
+        link.click();
+      } finally {
+        document.body.removeChild(link);
+      }
+    },
+    [accessToken],
+  );
+
   const submitCreatorFeedback = useCallback(
     async (category: CreatorFeedbackCategory, source: "details_panel" | "export_popup" = "details_panel") => {
       if (!activeJob?.id || !accessToken) return;
@@ -3820,15 +3886,8 @@ const Editor = () => {
             }
             if (!url) return;
 
-            // attempt programmatic download
-            const a = document.createElement('a');
-            a.href = url as string;
-            if (fileName) a.download = fileName;
-            a.target = '_blank';
-            a.style.display = 'none';
-            document.body.appendChild(a);
             try {
-              a.click();
+              await triggerFileDownload(url as string, fileName);
               const telemetryJob: JobDetail = {
                 ...(summaryJob as any),
                 id,
@@ -3847,8 +3906,6 @@ const Editor = () => {
             } catch (e) {
               // show modal fallback
               setAutoDownloadModal({ open: true, url, fileName, jobId: id });
-            } finally {
-              document.body.removeChild(a);
             }
           } catch (e) {
             // ignore
@@ -3856,7 +3913,7 @@ const Editor = () => {
         })();
       }
     }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback]);
+  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback, triggerFileDownload]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -5466,18 +5523,7 @@ const Editor = () => {
         activeJob.renderMode === "vertical"
           ? `${baseName}-clip-${clipParam}.mp4`
           : `${baseName}.mp4`;
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = fallbackFileName;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.style.display = "none";
-      document.body.appendChild(link);
-      try {
-        link.click();
-      } finally {
-        document.body.removeChild(link);
-      }
+      await triggerFileDownload(downloadUrl, fallbackFileName);
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
       return true;
     } catch (err: any) {
@@ -12128,19 +12174,12 @@ const Editor = () => {
               <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
               <Button
                 className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
-                onClick={() => {
+                onClick={async () => {
                   try {
                     const url = autoDownloadModal.url;
                     const fileName = autoDownloadModal.fileName;
                     if (!url) return;
-                    const a = document.createElement('a');
-                    a.href = url;
-                    if (fileName) a.download = fileName;
-                    a.target = '_blank';
-                    a.style.display = 'none';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    await triggerFileDownload(url, fileName);
                     if (autoDownloadModal.jobId) {
                       const modalJob =
                         activeJob && activeJob.id === autoDownloadModal.jobId
