@@ -2,6 +2,7 @@
 // `VITE_API_URL` may be set for deployed environments, but leave blank in dev
 // so fetches use relative paths (e.g. `/api/...`).
 const rawApiUrl = import.meta.env.VITE_API_URL || "";
+const forceAbsoluteDevApi = String(import.meta.env.VITE_FORCE_API_URL || "").trim().toLowerCase() === "true";
 const normalizeApiUrl = (value: string) => {
   if (!value) return "";
   let trimmed = value.trim();
@@ -13,7 +14,27 @@ const normalizeApiUrl = (value: string) => {
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
   return `https://${trimmed}`;
 };
-export const API_URL = normalizeApiUrl(rawApiUrl).replace(/\/$/, "");
+const isLoopbackHostname = (hostname: string) => (
+  hostname === "localhost" ||
+  hostname === "127.0.0.1" ||
+  hostname === "::1"
+);
+const resolveApiUrl = (value: string) => {
+  const normalized = normalizeApiUrl(value).replace(/\/$/, "");
+  if (!normalized) return "";
+  if (import.meta.env.DEV && !forceAbsoluteDevApi) {
+    try {
+      const parsed = new URL(normalized);
+      if (isLoopbackHostname(parsed.hostname)) {
+        return "";
+      }
+    } catch (error) {
+      return normalized;
+    }
+  }
+  return normalized;
+};
+export const API_URL = resolveApiUrl(rawApiUrl);
 const PUBLIC_API_PREFIXES = ["/api/public/"];
 const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
 const isControlPanelPath = (path: string) =>
