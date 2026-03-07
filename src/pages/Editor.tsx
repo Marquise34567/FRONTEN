@@ -45,6 +45,9 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "video/x-matroska",
 ]);
 const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
+const CAPTIONS_PIPELINE_ENABLED = false;
+const PREVIEW_REFRESH_RETRY_LIMIT = 2;
+const PREVIEW_REFRESH_RETRY_DELAY_MS = 900;
 const isAllowedUploadFile = (file: File) => {
   const lowerName = file.name.toLowerCase();
   if (ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) return true;
@@ -2110,8 +2113,12 @@ const Editor = () => {
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
-  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
-  const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({ available: true });
+  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(false);
+  const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({
+    available: false,
+    mode: "disabled",
+    reason: "Captions are disabled in the editor pipeline.",
+  });
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showSavedAnimation, setShowSavedAnimation] = useState(false);
   const prevSavingSubtitleRef = useRef<boolean>(savingSubtitleStyle);
@@ -2173,6 +2180,7 @@ const Editor = () => {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewRetryCountByJobRef = useRef<Record<string, number>>({});
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
@@ -2422,7 +2430,7 @@ const Editor = () => {
       setSavingSubtitleStyle(true);
       const result = await apiFetch<EditorSettingsResponse>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: autoCaptionsEnabled }),
+        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: false }),
         token: accessToken,
       });
       const runtimeCaptions = result?.capabilities?.captions;
@@ -2430,10 +2438,7 @@ const Editor = () => {
         setCaptionCapability(runtimeCaptions);
       }
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
-      const persistedAutoCaptions =
-        typeof result?.settings?.autoCaptions === "boolean"
-          ? result.settings.autoCaptions
-          : autoCaptionsEnabled;
+      const persistedAutoCaptions = false;
       setSubtitleStyleDraft(persisted);
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
@@ -2446,10 +2451,8 @@ const Editor = () => {
         },
       });
       toast({
-        title: "Captions updated",
-        description: persistedAutoCaptions
-          ? "Caption style saved and captions are enabled for new renders."
-          : "Caption style saved and captions are disabled for new renders.",
+        title: "Caption settings updated",
+        description: "Captions remain disabled for editor renders.",
       });
     } catch (err: any) {
       if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
@@ -3580,7 +3583,7 @@ const Editor = () => {
     apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
       .then((d) => {
         setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
-        setAutoCaptionsEnabled(Boolean(d?.settings?.autoCaptions));
+        setAutoCaptionsEnabled(false);
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
@@ -3854,7 +3857,7 @@ const Editor = () => {
                 const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
                 resolvedAutoDownloadEnabled = Boolean(s?.settings?.autoDownload);
                 setAutoDownloadEnabled(resolvedAutoDownloadEnabled);
-                setAutoCaptionsEnabled(Boolean(s?.settings?.autoCaptions));
+                setAutoCaptionsEnabled(false);
                 const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
                 setSubtitleStyleDraft(resolvedSubtitleStyle);
                 setSubtitleStyleDirty(false);
@@ -4073,8 +4076,7 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    // Long-form exports stay caption-free; captions are forced on only for vertical clips.
-    const captionsEnabledForJob = requestedMode === "vertical";
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && requestedMode === "vertical";
     const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
@@ -4085,7 +4087,7 @@ const Editor = () => {
       requestedMode === "vertical"
         ? {
             enabled: captionsEnabledForJob,
-            autoGenerate: verticalCaptionTextForJob.length === 0,
+            autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
             fontId: verticalCaptionFontId,
@@ -4822,7 +4824,7 @@ const Editor = () => {
           ctx.stroke();
         }
 
-        if (isVerticalMode || autoCaptionsEnabled) {
+        if (CAPTIONS_PIPELINE_ENABLED && (isVerticalMode || autoCaptionsEnabled)) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
@@ -5262,7 +5264,7 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = requestedMode === "vertical";
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && requestedMode === "vertical";
         const fastModeForJob = ultraPipelineMode;
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -5322,7 +5324,7 @@ const Editor = () => {
           payload.verticalCaptionText = verticalCaptionTextForJob;
           payload.verticalCaptions = {
             enabled: captionsEnabledForJob,
-            autoGenerate: verticalCaptionTextForJob.length === 0,
+            autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
             fontId: verticalCaptionFontId,
@@ -7135,6 +7137,17 @@ const Editor = () => {
     normalizedActiveStatus,
     previewOutputUrl,
   ]);
+  useEffect(() => {
+    const jobId = activeJob?.id;
+    if (!jobId) return;
+    previewRetryCountByJobRef.current[jobId] = 0;
+  }, [activeJob?.id, activePreviewCacheKey]);
+  useEffect(() => {
+    const jobId = activeJob?.id;
+    if (!jobId) return;
+    if (!resolvedPreviewOutputUrl) return;
+    previewRetryCountByJobRef.current[jobId] = 0;
+  }, [activeJob?.id, resolvedPreviewOutputUrl]);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
@@ -7523,15 +7536,28 @@ const Editor = () => {
     };
     console.error("Preview video failed to load", details);
     if (jobId) {
+      const retryCount = previewRetryCountByJobRef.current[jobId] || 0;
       setResolvedPreviewOutputUrl("");
-      setPreviewRefreshNonceByJob((prev) => ({
-        ...prev,
-        [jobId]: (prev[jobId] || 0) + 1,
-      }));
+      if (retryCount < PREVIEW_REFRESH_RETRY_LIMIT) {
+        previewRetryCountByJobRef.current[jobId] = retryCount + 1;
+        window.setTimeout(() => {
+          setPreviewRefreshNonceByJob((prev) => ({
+            ...prev,
+            [jobId]: (prev[jobId] || 0) + 1,
+          }));
+        }, PREVIEW_REFRESH_RETRY_DELAY_MS);
+        if (retryCount === 0) {
+          toast({
+            title: "Preview failed",
+            description: "Refreshing preview URL and retrying...",
+          });
+        }
+        return;
+      }
     }
     toast({
       title: "Preview failed",
-      description: "Refreshing preview URL and retrying...",
+      description: "Preview is unavailable right now. Download still works.",
     });
   }, [activeJob?.id, resolvedPreviewOutputUrl, toast]);
 
@@ -7622,8 +7648,9 @@ const Editor = () => {
     const first = fullAutoYoutubeProfile?.seoSuggestions?.titles?.[0];
     return typeof first === "string" && first.trim().length > 0 ? first.trim() : null;
   }, [fullAutoYoutubeProfile]);
-  const captionEngineOffline = captionCapability.available === false;
-  const captionsToggleDisabled = !subtitlesEnabled || captionEngineOffline;
+  const captionsPipelineRemoved = !CAPTIONS_PIPELINE_ENABLED;
+  const captionEngineOffline = CAPTIONS_PIPELINE_ENABLED && captionCapability.available === false;
+  const captionsToggleDisabled = captionsPipelineRemoved || !subtitlesEnabled || captionEngineOffline;
   const mobileApplyAndRenderDisabled =
     Boolean(uploadingJobId) || (isVerticalMode && Boolean(pendingVerticalFile) && !verticalSelectionReady);
   const mobileApplyAndRenderLabel = isVerticalMode
