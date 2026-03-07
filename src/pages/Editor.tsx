@@ -2170,6 +2170,7 @@ const Editor = () => {
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
@@ -7066,7 +7067,46 @@ const Editor = () => {
   ].slice(0, 8);
   const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && previewOutputUrl);
+  useEffect(() => {
+    let canceled = false;
+    let previewBlobUrl: string | null = null;
+    const sourceUrl = String(previewOutputUrl || "").trim();
+    if (!sourceUrl) {
+      setResolvedPreviewOutputUrl("");
+      return () => {};
+    }
+    if (!isAuthRequiredDownloadUrl(sourceUrl)) {
+      setResolvedPreviewOutputUrl(sourceUrl);
+      return () => {};
+    }
+    if (!accessToken) {
+      setResolvedPreviewOutputUrl("");
+      return () => {};
+    }
+    const resolveAuthorizedPreview = async () => {
+      try {
+        const response = await fetch(sourceUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (!response.ok) throw new Error(`preview_request_failed_${response.status}`);
+        const blob = await response.blob();
+        if (canceled) return;
+        previewBlobUrl = window.URL.createObjectURL(blob);
+        setResolvedPreviewOutputUrl(previewBlobUrl);
+      } catch (error) {
+        if (canceled) return;
+        setResolvedPreviewOutputUrl("");
+      }
+    };
+    void resolveAuthorizedPreview();
+    return () => {
+      canceled = true;
+      if (previewBlobUrl) window.URL.revokeObjectURL(previewBlobUrl);
+    };
+  }, [accessToken, previewOutputUrl]);
+  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -7445,7 +7485,7 @@ const Editor = () => {
     const video = event?.currentTarget as HTMLVideoElement | null;
     const details = {
       jobId: activeJob?.id ?? null,
-      outputUrl: previewOutputUrl || null,
+      outputUrl: resolvedPreviewOutputUrl || null,
       networkState: video?.networkState ?? null,
       readyState: video?.readyState ?? null,
       errorCode: video?.error?.code ?? null,
@@ -7456,7 +7496,7 @@ const Editor = () => {
       title: "Preview failed",
       description: "Could not load the edited video. Check network/output URL.",
     });
-  }, [activeJob?.id, previewOutputUrl, toast]);
+  }, [activeJob?.id, resolvedPreviewOutputUrl, toast]);
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
@@ -10098,7 +10138,7 @@ const Editor = () => {
                   {showVideo ? (
                     <video
                       ref={previewVideoRef}
-                      src={previewOutputUrl}
+                      src={resolvedPreviewOutputUrl}
                       preload={previewPreload}
                       controls
                       onLoadedMetadata={handlePreviewLoadedMetadata}
