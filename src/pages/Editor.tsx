@@ -1320,6 +1320,7 @@ const appendVideoCacheBust = (url: string, cacheKey: string) => {
   const normalized = normalizeUrlCandidate(url);
   const key = String(cacheKey || "").trim();
   if (!normalized || !key) return normalized;
+  if (!isAuthRequiredDownloadUrl(normalized)) return normalized;
   try {
     const base = typeof window !== "undefined" ? window.location.origin : "https://autoeditor.local";
     const parsed = new URL(normalized, base);
