@@ -2152,6 +2152,7 @@ const Editor = () => {
   const [hookPreviewErrorByJob, setHookPreviewErrorByJob] = useState<Record<string, string>>({});
   const [hookPreviewLoadingJobId, setHookPreviewLoadingJobId] = useState<string | null>(null);
   const [hookPreviewRefreshNonceByJob, setHookPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
+  const [previewRefreshNonceByJob, setPreviewRefreshNonceByJob] = useState<Record<string, number>>({});
   const [previewCompareMode, setPreviewCompareMode] = useState<PreviewCompareMode>("after");
   const [beforePreviewUrlByJob, setBeforePreviewUrlByJob] = useState<Record<string, string>>({});
   const [beforePreviewLoadingJobId, setBeforePreviewLoadingJobId] = useState<string | null>(null);
@@ -7067,25 +7068,46 @@ const Editor = () => {
   ].slice(0, 8);
   const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const activePreviewRefreshNonce = activeJob ? previewRefreshNonceByJob[activeJob.id] || 0 : 0;
   useEffect(() => {
     let canceled = false;
     let previewBlobUrl: string | null = null;
-    const sourceUrl = String(previewOutputUrl || "").trim();
-    if (!sourceUrl) {
-      setResolvedPreviewOutputUrl("");
-      return () => {};
-    }
-    if (!isAuthRequiredDownloadUrl(sourceUrl)) {
-      setResolvedPreviewOutputUrl(sourceUrl);
-      return () => {};
-    }
-    if (!accessToken) {
+    const jobId = activeJob?.id || "";
+    const baseUrl = String(previewOutputUrl || "").trim();
+    if (!jobId && !baseUrl) {
       setResolvedPreviewOutputUrl("");
       return () => {};
     }
     const resolveAuthorizedPreview = async () => {
+      let sourceUrl = baseUrl;
+      if (jobId && accessToken && normalizedActiveStatus === "ready") {
+        try {
+          const refreshed = await apiFetch<{ url?: string }>(`/api/jobs/${jobId}/output-url`, {
+            method: "GET",
+            token: accessToken,
+          });
+          if (typeof refreshed?.url === "string" && refreshed.url.trim().length > 0) {
+            sourceUrl = appendVideoCacheBust(refreshed.url, activePreviewCacheKey);
+          }
+        } catch (error) {
+          console.warn("refresh preview url failed", error);
+        }
+      }
+      const resolvedSourceUrl = String(sourceUrl || "").trim();
+      if (!resolvedSourceUrl) {
+        if (!canceled) setResolvedPreviewOutputUrl("");
+        return;
+      }
+      if (!isAuthRequiredDownloadUrl(resolvedSourceUrl)) {
+        if (!canceled) setResolvedPreviewOutputUrl(resolvedSourceUrl);
+        return;
+      }
+      if (!accessToken) {
+        if (!canceled) setResolvedPreviewOutputUrl("");
+        return;
+      }
       try {
-        const response = await fetch(sourceUrl, {
+        const response = await fetch(resolvedSourceUrl, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -7105,7 +7127,14 @@ const Editor = () => {
       canceled = true;
       if (previewBlobUrl) window.URL.revokeObjectURL(previewBlobUrl);
     };
-  }, [accessToken, previewOutputUrl]);
+  }, [
+    accessToken,
+    activeJob?.id,
+    activePreviewCacheKey,
+    activePreviewRefreshNonce,
+    normalizedActiveStatus,
+    previewOutputUrl,
+  ]);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
@@ -7483,8 +7512,9 @@ const Editor = () => {
 
   const handlePreviewVideoError = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
+    const jobId = activeJob?.id || null;
     const details = {
-      jobId: activeJob?.id ?? null,
+      jobId,
       outputUrl: resolvedPreviewOutputUrl || null,
       networkState: video?.networkState ?? null,
       readyState: video?.readyState ?? null,
@@ -7492,9 +7522,16 @@ const Editor = () => {
       errorMessage: video?.error?.message ?? null,
     };
     console.error("Preview video failed to load", details);
+    if (jobId) {
+      setResolvedPreviewOutputUrl("");
+      setPreviewRefreshNonceByJob((prev) => ({
+        ...prev,
+        [jobId]: (prev[jobId] || 0) + 1,
+      }));
+    }
     toast({
       title: "Preview failed",
-      description: "Could not load the edited video. Check network/output URL.",
+      description: "Refreshing preview URL and retrying...",
     });
   }, [activeJob?.id, resolvedPreviewOutputUrl, toast]);
 
