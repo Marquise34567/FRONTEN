@@ -1343,7 +1343,7 @@ const buildJobPreviewCacheKey = (job: JobDetail | null) => {
     (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
     null;
   const parts = [
-    String(runtimeRaw?.heartbeatAt || runtimeRaw?.startedAt || ""),
+    String(runtimeRaw?.startedAt || ""),
     String(analysis?.pipelineUpdatedAt || ""),
     String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
     String(job.status || ""),
