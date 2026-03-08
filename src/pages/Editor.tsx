@@ -286,6 +286,7 @@ type VerticalVoicePresetOptionId = "none" | "deep" | "helium" | "radio" | "robot
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
+type CreativeVariant = "balanced" | "punchy" | "dramatic" | "curiosity_first";
 type UploadModePromptSelection = PipelinePowerMode | "full_auto_youtube";
 type FullAutoYoutubeTarget = "auto" | "long_form" | "shorts";
 type FullAutoYoutubeVibe = "auto" | "hype" | "cinematic" | "chill" | "education";
@@ -701,13 +702,19 @@ const PIPELINE_POWER_MODE_OPTIONS: Array<{
   {
     value: "ultra",
     label: "Fast",
-    description: "Speed-first path that skips long-form transcript analysis for the quickest turnaround.",
+    description: "Speed-first path that still requires transcript generation before editing continues.",
   },
   {
     value: "retention_king",
     label: "Quality",
     description: "Transcript-guided hook and cut analysis for stronger edit decisions on long-form renders.",
   },
+];
+const CREATIVE_VARIANT_OPTIONS: Array<{ value: CreativeVariant; label: string; description: string }> = [
+  { value: "balanced", label: "Balanced", description: "Default transcript-led ranking with no extra bias." },
+  { value: "punchy", label: "Punchy", description: "Favor sharper hooks, faster transcript cuts, and denser pacing." },
+  { value: "dramatic", label: "Dramatic", description: "Favor emotional transcript lines and let big beats breathe longer." },
+  { value: "curiosity_first", label: "Curiosity", description: "Favor open loops, questions, and transcript-driven intrigue." },
 ];
 const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
   value: UploadModePromptSelection;
@@ -723,7 +730,7 @@ const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
   {
     value: "ultra",
     label: "Fast",
-    description: "Fast upload + processing path that skips long-form transcript analysis.",
+    description: "Fast upload + processing path with transcript still required before editing.",
     premium: true,
   },
   {
@@ -2092,6 +2099,13 @@ const normalizeHookSelectionMode = (value: unknown): HookSelectionMode => {
   return "auto";
 };
 
+const normalizeCreativeVariant = (value: unknown): CreativeVariant => {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return CREATIVE_VARIANT_OPTIONS.some((option) => option.value === normalized)
+    ? (normalized as CreativeVariant)
+    : "balanced";
+};
+
 const getRequiredPlanForSubtitlePreset = (presetId: SubtitlePresetId): PlanTier => {
   for (const tier of PLAN_TIERS) {
     const allowed = PLAN_CONFIG[tier]?.allowedSubtitlePresets ?? PLAN_CONFIG.free.allowedSubtitlePresets;
@@ -2232,6 +2246,7 @@ const Editor = () => {
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("retention_king");
+  const [creativeVariant, setCreativeVariant] = useState<CreativeVariant>("balanced");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
@@ -2342,6 +2357,7 @@ const Editor = () => {
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
   const achievementShownRef = useRef<Record<string, Record<string, boolean>>>({});
   const powerModeSyncJobRef = useRef<string | null>(null);
+  const creativeVariantSyncJobRef = useRef<string | null>(null);
   const advancedModesSyncJobRef = useRef<string | null>(null);
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
@@ -4301,6 +4317,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
+              creativeVariant,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -4329,6 +4346,7 @@ const Editor = () => {
               onlyHookAndCut,
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
+              creativeVariant,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -4538,6 +4556,7 @@ const Editor = () => {
             subtitles: subtitlesPayload,
             maxCuts: autoModeV3Defaults.maxCuts,
             editorMode: editorModeForJob,
+            creativeVariant,
             hookSelectionMode: defaultHookSelectionMode,
             longFormPreset: autoModeV3Defaults.longFormPreset,
             longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -5441,6 +5460,7 @@ const Editor = () => {
           onlyHookAndCut,
           maxCuts: autoModeV3Defaults.maxCuts,
           editorMode: editorModeForJob,
+          creativeVariant,
           hookSelectionMode: hookSelectionModeForJob,
           longFormPreset: autoModeV3Defaults.longFormPreset,
           longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -5592,6 +5612,7 @@ const Editor = () => {
       autoCaptionsEnabled,
       coldStartAutopilotEnabled,
       continuityFirstEnabled,
+      creativeVariant,
       creatorStyleLockPercent,
       editorMode,
       exploreX3Enabled,
@@ -7452,6 +7473,18 @@ const Editor = () => {
   }, [activeAnalysis, activeJob?.id, paidTier]);
   useEffect(() => {
     if (!activeJob?.id) return;
+    if (creativeVariantSyncJobRef.current === activeJob.id) return;
+    const next = normalizeCreativeVariant(
+      activeRenderSettings?.creativeVariant ??
+      activeRenderSettings?.creative_variant ??
+      activeAnalysis?.creativeVariant ??
+      activeAnalysis?.creative_variant,
+    );
+    creativeVariantSyncJobRef.current = activeJob.id;
+    setCreativeVariant(next);
+  }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
+  useEffect(() => {
+    if (!activeJob?.id) return;
     if (advancedModesSyncJobRef.current === activeJob.id) return;
     const coldStart = parseBooleanLike(
       activeRenderSettings?.coldStartAutopilot ??
@@ -8443,7 +8476,7 @@ const Editor = () => {
               <div>
                 <p className="text-sm font-semibold text-foreground">Power Modes</p>
                 <p className="text-xs text-muted-foreground">
-                  Balanced keeps the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook picking on.
+                  Balanced keeps the middle ground, Fast prioritizes turnaround while still requiring a transcript, and Quality keeps transcript-guided hook picking on.
                 </p>
               </div>
               <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
@@ -8483,10 +8516,39 @@ const Editor = () => {
             {pipelinePowerMode !== "standard" ? (
               <p className="mt-2 text-[11px] text-primary/90">
                 {pipelinePowerMode === "ultra"
-                  ? "Fast mode active: accelerated upload/process + long-form transcript skip enabled."
+                  ? "Fast mode active: accelerated upload/process with transcript still required."
                   : "Quality mode active: transcript-guided hook analysis + aggressive binge cut profile enabled."}
               </p>
             ) : null}
+          </div>
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Creative Variant</p>
+                <p className="text-xs text-muted-foreground">
+                  Changes transcript-led hook ranking and pacing so rerenders can explore different edit personalities.
+                </p>
+              </div>
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                {activeCreativeVariantLabel}
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+              {CREATIVE_VARIANT_OPTIONS.map((variant) => (
+                <button
+                  key={variant.value}
+                  type="button"
+                  className={sectionPillClass(creativeVariant === variant.value)}
+                  onClick={() => setCreativeVariant(variant.value)}
+                  aria-label={variant.label}
+                >
+                  <div className="flex flex-col items-center">
+                    <span className="text-[11px] font-semibold">{variant.label}</span>
+                    <span className="mt-1 text-center text-[10px] text-muted-foreground">{variant.description}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
           <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -9017,6 +9079,8 @@ const Editor = () => {
     : pipelinePowerMode === "retention_king"
       ? "Quality"
       : (EDITOR_MODE_OPTIONS.find((mode) => mode.value === editorMode)?.label ?? "Auto");
+  const activeCreativeVariantLabel =
+    CREATIVE_VARIANT_OPTIONS.find((variant) => variant.value === creativeVariant)?.label ?? "Balanced";
   const activeTargetPlatformLabel =
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
   const renderYouTubeOutcomeLoopCard = ({
@@ -9224,7 +9288,7 @@ const Editor = () => {
               Safe/Balanced/Viral controls candidate pacing aggression, then boundary critic blocks rough joins.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Balanced keeps the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.
+              Balanced keeps the middle ground, Fast prioritizes turnaround while transcript remains required, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
@@ -9875,7 +9939,7 @@ const Editor = () => {
                   )}
                   {ultraPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Fast mode active: accelerated upload + long-form transcript skip enabled.
+                      Fast mode active: accelerated upload with transcript still required.
                     </p>
                   ) : retentionKingPipelineMode ? (
                     <p className="text-[11px] text-primary">
@@ -12146,7 +12210,7 @@ const Editor = () => {
             <DialogHeader className="relative z-10">
               <DialogTitle className="text-xl font-display text-foreground">Choose Upload Mode</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Before upload starts, choose whether this render should stay balanced, skip long-form transcript analysis for speed, or keep transcript-guided hook selection on for quality.
+                Before upload starts, choose whether this render should stay balanced, prioritize speed with a required transcript pass, or keep transcript-guided hook selection on for quality.
               </DialogDescription>
             </DialogHeader>
 
@@ -12293,7 +12357,7 @@ const Editor = () => {
                 <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
                 <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
-                <p><span className="font-medium">Power Modes:</span> Balanced is the middle ground, Fast skips long-form transcript analysis, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.</p>
+                <p><span className="font-medium">Power Modes:</span> Balanced is the middle ground, Fast prioritizes speed while transcript stays required, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.</p>
                 <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
                 <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
                 <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
