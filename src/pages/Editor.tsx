@@ -5937,36 +5937,19 @@ const Editor = () => {
       : activeAnalysis?.autonomous_editor && typeof activeAnalysis.autonomous_editor === "object"
         ? (activeAnalysis.autonomous_editor as AutonomousEditorSummary)
         : null;
-  const autonomousSenses = Array.isArray(autonomousEditor?.senses)
-    ? autonomousEditor.senses.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).slice(0, 5)
-    : [];
-  const autonomousModes = Array.isArray(autonomousEditor?.modes)
-    ? autonomousEditor.modes.filter((mode): mode is AutonomousEditorModeSummary => Boolean(mode && typeof mode.label === "string"))
-    : [];
-  const autonomousActiveModes = autonomousModes.filter((mode) => mode.active);
-  const autonomousDecisions = Array.isArray(autonomousEditor?.decisions)
-    ? autonomousEditor.decisions
-        .filter((decision): decision is AutonomousEditorDecisionSummary => Boolean(decision && Number.isFinite(Number(decision.atSec))))
-        .slice(0, 6)
-    : [];
-  const autonomousDecisionCounts = Object.entries(autonomousEditor?.decisionCounts || {})
-    .filter((entry) => Number.isFinite(Number(entry[1])) && Number(entry[1]) > 0)
-    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]));
   const autonomousSelectedHook = autonomousEditor?.selectedHook ?? null;
-  const autonomousWinnerPolicy = autonomousEditor?.winnerPolicy ?? null;
   const autonomousQualityGate = autonomousEditor?.qualityGate ?? null;
   const autonomousCutQualityPercent =
     autonomousQualityGate?.cutQualityScore !== null && autonomousQualityGate?.cutQualityScore !== undefined
       ? Math.round(clamp01(Number(autonomousQualityGate.cutQualityScore)) * 100)
       : null;
   const autonomousLearning = autonomousEditor?.learning ?? null;
+  const autonomousNotes = Array.isArray(autonomousEditor?.notes)
+    ? autonomousEditor.notes.filter((note): note is string => typeof note === "string" && note.trim().length > 0).slice(0, 3)
+    : [];
   const autonomousLearningRecordedAtLabel =
     autonomousLearning?.recordedAt && typeof autonomousLearning.recordedAt === "string"
       ? formatFeedbackTimestamp(autonomousLearning.recordedAt)
-      : null;
-  const autonomousPromotionLead =
-    Array.isArray(autonomousLearning?.policyPromotions) && autonomousLearning.policyPromotions.length > 0
-      ? autonomousLearning.policyPromotions[0]
       : null;
   const autonomousHookSourceLabel = (() => {
     const source = String(autonomousSelectedHook?.source || "").trim().toLowerCase();
@@ -6017,7 +6000,10 @@ const Editor = () => {
     if (status === "moved_to_opening") return "This source moment was relocated to start the final cut.";
     if (status === "no_hook_fallback") return "Failed synthetic hooks were blocked, so the cut keeps a safer chronological opener.";
     if (status === "kept_source_position") return "The opener stays in its source order instead of being forcibly moved.";
-    return "Waiting for enough output data to map the opener.";
+    if (normalizedActiveStatus !== "ready" && normalizedActiveStatus !== "failed") {
+      return "Source moment was selected from a full-video scan. Final cut position will appear after timeline reorder and render data are ready.";
+    }
+    return "Source moment was selected from a full-video scan, but this render did not return enough final timeline data to map its cut position.";
   })();
   const autonomousStatusLabel =
     autonomousEditor?.autonomyState === "self_directed"
@@ -11384,90 +11370,7 @@ const Editor = () => {
                         <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
                         <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"} · Click graph for deep dive</span>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-                        <div className="rounded-lg border border-border/50 bg-background/45 p-2.5">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Emotions Felt</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {emotionSignals.slice(0, 4).map((signal) => (
-                              <Badge key={`felt-${signal.key}`} className={signal.badgeClassName}>
-                                {signal.label} · {Math.round(signal.sharePercent)}%
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-border/50 bg-background/45 p-2.5">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Predicted Audience Emotions</p>
-                          <div className="mt-2 space-y-1.5">
-                            {predictedAudienceEmotions.slice(0, 3).map((signal) => (
-                              <div key={`predicted-emotion-${signal.key}`}>
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>{signal.label}</span>
-                                  <span>{signal.predictedAudiencePercent}%</span>
-                                </div>
-                                <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
-                                  <div
-                                    className={`h-full rounded-full bg-gradient-to-r ${signal.barClassName}`}
-                                    style={{ width: `${signal.predictedAudiencePercent}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
                     </div>
-
-                    {activePipelinePowerMode !== "standard" ? (
-                      <div className="mode-stats-shell rounded-xl border p-3 sm:p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                            {activePipelinePowerMode === "ultra" ? "Fast Mode Feedback Analysis" : "Quality Mode Feedback Analysis"}
-                          </p>
-                          <Badge className="border-primary/40 bg-primary/15 text-primary-foreground">
-                            {activePipelinePowerMode === "ultra" ? "Fast Path Logic" : "Quality Pass Logic"}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Simple scorecard: each metric is 0-100, and higher is better.
-                        </p>
-                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                          {[
-                            {
-                              label: "Viewer Momentum",
-                              value: modeMomentumScore,
-                              summary: "How strongly viewer attention stays up through the video.",
-                            },
-                            {
-                              label: "Hook Strength",
-                              value: modePackagingScore,
-                              summary: "How compelling the opening hook and early packaging feel.",
-                            },
-                            {
-                              label: "Flow Stability",
-                              value: modeConsistencyScore,
-                              summary: "How smooth and consistent pacing feels between sections.",
-                            },
-                            {
-                              label: "Finish Likelihood",
-                              value: modeCompletionScore,
-                              summary: "How likely viewers are to keep watching near the ending.",
-                            },
-                          ].map((card) => (
-                            <div key={card.label} className="rounded-lg border border-primary/25 bg-background/45 p-2.5">
-                              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{card.label}</p>
-                              <p className="mt-1 text-2xl font-premium text-foreground">{card.value}/100</p>
-                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{card.summary}</p>
-                              <div className="mt-2 h-1.5 rounded-full bg-muted/65">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
-                                  style={{ width: `${card.value}%` }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
 
                     {!isTerminalStatus(activeJob.status) && (
                       <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
@@ -11551,17 +11454,7 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        {autonomousSenses.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {autonomousSenses.map((sense) => (
-                              <Badge key={`autonomous-sense-${sense}`} className="border-border/55 bg-background/45 text-foreground">
-                                {sense}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-3">
+                        <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
                           <div className="rounded-lg border border-border/50 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Hook Decision</p>
@@ -11600,42 +11493,6 @@ const Editor = () => {
 
                           <div className="rounded-lg border border-border/50 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Policy Winner</p>
-                              {autonomousWinnerPolicy?.strategy ? (
-                                <Badge className="border-primary/35 bg-primary/10 text-foreground">
-                                  {autonomousWinnerPolicy.strategy}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <p className="mt-2 text-sm font-medium text-foreground">
-                              {autonomousWinnerPolicy?.policyId || "No policy winner yet"}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {autonomousWinnerPolicy?.reason || "Variant scoring, pacing curve selection, and cut-quality pressure decide the winner."}
-                            </p>
-                            {autonomousWinnerPolicy ? (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {autonomousWinnerPolicy.predictedRetention !== null && autonomousWinnerPolicy.predictedRetention !== undefined ? (
-                                  <Badge className="border-border/55 bg-background/55 text-foreground">
-                                    {autonomousWinnerPolicy.predictedRetention}% predicted
-                                  </Badge>
-                                ) : null}
-                                {autonomousWinnerPolicy.pacingCurve ? (
-                                  <Badge className="border-border/55 bg-background/55 text-foreground">
-                                    {autonomousWinnerPolicy.pacingCurve} pacing
-                                  </Badge>
-                                ) : null}
-                                {autonomousWinnerPolicy.cliffhangerStyle ? (
-                                  <Badge className="border-border/55 bg-background/55 text-foreground">
-                                    {autonomousWinnerPolicy.cliffhangerStyle.replace(/_/g, " ")}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-
-                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-2">
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Quality Gate</p>
                               <Badge className={`${autonomousQualityGate?.passed === false ? "border-destructive/35 bg-destructive/10 text-destructive" : "border-emerald-400/35 bg-emerald-400/10 text-emerald-100"}`}>
                                 {autonomousQualityGate?.passed === false ? "Needs work" : autonomousQualityGate?.passed === true ? "Passed" : "Evaluating"}
@@ -11663,57 +11520,12 @@ const Editor = () => {
                           </div>
                         </div>
 
-                        {(autonomousDecisionCounts.length > 0 || autonomousDecisions.length > 0) ? (
-                          <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
-                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Decision Pressure</p>
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {autonomousDecisionCounts.slice(0, 6).map(([key, value]) => (
-                                  <Badge key={`decision-count-${key}`} className="border-border/55 bg-background/55 text-foreground">
-                                    {key.replace(/_/g, " ")} {Number(value)}
-                                  </Badge>
-                                ))}
-                              </div>
-                              {autonomousActiveModes.length > 0 ? (
-                                <div className="mt-3 flex flex-wrap gap-1.5">
-                                  {autonomousActiveModes.map((mode) => (
-                                    <Badge key={`active-mode-${mode.id}`} className="border-primary/30 bg-primary/10 text-foreground">
-                                      {mode.label}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="mt-3 text-[11px] text-muted-foreground">No special mode override. Default autonomous behavior is active.</p>
-                              )}
-                            </div>
-
-                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Recent Decisions</p>
-                              <div className="mt-2 space-y-2">
-                                {autonomousDecisions.length > 0 ? autonomousDecisions.map((decision, index) => (
-                                  <div key={`autonomous-decision-${decision.type}-${decision.atSec}-${index}`} className="rounded-md border border-border/50 bg-background/55 p-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-xs text-foreground">{decision.label}</p>
-                                      <span className="text-[11px] text-muted-foreground">{formatTimelineClock(decision.atSec)}</span>
-                                    </div>
-                                    <p className="mt-1 text-[11px] text-muted-foreground">
-                                      {decision.detail || "Autonomous edit action applied."}
-                                    </p>
-                                  </div>
-                                )) : (
-                                  <p className="text-[11px] text-muted-foreground">Decision timeline will populate as the edit plan resolves.</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {(Array.isArray(autonomousEditor?.notes) && autonomousEditor.notes.length > 0) || autonomousLearning ? (
+                        {(autonomousNotes.length > 0) || autonomousLearning ? (
                           <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
                             <div className="rounded-lg border border-border/50 bg-background/45 p-3">
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Why It Edited This Way</p>
                               <div className="mt-2 space-y-1.5">
-                                {(autonomousEditor?.notes || []).slice(0, 4).map((note, index) => (
+                                {autonomousNotes.map((note, index) => (
                                   <p key={`autonomous-note-${index}`} className="text-[11px] text-muted-foreground">
                                     {note}
                                   </p>
@@ -11740,22 +11552,6 @@ const Editor = () => {
                                       ? `Boundary critic ${autonomousLearningReasonLabel}.`
                                       : "Learning summary available after feedback and telemetry passes."}
                                   </p>
-                                  {autonomousLearning.boundaryCritic?.activeVersion ? (
-                                    <p className="text-[11px] text-muted-foreground">
-                                      Active model {autonomousLearning.boundaryCritic.activeVersion}
-                                      {autonomousLearning.boundaryCritic.sampleCount !== null && autonomousLearning.boundaryCritic.sampleCount !== undefined
-                                        ? ` · ${autonomousLearning.boundaryCritic.sampleCount} samples`
-                                        : ""}
-                                    </p>
-                                  ) : null}
-                                  {autonomousPromotionLead ? (
-                                    <p className="text-[11px] text-muted-foreground">
-                                      Promotion candidate: {autonomousPromotionLead.policyId}
-                                      {autonomousPromotionLead.lift !== null && autonomousPromotionLead.lift !== undefined
-                                        ? ` (+${Number(autonomousPromotionLead.lift).toFixed(2)} lift)`
-                                        : ""}
-                                    </p>
-                                  ) : null}
                                 </div>
                               ) : (
                                 <p className="mt-2 text-[11px] text-muted-foreground">
