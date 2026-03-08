@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
 import LanguageDropdown from "@/components/LanguageDropdown";
+import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
@@ -17,7 +18,7 @@ const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [navHeightPx, setNavHeightPx] = useState(72);
   const navRef = useRef<HTMLElement | null>(null);
-  const showControlPanel = Boolean(me?.flags?.dev);
+  const showControlPanel = isControlPanelOwnerEmail(user?.email ?? me?.user?.email);
 
   const handleLogout = async () => {
     await signOut();

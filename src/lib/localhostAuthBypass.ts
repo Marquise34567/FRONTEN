@@ -19,6 +19,12 @@ const readBypassFlag = () => {
   return normalize(env.VITE_LOCALHOST_AUTH_BYPASS ?? env.VITE_DEV_BYPASS_AUTH)
 }
 
+const readBypassToken = () => {
+  if (typeof import.meta === "undefined") return ""
+  const env = (import.meta as any).env || {}
+  return normalize(env.VITE_LOCALHOST_BYPASS_TOKEN ?? env.VITE_DEV_BYPASS_TOKEN)
+}
+
 export const isLocalhostAuthBypassEnabled = () => {
   if (!isLocalhostLoopbackRuntime()) return false
   const raw = readBypassFlag()
@@ -27,7 +33,7 @@ export const isLocalhostAuthBypassEnabled = () => {
   return TRUE_PATTERN.test(raw)
 }
 
-export const getLocalhostBypassToken = () => "localhost-dev-token"
+export const getLocalhostBypassToken = () => readBypassToken() || "localhost-dev-token"
 
 export const getLocalhostBypassUser = () => ({
   id: "localhost-dev-user",

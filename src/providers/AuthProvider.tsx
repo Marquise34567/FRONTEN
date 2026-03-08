@@ -74,6 +74,12 @@ const createLocalhostBypassSession = (): Session => {
   return fake as Session;
 };
 
+const isBypassSession = (session: Session | null | undefined) => {
+  if (!session?.user?.id) return false;
+  const bypassUser = getLocalhostBypassUser();
+  return session.user.id === bypassUser.id || session.access_token === getLocalhostBypassToken();
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,27 +87,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
-    if (localhostBypassEnabled) {
-      setSession(createLocalhostBypassSession());
+
+    const commitSession = (candidate: Session | null | undefined) => {
+      const nextSession = toActiveSession(candidate);
+      if (nextSession) {
+        setSession(nextSession);
+        setLoading(false);
+        return;
+      }
+      setSession(localhostBypassEnabled ? createLocalhostBypassSession() : null);
       setLoading(false);
-      return () => {};
-    }
+      if (candidate && !nextSession && !isBypassSession(candidate)) {
+        supabase.auth.signOut().catch(() => {});
+      }
+    };
+
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      const nextSession = toActiveSession(data.session);
-      setSession(nextSession);
-      setLoading(false);
-      if (data.session && !nextSession) {
-        supabase.auth.signOut().catch(() => {});
-      }
+      commitSession(data.session);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      const activeSession = toActiveSession(nextSession);
-      setSession(activeSession);
-      setLoading(false);
-      if (nextSession && !activeSession) {
-        supabase.auth.signOut().catch(() => {});
-      }
+      commitSession(nextSession);
     });
     const onExpired = async () => {
       // Try one refresh before forcing logout to avoid transient 401 sign-outs.
@@ -117,7 +123,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       } catch (e) {}
       try {
-        setSession(null);
+        setSession(localhostBypassEnabled ? createLocalhostBypassSession() : null);
         setLoading(false);
         supabase.auth.signOut().catch(() => {})
       } catch (e) {}
@@ -176,12 +182,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       },
       signOut: async () => {
-        if (localhostBypassEnabled) {
+        if (localhostBypassEnabled && isBypassSession(session)) {
           setSession(createLocalhostBypassSession());
           setLoading(false);
           return;
         }
         await supabase.auth.signOut();
+        if (localhostBypassEnabled) {
+          setSession(createLocalhostBypassSession());
+          setLoading(false);
+        }
       },
     }),
     [session, loading, localhostBypassEnabled],
