@@ -832,6 +832,7 @@ type AutonomousEditorDecisionSummary = {
   label: string;
   detail?: string | null;
 };
+type AutonomousHookPlacementStatus = "moved_to_opening" | "kept_source_position" | "no_hook_fallback" | "unmapped" | string;
 type AutonomousEditorLearningSummary = {
   trigger?: string | null;
   throttled?: boolean;
@@ -858,6 +859,12 @@ type AutonomousEditorSummary = {
   selectedHook?: {
     start: number;
     duration: number;
+    sourceStart?: number | null;
+    sourceEnd?: number | null;
+    outputStart?: number | null;
+    outputEnd?: number | null;
+    placementStatus?: AutonomousHookPlacementStatus | null;
+    placementLabel?: string | null;
     source?: string | null;
     reason?: string | null;
   } | null;
@@ -5912,6 +5919,50 @@ const Editor = () => {
     if (source === "fallback") return "Fallback";
     if (source === "auto") return "Auto";
     return "Unknown";
+  })();
+  const autonomousHookPlacementLabel = (() => {
+    const raw = String(autonomousSelectedHook?.placementLabel || "").trim();
+    if (raw) return raw;
+    const status = String(autonomousSelectedHook?.placementStatus || "").trim().toLowerCase();
+    if (status === "moved_to_opening") return "Moved to opening";
+    if (status === "no_hook_fallback") return "No-hook fallback";
+    if (status === "kept_source_position") return "Kept source position";
+    return "Placement pending";
+  })();
+  const autonomousHookSourceStart =
+    autonomousSelectedHook?.sourceStart !== null && autonomousSelectedHook?.sourceStart !== undefined
+      ? Number(autonomousSelectedHook.sourceStart)
+      : autonomousSelectedHook?.start ?? null;
+  const autonomousHookSourceEnd =
+    autonomousSelectedHook?.sourceEnd !== null && autonomousSelectedHook?.sourceEnd !== undefined
+      ? Number(autonomousSelectedHook.sourceEnd)
+      : autonomousHookSourceStart !== null && autonomousSelectedHook?.duration !== undefined
+        ? Number(autonomousHookSourceStart) + Number(autonomousSelectedHook.duration)
+        : null;
+  const autonomousHookOutputStart =
+    autonomousSelectedHook?.outputStart !== null && autonomousSelectedHook?.outputStart !== undefined
+      ? Number(autonomousSelectedHook.outputStart)
+      : null;
+  const autonomousHookOutputEnd =
+    autonomousSelectedHook?.outputEnd !== null && autonomousSelectedHook?.outputEnd !== undefined
+      ? Number(autonomousSelectedHook.outputEnd)
+      : autonomousHookOutputStart !== null && autonomousSelectedHook?.duration !== undefined
+        ? Number(autonomousHookOutputStart) + Number(autonomousSelectedHook.duration)
+        : null;
+  const autonomousHookSourceRangeLabel =
+    autonomousHookSourceStart !== null && autonomousHookSourceEnd !== null
+      ? formatHookRange(autonomousHookSourceStart, autonomousHookSourceEnd)
+      : null;
+  const autonomousHookOutputRangeLabel =
+    autonomousHookOutputStart !== null && autonomousHookOutputEnd !== null
+      ? formatHookRange(autonomousHookOutputStart, autonomousHookOutputEnd)
+      : null;
+  const autonomousHookPlacementHint = (() => {
+    const status = String(autonomousSelectedHook?.placementStatus || "").trim().toLowerCase();
+    if (status === "moved_to_opening") return "This source moment was relocated to start the final cut.";
+    if (status === "no_hook_fallback") return "Failed synthetic hooks were blocked, so the cut keeps a safer chronological opener.";
+    if (status === "kept_source_position") return "The opener stays in its source order instead of being forcibly moved.";
+    return "Waiting for enough output data to map the opener.";
   })();
   const autonomousStatusLabel =
     autonomousEditor?.autonomyState === "self_directed"
@@ -11443,20 +11494,33 @@ const Editor = () => {
                           <div className="rounded-lg border border-border/50 bg-background/45 p-3">
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Hook Decision</p>
-                              <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousHookSourceLabel}</Badge>
+                              <div className="flex flex-wrap justify-end gap-1.5">
+                                <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousHookSourceLabel}</Badge>
+                                <Badge className="border-border/55 bg-background/55 text-foreground">{autonomousHookPlacementLabel}</Badge>
+                              </div>
                             </div>
                             <p className="mt-2 text-sm font-medium text-foreground">
-                              {autonomousSelectedHook
-                                ? formatHookRange(
-                                    autonomousSelectedHook.start,
-                                    autonomousSelectedHook.start + autonomousSelectedHook.duration,
-                                  )
-                                : (selectedHookCandidate
+                              {autonomousHookOutputRangeLabel ||
+                                autonomousHookSourceRangeLabel ||
+                                (selectedHookCandidate
                                   ? formatHookRange(
                                       selectedHookCandidate.start,
                                       selectedHookCandidate.start + selectedHookCandidate.duration,
                                     )
                                   : "No hook chosen yet")}
+                            </p>
+                            {autonomousHookSourceRangeLabel ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Source moment: {autonomousHookSourceRangeLabel}
+                              </p>
+                            ) : null}
+                            {autonomousHookOutputRangeLabel ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Final cut position: {autonomousHookOutputRangeLabel}
+                              </p>
+                            ) : null}
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {autonomousHookPlacementHint}
                             </p>
                             <p className="mt-1 text-[11px] text-muted-foreground">
                               {autonomousSelectedHook?.reason || hookReason || "Waiting for enough signal to lock the opener."}
