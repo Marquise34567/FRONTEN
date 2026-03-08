@@ -834,6 +834,22 @@ type HookCandidate = {
   reason: string;
   synthetic: boolean;
 };
+type EditorTranscriptCue = {
+  start: number;
+  end: number;
+  text: string;
+};
+type EditorTranscriptSegment = {
+  start: number;
+  end: number;
+  speed: number;
+};
+type TranscriptEditDecision = "hook" | "keep" | "cut" | "pending";
+type TranscriptEditorRow = {
+  cue: EditorTranscriptCue;
+  decision: TranscriptEditDecision;
+};
+type TranscriptPanelTab = "editor" | "preview" | "source";
 
 type VerticalClipPrediction = {
   clip: number;
@@ -1214,6 +1230,142 @@ const formatPlatformLabel = (value?: string | null) => {
 const toObjectRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+};
+
+const normalizeTranscriptCueRows = (value: unknown): EditorTranscriptCue[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const row = toObjectRecord(entry);
+      if (!row) return null;
+      const start = firstFiniteNumber(row.start, row.startSec, row.start_sec, row.atSec, row.at_sec);
+      const end = firstFiniteNumber(row.end, row.endSec, row.end_sec);
+      const text = typeof row.text === "string"
+        ? row.text.trim()
+        : typeof row.caption === "string"
+          ? row.caption.trim()
+          : typeof row.transcript === "string"
+            ? row.transcript.trim()
+            : "";
+      if (start === null || end === null || end <= start || !text) return null;
+      return {
+        start,
+        end,
+        text,
+      };
+    })
+    .filter((cue): cue is EditorTranscriptCue => cue !== null)
+    .sort((left, right) => left.start - right.start);
+};
+
+const normalizeTranscriptSegmentRows = (value: unknown): EditorTranscriptSegment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const row = toObjectRecord(entry);
+      if (!row) return null;
+      const start = firstFiniteNumber(row.start, row.startSec, row.start_sec);
+      const end = firstFiniteNumber(row.end, row.endSec, row.end_sec);
+      const speed = firstFiniteNumber(row.speed, row.playbackRate, row.playback_rate) ?? 1;
+      if (start === null || end === null || end <= start) return null;
+      return {
+        start,
+        end,
+        speed: speed > 0 ? speed : 1,
+      };
+    })
+    .filter((segment): segment is EditorTranscriptSegment => segment !== null)
+    .sort((left, right) => left.start - right.start);
+};
+
+const remapTranscriptCuesToEditedTimelinePreview = (
+  cues: EditorTranscriptCue[],
+  segments: EditorTranscriptSegment[],
+): EditorTranscriptCue[] => {
+  if (!cues.length || !segments.length) return [];
+  let outputCursor = 0;
+  const timeline = segments
+    .map((segment) => {
+      const outputDuration = (segment.end - segment.start) / Math.max(0.01, segment.speed);
+      if (!Number.isFinite(outputDuration) || outputDuration <= 0) return null;
+      const row = {
+        sourceStart: segment.start,
+        sourceEnd: segment.end,
+        speed: Math.max(0.01, segment.speed),
+        outputStart: outputCursor,
+        outputEnd: outputCursor + outputDuration,
+      };
+      outputCursor = row.outputEnd;
+      return row;
+    })
+    .filter((segment): segment is {
+      sourceStart: number;
+      sourceEnd: number;
+      speed: number;
+      outputStart: number;
+      outputEnd: number;
+    } => Boolean(segment));
+  if (!timeline.length) return [];
+
+  const remapped = cues.flatMap((cue) => (
+    timeline.map((segment) => {
+      const overlapStart = Math.max(cue.start, segment.sourceStart);
+      const overlapEnd = Math.min(cue.end, segment.sourceEnd);
+      if (overlapEnd - overlapStart <= 0.01) return null;
+      return {
+        start: Number((segment.outputStart + (overlapStart - segment.sourceStart) / segment.speed).toFixed(3)),
+        end: Number((segment.outputStart + (overlapEnd - segment.sourceStart) / segment.speed).toFixed(3)),
+        text: cue.text,
+      };
+    })
+  ))
+    .filter((cue): cue is EditorTranscriptCue => Boolean(cue) && cue.end > cue.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  const merged: EditorTranscriptCue[] = [];
+  for (const cue of remapped) {
+    const previous = merged.length > 0 ? merged[merged.length - 1] : null;
+    if (previous && previous.text === cue.text && cue.start - previous.end <= 0.08) {
+      previous.end = Number(Math.max(previous.end, cue.end).toFixed(3));
+      continue;
+    }
+    merged.push({ ...cue });
+  }
+  return merged;
+};
+
+const cueOverlapsSegment = (cue: EditorTranscriptCue, segment: EditorTranscriptSegment) =>
+  Math.min(cue.end, segment.end) - Math.max(cue.start, segment.start) > 0.01;
+
+const buildTranscriptEditorRows = ({
+  cues,
+  segments,
+  hookStart,
+  hookEnd,
+}: {
+  cues: EditorTranscriptCue[];
+  segments: EditorTranscriptSegment[];
+  hookStart: number | null;
+  hookEnd: number | null;
+}): TranscriptEditorRow[] => {
+  const hasSegments = segments.length > 0;
+  return cues.map((cue) => {
+    const overlapsHook =
+      hookStart !== null &&
+      hookEnd !== null &&
+      Math.min(cue.end, hookEnd) - Math.max(cue.start, hookStart) > 0.01;
+    if (overlapsHook) {
+      return { cue, decision: "hook" };
+    }
+    if (!hasSegments) {
+      return { cue, decision: "pending" };
+    }
+    const kept = segments.some((segment) => cueOverlapsSegment(cue, segment));
+    return {
+      cue,
+      decision: kept ? "keep" : "cut",
+    };
+  });
 };
 
 const formatNaturalList = (items: string[]) => {
@@ -2180,6 +2332,8 @@ const Editor = () => {
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
+  const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
+  const [transcriptPanelTab, setTranscriptPanelTab] = useState<TranscriptPanelTab>("editor");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewRetryCountByJobRef = useRef<Record<string, number>>({});
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
@@ -5624,6 +5778,45 @@ const Editor = () => {
     activeJob && (activeJob as any).renderSettings && typeof (activeJob as any).renderSettings === "object"
       ? ((activeJob as any).renderSettings as Record<string, unknown>)
       : null;
+  const liveStepTranscriptCues = useMemo(
+    () => normalizeTranscriptCueRows(activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.transcriptCues),
+    [activeAnalysis],
+  );
+  const sourceTranscriptCues = useMemo(
+    () => normalizeTranscriptCueRows(activeAnalysis?.transcript_cues ?? activeAnalysis?.transcriptCues),
+    [activeAnalysis],
+  );
+  const liveSourceTranscriptCues = liveStepTranscriptCues.length > 0 ? liveStepTranscriptCues : sourceTranscriptCues;
+  const pipelineStepTranscriptSegments = useMemo(
+    () => normalizeTranscriptSegmentRows(activeAnalysis?.pipelineSteps?.FRAME_ANALYSIS?.meta?.segments),
+    [activeAnalysis],
+  );
+  const pipelineStepEditedTranscriptCues = useMemo(
+    () => normalizeTranscriptCueRows(activeAnalysis?.pipelineSteps?.FRAME_ANALYSIS?.meta?.editedTranscriptCues),
+    [activeAnalysis],
+  );
+  const editorTranscriptSegments = useMemo(
+    () => normalizeTranscriptSegmentRows(activeAnalysis?.editPlan?.segments),
+    [activeAnalysis],
+  );
+  const liveTranscriptSegments = editorTranscriptSegments.length > 0 ? editorTranscriptSegments : pipelineStepTranscriptSegments;
+  const editedTranscriptCues = useMemo(
+    () => normalizeTranscriptCueRows(activeAnalysis?.edited_transcript_cues ?? activeAnalysis?.editedTranscriptCues),
+    [activeAnalysis],
+  );
+  const liveEditedTranscriptCues = useMemo(() => {
+    if (editedTranscriptCues.length > 0) return editedTranscriptCues;
+    if (pipelineStepEditedTranscriptCues.length > 0) return pipelineStepEditedTranscriptCues;
+    if (liveSourceTranscriptCues.length > 0 && liveTranscriptSegments.length > 0) {
+      return remapTranscriptCuesToEditedTimelinePreview(liveSourceTranscriptCues, liveTranscriptSegments);
+    }
+    return [] as EditorTranscriptCue[];
+  }, [
+    editedTranscriptCues,
+    liveSourceTranscriptCues,
+    liveTranscriptSegments,
+    pipelineStepEditedTranscriptCues,
+  ]);
   const exportFeedbackEntries = useMemo(
     () => buildExportFeedbackEntries(activeJob?.analysis ?? {}),
     [activeJob?.id, activeJob?.analysis],
@@ -5633,6 +5826,60 @@ const Editor = () => {
   const hookEndSec = Number(activeAnalysis?.hook_end_time ?? (Number.isFinite(hookStartSec) ? hookStartSec + Number(activeAnalysis?.hook?.duration ?? 0) : NaN));
   const hookText = typeof activeAnalysis?.hook_text === "string" ? activeAnalysis.hook_text : "";
   const hookReason = typeof activeAnalysis?.hook_reason === "string" ? activeAnalysis.hook_reason : "";
+  const liveTranscriptEditorRows = useMemo(() => buildTranscriptEditorRows({
+    cues: liveSourceTranscriptCues,
+    segments: liveTranscriptSegments,
+    hookStart: Number.isFinite(hookStartSec) ? hookStartSec : null,
+    hookEnd: Number.isFinite(hookEndSec) ? hookEndSec : null,
+  }), [
+    hookEndSec,
+    hookStartSec,
+    liveSourceTranscriptCues,
+    liveTranscriptSegments,
+  ]);
+  const activeTranscriptCues = liveEditedTranscriptCues.length > 0 ? liveEditedTranscriptCues : liveSourceTranscriptCues;
+  const activeTranscriptTimelineMode: "edited" | "source" | null = liveEditedTranscriptCues.length > 0
+    ? "edited"
+    : liveSourceTranscriptCues.length > 0
+      ? "source"
+      : null;
+  const transcriptEditorStageLabel = !liveSourceTranscriptCues.length
+    ? "Waiting for transcript"
+    : liveTranscriptSegments.length > 0
+      ? (normalizedActiveStatus === "ready" ? "Edit locked" : "Editing in real time")
+      : "Transcript ready";
+  const transcriptEditorStageHint = !liveSourceTranscriptCues.length
+    ? "The transcript will appear here as soon as the transcribe step completes."
+    : liveTranscriptSegments.length > 0
+      ? "Keep, cut, and hook decisions are mirrored on the transcript as the pipeline advances."
+      : "Transcript is ready. Cut and pacing decisions will appear here as the editor resolves segments.";
+  const transcriptSourceCueCount = liveSourceTranscriptCues.length;
+  const transcriptEditedCueCount = liveEditedTranscriptCues.length;
+  const transcriptCutCount = liveTranscriptEditorRows.filter((row) => row.decision === "cut").length;
+  const transcriptKeepCount = liveTranscriptEditorRows.filter((row) => row.decision === "keep" || row.decision === "hook").length;
+  const transcriptDefaultTab: TranscriptPanelTab = liveTranscriptEditorRows.length > 0
+    ? "editor"
+    : liveEditedTranscriptCues.length > 0
+      ? "preview"
+      : "source";
+  const transcriptHasEditor = liveTranscriptEditorRows.length > 0;
+  const transcriptHasPreview = liveEditedTranscriptCues.length > 0;
+  const transcriptHasSource = liveSourceTranscriptCues.length > 0;
+  useEffect(() => {
+    setTranscriptPanelTab(transcriptDefaultTab);
+  }, [activeJob?.id, transcriptDefaultTab]);
+  useEffect(() => {
+    if (transcriptPanelTab === "editor" && transcriptHasEditor) return;
+    if (transcriptPanelTab === "preview" && transcriptHasPreview) return;
+    if (transcriptPanelTab === "source" && transcriptHasSource) return;
+    setTranscriptPanelTab(transcriptDefaultTab);
+  }, [
+    transcriptDefaultTab,
+    transcriptHasEditor,
+    transcriptHasPreview,
+    transcriptHasSource,
+    transcriptPanelTab,
+  ]);
   const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
     ? activeAnalysis.metadata_summary
     : null;
@@ -7139,6 +7386,9 @@ const Editor = () => {
     previewOutputUrl,
   ]);
   useEffect(() => {
+    setPreviewCurrentTimeSec(0);
+  }, [activeJob?.id, resolvedPreviewOutputUrl]);
+  useEffect(() => {
     const jobId = activeJob?.id;
     if (!jobId) return;
     previewRetryCountByJobRef.current[jobId] = 0;
@@ -7150,6 +7400,17 @@ const Editor = () => {
     previewRetryCountByJobRef.current[jobId] = 0;
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
+  const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
+  const activeTranscriptCueIndex = useMemo(() => {
+    if (!transcriptSeekEnabled || !activeTranscriptCues.length) return -1;
+    for (let index = 0; index < activeTranscriptCues.length; index += 1) {
+      const cue = activeTranscriptCues[index];
+      if (previewCurrentTimeSec >= cue.start && previewCurrentTimeSec < cue.end + 0.08) {
+        return index;
+      }
+    }
+    return -1;
+  }, [activeTranscriptCues, previewCurrentTimeSec, transcriptSeekEnabled]);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -7464,7 +7725,22 @@ const Editor = () => {
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
     ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
+    setPreviewCurrentTimeSec(clamp(Number(video.currentTime || 0), 0, duration));
   }, [activeJob, ensurePlaybackTelemetry]);
+
+  const handleSeekPreviewToTranscriptCue = useCallback((cue: EditorTranscriptCue) => {
+    if (!transcriptSeekEnabled) return;
+    const video = previewVideoRef.current;
+    if (!video) return;
+    const duration = Number(video.duration);
+    const maxStart = Number.isFinite(duration) && duration > 0
+      ? Math.max(0, duration - 0.05)
+      : Math.max(0, cue.start);
+    const nextTime = clamp(cue.start, 0, maxStart);
+    video.currentTime = nextTime;
+    setPreviewCurrentTimeSec(nextTime);
+    void video.play().catch(() => {});
+  }, [transcriptSeekEnabled]);
 
   const handlePreviewTimeUpdate = useCallback((event: any) => {
     const video = event?.currentTarget as HTMLVideoElement | null;
@@ -7474,6 +7750,7 @@ const Editor = () => {
 
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    setPreviewCurrentTimeSec(currentTime);
     const delta = currentTime - telemetry.lastTimeSec;
     if (Number.isFinite(delta)) {
       if (delta >= 0 && delta <= 2.5) {
@@ -7516,6 +7793,7 @@ const Editor = () => {
     const duration = Number(video.duration);
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration, duration);
     if (Number.isFinite(duration) && duration > 0) {
+      setPreviewCurrentTimeSec(duration);
       telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, duration);
       telemetry.maxProgress = Math.max(telemetry.maxProgress, 1);
       telemetry.watchedSeconds = Math.max(telemetry.watchedSeconds, duration);
@@ -10352,6 +10630,169 @@ const Editor = () => {
                           ))}
                         </ol>
                       </div>
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Live Transcript Editor</p>
+                          <p className="text-xs text-muted-foreground">{transcriptEditorStageHint}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant="outline" className="border-border/60 bg-background/55 text-xs text-muted-foreground">
+                            {transcriptEditorStageLabel}
+                          </Badge>
+                          <Badge variant="outline" className="border-border/60 bg-background/55 text-xs text-muted-foreground">
+                            {transcriptSourceCueCount.toLocaleString()} source cues
+                          </Badge>
+                          {transcriptEditedCueCount > 0 ? (
+                            <Badge variant="outline" className="border-border/60 bg-background/55 text-xs text-muted-foreground">
+                              {transcriptEditedCueCount.toLocaleString()} edited cues
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </div>
+                      {transcriptHasEditor ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                          <Badge className="border-primary/35 bg-primary/10 text-primary-foreground">
+                            {transcriptKeepCount.toLocaleString()} kept
+                          </Badge>
+                          <Badge variant="outline" className="border-border/60 bg-background/55 text-xs text-muted-foreground">
+                            {transcriptCutCount.toLocaleString()} cut
+                          </Badge>
+                        </div>
+                      ) : null}
+                      <Tabs value={transcriptPanelTab} onValueChange={(value) => setTranscriptPanelTab(value as TranscriptPanelTab)} className="mt-3 space-y-3">
+                        <TabsList className="grid h-auto w-full grid-cols-3 gap-2 rounded-xl border border-border/50 bg-muted/15 p-1.5">
+                          <TabsTrigger value="editor" disabled={!transcriptHasEditor}>
+                            Editor View
+                          </TabsTrigger>
+                          <TabsTrigger value="preview" disabled={!transcriptHasPreview}>
+                            Edited Preview
+                          </TabsTrigger>
+                          <TabsTrigger value="source" disabled={!transcriptHasSource}>
+                            Source
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="editor" className="mt-0">
+                          {transcriptHasEditor ? (
+                            <div className="pipeline-scrollbar max-h-72 space-y-2 overflow-y-auto pr-1">
+                              {liveTranscriptEditorRows.map((row, index) => {
+                                const isHookCue = row.decision === "hook";
+                                const isCutCue = row.decision === "cut";
+                                const isKeepCue = row.decision === "keep";
+                                const badgeLabel = isHookCue ? "Hook" : isKeepCue ? "Keep" : isCutCue ? "Cut" : "Pending";
+                                return (
+                                  <div
+                                    key={`transcript-editor-row-${index}-${row.cue.start}`}
+                                    className={`rounded-xl border px-3 py-2 ${
+                                      isHookCue
+                                        ? "border-primary/55 bg-primary/10"
+                                        : isKeepCue
+                                          ? "border-emerald-400/35 bg-emerald-500/5"
+                                          : isCutCue
+                                            ? "border-border/40 bg-background/30"
+                                            : "border-border/50 bg-background/40"
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <span className="text-[11px] font-medium text-muted-foreground">
+                                        {formatDurationClock(row.cue.start)} - {formatDurationClock(row.cue.end)}
+                                      </span>
+                                      <Badge
+                                        variant={isCutCue ? "outline" : "default"}
+                                        className={
+                                          isHookCue
+                                            ? "border-primary/35 bg-primary/10 text-primary-foreground"
+                                            : isKeepCue
+                                              ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-200"
+                                              : isCutCue
+                                                ? "border-border/60 bg-background/50 text-muted-foreground"
+                                                : "border-border/60 bg-background/55 text-muted-foreground"
+                                        }
+                                      >
+                                        {badgeLabel}
+                                      </Badge>
+                                    </div>
+                                    <p className={`mt-1 text-sm leading-relaxed ${isCutCue ? "text-muted-foreground line-through opacity-70" : "text-foreground/92"}`}>
+                                      {row.cue.text}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-border/60 bg-background/35 px-3 py-4 text-xs text-muted-foreground">
+                              Waiting for edit decisions to land on the transcript.
+                            </div>
+                          )}
+                        </TabsContent>
+                        <TabsContent value="preview" className="mt-0">
+                          {transcriptHasPreview ? (
+                            <div className="pipeline-scrollbar max-h-72 space-y-2 overflow-y-auto pr-1">
+                              {!transcriptSeekEnabled ? (
+                                <p className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                                  Edited preview transcript is ready. Player sync turns on when the render reaches Ready.
+                                </p>
+                              ) : null}
+                              {liveEditedTranscriptCues.map((cue, index) => {
+                                const isActiveCue = activeTranscriptCueIndex === index;
+                                return (
+                                  <button
+                                    key={`transcript-preview-cue-${index}-${cue.start}`}
+                                    type="button"
+                                    disabled={!transcriptSeekEnabled}
+                                    onClick={() => handleSeekPreviewToTranscriptCue(cue)}
+                                    className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                                      isActiveCue
+                                        ? "border-primary/65 bg-primary/12 shadow-[0_0_0_1px_hsl(var(--primary)/0.18)]"
+                                        : transcriptSeekEnabled
+                                          ? "border-border/50 bg-background/45 hover:border-primary/40 hover:bg-primary/5"
+                                          : "border-border/40 bg-background/35"
+                                    } ${transcriptSeekEnabled ? "cursor-pointer" : "cursor-default"}`}
+                                    aria-current={isActiveCue ? "true" : undefined}
+                                    aria-label={`${transcriptSeekEnabled ? "Jump to" : "Transcript cue at"} ${formatDurationClock(cue.start)}`}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <span className={`text-[11px] font-medium ${isActiveCue ? "text-primary" : "text-muted-foreground"}`}>
+                                        {formatDurationClock(cue.start)} - {formatDurationClock(cue.end)}
+                                      </span>
+                                      {isActiveCue ? (
+                                        <Badge className="border-primary/35 bg-primary/10 text-primary-foreground">Now</Badge>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-1 text-sm leading-relaxed text-foreground/92">{cue.text}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-border/60 bg-background/35 px-3 py-4 text-xs text-muted-foreground">
+                              Edited transcript preview is not available yet.
+                            </div>
+                          )}
+                        </TabsContent>
+                        <TabsContent value="source" className="mt-0">
+                          {transcriptHasSource ? (
+                            <div className="pipeline-scrollbar max-h-72 space-y-2 overflow-y-auto pr-1">
+                              {liveSourceTranscriptCues.map((cue, index) => (
+                                <div
+                                  key={`transcript-source-cue-${index}-${cue.start}`}
+                                  className="rounded-xl border border-border/50 bg-background/40 px-3 py-2"
+                                >
+                                  <span className="text-[11px] font-medium text-muted-foreground">
+                                    {formatDurationClock(cue.start)} - {formatDurationClock(cue.end)}
+                                  </span>
+                                  <p className="mt-1 text-sm leading-relaxed text-foreground/92">{cue.text}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-border/60 bg-background/35 px-3 py-4 text-xs text-muted-foreground">
+                              Transcript cues have not been saved for this render yet.
+                            </div>
+                          )}
+                        </TabsContent>
+                      </Tabs>
                     </div>
                     {renderYouTubeOutcomeLoopCard({
                       title: "Live Outcome Loop",
