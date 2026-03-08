@@ -1599,6 +1599,7 @@ const buildJobPreviewCacheKey = (job: JobDetail | null) => {
     (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
     null;
   const parts = [
+    String(job.outputPath || ""),
     String(runtimeRaw?.startedAt || ""),
     String(analysis?.pipelineUpdatedAt || ""),
     String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
@@ -4070,13 +4071,12 @@ const Editor = () => {
   }, [accessToken, hasActiveJobs, fetchJobs, authError, livePollingIntervalMs]);
 
   useEffect(() => {
-    if (!accessToken || authError || !activeJob || !selectedJobId) return;
-    if (isTerminalStatus(activeJob.status)) return;
+    if (!accessToken || authError || !selectedJobId) return;
     const timer = setInterval(() => {
       fetchJob(selectedJobId);
     }, livePollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, authError, activeJob, selectedJobId, fetchJob, livePollingIntervalMs]);
+  }, [accessToken, authError, selectedJobId, fetchJob, livePollingIntervalMs]);
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
