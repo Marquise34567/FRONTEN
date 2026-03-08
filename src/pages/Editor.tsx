@@ -821,12 +821,75 @@ interface JobSummary {
   renderMode?: "horizontal" | "vertical" | "standard" | string;
 }
 
+type AutonomousEditorModeSummary = {
+  id: string;
+  label: string;
+  active: boolean;
+};
+type AutonomousEditorDecisionSummary = {
+  atSec: number;
+  type: string;
+  label: string;
+  detail?: string | null;
+};
+type AutonomousEditorLearningSummary = {
+  trigger?: string | null;
+  throttled?: boolean;
+  recordedAt?: string | null;
+  boundaryCritic?: {
+    trained?: boolean;
+    reason?: string | null;
+    activeVersion?: string | null;
+    sampleCount?: number | null;
+  } | null;
+  policyPromotions?: Array<{
+    policyId: string;
+    baselinePolicyId?: string | null;
+    lift?: number | null;
+    zScore?: number | null;
+    sampleCount?: number | null;
+  }> | null;
+} | null;
+type AutonomousEditorSummary = {
+  status?: string;
+  autonomyState?: "self_directed" | "assisted" | string;
+  senses?: string[];
+  modes?: AutonomousEditorModeSummary[];
+  selectedHook?: {
+    start: number;
+    duration: number;
+    source?: string | null;
+    reason?: string | null;
+  } | null;
+  winnerPolicy?: {
+    policyId: string;
+    reason?: string | null;
+    strategy?: string | null;
+    pacingCurve?: string | null;
+    cliffhangerStyle?: string | null;
+    predictedRetention?: number | null;
+    judgeRetentionScore?: number | null;
+  } | null;
+  qualityGate?: {
+    passed?: boolean | null;
+    summary?: string | null;
+    passedChecks?: number | null;
+    totalChecks?: number | null;
+    cutQualityScore?: number | null;
+  } | null;
+  decisions?: AutonomousEditorDecisionSummary[];
+  decisionCounts?: Record<string, number>;
+  notes?: string[];
+  learning?: AutonomousEditorLearningSummary;
+} | null;
+
 interface JobDetail extends JobSummary {
   outputUrl?: string | null;
   outputUrls?: string[] | null;
   finalQuality?: string | null;
   retentionScore?: number | null;
   analysis?: any;
+  autonomousEditor?: AutonomousEditorSummary;
   optimizationNotes?: string[] | null;
   error?: string | null;
 }
@@ -845,6 +908,7 @@ type EditorTranscriptCue = {
   start: number;
   end: number;
   text: string;
+  confidence?: number | null;
 };
 type EditorTranscriptSegment = {
   start: number;
@@ -1255,10 +1319,12 @@ const normalizeTranscriptCueRows = (value: unknown): EditorTranscriptCue[] => {
             ? row.transcript.trim()
             : "";
       if (start === null || end === null || end <= start || !text) return null;
+      const confidenceRaw = firstFiniteNumber(row.confidence);
       return {
         start,
         end,
         text,
+        confidence: confidenceRaw,
       };
     })
     .filter((cue): cue is EditorTranscriptCue => cue !== null)
@@ -1323,6 +1389,7 @@ const remapTranscriptCuesToEditedTimelinePreview = (
         start: Number((segment.outputStart + (overlapStart - segment.sourceStart) / segment.speed).toFixed(3)),
         end: Number((segment.outputStart + (overlapEnd - segment.sourceStart) / segment.speed).toFixed(3)),
         text: cue.text,
+        confidence: cue.confidence ?? null,
       };
     })
   ))
@@ -5801,6 +5868,58 @@ const Editor = () => {
   const activeRenderSettings =
     activeJob && (activeJob as any).renderSettings && typeof (activeJob as any).renderSettings === "object"
       ? ((activeJob as any).renderSettings as Record<string, unknown>)
+      : null;
+  const autonomousEditor =
+    activeJob?.autonomousEditor && typeof activeJob.autonomousEditor === "object"
+      ? (activeJob.autonomousEditor as AutonomousEditorSummary)
+      : activeAnalysis?.autonomous_editor && typeof activeAnalysis.autonomous_editor === "object"
+        ? (activeAnalysis.autonomous_editor as AutonomousEditorSummary)
+        : null;
+  const autonomousSenses = Array.isArray(autonomousEditor?.senses)
+    ? autonomousEditor.senses.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).slice(0, 5)
+    : [];
+  const autonomousModes = Array.isArray(autonomousEditor?.modes)
+    ? autonomousEditor.modes.filter((mode): mode is AutonomousEditorModeSummary => Boolean(mode && typeof mode.label === "string"))
+    : [];
+  const autonomousActiveModes = autonomousModes.filter((mode) => mode.active);
+  const autonomousDecisions = Array.isArray(autonomousEditor?.decisions)
+    ? autonomousEditor.decisions
+        .filter((decision): decision is AutonomousEditorDecisionSummary => Boolean(decision && Number.isFinite(Number(decision.atSec))))
+        .slice(0, 6)
+    : [];
+  const autonomousDecisionCounts = Object.entries(autonomousEditor?.decisionCounts || {})
+    .filter((entry) => Number.isFinite(Number(entry[1])) && Number(entry[1]) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]));
+  const autonomousSelectedHook = autonomousEditor?.selectedHook ?? null;
+  const autonomousWinnerPolicy = autonomousEditor?.winnerPolicy ?? null;
+  const autonomousQualityGate = autonomousEditor?.qualityGate ?? null;
+  const autonomousCutQualityPercent =
+    autonomousQualityGate?.cutQualityScore !== null && autonomousQualityGate?.cutQualityScore !== undefined
+      ? Math.round(clamp01(Number(autonomousQualityGate.cutQualityScore)) * 100)
+      : null;
+  const autonomousLearning = autonomousEditor?.learning ?? null;
+  const autonomousLearningRecordedAtLabel =
+    autonomousLearning?.recordedAt && typeof autonomousLearning.recordedAt === "string"
+      ? formatFeedbackTimestamp(autonomousLearning.recordedAt)
+      : null;
+  const autonomousPromotionLead =
+    Array.isArray(autonomousLearning?.policyPromotions) && autonomousLearning.policyPromotions.length > 0
+      ? autonomousLearning.policyPromotions[0]
+      : null;
+  const autonomousHookSourceLabel = (() => {
+    const source = String(autonomousSelectedHook?.source || "").trim().toLowerCase();
+    if (source === "user_selected") return "User locked";
+    if (source === "fallback") return "Fallback";
+    if (source === "auto") return "Auto";
+    return "Unknown";
+  })();
+  const autonomousStatusLabel =
+    autonomousEditor?.autonomyState === "self_directed"
+      ? "Self-Directed"
+      : "Assisted";
+  const autonomousLearningReasonLabel =
+    typeof autonomousLearning?.boundaryCritic?.reason === "string" && autonomousLearning.boundaryCritic.reason.trim().length > 0
+      ? autonomousLearning.boundaryCritic.reason.replace(/_/g, " ")
       : null;
   const liveStepTranscriptCues = useMemo(
     () => normalizeTranscriptCueRows(activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.transcriptCues),
@@ -10803,6 +10922,7 @@ const Editor = () => {
                               ) : null}
                               {liveEditedTranscriptCues.map((cue, index) => {
                                 const isActiveCue = activeTranscriptCueIndex === index;
+                                const isLowConfidenceCue = cue.confidence !== null && cue.confidence !== undefined && cue.confidence < 0.55;
                                 return (
                                   <button
                                     key={`transcript-preview-cue-${index}-${cue.start}`}
@@ -10823,9 +10943,16 @@ const Editor = () => {
                                       <span className={`text-[11px] font-medium ${isActiveCue ? "text-primary" : "text-muted-foreground"}`}>
                                         {formatDurationClock(cue.start)} - {formatDurationClock(cue.end)}
                                       </span>
-                                      {isActiveCue ? (
-                                        <Badge className="border-primary/35 bg-primary/10 text-primary-foreground">Now</Badge>
-                                      ) : null}
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        {isLowConfidenceCue ? (
+                                          <Badge variant="outline" className="border-amber-400/40 bg-amber-500/10 text-amber-200">
+                                            Low confidence
+                                          </Badge>
+                                        ) : null}
+                                        {isActiveCue ? (
+                                          <Badge className="border-primary/35 bg-primary/10 text-primary-foreground">Now</Badge>
+                                        ) : null}
+                                      </div>
                                     </div>
                                     <p className="mt-1 text-sm leading-relaxed text-foreground/92">{cue.text}</p>
                                   </button>
@@ -10846,9 +10973,16 @@ const Editor = () => {
                                   key={`transcript-source-cue-${index}-${cue.start}`}
                                   className="rounded-xl border border-border/50 bg-background/40 px-3 py-2"
                                 >
-                                  <span className="text-[11px] font-medium text-muted-foreground">
-                                    {formatDurationClock(cue.start)} - {formatDurationClock(cue.end)}
-                                  </span>
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <span className="text-[11px] font-medium text-muted-foreground">
+                                      {formatDurationClock(cue.start)} - {formatDurationClock(cue.end)}
+                                    </span>
+                                    {cue.confidence !== null && cue.confidence !== undefined && cue.confidence < 0.55 ? (
+                                      <Badge variant="outline" className="border-amber-400/40 bg-amber-500/10 text-amber-200">
+                                        Low confidence
+                                      </Badge>
+                                    ) : null}
+                                  </div>
                                   <p className="mt-1 text-sm leading-relaxed text-foreground/92">{cue.text}</p>
                                 </div>
                               ))}
@@ -11269,6 +11403,232 @@ const Editor = () => {
                               selectedHookCandidate.start + selectedHookCandidate.duration
                             )}
                           </p>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {activeJob && autonomousEditor && (
+                      <div className="rounded-xl border border-primary/25 bg-[linear-gradient(160deg,rgba(12,31,45,0.72),rgba(23,18,44,0.68))] p-3 shadow-[0_18px_34px_-28px_hsl(var(--primary)/0.95)] sm:p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Wand2 className="h-4 w-4 text-primary" aria-hidden />
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Autonomous Editor</p>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Self-running hook, cut, pacing, and story decisions built from transcript, audio, visual, emotion, and reward signals.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousStatusLabel}</Badge>
+                            {autonomousLearning ? (
+                              <Badge className="border-cyan-400/35 bg-cyan-400/10 text-cyan-100">
+                                {autonomousLearning.throttled ? "Learning queued" : "Learning live"}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {autonomousSenses.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {autonomousSenses.map((sense) => (
+                              <Badge key={`autonomous-sense-${sense}`} className="border-border/55 bg-background/45 text-foreground">
+                                {sense}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-3">
+                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Hook Decision</p>
+                              <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousHookSourceLabel}</Badge>
+                            </div>
+                            <p className="mt-2 text-sm font-medium text-foreground">
+                              {autonomousSelectedHook
+                                ? formatHookRange(
+                                    autonomousSelectedHook.start,
+                                    autonomousSelectedHook.start + autonomousSelectedHook.duration,
+                                  )
+                                : (selectedHookCandidate
+                                  ? formatHookRange(
+                                      selectedHookCandidate.start,
+                                      selectedHookCandidate.start + selectedHookCandidate.duration,
+                                    )
+                                  : "No hook chosen yet")}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {autonomousSelectedHook?.reason || hookReason || "Waiting for enough signal to lock the opener."}
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Policy Winner</p>
+                              {autonomousWinnerPolicy?.strategy ? (
+                                <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                                  {autonomousWinnerPolicy.strategy}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-sm font-medium text-foreground">
+                              {autonomousWinnerPolicy?.policyId || "No policy winner yet"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {autonomousWinnerPolicy?.reason || "Variant scoring, pacing curve selection, and cut-quality pressure decide the winner."}
+                            </p>
+                            {autonomousWinnerPolicy ? (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {autonomousWinnerPolicy.predictedRetention !== null && autonomousWinnerPolicy.predictedRetention !== undefined ? (
+                                  <Badge className="border-border/55 bg-background/55 text-foreground">
+                                    {autonomousWinnerPolicy.predictedRetention}% predicted
+                                  </Badge>
+                                ) : null}
+                                {autonomousWinnerPolicy.pacingCurve ? (
+                                  <Badge className="border-border/55 bg-background/55 text-foreground">
+                                    {autonomousWinnerPolicy.pacingCurve} pacing
+                                  </Badge>
+                                ) : null}
+                                {autonomousWinnerPolicy.cliffhangerStyle ? (
+                                  <Badge className="border-border/55 bg-background/55 text-foreground">
+                                    {autonomousWinnerPolicy.cliffhangerStyle.replace(/_/g, " ")}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Quality Gate</p>
+                              <Badge className={`${autonomousQualityGate?.passed === false ? "border-destructive/35 bg-destructive/10 text-destructive" : "border-emerald-400/35 bg-emerald-400/10 text-emerald-100"}`}>
+                                {autonomousQualityGate?.passed === false ? "Needs work" : autonomousQualityGate?.passed === true ? "Passed" : "Evaluating"}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-sm font-medium text-foreground">
+                              {autonomousQualityGate?.totalChecks
+                                ? `${autonomousQualityGate.passedChecks ?? 0}/${autonomousQualityGate.totalChecks} checks`
+                                : "Checks pending"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {autonomousQualityGate?.summary || "Boundary critic, hook timing, and structural checks decide whether the cut is safe to ship."}
+                            </p>
+                            {autonomousCutQualityPercent !== null ? (
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/70">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
+                                  style={{ width: `${autonomousCutQualityPercent}%` }}
+                                />
+                              </div>
+                            ) : null}
+                            {autonomousCutQualityPercent !== null ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">Cut quality {autonomousCutQualityPercent}%</p>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {(autonomousDecisionCounts.length > 0 || autonomousDecisions.length > 0) ? (
+                          <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
+                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Decision Pressure</p>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {autonomousDecisionCounts.slice(0, 6).map(([key, value]) => (
+                                  <Badge key={`decision-count-${key}`} className="border-border/55 bg-background/55 text-foreground">
+                                    {key.replace(/_/g, " ")} {Number(value)}
+                                  </Badge>
+                                ))}
+                              </div>
+                              {autonomousActiveModes.length > 0 ? (
+                                <div className="mt-3 flex flex-wrap gap-1.5">
+                                  {autonomousActiveModes.map((mode) => (
+                                    <Badge key={`active-mode-${mode.id}`} className="border-primary/30 bg-primary/10 text-foreground">
+                                      {mode.label}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-3 text-[11px] text-muted-foreground">No special mode override. Default autonomous behavior is active.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Recent Decisions</p>
+                              <div className="mt-2 space-y-2">
+                                {autonomousDecisions.length > 0 ? autonomousDecisions.map((decision, index) => (
+                                  <div key={`autonomous-decision-${decision.type}-${decision.atSec}-${index}`} className="rounded-md border border-border/50 bg-background/55 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs text-foreground">{decision.label}</p>
+                                      <span className="text-[11px] text-muted-foreground">{formatTimelineClock(decision.atSec)}</span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                      {decision.detail || "Autonomous edit action applied."}
+                                    </p>
+                                  </div>
+                                )) : (
+                                  <p className="text-[11px] text-muted-foreground">Decision timeline will populate as the edit plan resolves.</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {(Array.isArray(autonomousEditor?.notes) && autonomousEditor.notes.length > 0) || autonomousLearning ? (
+                          <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
+                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Why It Edited This Way</p>
+                              <div className="mt-2 space-y-1.5">
+                                {(autonomousEditor?.notes || []).slice(0, 4).map((note, index) => (
+                                  <p key={`autonomous-note-${index}`} className="text-[11px] text-muted-foreground">
+                                    {note}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Outcome Learning</p>
+                              {autonomousLearning ? (
+                                <div className="mt-2 space-y-2">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {autonomousLearning.boundaryCritic?.trained ? (
+                                      <Badge className="border-emerald-400/35 bg-emerald-400/10 text-emerald-100">Boundary critic retrained</Badge>
+                                    ) : null}
+                                    {autonomousLearningRecordedAtLabel ? (
+                                      <Badge className="border-border/55 bg-background/55 text-foreground">
+                                        {autonomousLearningRecordedAtLabel}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {autonomousLearningReasonLabel
+                                      ? `Boundary critic ${autonomousLearningReasonLabel}.`
+                                      : "Learning summary available after feedback and telemetry passes."}
+                                  </p>
+                                  {autonomousLearning.boundaryCritic?.activeVersion ? (
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Active model {autonomousLearning.boundaryCritic.activeVersion}
+                                      {autonomousLearning.boundaryCritic.sampleCount !== null && autonomousLearning.boundaryCritic.sampleCount !== undefined
+                                        ? ` · ${autonomousLearning.boundaryCritic.sampleCount} samples`
+                                        : ""}
+                                    </p>
+                                  ) : null}
+                                  {autonomousPromotionLead ? (
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Promotion candidate: {autonomousPromotionLead.policyId}
+                                      {autonomousPromotionLead.lift !== null && autonomousPromotionLead.lift !== undefined
+                                        ? ` (+${Number(autonomousPromotionLead.lift).toFixed(2)} lift)`
+                                        : ""}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-[11px] text-muted-foreground">
+                                  Feedback and watch behavior will appear here after the first learning cycle completes.
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         ) : null}
                       </div>
                     )}
