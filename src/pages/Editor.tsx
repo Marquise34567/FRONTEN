@@ -20,6 +20,13 @@ import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSqua
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
+import {
+  DIRECTOR_NOTES_MAX_LENGTH,
+  DIRECTOR_NOTES_REQUIRED_PLAN,
+  appendDirectorNotesTemplate,
+  hasPlanTierAccess,
+  normalizeDirectorNotesPrompt,
+} from "@/lib/editorInstructions";
 import { useToast } from "@/hooks/use-toast";
 import { useExportNotification } from "@/hooks/use-export-notification";
 import { useMe } from "@/hooks/use-me";
@@ -743,6 +750,20 @@ const UPLOAD_MODE_PROMPT_OPTIONS: Array<{
     value: "full_auto_youtube",
     label: "Full Auto YouTube",
     description: "Auto-tunes cuts, captions, transitions, and YouTube packaging.",
+  },
+];
+const DIRECTOR_NOTES_EXAMPLES: Array<{ label: string; prompt: string }> = [
+  {
+    label: "Cut timestamps",
+    prompt: "Remove 00:52-01:08 and 03:14-03:31. Keep the rest intact.",
+  },
+  {
+    label: "Tight pacing",
+    prompt: "Keep pacing tight, remove dead air, and cut tangents fast.",
+  },
+  {
+    label: "Smooth story",
+    prompt: "Preserve the setup, use smoother transitions, and avoid jumpy cuts.",
   },
 ];
 const FULL_AUTO_YOUTUBE_TARGET_OPTIONS: Array<{ value: FullAutoYoutubeTarget; label: string; description: string }> = [
@@ -2318,13 +2339,14 @@ const Editor = () => {
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("retention_king");
   const [creativeVariant, setCreativeVariant] = useState<CreativeVariant>("balanced");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
-  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -2491,6 +2513,8 @@ const Editor = () => {
   const trialUnlockTier: PlanTier =
     trialUnlockTierRaw && PLAN_CONFIG[trialUnlockTierRaw] ? trialUnlockTierRaw : tier;
   const trialUnlockedFeatures = (PLAN_CONFIG[trialUnlockTier] ?? PLAN_CONFIG[tier]).features;
+  const premiumFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
+  const directorNotesUnlocked = hasPlanTierAccess(premiumFeatureTier, DIRECTOR_NOTES_REQUIRED_PLAN);
   const trialEndsAtMs = trialInfo?.endsAt ? new Date(trialInfo.endsAt).getTime() : null;
   const trialEndsAtLabel =
     trialEndsAtMs !== null && Number.isFinite(trialEndsAtMs)
@@ -4326,6 +4350,7 @@ const Editor = () => {
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
     const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && requestedMode === "vertical";
     const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
@@ -4406,6 +4431,7 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(directorNotesForJob ? { editorInstructionPrompt: directorNotesForJob } : {}),
               ...(fullAutoYoutubePayload ? { fullAutoYoutube: fullAutoYoutubePayload } : {}),
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
@@ -4435,6 +4461,7 @@ const Editor = () => {
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
               subtitles: subtitlesPayload,
+              ...(directorNotesForJob ? { editorInstructionPrompt: directorNotesForJob } : {}),
               ...(fullAutoYoutubePayload ? { fullAutoYoutube: fullAutoYoutubePayload } : {}),
               horizontalMode: {
                 output: "quality" as const,
@@ -4631,6 +4658,7 @@ const Editor = () => {
             autoCaptions: captionsEnabledForJob,
             subtitleStyle: subtitleStyleForJob,
             subtitles: subtitlesPayload,
+            ...(directorNotesForJob ? { editorInstructionPrompt: directorNotesForJob } : {}),
             maxCuts: autoModeV3Defaults.maxCuts,
             editorMode: editorModeForJob,
             creativeVariant,
@@ -4670,7 +4698,9 @@ const Editor = () => {
       return true
     } catch (err: any) {
       console.error(err);
-      if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
+      if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED" && err.data?.feature === "editorInstructions") {
+        promptDirectorNotesUpgrade();
+      } else if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
         const remaining = typeof err.data?.rendersRemaining === "number" ? err.data.rendersRemaining : rendersRemaining;
         const maxRenders = err.data?.maxRendersPerMonth ?? maxRendersPerMonth;
         const detail =
@@ -5520,6 +5550,7 @@ const Editor = () => {
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
+        const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
         const hookSelectionModeForJob =
           hookSelectionModeByJob[job.id] ??
           normalizeHookSelectionMode(
@@ -5557,6 +5588,7 @@ const Editor = () => {
             preset: subtitlePresetForJob,
             style: subtitleStyleForJob,
           },
+          ...(directorNotesForJob ? { editorInstructionPrompt: directorNotesForJob } : {}),
           ...(fullAutoYoutubeEnabled
             ? {
                 fullAutoYoutube: {
@@ -5655,7 +5687,9 @@ const Editor = () => {
           });
         }
       } catch (err: any) {
-        if (err instanceof ApiError && err.code === "RERENDER_LIMIT_REACHED") {
+        if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED" && err.data?.feature === "editorInstructions") {
+          promptDirectorNotesUpgrade();
+        } else if (err instanceof ApiError && err.code === "RERENDER_LIMIT_REACHED") {
           const used = Number(err.data?.rerendersUsed ?? 0);
           const limit = Number(err.data?.maxRerendersPerDay ?? maxRerendersPerDay ?? 0);
           const dayLabel = typeof err.data?.day === "string" ? ` on ${err.data.day}` : "";
@@ -5691,6 +5725,8 @@ const Editor = () => {
       continuityFirstEnabled,
       creativeVariant,
       creatorStyleLockPercent,
+      directorNotesUnlocked,
+      normalizedDirectorNotesPrompt,
       editorMode,
       exploreX3Enabled,
       topHumanGuardEnabled,
@@ -5707,6 +5743,7 @@ const Editor = () => {
       longFormClarityVsSpeed,
       onlyHookAndCut,
       pipelinePowerMode,
+      promptDirectorNotesUpgrade,
       qualityByJob,
       refetchMe,
       retentionStrategyProfile,
@@ -5985,6 +6022,10 @@ const Editor = () => {
     () => normalizeTranscriptSegmentRows(activeAnalysis?.pipelineSteps?.FRAME_ANALYSIS?.meta?.segments),
     [activeAnalysis],
   );
+  const persistedEditedTranscriptSegments = useMemo(
+    () => normalizeTranscriptSegmentRows(activeAnalysis?.edited_timeline_segments ?? activeAnalysis?.editedTimelineSegments),
+    [activeAnalysis],
+  );
   const pipelineStepEditedTranscriptCues = useMemo(
     () => normalizeTranscriptCueRows(activeAnalysis?.pipelineSteps?.FRAME_ANALYSIS?.meta?.editedTranscriptCues),
     [activeAnalysis],
@@ -5993,15 +6034,19 @@ const Editor = () => {
     () => normalizeTranscriptSegmentRows(activeAnalysis?.editPlan?.segments),
     [activeAnalysis],
   );
-  const liveTranscriptSegments = editorTranscriptSegments.length > 0 ? editorTranscriptSegments : pipelineStepTranscriptSegments;
+  const liveTranscriptSegments = persistedEditedTranscriptSegments.length > 0
+    ? persistedEditedTranscriptSegments
+    : editorTranscriptSegments.length > 0
+      ? editorTranscriptSegments
+      : pipelineStepTranscriptSegments;
   const editedTranscriptCues = useMemo(
     () => normalizeTranscriptCueRows(activeAnalysis?.edited_transcript_cues ?? activeAnalysis?.editedTranscriptCues),
     [activeAnalysis],
   );
   const liveEditedTranscriptCues = useMemo(() => {
     if (editedTranscriptCues.length > 0) return editedTranscriptCues;
-    if (pipelineStepEditedTranscriptCues.length > 0) return pipelineStepEditedTranscriptCues;
-    if (liveSourceTranscriptCues.length > 0 && liveTranscriptSegments.length > 0) {
+    if (normalizedActiveStatus !== "ready" && pipelineStepEditedTranscriptCues.length > 0) return pipelineStepEditedTranscriptCues;
+    if (normalizedActiveStatus !== "ready" && liveSourceTranscriptCues.length > 0 && liveTranscriptSegments.length > 0) {
       return remapTranscriptCuesToEditedTimelinePreview(liveSourceTranscriptCues, liveTranscriptSegments);
     }
     return [] as EditorTranscriptCue[];
@@ -6009,6 +6054,7 @@ const Editor = () => {
     editedTranscriptCues,
     liveSourceTranscriptCues,
     liveTranscriptSegments,
+    normalizedActiveStatus,
     pipelineStepEditedTranscriptCues,
   ]);
   const exportFeedbackEntries = useMemo(
@@ -7693,7 +7739,7 @@ const Editor = () => {
     setColdStartAutopilotEnabled(coldStart ?? false);
     setContinuityFirstEnabled(continuityFirst ?? false);
     setExploreX3Enabled(exploreX3 ?? false);
-    setTopHumanGuardEnabled(topHumanGuard ?? false);
+    setTopHumanGuardEnabled(topHumanGuard ?? true);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
@@ -8159,6 +8205,26 @@ const Editor = () => {
     exploreX3Enabled,
     topHumanGuardEnabled,
   ]);
+  const normalizedDirectorNotesPrompt = normalizeDirectorNotesPrompt(editorInstructionPrompt);
+  const directorNotesCharactersUsed = normalizedDirectorNotesPrompt.length;
+
+  const promptDirectorNotesUpgrade = useCallback(() => {
+    if (tier === "free") {
+      setTrialUpgradeOpen(true);
+    }
+    toast({
+      title: "Director Notes locked",
+      description: `${PLAN_CONFIG[DIRECTOR_NOTES_REQUIRED_PLAN]?.name || "Creator"} plan required for direct edit instructions.`,
+    });
+  }, [tier, toast]);
+
+  const applyDirectorNotesExample = useCallback((template: string) => {
+    if (!directorNotesUnlocked) {
+      promptDirectorNotesUpgrade();
+      return;
+    }
+    setEditorInstructionPrompt((current) => appendDirectorNotesTemplate(current, template));
+  }, [directorNotesUnlocked, promptDirectorNotesUpgrade]);
 
   const handleSelectPipelinePowerMode = (mode: PipelinePowerMode) => {
     if (mode !== "standard" && !paidTier) {
@@ -12692,6 +12758,76 @@ const Editor = () => {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="relative z-10 mt-3 overflow-hidden rounded-2xl border border-primary/30 bg-[radial-gradient(120%_180%_at_0%_0%,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(145deg,hsl(var(--card)/0.92),hsl(var(--card)/0.76))] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="max-w-xl">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-primary/80">Premium Director Notes</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold text-foreground">Tell the editor what to cut and how to shape the pacing.</p>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    Use notes like “remove 00:52-01:08”, “keep the setup but tighten the pacing”, or “make transitions smoother.”
+                    These notes can steer cut density, continuity, and exact timestamp removals for this render.
+                  </p>
+                </div>
+                <Badge className={directorNotesUnlocked ? "border-primary/50 bg-primary/15 text-primary" : "border-border/50 bg-background/50 text-muted-foreground"}>
+                  {PLAN_CONFIG[DIRECTOR_NOTES_REQUIRED_PLAN]?.name || "Creator"}+
+                </Badge>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {DIRECTOR_NOTES_EXAMPLES.map((example) => (
+                  <button
+                    key={example.label}
+                    type="button"
+                    className={`rounded-full border px-3 py-1.5 text-[11px] transition ${
+                      directorNotesUnlocked
+                        ? "border-primary/30 bg-primary/10 text-foreground hover:border-primary/55 hover:bg-primary/18"
+                        : "border-border/45 bg-background/40 text-muted-foreground"
+                    }`}
+                    onClick={() => applyDirectorNotesExample(example.prompt)}
+                    disabled={!directorNotesUnlocked}
+                  >
+                    {example.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-3">
+                <Textarea
+                  value={editorInstructionPrompt}
+                  onChange={(event) => setEditorInstructionPrompt(normalizeDirectorNotesPrompt(event.target.value))}
+                  placeholder="Remove 00:52-01:08 sponsor read. Keep pacing tight, but preserve the setup before the payoff."
+                  className="min-h-[132px] border-border/50 bg-background/55 text-sm text-foreground placeholder:text-muted-foreground/80"
+                  disabled={!directorNotesUnlocked}
+                />
+                <div className="mt-2 flex flex-col gap-1 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    {directorNotesUnlocked
+                      ? "Timestamp format: 00:52-01:08. You can also ask for smoother pacing, fewer cuts, or dead-air removal."
+                      : `Upgrade to ${PLAN_CONFIG[DIRECTOR_NOTES_REQUIRED_PLAN]?.name || "Creator"} to unlock direct edit instructions.`}
+                  </span>
+                  <span>{directorNotesCharactersUsed}/{DIRECTOR_NOTES_MAX_LENGTH}</span>
+                </div>
+              </div>
+
+              {!directorNotesUnlocked ? (
+                <div className="pointer-events-none absolute inset-0 rounded-2xl bg-background/40 backdrop-blur-[2px]" aria-hidden />
+              ) : null}
+              {!directorNotesUnlocked ? (
+                <div className="absolute inset-x-4 bottom-4">
+                  <Button
+                    type="button"
+                    className="pointer-events-auto w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                    onClick={promptDirectorNotesUpgrade}
+                  >
+                    Unlock Director Notes
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-card/35 px-3 py-2">
