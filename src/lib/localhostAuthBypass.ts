@@ -8,6 +8,11 @@ const isLoopbackHost = (value: string) => {
   return host === "localhost" || host === "127.0.0.1" || host === "::1"
 }
 
+export const isLocalhostLoopbackRuntime = () => {
+  if (typeof window === "undefined") return false
+  return isLoopbackHost(window.location.hostname)
+}
+
 const readBypassFlag = () => {
   if (typeof import.meta === "undefined") return ""
   const env = (import.meta as any).env || {}
@@ -15,8 +20,7 @@ const readBypassFlag = () => {
 }
 
 export const isLocalhostAuthBypassEnabled = () => {
-  if (typeof window === "undefined") return false
-  if (!isLoopbackHost(window.location.hostname)) return false
+  if (!isLocalhostLoopbackRuntime()) return false
   const raw = readBypassFlag()
   if (!raw) return true
   if (FALSE_PATTERN.test(raw)) return false
@@ -29,4 +33,3 @@ export const getLocalhostBypassUser = () => ({
   id: "localhost-dev-user",
   email: "localhost-dev@autoeditor.local",
 })
-

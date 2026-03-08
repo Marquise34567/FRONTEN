@@ -20,6 +20,7 @@ import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSqua
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
+import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
 import {
   DIRECTOR_NOTES_MAX_LENGTH,
   DIRECTOR_NOTES_REQUIRED_PLAN,
@@ -2504,16 +2505,19 @@ const Editor = () => {
   });
   const rawTier = (me?.subscription?.tier as string | undefined) || "free";
   const tier: PlanTier = PLAN_CONFIG[rawTier as PlanTier] ? (rawTier as PlanTier) : "free";
-  const paidTier = isPaidTier(tier);
   const subscriptionResolved = !accessToken || me !== undefined;
   const trialInfo = me?.subscription?.trial;
   const trialActive = Boolean(trialInfo?.active);
   const trialDaysRemaining = Number(trialInfo?.daysRemaining ?? 0);
+  const isDevAccount = Boolean(me?.flags?.dev);
   const trialUnlockTierRaw = trialInfo?.trialTier as PlanTier | undefined;
   const trialUnlockTier: PlanTier =
     trialUnlockTierRaw && PLAN_CONFIG[trialUnlockTierRaw] ? trialUnlockTierRaw : tier;
+  const localhostDevModeUnlock = isDevAccount && isLocalhostLoopbackRuntime();
+  const entitlementTier: PlanTier = localhostDevModeUnlock ? "founder" : (trialActive ? trialUnlockTier : tier);
+  const paidTier = isPaidTier(entitlementTier);
   const trialUnlockedFeatures = (PLAN_CONFIG[trialUnlockTier] ?? PLAN_CONFIG[tier]).features;
-  const premiumFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
+  const premiumFeatureTier: PlanTier = entitlementTier;
   const directorNotesUnlocked = hasPlanTierAccess(premiumFeatureTier, DIRECTOR_NOTES_REQUIRED_PLAN);
   const trialEndsAtMs = trialInfo?.endsAt ? new Date(trialInfo.endsAt).getTime() : null;
   const trialEndsAtLabel =
@@ -2536,10 +2540,14 @@ const Editor = () => {
   const subscriptionCardHideKey = me?.user?.id ? `editor_subscription_card_hidden_${me.user.id}` : null;
   const analyzeUnlockStorageKey = me?.user?.id ? `${ANALYZE_UNLOCKED_JOBS_KEY}_${me.user.id}` : null;
   const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
-  const maxQuality = (PLAN_CONFIG[tier] ?? PLAN_CONFIG.free).exportQuality;
-  const subtitleFeatureTier: PlanTier = trialActive ? trialUnlockTier : tier;
+  const maxQuality = (PLAN_CONFIG[entitlementTier] ?? PLAN_CONFIG.free).exportQuality;
+  const subtitleFeatureTier: PlanTier = entitlementTier;
   const allowedSubtitlePresets = (PLAN_CONFIG[subtitleFeatureTier] ?? PLAN_CONFIG.free).allowedSubtitlePresets;
   const subtitlesEnabled = allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.length > 0;
+  const premiumModesBadgeLabel = localhostDevModeUnlock ? "Local dev unlocked" : (paidTier ? "Paid unlocked" : "Paid only");
+  const premiumModesAvailabilityCopy = localhostDevModeUnlock
+    ? "Localhost dev account: all power modes are unlocked."
+    : (paidTier ? "Paid plan detected: all power modes available." : "Free plan: Balanced and Full Auto YouTube are available.");
   const isSubtitlePresetAllowed = useCallback(
     (presetId: SubtitlePresetId) => {
       if (!subtitlesEnabled) return false;
@@ -2564,7 +2572,6 @@ const Editor = () => {
     () => (outcomeAutomationProfile ? Number(outcomeAutomationProfile.expectedLift || 0) * 100 : 0),
     [outcomeAutomationProfile],
   );
-  const isDevAccount = Boolean(me?.flags?.dev);
   const rendersUsed = me?.usage?.rendersUsed ?? 0;
   const maxRendersPerMonth = me?.limits?.maxRendersPerMonth ?? null;
   const rendersRemaining = useMemo(() => {
@@ -2577,6 +2584,17 @@ const Editor = () => {
     if (maxRerendersPerDay === null || maxRerendersPerDay === undefined) return null;
     return Math.max(0, maxRerendersPerDay - rerendersUsedToday);
   }, [maxRerendersPerDay, rerendersUsedToday]);
+  const normalizedDirectorNotesPrompt = normalizeDirectorNotesPrompt(editorInstructionPrompt);
+  const directorNotesCharactersUsed = normalizedDirectorNotesPrompt.length;
+  const promptDirectorNotesUpgrade = useCallback(() => {
+    if (tier === "free") {
+      setTrialUpgradeOpen(true);
+    }
+    toast({
+      title: "Director Notes locked",
+      description: `${PLAN_CONFIG[DIRECTOR_NOTES_REQUIRED_PLAN]?.name || "Creator"} plan required for direct edit instructions.`,
+    });
+  }, [tier, toast]);
   const hasReachedRenderLimitForMode = useCallback((_mode: "horizontal" | "vertical") => {
     if (isDevAccount) return false;
     if (maxRendersPerMonth === null || maxRendersPerMonth === undefined) return false;
@@ -4228,18 +4246,18 @@ const Editor = () => {
     setQualityByJob((prev) => {
       if (prev[activeJob.id]) return prev;
       const requested = normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality);
-      const clamped = clampQualityForTier(requested, tier);
+      const clamped = clampQualityForTier(requested, entitlementTier);
       return { ...prev, [activeJob.id]: clamped };
     });
-  }, [activeJob, maxQuality, tier]);
+  }, [activeJob, entitlementTier, maxQuality]);
 
   const selectedQuality = useMemo(() => {
-    if (!activeJob) return clampQualityForTier(maxQuality, tier);
+    if (!activeJob) return clampQualityForTier(maxQuality, entitlementTier);
     return (
       qualityByJob[activeJob.id] ??
-      clampQualityForTier(normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality), tier)
+      clampQualityForTier(normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality), entitlementTier)
     );
-  }, [activeJob, maxQuality, qualityByJob, tier]);
+  }, [activeJob, entitlementTier, maxQuality, qualityByJob]);
 
   const qualityButtons = useMemo(() => {
     return QUALITY_ORDER.map((quality) => {
@@ -8205,19 +8223,6 @@ const Editor = () => {
     exploreX3Enabled,
     topHumanGuardEnabled,
   ]);
-  const normalizedDirectorNotesPrompt = normalizeDirectorNotesPrompt(editorInstructionPrompt);
-  const directorNotesCharactersUsed = normalizedDirectorNotesPrompt.length;
-
-  const promptDirectorNotesUpgrade = useCallback(() => {
-    if (tier === "free") {
-      setTrialUpgradeOpen(true);
-    }
-    toast({
-      title: "Director Notes locked",
-      description: `${PLAN_CONFIG[DIRECTOR_NOTES_REQUIRED_PLAN]?.name || "Creator"} plan required for direct edit instructions.`,
-    });
-  }, [tier, toast]);
-
   const applyDirectorNotesExample = useCallback((template: string) => {
     if (!directorNotesUnlocked) {
       promptDirectorNotesUpgrade();
@@ -8719,7 +8724,7 @@ const Editor = () => {
                 </p>
               </div>
               <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
-                {paidTier ? "Paid unlocked" : "Paid only"}
+                {premiumModesBadgeLabel}
               </Badge>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -12846,7 +12851,7 @@ const Editor = () => {
 
             <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[11px] text-muted-foreground">
-                {paidTier ? "Paid plan detected: all power modes available." : "Free plan: Balanced and Full Auto YouTube are available."}
+                {premiumModesAvailabilityCopy}
               </p>
               <Button
                 type="button"
