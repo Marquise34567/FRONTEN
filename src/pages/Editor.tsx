@@ -2887,7 +2887,10 @@ const Editor = () => {
           // ignore
         }
       } else {
-        toast({ title: "Failed to load jobs", description: "Please refresh and try again." });
+        const description = err instanceof ApiError
+          ? (err.message || `HTTP ${err.status}`)
+          : "Please refresh and try again.";
+        toast({ title: "Failed to load jobs", description });
       }
     } finally {
       setLoadingJobs(false);
