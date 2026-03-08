@@ -2347,7 +2347,7 @@ const Editor = () => {
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
-  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -7743,7 +7743,7 @@ const Editor = () => {
     setColdStartAutopilotEnabled(coldStart ?? false);
     setContinuityFirstEnabled(continuityFirst ?? false);
     setExploreX3Enabled(exploreX3 ?? false);
-    setTopHumanGuardEnabled(topHumanGuard ?? true);
+    setTopHumanGuardEnabled(topHumanGuard ?? false);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
