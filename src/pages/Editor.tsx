@@ -2435,6 +2435,8 @@ const Editor = () => {
   const [youtubeSignalByJob, setYouTubeSignalByJob] = useState<Record<string, YouTubeSignalState | null>>({});
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
+  const [focusedDropOffEventId, setFocusedDropOffEventId] = useState<string | null>(null);
+  const [autoFixingRetentionGoal, setAutoFixingRetentionGoal] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
@@ -6802,7 +6804,25 @@ const Editor = () => {
       metadataRetention?.curve ||
       activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta?.curve,
     );
-    if (parsed.length >= 2) return parsed;
+    if (parsed.length >= 2) {
+      const measuredPointCount = parsed.filter((point) => (
+        point.watchedPct !== null && Number.isFinite(Number(point.watchedPct))
+      )).length;
+      const shouldPreferMeasured =
+        normalizedActiveStatus === "ready" &&
+        measuredPointCount >= Math.max(2, Math.ceil(parsed.length * 0.4));
+      if (shouldPreferMeasured) {
+        return parsed.map((point) => ({
+          ...point,
+          predicted: point.watchedPct !== null && Number.isFinite(Number(point.watchedPct))
+            ? Number(point.watchedPct)
+            : point.predicted,
+        }));
+      }
+      return parsed;
+    }
+    // Do not fake a curve after render is finished; missing data should stay missing.
+    if (normalizedActiveStatus === "ready") return [];
     const durationSec = Math.max(60, estimatedTimelineDurationSec);
     const baseline = clamp(Math.round(retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 78), 55, 96);
     const ratios = [0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1];
@@ -6813,7 +6833,14 @@ const Editor = () => {
         predicted: clamp(Math.round(organicDrift), 50, 100),
       } as RetentionPoint;
     });
-  }, [activeAnalysis, metadataRetention, estimatedTimelineDurationSec, retentionScoreAfterDisplay, retentionScoreDisplay]);
+  }, [
+    activeAnalysis,
+    metadataRetention,
+    normalizedActiveStatus,
+    estimatedTimelineDurationSec,
+    retentionScoreAfterDisplay,
+    retentionScoreDisplay,
+  ]);
   const retentionLinePoints = useMemo(() => {
     if (retentionCurvePoints.length < 2) return "";
     const maxSec = Math.max(retentionCurvePoints[retentionCurvePoints.length - 1]?.atSec || 1, 1);
@@ -6828,6 +6855,15 @@ const Editor = () => {
   const latestRetentionPoint = retentionCurvePoints.length > 0
     ? retentionCurvePoints[retentionCurvePoints.length - 1]
     : null;
+  const retentionCurveMeasuredPointCount = useMemo(
+    () => retentionCurvePoints.filter((point) => point.watchedPct !== null && Number.isFinite(Number(point.watchedPct))).length,
+    [retentionCurvePoints],
+  );
+  const retentionCurveIsEstimated = useMemo(() => {
+    if (retentionCurvePoints.length < 2) return false;
+    if (normalizedActiveStatus !== "ready") return true;
+    return retentionCurveMeasuredPointCount < Math.max(2, Math.ceil(retentionCurvePoints.length * 0.4));
+  }, [normalizedActiveStatus, retentionCurveMeasuredPointCount, retentionCurvePoints.length]);
   const retentionTimelineDurationSec = useMemo(() => {
     const lastCurveSec = retentionCurvePoints.length > 0
       ? retentionCurvePoints[retentionCurvePoints.length - 1].atSec
@@ -7118,6 +7154,12 @@ const Editor = () => {
   }, [retentionTimelineDurationSec, timelineEnergyMoments]);
   const canQueueTimelineSegmentAction = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const retentionGoalMet = latestRetentionPoint !== null && latestRetentionPoint.predicted >= RETENTION_GOAL_PERCENT;
+  const retentionGoalNeedsFixes = latestRetentionPoint !== null && !retentionGoalMet;
+  const retentionGoalStatusLabel = latestRetentionPoint === null
+    ? "Awaiting Score"
+    : retentionGoalMet
+      ? "On Track"
+      : "Needs Pacing Fixes";
   const durationForDeepDiveSec = Math.max(1, retentionTimelineDurationSec || estimatedTimelineDurationSec || 1);
   const averagePercentViewed = useMemo(
     () => averageRetentionBetween(retentionCurvePoints, 0, durationForDeepDiveSec),
@@ -7275,6 +7317,7 @@ const Editor = () => {
       detail: string;
       estimatedLift: number;
       segment: RetentionTimelineSegment | null;
+      linkedDropOffEventId: string | null;
     }> = [];
     for (const event of majorDropOffMoments) {
       const estimatedLift = clamp(Math.round(event.dropAbs * 0.55), 3, 18);
@@ -7286,6 +7329,7 @@ const Editor = () => {
         detail: `${event.cause} ${event.suggestion}`,
         estimatedLift,
         segment: event.segment,
+        linkedDropOffEventId: event.id,
       });
     }
     if (fillerSecondsPotential !== null && fillerSecondsPotential > 4) {
@@ -7297,6 +7341,7 @@ const Editor = () => {
         detail: `Potentially trim around ${fillerSecondsPotential}s of pauses/fillers to improve pacing continuity.`,
         estimatedLift: clamp(Math.round(fillerSecondsPotential / 6), 2, 10),
         segment: null,
+        linkedDropOffEventId: null,
       });
     }
     if (retentionAt30Sec !== null && retentionAt30Sec < 70) {
@@ -7308,6 +7353,7 @@ const Editor = () => {
         detail: "Strengthen hook clarity, front-load payoff, and use a faster pattern interrupt cadence.",
         estimatedLift: clamp(Math.round((70 - retentionAt30Sec) * 0.35), 3, 14),
         segment: null,
+        linkedDropOffEventId: null,
       });
     }
     return recommendations
@@ -7315,6 +7361,94 @@ const Editor = () => {
       .slice(0, 5)
       .map((item, index) => ({ ...item, rank: index + 1 }));
   }, [fillerSecondsPotential, majorDropOffMoments, retentionAt30Sec]);
+  const handleAutoFixToRetentionGoal = useCallback(async () => {
+    if (!activeJob?.id) return;
+    if (normalizeStatus(activeJob.status) !== "ready") {
+      toast({
+        title: "Render still processing",
+        description: "Auto-fix becomes available after rendering finishes.",
+      });
+      return;
+    }
+    if (retentionGoalMet) {
+      toast({
+        title: "Goal already met",
+        description: `This render is already on track for the ${RETENTION_GOAL_PERCENT}% goal.`,
+      });
+      return;
+    }
+    setAutoFixingRetentionGoal(true);
+    try {
+      const targetSegments = majorDropOffMoments
+        .map((event) => event.segment)
+        .filter((segment): segment is RetentionTimelineSegment => Boolean(segment))
+        .filter((segment, index, list) => list.findIndex((entry) => entry.id === segment.id) === index)
+        .slice(0, 3);
+
+      if (targetSegments.length > 0) {
+        const queuedActions: Record<string, "fix" | "remove"> = {};
+        setAModeEnabled(true);
+        setBingeModeEnabled(true);
+        setAutoCutBoringEnabled(true);
+        setMaxCutsRequested((prev) => clamp(prev + targetSegments.length + 1, MAX_CUTS_MIN, MAX_CUTS_MAX));
+        for (const segment of targetSegments) {
+          const action: "fix" | "remove" = segment.category === "skip_risk" ? "remove" : "fix";
+          const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
+          queuedActions[actionKey] = action;
+          const timeRange = `${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`;
+          await postRetentionFeedback(
+            activeJob.id,
+            {
+              source: "frontend_retention_auto_fix",
+              manualScore: action === "fix" ? 81 : 67,
+              watchPercent: Number((segment.predicted / 100).toFixed(4)),
+              completionPercent: Number((segment.predicted / 100).toFixed(4)),
+              notes: `Auto-fix queued ${action} on ${timeRange} (${segment.categoryLabel.toLowerCase()}) to close the retention gap to ${RETENTION_GOAL_PERCENT}%.`,
+            },
+            { force: true },
+          );
+        }
+        setTimelineSegmentActionByKey((prev) => ({ ...prev, ...queuedActions }));
+      } else {
+        setAModeEnabled(true);
+        setBingeModeEnabled(true);
+        setAutoCutBoringEnabled(true);
+        setMaxCutsRequested((prev) => clamp(prev + 2, MAX_CUTS_MIN, MAX_CUTS_MAX));
+        await postRetentionFeedback(
+          activeJob.id,
+          {
+            source: "frontend_retention_auto_fix",
+            manualScore: 76,
+            watchPercent: Number(clamp((latestRetentionPoint?.predicted ?? 0) / 100, 0, 1).toFixed(4)),
+            completionPercent: Number(clamp((latestRetentionPoint?.predicted ?? 0) / 100, 0, 1).toFixed(4)),
+            notes: `Auto-fix to ${RETENTION_GOAL_PERCENT}% requested with no mapped drop-off segment; boosted pacing and cut aggressiveness for next render.`,
+          },
+          { force: true },
+        );
+      }
+
+      toast({
+        title: "Auto-fix queued",
+        description: `Queued top retention fixes and started Redo Renderer toward the ${RETENTION_GOAL_PERCENT}% goal.`,
+      });
+      await handleRedoRender(activeJob);
+    } catch (err: any) {
+      toast({
+        title: "Auto-fix failed",
+        description: err?.message || "Could not queue auto-fix actions. Try again.",
+      });
+    } finally {
+      setAutoFixingRetentionGoal(false);
+    }
+  }, [
+    activeJob,
+    handleRedoRender,
+    latestRetentionPoint?.predicted,
+    majorDropOffMoments,
+    postRetentionFeedback,
+    retentionGoalMet,
+    toast,
+  ]);
   const projectedAverageViewedRange = useMemo(() => {
     if (averagePercentViewed === null) return null;
     const totalLift = deepDiveRecommendations.reduce((sum, item) => sum + item.estimatedLift, 0);
@@ -7328,7 +7462,7 @@ const Editor = () => {
     if (averagePercentViewed === null) {
       return "Retention analysis will appear once full retention points are available.";
     }
-    const quality =
+    const qualityCore =
       averagePercentViewed >= 60
         ? "Excellent retention profile"
         : averagePercentViewed >= 45
@@ -7336,26 +7470,32 @@ const Editor = () => {
           : averagePercentViewed >= 35
             ? "Moderate retention profile"
             : "At-risk retention profile";
+    const quality = retentionCurveIsEstimated
+      ? `Estimated ${qualityCore.charAt(0).toLowerCase()}${qualityCore.slice(1)}`
+      : qualityCore;
     const majorDrop = majorDropOffMoments[0];
     if (!majorDrop) {
       return `${quality} — ${averagePercentViewed.toFixed(1)}% avg viewed with no major drop-off detected.`;
     }
     return `${quality} — ${averagePercentViewed.toFixed(1)}% avg viewed, biggest drop ${majorDrop.dropAbs.toFixed(1)}% at ${formatTimelineClock(majorDrop.from.atSec)}-${formatTimelineClock(majorDrop.to.atSec)}.`;
-  }, [averagePercentViewed, majorDropOffMoments]);
+  }, [averagePercentViewed, majorDropOffMoments, retentionCurveIsEstimated]);
   const retentionCurveSummary = useMemo(() => {
     if (retentionCurvePoints.length < 2) return "Retention curve is not available yet for this video.";
     const first = retentionCurvePoints[0];
     const majorDrop = majorDropOffMoments[0];
     const spike = retentionSpikeMoments[0];
-    const startLine = `Curve opens at ${first.predicted}% and trends through ${formatTimelineClock(durationForDeepDiveSec)}.`;
+    const startLine = `${retentionCurveIsEstimated ? "Estimated curve" : "Curve"} opens at ${first.predicted}% and trends through ${formatTimelineClock(durationForDeepDiveSec)}.`;
     const dropLine = majorDrop
       ? `Sharpest drop is ${majorDrop.dropAbs.toFixed(1)}% at ${formatTimelineClock(majorDrop.from.atSec)}-${formatTimelineClock(majorDrop.to.atSec)}.`
       : "No severe drop-off segment detected.";
     const spikeLine = spike
       ? `Best rebound is +${spike.gainAbs.toFixed(1)}% at ${formatTimelineClock(spike.from.atSec)}-${formatTimelineClock(spike.to.atSec)}.`
       : "No strong rewatch spike detected yet.";
-    return `${startLine} ${dropLine} ${spikeLine}`;
-  }, [durationForDeepDiveSec, majorDropOffMoments, retentionCurvePoints, retentionSpikeMoments]);
+    const accuracyLine = retentionCurveIsEstimated
+      ? "This is a model estimate until enough real watch telemetry is available."
+      : "This is based on measured watch telemetry.";
+    return `${startLine} ${dropLine} ${spikeLine} ${accuracyLine}`;
+  }, [durationForDeepDiveSec, majorDropOffMoments, retentionCurveIsEstimated, retentionCurvePoints, retentionSpikeMoments]);
   const hookConfidenceScore = clamp(
     Math.round((Number(selectedHookCandidate?.auditScore || selectedHookCandidate?.score || 0) || 0) * 100),
     0,
@@ -8498,6 +8638,23 @@ const Editor = () => {
     setFeedbackDeepDiveOpen(true);
   }, []);
 
+  const handleDeepDiveRecommendationClick = useCallback((recommendation: {
+    id: string;
+    linkedDropOffEventId?: string | null;
+  }) => {
+    if (recommendation.linkedDropOffEventId) {
+      setFocusedDropOffEventId(recommendation.linkedDropOffEventId);
+      openFeedbackDeepDiveSection("timeline");
+      return;
+    }
+    setFocusedDropOffEventId(null);
+    if (recommendation.id === "hook-tighten") {
+      openFeedbackDeepDiveSection("retention_vs_emotion");
+      return;
+    }
+    openFeedbackDeepDiveSection("timeline");
+  }, [openFeedbackDeepDiveSection]);
+
   useEffect(() => {
     if (!feedbackDeepDiveOpen) return;
     if (typeof window === "undefined") return;
@@ -8509,6 +8666,16 @@ const Editor = () => {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [feedbackDeepDiveOpen, feedbackDeepDiveSection]);
+
+  useEffect(() => {
+    if (!feedbackDeepDiveOpen) {
+      setFocusedDropOffEventId(null);
+    }
+  }, [feedbackDeepDiveOpen]);
+
+  useEffect(() => {
+    setFocusedDropOffEventId(null);
+  }, [activeJob?.id]);
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
@@ -12248,9 +12415,37 @@ const Editor = () => {
                               <p className="mt-1 text-sm text-foreground">{deepDiveOverallSummary}</p>
                               <p className="mt-1 text-xs text-muted-foreground">{retentionCurveSummary}</p>
                             </div>
-                            <Badge className={retentionGoalMet ? "border-emerald-400/45 bg-emerald-500/15 text-emerald-100" : "border-amber-400/45 bg-amber-500/15 text-amber-100"}>
-                              Goal {RETENTION_GOAL_PERCENT}% · {retentionGoalMet ? "On Track" : "Needs Pacing Fixes"}
-                            </Badge>
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              <Badge className={retentionCurveIsEstimated ? "border-cyan-400/40 bg-cyan-500/12 text-cyan-100" : "border-emerald-400/45 bg-emerald-500/12 text-emerald-100"}>
+                                {retentionCurveIsEstimated ? "Estimated score" : "Measured score"}
+                              </Badge>
+                              <Badge className={
+                                latestRetentionPoint === null
+                                  ? "border-border/55 bg-background/55 text-foreground"
+                                  : retentionGoalMet
+                                    ? "border-emerald-400/45 bg-emerald-500/15 text-emerald-100"
+                                    : "border-amber-400/45 bg-amber-500/15 text-amber-100"
+                              }>
+                                Goal {RETENTION_GOAL_PERCENT}% · {retentionGoalStatusLabel}
+                              </Badge>
+                              {retentionGoalNeedsFixes ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-3 text-[11px]"
+                                  disabled={autoFixingRetentionGoal || !activeJob || normalizeStatus(activeJob.status) !== "ready"}
+                                  onClick={() => void handleAutoFixToRetentionGoal()}
+                                >
+                                  {autoFixingRetentionGoal ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Wand2 className="mr-1 h-3 w-3" />
+                                  )}
+                                  Auto-fix to goal
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
 
@@ -12372,7 +12567,12 @@ const Editor = () => {
                                   const queuedAction = actionKey ? timelineSegmentActionByKey[actionKey] : null;
                                   const submitting = actionKey ? timelineSegmentActionSubmittingKey === actionKey : false;
                                   return (
-                                    <div key={`drop-off-${event.id}`} className="deepdive-list-card rounded-lg p-2.5">
+                                    <div
+                                      key={`drop-off-${event.id}`}
+                                      className={`deepdive-list-card rounded-lg p-2.5 transition ${
+                                        focusedDropOffEventId === event.id ? "ring-1 ring-primary/60 border-primary/45 bg-primary/10" : ""
+                                      }`}
+                                    >
                                       <div className="flex items-center justify-between gap-2">
                                         <p className="text-xs font-semibold text-foreground">
                                           {formatTimelineClock(event.from.atSec)}-{formatTimelineClock(event.to.atSec)}
@@ -12432,14 +12632,23 @@ const Editor = () => {
                             <div className="mt-2 space-y-2">
                               {deepDiveRecommendations.length > 0 ? (
                                 deepDiveRecommendations.map((recommendation) => (
-                                  <div key={`recommendation-${recommendation.id}`} className="deepdive-list-card rounded-lg p-2.5">
+                                  <button
+                                    key={`recommendation-${recommendation.id}`}
+                                    type="button"
+                                    className="deepdive-list-card w-full rounded-lg p-2.5 text-left transition hover:border-primary/45 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                                    onClick={() => handleDeepDiveRecommendationClick(recommendation)}
+                                    aria-label={`Open recommendation ${recommendation.rank}: ${recommendation.title}`}
+                                  >
                                     <div className="flex items-center justify-between gap-2">
                                       <p className="text-xs font-semibold text-foreground">#{recommendation.rank} {recommendation.title}</p>
                                       <Badge className="border-primary/40 bg-primary/12 text-foreground">+{recommendation.estimatedLift}% est. lift</Badge>
                                     </div>
                                     <p className="mt-1 text-[11px] text-muted-foreground">{recommendation.timestampLabel}</p>
                                     <p className="mt-1 text-[11px] text-foreground/90">{recommendation.detail}</p>
-                                  </div>
+                                    <p className="mt-1 text-[11px] text-primary/90">
+                                      {recommendation.linkedDropOffEventId ? "Click to jump to this drop-off window." : "Click to open related deep-dive guidance."}
+                                    </p>
+                                  </button>
                                 ))
                               ) : (
                                 <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-2 py-2 text-[11px] text-muted-foreground">
