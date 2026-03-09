@@ -56,6 +56,13 @@ const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,vi
 const CAPTIONS_PIPELINE_ENABLED = false;
 const PREVIEW_REFRESH_RETRY_LIMIT = 2;
 const PREVIEW_REFRESH_RETRY_DELAY_MS = 900;
+const PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS = 180;
+const PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC = 0.2;
+const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
+const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
+const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
+const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
+const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
   const lowerName = file.name.toLowerCase();
   if (ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) return true;
@@ -924,6 +931,11 @@ interface JobDetail extends JobSummary {
   error?: string | null;
 }
 
+type FetchRequestOptions = {
+  background?: boolean;
+  silent?: boolean;
+};
+
 type HookCandidate = {
   start: number;
   duration: number;
@@ -1620,6 +1632,67 @@ const normalizeJobVideoOutputs = (job: JobDetail): JobDetail => {
     outputUrl: urls[0] ?? null,
     outputUrls: urls.length > 0 ? urls : null,
   };
+};
+
+const normalizeJobProgressForSignature = (value: unknown) => {
+  const resolved = Number(value);
+  if (!Number.isFinite(resolved)) return "";
+  return String((Math.round(clamp(resolved, 0, 100) * 10) / 10).toFixed(1));
+};
+
+const buildJobSummarySignature = (job: JobSummary) => {
+  const raw = job as Record<string, unknown>;
+  return [
+    String(job.id || ""),
+    normalizeStatus(job.status),
+    normalizeJobProgressForSignature(job.progress),
+    String(job.createdAt || ""),
+    String(job.inputPath || ""),
+    String(job.requestedQuality || ""),
+    String(job.watermark ?? ""),
+    String(job.renderMode || ""),
+    String(raw.outputPath || ""),
+    String(raw.outputUrl || ""),
+    String(raw.updatedAt || raw.pipelineUpdatedAt || ""),
+    String(raw.error || ""),
+  ].join("|");
+};
+
+const areJobSummaryListsEquivalent = (left: JobSummary[], right: JobSummary[]) => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (buildJobSummarySignature(left[index]) !== buildJobSummarySignature(right[index])) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const buildJobDetailSyncSignature = (job: JobDetail | null) => {
+  if (!job) return "";
+  const analysis = toObjectRecord(job.analysis);
+  const runtimeRaw =
+    (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
+    (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
+    null;
+  const outputUrlCount = Array.isArray(job.outputUrls) ? job.outputUrls.length : 0;
+  return [
+    String(job.id || ""),
+    normalizeStatus(job.status),
+    normalizeJobProgressForSignature(job.progress),
+    String(job.outputPath || ""),
+    String(job.outputUrl || ""),
+    String(outputUrlCount),
+    String(job.retentionScore ?? ""),
+    String(job.finalQuality || ""),
+    String(job.error || ""),
+    String(analysis?.pipelineUpdatedAt || ""),
+    String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
+    String(analysis?.retentionUpdatedAt || ""),
+    String(analysis?.updatedAt || ""),
+    String(runtimeRaw?.startedAt || ""),
+  ].join("|");
 };
 
 const RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN =
@@ -2420,6 +2493,12 @@ const Editor = () => {
   const [timelineSegmentActionSubmittingKey, setTimelineSegmentActionSubmittingKey] = useState<string | null>(null);
   const [mobilePipeline, setMobilePipeline] = useState(false);
   const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile>(() => readRuntimeProfile());
+  const [isPageVisible, setIsPageVisible] = useState(() => (
+    typeof document === "undefined" ? true : document.visibilityState !== "hidden"
+  ));
+  const [isNetworkOnline, setIsNetworkOnline] = useState(() => (
+    typeof navigator === "undefined" ? true : navigator.onLine !== false
+  ));
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
@@ -2477,7 +2556,10 @@ const Editor = () => {
   const [transcriptPanelTab, setTranscriptPanelTab] = useState<TranscriptPanelTab>("editor");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewRetryCountByJobRef = useRef<Record<string, number>>({});
+  const previewTimeSyncRef = useRef<{ atMs: number; timeSec: number }>({ atMs: 0, timeSec: 0 });
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
+  const backgroundJobsFetchInFlightRef = useRef(false);
+  const backgroundJobFetchInFlightRef = useRef<Record<string, boolean>>({});
   const retentionFeedbackDispatchRef = useRef<Record<string, { at: number; signature: string }>>({});
   const retentionFeedbackInFlightRef = useRef<Record<string, boolean>>({});
   const downloadFeedbackSentRef = useRef<Record<string, boolean>>({});
@@ -2492,6 +2574,8 @@ const Editor = () => {
   const lowPowerMode = runtimeProfile.lowPowerDevice;
   const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
   const livePollingIntervalMs = performanceConstrained ? 4500 : 2500;
+  const shouldTickEta = Boolean(uploadingJobId || (activeJob && !isTerminalStatus(activeJob.status)));
+  const etaTickIntervalMs = performanceConstrained ? ETA_TICK_CONSTRAINED_INTERVAL_MS : ETA_TICK_STANDARD_INTERVAL_MS;
   const ultraPipelineMode = isUltraPipelineMode(pipelinePowerMode);
   const retentionKingPipelineMode = pipelinePowerMode === "retention_king";
   const previewPreload: "auto" | "metadata" = performanceConstrained ? "metadata" : "auto";
@@ -2506,6 +2590,33 @@ const Editor = () => {
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
+  const shouldPollSelectedJobInBackground = Boolean(
+    selectedJobId &&
+    activeJob?.id === selectedJobId &&
+    !isTerminalStatus(activeJob.status),
+  );
+  const effectiveBackgroundPollingIntervalMs = useMemo(() => {
+    if (!isNetworkOnline) return null;
+    let interval = livePollingIntervalMs;
+    if (performanceConstrained) {
+      interval = Math.max(interval, BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS);
+    }
+    if (!isPageVisible) {
+      interval = Math.max(interval, BACKGROUND_POLL_HIDDEN_INTERVAL_MS);
+    }
+    return interval;
+  }, [isNetworkOnline, isPageVisible, livePollingIntervalMs, performanceConstrained]);
+  const effectiveBackgroundJobPollingIntervalMs = useMemo(() => {
+    if (!isNetworkOnline) return null;
+    let interval = livePollingIntervalMs;
+    if (performanceConstrained || runtimeProfile.saveData) {
+      interval = Math.max(interval, BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS);
+    }
+    if (!isPageVisible) {
+      interval = Math.max(interval, BACKGROUND_POLL_HIDDEN_INTERVAL_MS);
+    }
+    return interval;
+  }, [isNetworkOnline, isPageVisible, livePollingIntervalMs, performanceConstrained, runtimeProfile.saveData]);
   useEffect(() => {
     if (!selectedJobId) return;
     lastKnownJobIdRef.current = selectedJobId;
@@ -2515,9 +2626,12 @@ const Editor = () => {
       // ignore storage failures
     }
   }, [selectedJobId]);
+  const meRefetchInterval = hasActiveJobs && isNetworkOnline
+    ? (effectiveBackgroundPollingIntervalMs ?? false)
+    : false;
 
   const { data: me, refetch: refetchMe } = useMe({
-    refetchInterval: hasActiveJobs ? livePollingIntervalMs : false,
+    refetchInterval: meRefetchInterval,
   });
   const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
@@ -3036,63 +3150,94 @@ const Editor = () => {
 
   const [authError, setAuthError] = useState(false);
 
-  const fetchJobs = useCallback(async () => {
+  const fetchJobs = useCallback(async (options: FetchRequestOptions = {}) => {
+    const background = Boolean(options.background);
+    const silent = Boolean(options.silent);
+    if (background && backgroundJobsFetchInFlightRef.current) return;
+    if (background) {
+      backgroundJobsFetchInFlightRef.current = true;
+    } else {
+      setLoadingJobs(true);
+    }
     if (!accessToken) {
       setJobs([]);
-      setLoadingJobs(false);
+      if (!background) setLoadingJobs(false);
+      if (background) backgroundJobsFetchInFlightRef.current = false;
       return;
     }
     try {
       const data = await apiFetch<{ jobs?: JobSummary[] }>("/api/jobs", { token: accessToken });
-      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      const nextJobs = Array.isArray(data.jobs) ? data.jobs : [];
+      setJobs((prev) => (areJobSummaryListsEquivalent(prev, nextJobs) ? prev : nextJobs));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setAuthError(true);
-        toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
+        if (!silent) {
+          toast({ title: "Session expired", description: "Please sign in again.", action: undefined });
+        }
         try {
           await signOut();
         } catch (e) {
           // ignore
         }
-      } else {
+      } else if (!silent) {
         const description = err instanceof ApiError
           ? (err.message || `HTTP ${err.status}`)
           : "Please refresh and try again.";
         toast({ title: "Failed to load jobs", description });
       }
     } finally {
-      setLoadingJobs(false);
+      if (!background) setLoadingJobs(false);
+      if (background) backgroundJobsFetchInFlightRef.current = false;
     }
   }, [accessToken, toast, signOut]);
 
   const fetchJob = useCallback(
-    async (jobId: string) => {
+    async (jobId: string, options: FetchRequestOptions = {}) => {
       if (!accessToken || !jobId) return;
-      setLoadingJob(true);
+      const background = Boolean(options.background);
+      const silent = Boolean(options.silent);
+      if (background && backgroundJobFetchInFlightRef.current[jobId]) return;
+      if (background) {
+        backgroundJobFetchInFlightRef.current[jobId] = true;
+      } else {
+        setLoadingJob(true);
+      }
       try {
         const data = await apiFetch<{ job: JobDetail }>(`/api/jobs/${jobId}`, { token: accessToken });
         const normalizedJob = normalizeJobVideoOutputs(data.job);
-        setActiveJob(normalizedJob);
+        setActiveJob((prev) => (
+          buildJobDetailSyncSignature(prev) === buildJobDetailSyncSignature(normalizedJob)
+            ? prev
+            : normalizedJob
+        ));
         setJobs((prev) => {
           const index = prev.findIndex((job) => job.id === jobId);
           if (index === -1) return [normalizedJob, ...prev];
+          const merged = { ...prev[index], ...normalizedJob };
+          if (buildJobSummarySignature(prev[index]) === buildJobSummarySignature(merged)) {
+            return prev;
+          }
           const next = [...prev];
-          next[index] = { ...next[index], ...normalizedJob };
+          next[index] = merged;
           return next;
         });
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           setAuthError(true)
-          toast({ title: "Session expired", description: "Please sign in again." })
+          if (!silent) {
+            toast({ title: "Session expired", description: "Please sign in again." })
+          }
           try { await signOut() } catch (e) {}
         } else if (err instanceof ApiError && err.status === 404) {
           setJobs((prev) => prev.filter((job) => job.id !== jobId));
           setActiveJob((prev) => (prev?.id === jobId ? null : prev));
-        } else {
+        } else if (!silent) {
           toast({ title: "Failed to load job", description: "Please refresh and try again." });
         }
       } finally {
-        setLoadingJob(false);
+        if (!background) setLoadingJob(false);
+        if (background) delete backgroundJobFetchInFlightRef.current[jobId];
       }
     },
     [accessToken, toast, signOut],
@@ -3730,8 +3875,7 @@ const Editor = () => {
       return;
     }
     if (authError) return;
-    setLoadingJobs(true);
-    fetchJobs();
+    void fetchJobs();
   }, [accessToken, authError, fetchJobs]);
 
   useEffect(() => {
@@ -3947,9 +4091,10 @@ const Editor = () => {
   }, [accessToken, signOut]);
 
   useEffect(() => {
-    const timer = setInterval(() => setEtaTick((tick) => tick + 1), 1000);
+    if (!shouldTickEta) return;
+    const timer = setInterval(() => setEtaTick((tick) => tick + 1), etaTickIntervalMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [etaTickIntervalMs, shouldTickEta]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3988,12 +4133,34 @@ const Editor = () => {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const syncVisibility = () => {
+      setIsPageVisible(document.visibilityState !== "hidden");
+    };
+    const syncNetwork = () => {
+      setIsNetworkOnline(window.navigator.onLine !== false);
+    };
+
+    syncVisibility();
+    syncNetwork();
+    document.addEventListener("visibilitychange", syncVisibility);
+    window.addEventListener("online", syncNetwork);
+    window.addEventListener("offline", syncNetwork);
+    return () => {
+      document.removeEventListener("visibilitychange", syncVisibility);
+      window.removeEventListener("online", syncNetwork);
+      window.removeEventListener("offline", syncNetwork);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
     root.dataset.network = runtimeProfile.effectiveType ?? "unknown";
     root.dataset.saveData = runtimeProfile.saveData ? "true" : "false";
     root.dataset.performance = performanceConstrained ? "constrained" : "standard";
-  }, [performanceConstrained, runtimeProfile.effectiveType, runtimeProfile.saveData]);
+    root.dataset.online = isNetworkOnline ? "true" : "false";
+  }, [isNetworkOnline, performanceConstrained, runtimeProfile.effectiveType, runtimeProfile.saveData]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4095,7 +4262,7 @@ const Editor = () => {
       return;
     }
     if (!selectedJobId) return;
-    fetchJob(selectedJobId);
+    void fetchJob(selectedJobId);
     setExportOpen(false);
   }, [selectedJobId, accessToken, authError, fetchJob]);
 
@@ -4114,20 +4281,52 @@ const Editor = () => {
   }, [activeJob?.id]);
 
   useEffect(() => {
-    if (!accessToken || !hasActiveJobs || authError) return;
+    if (!accessToken || !hasActiveJobs || authError || !effectiveBackgroundPollingIntervalMs) return;
     const timer = setInterval(() => {
-      fetchJobs();
-    }, livePollingIntervalMs);
+      void fetchJobs({ background: true, silent: true });
+    }, effectiveBackgroundPollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, hasActiveJobs, fetchJobs, authError, livePollingIntervalMs]);
+  }, [accessToken, hasActiveJobs, fetchJobs, authError, effectiveBackgroundPollingIntervalMs]);
 
   useEffect(() => {
-    if (!accessToken || authError || !selectedJobId) return;
+    if (
+      !accessToken ||
+      authError ||
+      !selectedJobId ||
+      !shouldPollSelectedJobInBackground ||
+      !effectiveBackgroundJobPollingIntervalMs
+    ) {
+      return;
+    }
     const timer = setInterval(() => {
-      fetchJob(selectedJobId);
-    }, livePollingIntervalMs);
+      void fetchJob(selectedJobId, { background: true, silent: true });
+    }, effectiveBackgroundJobPollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, authError, selectedJobId, fetchJob, livePollingIntervalMs]);
+  }, [
+    accessToken,
+    authError,
+    effectiveBackgroundJobPollingIntervalMs,
+    fetchJob,
+    selectedJobId,
+    shouldPollSelectedJobInBackground,
+  ]);
+
+  useEffect(() => {
+    if (!accessToken || authError || !isNetworkOnline || !isPageVisible) return;
+    void fetchJobs({ background: true, silent: true });
+    if (selectedJobId && shouldPollSelectedJobInBackground) {
+      void fetchJob(selectedJobId, { background: true, silent: true });
+    }
+  }, [
+    accessToken,
+    authError,
+    fetchJob,
+    fetchJobs,
+    isNetworkOnline,
+    isPageVisible,
+    selectedJobId,
+    shouldPollSelectedJobInBackground,
+  ]);
 
   useEffect(() => {
     const prev = prevJobStatusRef.current;
@@ -7496,6 +7695,31 @@ const Editor = () => {
       : "This is based on measured watch telemetry.";
     return `${startLine} ${dropLine} ${spikeLine} ${accuracyLine}`;
   }, [durationForDeepDiveSec, majorDropOffMoments, retentionCurveIsEstimated, retentionCurvePoints, retentionSpikeMoments]);
+  const topMajorDrop = majorDropOffMoments[0] ?? null;
+  const topRewatchSpike = retentionSpikeMoments[0] ?? null;
+  const currentRetentionScoreLabel = latestRetentionPoint !== null
+    ? `${latestRetentionPoint.predicted.toFixed(1)}%`
+    : retentionScoreAfterDisplay !== null
+      ? `${retentionScoreAfterDisplay.toFixed(1)}%`
+      : retentionScoreDisplay !== null
+        ? `${retentionScoreDisplay.toFixed(1)}%`
+        : "--";
+  const retentionGoalGap = latestRetentionPoint === null
+    ? null
+    : roundToTenth(Math.max(0, RETENTION_GOAL_PERCENT - latestRetentionPoint.predicted));
+  const retentionSnapshotHeadline = latestRetentionPoint === null
+    ? "Retention score is still loading for this render."
+    : retentionGoalMet
+      ? `Projected ${latestRetentionPoint.predicted.toFixed(1)}% retention is beating your ${RETENTION_GOAL_PERCENT}% goal.`
+      : `Projected ${latestRetentionPoint.predicted.toFixed(1)}% retention is ${retentionGoalGap !== null ? retentionGoalGap.toFixed(1) : "--"} pts below your ${RETENTION_GOAL_PERCENT}% goal.`;
+  const topMajorDropValueLabel = topMajorDrop ? `${topMajorDrop.dropAbs.toFixed(1)}%` : "--";
+  const topMajorDropRangeLabel = topMajorDrop
+    ? `${formatTimelineClock(topMajorDrop.from.atSec)}-${formatTimelineClock(topMajorDrop.to.atSec)}`
+    : "No severe drop detected";
+  const topRewatchSpikeValueLabel = topRewatchSpike ? `+${topRewatchSpike.gainAbs.toFixed(1)}%` : "--";
+  const topRewatchSpikeRangeLabel = topRewatchSpike
+    ? `${formatTimelineClock(topRewatchSpike.from.atSec)}-${formatTimelineClock(topRewatchSpike.to.atSec)}`
+    : "No strong rewatch spike yet";
   const hookConfidenceScore = clamp(
     Math.round((Number(selectedHookCandidate?.auditScore || selectedHookCandidate?.score || 0) || 0) * 100),
     0,
@@ -7830,6 +8054,7 @@ const Editor = () => {
   ]);
   useEffect(() => {
     setPreviewCurrentTimeSec(0);
+    previewTimeSyncRef.current = { atMs: 0, timeSec: 0 };
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   useEffect(() => {
     const jobId = activeJob?.id;
@@ -8179,8 +8404,15 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
-    ensurePlaybackTelemetry(activeJob.id, duration, Number(video.currentTime || 0));
-    setPreviewCurrentTimeSec(clamp(Number(video.currentTime || 0), 0, duration));
+    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    ensurePlaybackTelemetry(activeJob.id, duration, currentTime);
+    previewTimeSyncRef.current = {
+      atMs: typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now(),
+      timeSec: currentTime,
+    };
+    setPreviewCurrentTimeSec(currentTime);
   }, [activeJob, ensurePlaybackTelemetry]);
 
   const handleSeekPreviewToTranscriptCue = useCallback((cue: EditorTranscriptCue) => {
@@ -8193,6 +8425,12 @@ const Editor = () => {
       : Math.max(0, cue.start);
     const nextTime = clamp(cue.start, 0, maxStart);
     video.currentTime = nextTime;
+    previewTimeSyncRef.current = {
+      atMs: typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now(),
+      timeSec: nextTime,
+    };
     setPreviewCurrentTimeSec(nextTime);
     void video.play().catch(() => {});
   }, [transcriptSeekEnabled]);
@@ -8205,7 +8443,17 @@ const Editor = () => {
 
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
-    setPreviewCurrentTimeSec(currentTime);
+    const nowMs = typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+    const lastSync = previewTimeSyncRef.current;
+    if (
+      nowMs - lastSync.atMs >= PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS ||
+      Math.abs(currentTime - lastSync.timeSec) >= PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC
+    ) {
+      previewTimeSyncRef.current = { atMs: nowMs, timeSec: currentTime };
+      setPreviewCurrentTimeSec((prev) => (Math.abs(prev - currentTime) >= 0.01 ? currentTime : prev));
+    }
     const delta = currentTime - telemetry.lastTimeSec;
     if (Number.isFinite(delta)) {
       if (delta >= 0 && delta <= 2.5) {
@@ -8248,6 +8496,12 @@ const Editor = () => {
     const duration = Number(video.duration);
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration, duration);
     if (Number.isFinite(duration) && duration > 0) {
+      previewTimeSyncRef.current = {
+        atMs: typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now(),
+        timeSec: duration,
+      };
       setPreviewCurrentTimeSec(duration);
       telemetry.maxTimeSec = Math.max(telemetry.maxTimeSec, duration);
       telemetry.maxProgress = Math.max(telemetry.maxProgress, 1);
@@ -9523,9 +9777,9 @@ const Editor = () => {
   };
 
   const topToolbarToggleClass = (active: boolean) =>
-    `w-full min-h-12 rounded-full border px-4 text-xs transition-colors sm:w-auto ${
+    `editor-premium-toolbar-toggle min-h-11 rounded-xl border px-3 text-xs transition-all ${
       active
-        ? "border-primary/55 bg-primary/18 text-foreground shadow-sm"
+        ? "is-active border-primary/55 bg-primary/18 text-foreground shadow-sm"
         : "border-border/60 bg-muted/10 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
   const activeRetentionLabel =
@@ -9834,68 +10088,109 @@ const Editor = () => {
             ) : null}
           </AnimatePresence>
 
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
-              <p className="text-muted-foreground mt-1">{t("editor.shipFaster")}</p>
-            </div>
-            <div className="w-full space-y-3 md:ml-auto md:max-w-4xl">
-              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-              {me && trialActive && (
-                <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
-                  Trial {Math.max(1, trialDaysRemaining)}d left
-                </Badge>
-              )}
-                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={topToolbarToggleClass(onlyHookAndCut)}
-                    onClick={() => setOnlyHookAndCut((prev) => !prev)}
-                    aria-pressed={onlyHookAndCut}
-                    aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
-                    title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
-                  >
-                    <Scissors className="h-4 w-4" />
-                    <span>{onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={topToolbarToggleClass(!hideJobsPanel)}
-                    onClick={() => setHideJobsPanel((prev) => !prev)}
-                    aria-pressed={!hideJobsPanel}
-                  >
-                    {hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={topToolbarToggleClass(editorGuideOpen)}
-                    onClick={() => {
-                      editorGuidePromptedRef.current = true;
-                      setEditorGuideOpen(true);
-                    }}
-                    aria-pressed={editorGuideOpen}
-                    aria-label={t("editor.help.open")}
-                    title={t("editor.help.title")}
-                  >
-                    <MapIcon className="h-4 w-4" />
-                    <span>Help</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={topToolbarToggleClass(false)}
-                    onClick={() => navigate("/settings")}
-                  >
-                    Account Settings
-                  </Button>
-                  <Button onClick={handlePickFile} className="w-full min-h-12 rounded-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto">
-                    <Plus className="w-4 h-4" /> {t("editor.newProject")}
-                  </Button>
+          <div className="editor-premium-hero mb-6 p-4 sm:p-5">
+            <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="editor-premium-kicker text-[10px] uppercase tracking-[0.2em] text-primary/90">Creator Console</p>
+                <h1 className="mt-1 text-2xl font-bold font-premium text-foreground sm:text-3xl">{t("editor.creatorStudio")}</h1>
+                <p className="text-muted-foreground mt-1">{t("editor.shipFaster")}</p>
+                <div className="editor-premium-status-row mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <span className="editor-premium-status-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] text-foreground">
+                    <Gauge className="h-3.5 w-3.5" />
+                    {activeEditorModeLabel}
+                  </span>
+                  <span className="editor-premium-status-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] text-foreground">
+                    {isVerticalMode ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+                    {isVerticalMode ? "Vertical Flow" : "Horizontal Flow"}
+                  </span>
+                  <span className="editor-premium-status-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] text-foreground">
+                    <Zap className="h-3.5 w-3.5" />
+                    {activeTargetPlatformLabel}
+                  </span>
+                  <span className={`editor-premium-status-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+                    isNetworkOnline ? "text-emerald-200" : "text-amber-200"
+                  }`}>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {isNetworkOnline ? "Connected" : "Offline Safe Mode"}
+                  </span>
                 </div>
               </div>
+              <div className="w-full space-y-3 lg:max-w-4xl">
+                <div className="editor-premium-toolbar-shell flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="editor-premium-badge-row flex flex-wrap items-center gap-2">
+                    {me && trialActive ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
+                        Trial {Math.max(1, trialDaysRemaining)}d left
+                      </Badge>
+                    ) : null}
+                    {!isNetworkOnline ? (
+                      <Badge className="border-amber-400/45 bg-amber-500/12 text-amber-200">
+                        Offline: Changes stay local and sync on reconnect
+                      </Badge>
+                    ) : null}
+                    {isNetworkOnline && performanceConstrained ? (
+                      <Badge className="border-primary/35 bg-primary/12 text-primary">
+                        Performance-safe mode enabled
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="editor-premium-toolbar-grid">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topToolbarToggleClass(onlyHookAndCut)}
+                      onClick={() => setOnlyHookAndCut((prev) => !prev)}
+                      aria-pressed={onlyHookAndCut}
+                      aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
+                      title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
+                    >
+                      <Scissors className="h-4 w-4" />
+                      <span>{onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topToolbarToggleClass(!hideJobsPanel)}
+                      onClick={() => setHideJobsPanel((prev) => !prev)}
+                      aria-pressed={!hideJobsPanel}
+                    >
+                      {hideJobsPanel ? <Monitor className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                      <span>{hideJobsPanel ? t("editor.jobs.show") : t("editor.jobs.hide")}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topToolbarToggleClass(editorGuideOpen)}
+                      onClick={() => {
+                        editorGuidePromptedRef.current = true;
+                        setEditorGuideOpen(true);
+                      }}
+                      aria-pressed={editorGuideOpen}
+                      aria-label={t("editor.help.open")}
+                      title={t("editor.help.title")}
+                    >
+                      <MapIcon className="h-4 w-4" />
+                      <span>Help</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topToolbarToggleClass(false)}
+                      onClick={() => navigate("/settings")}
+                    >
+                      <Crown className="h-4 w-4" />
+                      <span>Account Settings</span>
+                    </Button>
+                    <Button
+                      onClick={handlePickFile}
+                      className="editor-premium-toolbar-primary min-h-12 rounded-xl gap-2 bg-gradient-to-r from-primary via-primary/90 to-[hsl(var(--glow-secondary))] text-primary-foreground shadow-[0_16px_32px_-20px_hsl(var(--primary)/0.9)] hover:from-primary/90 hover:via-primary/85 hover:to-[hsl(var(--glow-secondary)/0.92)]"
+                    >
+                      <Plus className="w-4 h-4" /> {t("editor.newProject")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
               <div className="editor-settings-shell w-full p-3.5 md:p-4">
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -9926,7 +10221,7 @@ const Editor = () => {
                 </div>
                 <div
                   className={`overflow-hidden transition-all duration-300 ${
-                    hideEditorControlsPanel ? "max-h-16 opacity-95" : "max-h-[3400px] opacity-100"
+                    hideEditorControlsPanel ? "max-h-24 opacity-95" : "max-h-[3400px] opacity-100"
                   }`}
                 >
                   {hideEditorControlsPanel ? (
@@ -9947,7 +10242,7 @@ const Editor = () => {
                       {captionEngineOffline ? (
                         <div className="rounded-xl border border-primary/35 bg-gradient-to-r from-primary/15 via-primary/8 to-transparent px-3 py-2.5">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-sm font-medium text-foreground">Captions Offline - Set OpenAI Key to Unlock</p>
+                            <p className="text-sm font-medium text-foreground">Captions are offline. Add your OpenAI key in Settings to enable them.</p>
                             <Button
                               type="button"
                               className="min-h-12 rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)] md:min-h-10"
@@ -10196,7 +10491,6 @@ const Editor = () => {
                 </div>
               </div>
             </div>
-          </div>
 
           {trialActive && hideSubscriptionCard && (
             <div className="mb-3 flex justify-end">
@@ -11864,33 +12158,65 @@ const Editor = () => {
                     <Dialog open={videoAnalysisOpen} onOpenChange={setVideoAnalysisOpen}>
                       <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-3 backdrop-blur-xl sm:max-w-5xl sm:p-4">
                         <div ref={fullAnalysisSectionRef} className="retention-summary-shell glass-card space-y-3 rounded-2xl p-3 sm:p-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="pill-badge text-[10px]">Feedback Snapshot</p>
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
-                            onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
-                          >
-                            <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                            Open Detailed Feedback
-                          </Button>
-                          <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
-                            {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
-                          </Badge>
-                          <Badge className="border-primary/35 bg-primary/10 text-primary">
-                            {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
-                          </Badge>
-                          {achievementSignals.slice(0, 2).map((signal) => (
-                            <Badge key={signal.id} className="border-primary/45 bg-primary/15 text-primary-foreground">
-                              <Trophy className="mr-1 h-3.5 w-3.5" />
-                              {signal.title}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
+                          <div className="retention-summary-hero rounded-xl p-3">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="space-y-1">
+                                <p className="retention-summary-kicker">Feedback Snapshot</p>
+                                <p className="font-premium text-base text-foreground sm:text-lg">Retention Command Deck</p>
+                                <p className="text-xs text-foreground/85">{retentionSnapshotHeadline}</p>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
+                                  onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
+                                >
+                                  <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                                  Open Detailed Feedback
+                                </Button>
+                                <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
+                                  {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
+                                </Badge>
+                                <Badge className="border-primary/35 bg-primary/10 text-primary">
+                                  {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
+                                </Badge>
+                                {achievementSignals.slice(0, 2).map((signal) => (
+                                  <Badge key={signal.id} className="border-primary/45 bg-primary/15 text-primary-foreground">
+                                    <Trophy className="mr-1 h-3.5 w-3.5" />
+                                    {signal.title}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="retention-summary-metric-grid mt-3">
+                              <div className="retention-summary-metric rounded-lg p-2.5">
+                                <p className="retention-summary-metric-label">Current score</p>
+                                <p className="retention-summary-metric-value">{currentRetentionScoreLabel}</p>
+                                <p className="retention-summary-metric-subline">
+                                  {retentionCurveIsEstimated ? "Model estimate" : "Measured telemetry"}
+                                </p>
+                              </div>
+                              <div className="retention-summary-metric rounded-lg p-2.5">
+                                <p className="retention-summary-metric-label">Goal gap</p>
+                                <p className="retention-summary-metric-value">
+                                  {retentionGoalGap === null ? "--" : retentionGoalGap <= 0 ? "Met" : `${retentionGoalGap.toFixed(1)} pts`}
+                                </p>
+                                <p className="retention-summary-metric-subline">Target {RETENTION_GOAL_PERCENT}%</p>
+                              </div>
+                              <div className="retention-summary-metric rounded-lg p-2.5">
+                                <p className="retention-summary-metric-label">Sharpest drop</p>
+                                <p className="retention-summary-metric-value">{topMajorDropValueLabel}</p>
+                                <p className="retention-summary-metric-subline">{topMajorDropRangeLabel}</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="retention-summary-mini-metric flex items-center justify-between rounded-lg px-2.5 py-2">
+                            <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Best rebound</span>
+                            <span className="font-premium text-sm text-foreground">{topRewatchSpikeValueLabel}</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{topRewatchSpikeRangeLabel}</p>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div
@@ -11906,7 +12232,7 @@ const Editor = () => {
                           }}
                           className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                         >
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Retention Delta</p>
+                          <p className="retention-summary-card-kicker">Retention Delta</p>
                           {retentionScoreDeltaDisplay !== null ? (
                             <motion.p
                               key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
@@ -11948,7 +12274,7 @@ const Editor = () => {
                           }}
                           className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                         >
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Before vs After</p>
+                          <p className="retention-summary-card-kicker">Before vs After</p>
                           {retentionBeforeBar !== null && retentionAfterBar !== null ? (
                             <div className="mt-2 space-y-2">
                               <div>
@@ -11986,7 +12312,7 @@ const Editor = () => {
                               <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
                             </div>
                           )}
-                          <p className="mt-2 text-[11px] text-muted-foreground">Click chart for full retention breakdown.</p>
+                          <p className="retention-summary-card-note mt-2">Click chart for full retention breakdown.</p>
                         </div>
                       </div>
 
@@ -11995,7 +12321,7 @@ const Editor = () => {
                       <div className="retention-summary-card retention-summary-timeline-block glass-card rounded-xl p-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Video Scan Timeline Deep Dive</p>
+                            <p className="retention-summary-card-kicker">Video Scan Timeline Deep Dive</p>
                             <p className="mt-1 text-xs text-muted-foreground">
                               Best parts, likely skips, weaker parts, and one-click fix/remove actions.
                             </p>
@@ -12408,12 +12734,12 @@ const Editor = () => {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
-                        <div className="deepdive-section rounded-xl p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Quick Summary Box</p>
-                              <p className="mt-1 text-sm text-foreground">{deepDiveOverallSummary}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{retentionCurveSummary}</p>
+                        <div className="deepdive-section deepdive-summary-hero rounded-xl p-3 sm:p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="space-y-1">
+                              <p className="retention-summary-kicker">Quick Summary</p>
+                              <p className="text-sm text-foreground sm:text-[15px]">{deepDiveOverallSummary}</p>
+                              <p className="text-xs text-muted-foreground">{retentionCurveSummary}</p>
                             </div>
                             <div className="flex flex-wrap items-center justify-end gap-1.5">
                               <Badge className={retentionCurveIsEstimated ? "border-cyan-400/40 bg-cyan-500/12 text-cyan-100" : "border-emerald-400/45 bg-emerald-500/12 text-emerald-100"}>
@@ -12433,7 +12759,7 @@ const Editor = () => {
                                   type="button"
                                   size="sm"
                                   variant="outline"
-                                  className="h-8 px-3 text-[11px]"
+                                  className="deepdive-summary-autofix h-8 px-3 text-[11px]"
                                   disabled={autoFixingRetentionGoal || !activeJob || normalizeStatus(activeJob.status) !== "ready"}
                                   onClick={() => void handleAutoFixToRetentionGoal()}
                                 >
@@ -12445,6 +12771,33 @@ const Editor = () => {
                                   Auto-fix to goal
                                 </Button>
                               ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="deepdive-summary-chip rounded-lg p-2.5">
+                              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Avg viewed</p>
+                              <p className="mt-1 font-premium text-xl text-foreground">
+                                {averagePercentViewed !== null ? `${averagePercentViewed.toFixed(1)}%` : "--"}
+                              </p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {averageViewDurationSec !== null ? `${formatDurationClock(averageViewDurationSec)} avg watch time` : "Waiting for full timeline data"}
+                              </p>
+                            </div>
+                            <div className="deepdive-summary-chip rounded-lg p-2.5">
+                              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Sharpest drop</p>
+                              <p className="mt-1 font-premium text-xl text-foreground">{topMajorDropValueLabel}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">{topMajorDropRangeLabel}</p>
+                            </div>
+                            <div className="deepdive-summary-chip rounded-lg p-2.5">
+                              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Best rebound</p>
+                              <p className="mt-1 font-premium text-xl text-foreground">{topRewatchSpikeValueLabel}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {topRewatchSpike
+                                  ? topRewatchSpikeRangeLabel
+                                  : projectedAverageViewedRange
+                                    ? `Projected avg viewed ${projectedAverageViewedRange.min.toFixed(1)}%-${projectedAverageViewedRange.max.toFixed(1)}%`
+                                    : "No strong rewatch spike detected yet"}
+                              </p>
                             </div>
                           </div>
                         </div>
