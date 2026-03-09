@@ -263,6 +263,7 @@ const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v3";
+const LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY = "editor_live_transcript_visible_v1";
 const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
 const CHECKOUT_SUCCESS_QUERY_KEYS = ["success", "session_id", "source", "trial", "tier", "endsAt"] as const;
 
@@ -1631,6 +1632,30 @@ const sanitizeRetentionSummaryModeText = (value: unknown) => {
   return RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(text) ? null : text;
 };
 
+const humanizeRetentionSummaryLine = (value: unknown) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+
+  const styleDetected = raw.match(/^Detected\s+a?\s*([a-z_ -]+)\s+style\s+\((\d+)% confidence\)\.\s*Pace and cut rhythm were tuned to match it\.$/i);
+  if (styleDetected) {
+    return `Video style detected: ${formatNicheLabel(styleDetected[1])} (${styleDetected[2]}% confidence). Pace was tuned to match.`;
+  }
+
+  const nicheDetected = raw.match(/^Detected\s+([a-z_ -]+)\s+content\s+\((\d+)% confidence\)\s+and adjusted pacing to fit\.$/i);
+  if (nicheDetected) {
+    return `Content type detected: ${formatNicheLabel(nicheDetected[1])} (${nicheDetected[2]}% confidence). Pacing was adjusted for that type.`;
+  }
+
+  let text = raw;
+  text = text.replace(/J\/L style/gi, "audio-overlap");
+  text = text.replace(/J\/L-style/gi, "audio-overlap");
+  text = text.replace(/Cut-boundary safety check/gi, "Cut-boundary quality check");
+  text = text.replace(/attention-reset beat/gi, "attention reset");
+  text = text.replace(/Outcome automation updated:/gi, "Auto adjustments updated:");
+  text = text.replace(/Quality gate override applied:/gi, "Quality override:");
+  return text;
+};
+
 const interpolateRetentionAtSec = (points: RetentionPoint[], targetSec: number) => {
   if (!Array.isArray(points) || points.length === 0) return null;
   const safeTarget = Math.max(0, Number(targetSec) || 0);
@@ -2446,6 +2471,7 @@ const Editor = () => {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
+  const [showLiveTranscriptEditor, setShowLiveTranscriptEditor] = useState(true);
   const [transcriptPanelTab, setTranscriptPanelTab] = useState<TranscriptPanelTab>("editor");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewRetryCountByJobRef = useRef<Record<string, number>>({});
@@ -2913,6 +2939,29 @@ const Editor = () => {
       // ignore storage failures
     }
   }, [hideEditorControlsPanel]);
+
+  useEffect(() => {
+    try {
+      const persisted = window.localStorage.getItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY);
+      if (persisted === "false") {
+        setShowLiveTranscriptEditor(false);
+        return;
+      }
+      if (persisted === "true") {
+        setShowLiveTranscriptEditor(true);
+      }
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY, showLiveTranscriptEditor ? "true" : "false");
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, [showLiveTranscriptEditor]);
 
   useEffect(() => {
     if (!analyzeUnlockStorageKey) {
@@ -6298,10 +6347,16 @@ const Editor = () => {
       ? pipelineJudgeMeta.attempts
       : [];
   const whyKeepWatching: string[] = Array.isArray(retentionJudge?.why_keep_watching)
-    ? retentionJudge.why_keep_watching.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    ? retentionJudge.why_keep_watching
+        .map((item: unknown) => (typeof item === "string" ? humanizeRetentionSummaryLine(item) : ""))
+        .filter((item: string) => item.length > 0)
+        .slice(0, 3)
     : [];
   const genericReasons: string[] = Array.isArray(retentionJudge?.what_is_generic)
-    ? retentionJudge.what_is_generic.filter((item: unknown) => typeof item === "string").slice(0, 3)
+    ? retentionJudge.what_is_generic
+        .map((item: unknown) => (typeof item === "string" ? humanizeRetentionSummaryLine(item) : ""))
+        .filter((item: string) => item.length > 0)
+        .slice(0, 3)
     : [];
   const detectedRetentionStrategyProfile =
     typeof metadataRetention?.strategyProfile === "string"
@@ -6470,6 +6525,8 @@ const Editor = () => {
             typeof line === "string" &&
             !RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(line),
         )
+        .map((line: string) => humanizeRetentionSummaryLine(line))
+        .filter((line: string) => line.length > 0)
         .slice(0, 8)
     : Array.isArray(activeJob?.optimizationNotes)
       ? activeJob.optimizationNotes
@@ -6478,6 +6535,8 @@ const Editor = () => {
               typeof line === "string" &&
               !RETENTION_SUMMARY_HIDDEN_MODE_TOKEN_PATTERN.test(line),
           )
+          .map((line: string) => humanizeRetentionSummaryLine(line))
+          .filter((line: string) => line.length > 0)
           .slice(0, 8)
       : [];
   const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
@@ -10931,7 +10990,15 @@ const Editor = () => {
                           <p className="text-sm font-semibold text-foreground">Live Transcript Editor</p>
                           <p className="text-xs text-muted-foreground">{transcriptEditorStageHint}</p>
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] text-muted-foreground">
+                            <span>Show panel</span>
+                            <Switch
+                              checked={showLiveTranscriptEditor}
+                              onCheckedChange={setShowLiveTranscriptEditor}
+                              aria-label="Toggle live transcript editor panel"
+                            />
+                          </label>
                           <Badge variant="outline" className="border-border/60 bg-background/55 text-xs text-muted-foreground">
                             {transcriptEditorStageLabel}
                           </Badge>
@@ -10945,6 +11012,8 @@ const Editor = () => {
                           ) : null}
                         </div>
                       </div>
+                      {showLiveTranscriptEditor ? (
+                        <>
                       {transcriptHasEditor ? (
                         <div className="mt-3 flex flex-wrap items-center gap-1.5">
                           <Badge className="border-primary/35 bg-primary/10 text-primary-foreground">
@@ -11102,6 +11171,12 @@ const Editor = () => {
                           )}
                         </TabsContent>
                       </Tabs>
+                        </>
+                      ) : (
+                        <div className="mt-3 rounded-xl border border-dashed border-border/60 bg-background/35 px-3 py-4 text-xs text-muted-foreground">
+                          Live transcript editor is hidden. Turn on &quot;Show panel&quot; to view it.
+                        </div>
+                      )}
                     </div>
                     {renderYouTubeOutcomeLoopCard({
                       title: "Live Outcome Loop",
