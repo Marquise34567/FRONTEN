@@ -1738,26 +1738,70 @@ const toObjectRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
+const resolveTranscriptCueRows = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value;
+  const row = toObjectRecord(value);
+  if (!row) return [];
+  const nested =
+    (Array.isArray(row.cues) ? row.cues : null) ??
+    (Array.isArray(row.rows) ? row.rows : null) ??
+    (Array.isArray(row.items) ? row.items : null) ??
+    (Array.isArray(row.transcriptCues) ? row.transcriptCues : null) ??
+    (Array.isArray(row.transcript_cues) ? row.transcript_cues : null) ??
+    (Array.isArray(row.captions) ? row.captions : null) ??
+    (Array.isArray(row.subtitleCues) ? row.subtitleCues : null) ??
+    (Array.isArray(row.subtitle_cues) ? row.subtitle_cues : null);
+  return Array.isArray(nested) ? nested : [];
+};
+
 const normalizeTranscriptCueRows = (value: unknown): EditorTranscriptCue[] => {
-  if (!Array.isArray(value)) return [];
-  return value
+  const rows = resolveTranscriptCueRows(value);
+  if (!rows.length) return [];
+  return rows
     .map((entry) => {
       const row = toObjectRecord(entry);
       if (!row) return null;
-      const start = firstFiniteNumber(row.start, row.startSec, row.start_sec, row.atSec, row.at_sec);
-      const end = firstFiniteNumber(row.end, row.endSec, row.end_sec);
+      const start = firstFiniteNumber(
+        row.start,
+        row.startSec,
+        row.start_sec,
+        row.atSec,
+        row.at_sec,
+        row.startTime,
+        row.start_time,
+        row.time,
+        row.timeSec,
+        row.time_sec,
+      );
+      const end = firstFiniteNumber(
+        row.end,
+        row.endSec,
+        row.end_sec,
+        row.endTime,
+        row.end_time,
+      );
+      const duration = firstFiniteNumber(row.duration, row.durationSec, row.duration_sec);
+      const resolvedEnd = end ?? (start !== null && duration !== null ? start + duration : null);
       const text = typeof row.text === "string"
         ? row.text.trim()
         : typeof row.caption === "string"
           ? row.caption.trim()
           : typeof row.transcript === "string"
             ? row.transcript.trim()
+            : typeof row.subtitle === "string"
+              ? row.subtitle.trim()
+              : typeof row.value === "string"
+                ? row.value.trim()
+                : typeof row.content === "string"
+                  ? row.content.trim()
+                  : typeof row.line === "string"
+                    ? row.line.trim()
             : "";
-      if (start === null || end === null || end <= start || !text) return null;
+      if (start === null || resolvedEnd === null || resolvedEnd <= start || !text) return null;
       const confidenceRaw = firstFiniteNumber(row.confidence);
       return {
         start,
-        end,
+        end: resolvedEnd,
         text,
         confidence: confidenceRaw,
       };
@@ -6983,11 +7027,27 @@ const Editor = () => {
       ? autonomousLearning.boundaryCritic.reason.replace(/_/g, " ")
       : null;
   const liveStepTranscriptCues = useMemo(
-    () => normalizeTranscriptCueRows(activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.transcriptCues),
+    () => normalizeTranscriptCueRows(
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.transcriptCues ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.transcript_cues ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.captions ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.subtitleCues ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.subtitle_cues ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta?.cues ??
+      activeAnalysis?.pipelineSteps?.TRANSCRIBE?.meta,
+    ),
     [activeAnalysis],
   );
   const sourceTranscriptCues = useMemo(
-    () => normalizeTranscriptCueRows(activeAnalysis?.transcript_cues ?? activeAnalysis?.transcriptCues),
+    () => normalizeTranscriptCueRows(
+      activeAnalysis?.transcript_cues ??
+      activeAnalysis?.transcriptCues ??
+      activeAnalysis?.captions ??
+      activeAnalysis?.subtitle_cues ??
+      activeAnalysis?.subtitleCues ??
+      activeAnalysis?.subtitles ??
+      activeAnalysis?.transcript,
+    ),
     [activeAnalysis],
   );
   const liveSourceTranscriptCues = liveStepTranscriptCues.length > 0 ? liveStepTranscriptCues : sourceTranscriptCues;
@@ -13676,8 +13736,8 @@ const Editor = () => {
                       </>
                     )}
                     {showVideo && activePreviewTranscriptText ? (
-                      <div className="pointer-events-none absolute inset-x-2 bottom-3 z-20 flex justify-center">
-                        <div className="max-w-[92%] rounded-lg border border-black/60 bg-black/72 px-3 py-1.5 text-center text-sm font-semibold leading-snug text-white shadow-[0_14px_24px_-16px_rgba(0,0,0,0.95)] backdrop-blur-sm">
+                      <div className="pointer-events-none absolute inset-x-4 bottom-3 z-20 flex justify-center">
+                        <div className="max-w-[92%] text-center text-sm font-medium leading-snug text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.95)] sm:text-base">
                           {activePreviewTranscriptText}
                         </div>
                       </div>
