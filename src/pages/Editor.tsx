@@ -12946,79 +12946,124 @@ const Editor = () => {
                 </div>
                 {activeJob ? (
                   <div className="border-t border-border/55 bg-background/35 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Editor Agent Story Map</p>
-                      {previewStoryBeatActive ? (
-                        <Badge className={PREVIEW_STORY_BEAT_META[previewStoryBeatActive.key].badgeClassName}>
-                          Now: {previewStoryBeatActive.label}
-                        </Badge>
+                    <div className="rounded-xl border border-primary/25 bg-[linear-gradient(145deg,rgba(28,24,52,0.72),rgba(14,20,46,0.64))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)]">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Editor Agent Story Map</p>
+                          <p className="mt-1 text-[11px] text-foreground/80">
+                            {isVerticalMode
+                              ? "Vertical flow map for TikTok + IG Reels pacing and payoff timing."
+                              : "Long-form story map with short-form breakout pacing markers."}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Badge className="border-primary/35 bg-primary/10 text-primary">
+                            Momentum {previewStoryMapMomentumScore}
+                          </Badge>
+                          {previewStoryBeatActive ? (
+                            <Badge className={PREVIEW_STORY_BEAT_META[previewStoryBeatActive.key].badgeClassName}>
+                              Now: {previewStoryBeatActive.label}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-border/60 bg-background/45 text-muted-foreground">
+                              Waiting
+                            </Badge>
+                          )}
+                          <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            <span>Map</span>
+                            <Switch
+                              checked={showStoryMapPanel}
+                              onCheckedChange={setShowStoryMapPanel}
+                              aria-label="Toggle editor agent story map panel"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                      {!showStoryMapPanel ? (
+                        <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                          Story map is hidden. Toggle Map ON to inspect beat pacing.
+                        </p>
                       ) : (
-                        <Badge variant="outline" className="border-border/60 bg-background/45 text-muted-foreground">
-                          Waiting
-                        </Badge>
+                        <>
+                          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                            {previewStoryBeatStats.map((segment) => (
+                              <div key={`story-map-metric-${segment.key}`} className="rounded-lg border border-primary/20 bg-background/35 p-2">
+                                <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{segment.shortLabel}</p>
+                                <p className="mt-1 text-sm font-semibold text-foreground">{formatTimelineClock(segment.durationSec)}</p>
+                                <p className="text-[10px] text-muted-foreground">{segment.coveragePct}% of timeline</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="relative mt-3 h-3 overflow-hidden rounded-full border border-border/55 bg-muted/55">
+                            {previewStoryBeatSegments.map((segment) => {
+                              const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
+                              const left = clamp((segment.startSec / total) * 100, 0, 100);
+                              const width = clamp(((segment.endSec - segment.startSec) / total) * 100, 1.5, 100 - left);
+                              return (
+                                <div
+                                  key={`preview-story-segment-${segment.key}`}
+                                  className={`absolute inset-y-0 ${PREVIEW_STORY_BEAT_META[segment.key].segmentClassName}`}
+                                  style={{
+                                    left: `${left}%`,
+                                    width: `${width}%`,
+                                  }}
+                                />
+                              );
+                            })}
+                            <span
+                              className="absolute inset-y-[-1px] w-[2px] bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.55)]"
+                              style={{ left: `${Math.min(99.4, previewStoryBeatPlayheadPct)}%` }}
+                            />
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                            {previewStoryBeatSegments.map((segment) => {
+                              const active = previewStoryBeatActive?.key === segment.key;
+                              return (
+                                <button
+                                  key={`preview-story-chip-${segment.key}`}
+                                  type="button"
+                                  className={`rounded-lg border p-2 text-left transition ${
+                                    active
+                                      ? "border-primary/50 bg-primary/12 text-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
+                                      : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                                  }`}
+                                  disabled={!showVideo}
+                                  onClick={() => {
+                                    if (!showVideo) return;
+                                    const video = previewVideoRef.current;
+                                    const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
+                                      ? Number(video?.duration)
+                                      : previewStoryBeatTimelineDurationSec;
+                                    const target = clamp(segment.startSec + 0.05, 0, Math.max(0, maxDuration - 0.05));
+                                    if (video) {
+                                      try {
+                                        video.currentTime = target;
+                                      } catch {
+                                        // no-op: browsers can briefly reject seeks while metadata updates
+                                      }
+                                    }
+                                    setPreviewCurrentTimeSec(target);
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold text-foreground">{segment.label}</p>
+                                    <Badge variant="outline" className="border-border/55 bg-background/55 text-[10px] text-muted-foreground">
+                                      {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">{segment.reason}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            {previewStoryBeatActive
+                              ? `${previewStoryBeatActive.label}: ${previewStoryBeatActive.reason}`
+                              : "Story phases will appear once preview timeline data is ready."}
+                          </p>
+                        </>
                       )}
                     </div>
-                    <div className="relative mt-2 h-2 overflow-hidden rounded-full border border-border/55 bg-muted/55">
-                      {previewStoryBeatSegments.map((segment) => {
-                        const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
-                        const left = clamp((segment.startSec / total) * 100, 0, 100);
-                        const width = clamp(((segment.endSec - segment.startSec) / total) * 100, 1.5, 100 - left);
-                        return (
-                          <div
-                            key={`preview-story-segment-${segment.key}`}
-                            className={`absolute inset-y-0 ${PREVIEW_STORY_BEAT_META[segment.key].segmentClassName}`}
-                            style={{
-                              left: `${left}%`,
-                              width: `${width}%`,
-                            }}
-                          />
-                        );
-                      })}
-                      <span
-                        className="absolute inset-y-[-1px] w-[2px] bg-white/90 shadow-[0_0_8px_rgba(255,255,255,0.45)]"
-                        style={{ left: `${Math.min(99.4, previewStoryBeatPlayheadPct)}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {previewStoryBeatSegments.map((segment) => {
-                        const active = previewStoryBeatActive?.key === segment.key;
-                        return (
-                          <button
-                            key={`preview-story-chip-${segment.key}`}
-                            type="button"
-                            className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
-                              active
-                                ? "border-primary/50 bg-primary/15 text-foreground"
-                                : "border-border/60 bg-background/50 text-muted-foreground hover:border-primary/35 hover:text-foreground"
-                            }`}
-                            disabled={!showVideo}
-                            onClick={() => {
-                              if (!showVideo) return;
-                              const video = previewVideoRef.current;
-                              const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
-                                ? Number(video?.duration)
-                                : previewStoryBeatTimelineDurationSec;
-                              const target = clamp(segment.startSec + 0.05, 0, Math.max(0, maxDuration - 0.05));
-                              if (video) {
-                                try {
-                                  video.currentTime = target;
-                                } catch {
-                                  // no-op: browsers can briefly reject seeks while metadata updates
-                                }
-                              }
-                              setPreviewCurrentTimeSec(target);
-                            }}
-                          >
-                            {segment.shortLabel} {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      {previewStoryBeatActive
-                        ? `${previewStoryBeatActive.label}: ${previewStoryBeatActive.reason}`
-                        : "Story phases will appear once preview timeline data is ready."}
-                    </p>
                   </div>
                 ) : null}
               </div>
@@ -13338,114 +13383,280 @@ const Editor = () => {
                         </div>
                       )}
                     </div>
-                    {renderYouTubeOutcomeLoopCard({
-                      title: "Live Outcome Loop",
-                      subtitle: "YouTube auth, job/video mapping, and analytics sync are now directly available in the live pipeline.",
-                      compact: true,
-                    })}
+                    <div className="rounded-xl border border-border/55 bg-background/25 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Live Outcome Loop</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{liveOutcomeModeSubtitle}</p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <span>{showLiveOutcomeLoop ? "On" : "Off"}</span>
+                          <Switch
+                            checked={showLiveOutcomeLoop}
+                            onCheckedChange={setShowLiveOutcomeLoop}
+                            aria-label="Toggle live outcome loop card"
+                          />
+                        </label>
+                      </div>
+                      {showLiveOutcomeLoop ? (
+                        <div className="mt-3">
+                          {renderYouTubeOutcomeLoopCard({
+                            title: isVerticalMode ? "Vertical Live Agent Outcome Loop" : "Horizontal Live Agent Outcome Loop",
+                            subtitle: liveOutcomeModeSubtitle,
+                            compact: true,
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                          Live Outcome starts off by default. Turn it on when you want live auth, mapping, and sync controls visible.
+                        </p>
+                      )}
+                    </div>
                     {renderEditorAgentRateCard({
                       compact: true,
-                      subtitle: "Live platform scorecard for YouTube, TikTok, and IG Reels with one-click score boosts.",
+                      subtitle: liveRateCardModeSubtitle,
                     })}
 
                     {normalizedActiveStatus === "ready" && (
                       <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
-                          <Badge className="border-primary/35 bg-primary/10 text-foreground">
-                            {Math.round(fullScanProgress)}%
-                          </Badge>
-                        </div>
-                        <Progress
-                          value={fullScanProgress}
-                          className="h-2 bg-muted/70 [&>div]:bg-primary"
-                        />
-                        <p className="text-[11px] text-muted-foreground">{fullScanProgressLabel}</p>
-
-                        <div className="rounded-lg border border-primary/20 bg-background/45 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Modern Energy + Emotion Timeline</p>
-                            <Badge className="border-primary/35 bg-primary/10 text-foreground">Landing-style deep scan</Badge>
-                          </div>
-                          <p className="mt-1 text-[11px] text-muted-foreground">Click any bar to open detailed emotional analysis.</p>
-                          <div className="mt-3 grid grid-cols-12 gap-1.5">
-                            {timelineEnergyMoments.map((moment, idx) => (
-                              <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="group flex h-28 flex-col justify-end"
-                                    aria-label={`${moment.timestampLabel} ${moment.emotionLabel}. Open detailed emotional analysis`}
-                                    onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
-                                    style={{ minWidth: "0" }}
-                                  >
-                                    <span
-                                      className={`w-full rounded-t-md bg-gradient-to-t ${EMOTION_PROFILE_META[moment.emotionKey].barClassName} transition-all group-hover:brightness-110`}
-                                      style={{ height: `${Math.max(12, moment.energy)}%` }}
-                                    />
-                                    <span className="mt-1 block truncate text-[10px] text-muted-foreground">{moment.timestampLabel}</span>
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
-                                  <p className="text-[11px] font-medium">
-                                    {moment.timestampLabel} · {moment.emotionLabel}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    Energy {moment.energy} | Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ))}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {emotionSignals.slice(0, 4).map((signal) => (
-                              <Badge key={`emotion-signal-${signal.key}`} className={signal.badgeClassName}>
-                                {signal.label} {Math.round(signal.sharePercent)}%
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <Badge className="border-primary/35 bg-primary/10 text-foreground">
-                                Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
-                              </Badge>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="text-[11px] text-primary underline underline-offset-4"
-                                  >
-                                    Details
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="border-border/60 bg-card text-foreground">
-                                  {autoHookSummaryLine}
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <p className="mt-2 text-xs text-muted-foreground">{autoHookSummaryLine}</p>
-                          </div>
-
-                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs font-medium text-foreground">Auto-Cut Boring/Silent/Pauses</p>
-                              <Switch
-                                checked={autoCutBoringEnabled}
-                                onCheckedChange={setAutoCutBoringEnabled}
-                                className="data-[state=checked]:bg-primary"
-                                aria-label="Auto-cut low engagement segments"
-                              />
-                            </div>
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              {autoCutBoringEnabled
-                                ? `Cut ${removedFillerPercent}% low-engagement filler`
-                                : "Auto-cut paused, low-engagement filler retained."}
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Premium scan deck for energy, emotion, pacing, and re-hook windows.
                             </p>
                           </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                              {Math.round(fullScanProgress)}%
+                            </Badge>
+                            <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              <span>Insights</span>
+                              <Switch
+                                checked={showScanInsightsPanel}
+                                onCheckedChange={setShowScanInsightsPanel}
+                                aria-label="Toggle full scan insights card"
+                              />
+                            </label>
+                          </div>
                         </div>
+                        {!showScanInsightsPanel ? (
+                          <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                            Scan insights are hidden. Toggle Insights ON to view deep scan charts.
+                          </p>
+                        ) : (
+                          <>
+                            <Progress
+                              value={fullScanProgress}
+                              className="h-2 bg-muted/70 [&>div]:bg-primary"
+                            />
+                            <p className="text-[11px] text-muted-foreground">{fullScanProgressLabel}</p>
+
+                            <div className="rounded-lg border border-primary/20 bg-background/45 p-3">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Modern Energy + Emotion Timeline</p>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">
+                                    Rich timeline graph with hotspot diagnostics for premium review.
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Badge className="border-primary/35 bg-primary/10 text-foreground">Momentum {timelineMomentumScore}</Badge>
+                                  <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                                    <span>Graph</span>
+                                    <Switch
+                                      checked={showEnergyEmotionTimeline}
+                                      onCheckedChange={setShowEnergyEmotionTimeline}
+                                      aria-label="Toggle modern energy and emotion timeline graph"
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              {!showEnergyEmotionTimeline ? (
+                                <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                                  Timeline graph hidden. Toggle Graph ON to inspect energy and emotion trends.
+                                </p>
+                              ) : (
+                                <>
+                                  <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Peak Energy</p>
+                                      <p className="mt-1 text-lg font-semibold text-foreground">{highestEnergyMoment?.energy ?? "--"}</p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {highestEnergyMoment ? highestEnergyMoment.timestampLabel : "Awaiting timeline"}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Avg Energy</p>
+                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineAverageEnergy}</p>
+                                      <p className="text-[10px] text-muted-foreground">Across {timelineEnergyMoments.length} moments</p>
+                                    </div>
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Avg Emotion</p>
+                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineAverageEmotion}</p>
+                                      <p className="text-[10px] text-muted-foreground">Facial + audio weighted</p>
+                                    </div>
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Hotspots</p>
+                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineHotspotMoments.length}</p>
+                                      <p className="text-[10px] text-muted-foreground">Energy &gt;= 74 moments</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-3">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Energy vs Emotion Curves</p>
+                                      <div className="mt-2 h-36 rounded-lg border border-border/50 bg-[linear-gradient(180deg,rgba(23,28,53,0.75),rgba(14,18,35,0.55))] p-2">
+                                        {energyLinePoints && emotionLinePoints ? (
+                                          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                                            <defs>
+                                              <linearGradient id="timeline-energy-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                <stop offset="0%" stopColor="rgba(56,189,248,0.9)" />
+                                                <stop offset="100%" stopColor="rgba(16,185,129,0.9)" />
+                                              </linearGradient>
+                                              <linearGradient id="timeline-emotion-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                <stop offset="0%" stopColor="rgba(244,114,182,0.9)" />
+                                                <stop offset="100%" stopColor="rgba(251,146,60,0.9)" />
+                                              </linearGradient>
+                                            </defs>
+                                            <polyline
+                                              points={energyLinePoints}
+                                              fill="none"
+                                              stroke="url(#timeline-energy-line)"
+                                              strokeWidth="2.2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                            <polyline
+                                              points={emotionLinePoints}
+                                              fill="none"
+                                              stroke="url(#timeline-emotion-line)"
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                          </svg>
+                                        ) : (
+                                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                                            Not enough timeline points for curve rendering yet.
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        <Badge className="border-sky-400/35 bg-sky-500/12 text-sky-100">Energy curve</Badge>
+                                        <Badge className="border-fuchsia-400/35 bg-fuchsia-500/12 text-fuchsia-100">Emotion curve</Badge>
+                                      </div>
+                                    </div>
+                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-3">
+                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Timeline Bars + Hotspots</p>
+                                      <div className="mt-2 grid grid-cols-12 gap-1.5">
+                                        {timelineEnergyMoments.map((moment, idx) => (
+                                          <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
+                                            <TooltipTrigger asChild>
+                                              <button
+                                                type="button"
+                                                className="group flex h-28 flex-col justify-end"
+                                                aria-label={`${moment.timestampLabel} ${moment.emotionLabel}. Open detailed emotional analysis`}
+                                                onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
+                                                style={{ minWidth: "0" }}
+                                              >
+                                                <span
+                                                  className={`w-full rounded-t-md bg-gradient-to-t ${EMOTION_PROFILE_META[moment.emotionKey].barClassName} transition-all group-hover:brightness-110`}
+                                                  style={{ height: `${Math.max(12, moment.energy)}%` }}
+                                                />
+                                                <span className="mt-1 block truncate text-[10px] text-muted-foreground">{moment.timestampLabel}</span>
+                                              </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
+                                              <p className="text-[11px] font-medium">
+                                                {moment.timestampLabel} · {moment.emotionLabel}
+                                              </p>
+                                              <p className="text-[11px] text-muted-foreground">
+                                                Energy {moment.energy} | Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
+                                              </p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        ))}
+                                      </div>
+                                      <div className="mt-2 grid grid-cols-1 gap-1.5">
+                                        {timelineHotspotMoments.length > 0 ? (
+                                          timelineHotspotMoments.map((moment) => (
+                                            <button
+                                              key={`timeline-hotspot-${moment.timestampSec}`}
+                                              type="button"
+                                              className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2 text-left transition hover:border-primary/35"
+                                              onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
+                                            >
+                                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-xs font-medium text-foreground">{moment.timestampLabel} · {moment.emotionLabel}</p>
+                                                <Badge className={EMOTION_PROFILE_META[moment.emotionKey].badgeClassName}>
+                                                  {moment.energy}
+                                                </Badge>
+                                              </div>
+                                              <p className="mt-1 text-[11px] text-muted-foreground">{EMOTION_PROFILE_META[moment.emotionKey].detail}</p>
+                                            </button>
+                                          ))
+                                        ) : (
+                                          <p className="rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                                            Hotspots will appear once high-energy windows are detected.
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {emotionSignals.slice(0, 4).map((signal) => (
+                                      <Badge key={`emotion-signal-${signal.key}`} className={signal.badgeClassName}>
+                                        {signal.label} {Math.round(signal.sharePercent)}%
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                              <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                                    Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
+                                  </Badge>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="text-[11px] text-primary underline underline-offset-4"
+                                      >
+                                        Details
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="border-border/60 bg-card text-foreground">
+                                      {autoHookSummaryLine}
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">{autoHookSummaryLine}</p>
+                              </div>
+
+                              <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-xs font-medium text-foreground">Auto-Cut Boring/Silent/Pauses</p>
+                                  <Switch
+                                    checked={autoCutBoringEnabled}
+                                    onCheckedChange={setAutoCutBoringEnabled}
+                                    className="data-[state=checked]:bg-primary"
+                                    aria-label="Auto-cut low engagement segments"
+                                  />
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {autoCutBoringEnabled
+                                    ? `Cut ${removedFillerPercent}% low-engagement filler`
+                                    : "Auto-cut paused, low-engagement filler retained."}
+                                </p>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
 
@@ -13457,14 +13668,54 @@ const Editor = () => {
                             Facial scan, binge-flow, retention, emotion, and autonomous editing details are now on a dedicated page.
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          className="min-h-10 w-full gap-2 sm:w-auto"
-                          onClick={() => navigate("/editor/a-mode")}
-                        >
-                          Open A-Mode Page
-                        </Button>
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+                          <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            <span>Card</span>
+                            <Switch
+                              checked={showAModeQuickCard}
+                              onCheckedChange={setShowAModeQuickCard}
+                              aria-label="Toggle A-Mode quick stats card"
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            className="min-h-10 w-full gap-2 sm:w-auto"
+                            onClick={() => navigate("/editor/a-mode")}
+                          >
+                            Open A-Mode Page
+                          </Button>
+                        </div>
                       </div>
+                      {!showAModeQuickCard ? (
+                        <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                          A-Mode quick stats are hidden. Toggle Card ON to review the latest signal summary.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Facial Lift</p>
+                            <p className="mt-1 text-base font-semibold text-foreground">+{facialRetentionBoostPct}%</p>
+                            <p className="text-[10px] text-muted-foreground">Focus {formatTimelineClock(facialFocusSec)}</p>
+                          </div>
+                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Binge Rehook</p>
+                            <p className="mt-1 text-base font-semibold text-foreground">{rehookIntervalSec}s</p>
+                            <p className="text-[10px] text-muted-foreground">Adaptive interval</p>
+                          </div>
+                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Curiosity Lift</p>
+                            <p className="mt-1 text-base font-semibold text-foreground">+{curiosityLoopRetentionLift}%</p>
+                            <p className="text-[10px] text-muted-foreground">Cliffhanger tuned</p>
+                          </div>
+                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Emotion Lead</p>
+                            <p className="mt-1 text-base font-semibold text-foreground">{topEmotionSignal?.label ?? "Pending"}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {topEmotionSignal ? `${Math.round(topEmotionSignal.sharePercent)}% share` : "Waiting for scan"}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {normalizeStatus(activeJob.status) === "ready" && (
                       <motion.div
