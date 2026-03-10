@@ -272,6 +272,7 @@ const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
 const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v3";
 const LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY = "editor_live_transcript_visible_v1";
+const LIVE_OUTCOME_LOOP_VISIBLE_KEY = "editor_live_outcome_loop_visible_v1";
 const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
 const CHECKOUT_SUCCESS_QUERY_KEYS = ["success", "session_id", "source", "trial", "tier", "endsAt"] as const;
 
@@ -2778,6 +2779,7 @@ const Editor = () => {
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
+  const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -2992,6 +2994,11 @@ const Editor = () => {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
+  const [showStoryMapPanel, setShowStoryMapPanel] = useState(true);
+  const [showLiveOutcomeLoop, setShowLiveOutcomeLoop] = useState(false);
+  const [showScanInsightsPanel, setShowScanInsightsPanel] = useState(true);
+  const [showEnergyEmotionTimeline, setShowEnergyEmotionTimeline] = useState(true);
+  const [showAModeQuickCard, setShowAModeQuickCard] = useState(true);
   const [showLiveTranscriptEditor, setShowLiveTranscriptEditor] = useState(true);
   const [transcriptPanelTab, setTranscriptPanelTab] = useState<TranscriptPanelTab>("editor");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -3520,6 +3527,29 @@ const Editor = () => {
       // ignore storage failures
     }
   }, [showLiveTranscriptEditor]);
+
+  useEffect(() => {
+    try {
+      const persisted = window.localStorage.getItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY);
+      if (persisted === "true") {
+        setShowLiveOutcomeLoop(true);
+        return;
+      }
+      if (persisted === "false") {
+        setShowLiveOutcomeLoop(false);
+      }
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY, showLiveOutcomeLoop ? "true" : "false");
+    } catch (error) {
+      // ignore storage failures
+    }
+  }, [showLiveOutcomeLoop]);
 
   useEffect(() => {
     if (!analyzeUnlockStorageKey) {
@@ -6138,6 +6168,7 @@ const Editor = () => {
       fileCount,
       mode: isVerticalMode ? "vertical" : "horizontal",
     });
+    setUploadRenderSettingsOpen(false);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -7543,6 +7574,31 @@ const Editor = () => {
   const highestEnergyMoment = timelineEnergyMoments.length > 0
     ? timelineEnergyMoments.reduce((best, current) => (current.energy > best.energy ? current : best), timelineEnergyMoments[0])
     : null;
+  const timelineAverageEnergy = useMemo(() => {
+    if (timelineEnergyMoments.length === 0) return 0;
+    const total = timelineEnergyMoments.reduce((sum, moment) => sum + moment.energy, 0);
+    return clamp(Math.round(total / timelineEnergyMoments.length), 0, 100);
+  }, [timelineEnergyMoments]);
+  const timelineAverageEmotion = useMemo(() => {
+    if (timelineEnergyMoments.length === 0) return 0;
+    const total = timelineEnergyMoments.reduce((sum, moment) => sum + moment.emotionalScore, 0);
+    return clamp(Math.round(total / timelineEnergyMoments.length), 0, 100);
+  }, [timelineEnergyMoments]);
+  const timelineAverageMotion = useMemo(() => {
+    if (timelineEnergyMoments.length === 0) return 0;
+    const total = timelineEnergyMoments.reduce((sum, moment) => sum + moment.motion, 0);
+    return clamp(Math.round(total / timelineEnergyMoments.length), 0, 100);
+  }, [timelineEnergyMoments]);
+  const timelineMomentumScore = useMemo(
+    () => clamp(Math.round(timelineAverageEnergy * 0.44 + timelineAverageEmotion * 0.32 + timelineAverageMotion * 0.24), 0, 100),
+    [timelineAverageEmotion, timelineAverageEnergy, timelineAverageMotion],
+  );
+  const timelineHotspotMoments = useMemo(() => (
+    timelineEnergyMoments
+      .filter((moment) => moment.energy >= Math.max(74, timelineAverageEnergy + 4))
+      .sort((left, right) => right.energy - left.energy)
+      .slice(0, 4)
+  ), [timelineAverageEnergy, timelineEnergyMoments]);
   const fullScanProgress = useMemo(() => {
     if (analyzedFrames !== null && totalFrames !== null && totalFrames > 0) {
       return clamp((analyzedFrames / totalFrames) * 100, 0, 100);
@@ -7903,6 +7959,32 @@ const Editor = () => {
     const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1].endSec);
     return clamp((previewCurrentTimeSec / total) * 100, 0, 100);
   }, [previewCurrentTimeSec, previewStoryBeatSegments]);
+  const previewStoryBeatStats = useMemo(() => {
+    const total = Math.max(1, previewStoryBeatTimelineDurationSec);
+    return previewStoryBeatSegments.map((segment) => {
+      const durationSec = Math.max(0.8, segment.endSec - segment.startSec);
+      return {
+        ...segment,
+        durationSec,
+        coveragePct: clamp(Number(((durationSec / total) * 100).toFixed(1)), 0, 100),
+      };
+    });
+  }, [previewStoryBeatSegments, previewStoryBeatTimelineDurationSec]);
+  const previewStoryMapMomentumScore = useMemo(() => {
+    if (previewStoryBeatStats.length === 0) return 0;
+    const weighted = previewStoryBeatStats.reduce((sum, segment) => {
+      const baseWeight = segment.key === "hook"
+        ? 1.08
+        : segment.key === "payoff"
+          ? 1.12
+          : segment.key === "cliffhanger"
+            ? 1.05
+            : 0.95;
+      return sum + (segment.coveragePct * baseWeight);
+    }, 0);
+    const average = weighted / previewStoryBeatStats.length;
+    return clamp(Math.round(average), 0, 100);
+  }, [previewStoryBeatStats]);
   const emotionalBeatAnchorSeconds = useMemo(() => {
     const raw =
       activeAnalysis?.emotional_beat_anchors ??
@@ -8116,6 +8198,16 @@ const Editor = () => {
     }
     return deduped.sort((a, b) => a.timestampSec - b.timestampSec);
   }, [bestRetentionSegments, timelineEnergyMoments]);
+  const energyLinePoints = useMemo(() => {
+    if (timelineEnergyMoments.length < 2) return "";
+    return timelineEnergyMoments
+      .map((moment) => {
+        const x = clamp((moment.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
+        const y = 100 - clamp(moment.energy, 0, 100);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [retentionTimelineDurationSec, timelineEnergyMoments]);
   const emotionLinePoints = useMemo(() => {
     if (timelineEnergyMoments.length < 2) return "";
     return timelineEnergyMoments
@@ -9824,6 +9916,12 @@ const Editor = () => {
     exploreX3Enabled,
     topHumanGuardEnabled,
   ]);
+  const liveOutcomeModeSubtitle = isVerticalMode
+    ? "Vertical Live Agent mode optimizes short-form loops for TikTok + IG Reels, with YouTube Shorts context."
+    : "Horizontal Live Agent mode optimizes long-form structure first, then maps highlights for TikTok + IG Reels crossover.";
+  const liveRateCardModeSubtitle = isVerticalMode
+    ? "Vertical Live Agent scorecard for TikTok and IG Reels with one-click short-form upgrades."
+    : "Horizontal Live Agent scorecard for long-form YouTube plus TikTok + IG Reels adaptation scoring.";
   const applyDirectorNotesExample = useCallback((template: string) => {
     if (!directorNotesUnlocked) {
       promptDirectorNotesUpgrade();
@@ -9852,6 +9950,7 @@ const Editor = () => {
 
   const closeUploadModePrompt = useCallback(() => {
     setUploadModePromptOpen(false);
+    setUploadRenderSettingsOpen(false);
     setPendingUploadSelection(null);
   }, []);
 
@@ -14397,8 +14496,8 @@ const Editor = () => {
           if (!open) closeUploadModePrompt();
         }}
       >
-        <DialogContent
-          className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/40 bg-[radial-gradient(140%_200%_at_0%_0%,hsl(var(--primary)/0.24),transparent_54%),radial-gradient(140%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.2),transparent_60%),linear-gradient(152deg,hsl(var(--card)/0.9),hsl(var(--card)/0.76))] p-0 backdrop-blur-xl sm:max-w-2xl [&>button]:hidden"
+      <DialogContent
+          className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_28px_90px_-42px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
@@ -14408,132 +14507,302 @@ const Editor = () => {
               <span className="absolute right-[-4.25rem] top-[-3.5rem] h-36 w-36 rounded-full bg-[hsl(var(--glow-secondary)/0.18)] blur-3xl" />
             </div>
             <DialogHeader className="relative z-10">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <Badge className="border-primary/40 bg-primary/12 text-primary">Upload Studio</Badge>
+                <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Premium Workflow</span>
+              </div>
               <DialogTitle className="text-xl font-display text-foreground">Choose Upload Mode</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Before upload starts, choose whether this render should stay balanced, prioritize speed with a required transcript pass, or keep transcript-guided hook selection on for quality.
+                Choose your render profile, quick setup, and AI placement behavior before processing starts.
               </DialogDescription>
             </DialogHeader>
 
             {pendingUploadSelection ? (
-              <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/45 px-3 py-2">
+              <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-[linear-gradient(140deg,hsl(var(--card)/0.78),hsl(var(--card)/0.46))] px-3 py-2">
                 <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected file</p>
                 <p className="mt-1 truncate text-sm text-foreground">{pendingUploadSelection.file.name}</p>
               </div>
             ) : null}
 
-            <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-primary/10 px-3 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Render Settings</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Applied to this upload before processing starts.
-              </p>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-                <label className="space-y-1">
-                  <span className="text-[11px] text-muted-foreground">Video speed</span>
-                  <select
-                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                    value={videoPreset}
-                    onChange={(event) => setVideoPreset(normalizeVideoPreset(event.target.value))}
-                  >
-                    {X264_PRESET_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} className="bg-background text-foreground">
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-[11px] text-muted-foreground">Audio bitrate</span>
-                  <select
-                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                    value={String(audioBitrateKbps)}
-                    onChange={(event) =>
-                      setAudioBitrateKbps(parseAudioBitrateKbpsValue(event.target.value, audioBitrateKbps))
-                    }
-                  >
-                    {AUDIO_BITRATE_KBPS_OPTIONS.map((kbps) => (
-                      <option key={kbps} value={String(kbps)} className="bg-background text-foreground">
-                        {kbps} kbps
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground">Current</p>
-                  <p>{videoPreset} preset</p>
-                  <p>CRF {videoCrf}</p>
-                  <p>{audioBitrateKbps} kbps audio</p>
+            <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setUploadRenderSettingsOpen((prev) => !prev)}
+                aria-expanded={uploadRenderSettingsOpen}
+              >
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Render Settings</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Advanced encoder controls for this upload. Hidden by default.
+                  </p>
                 </div>
-                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 md:col-span-3">
-                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Video quality (CRF)</span>
-                    <span>{videoCrf}</span>
+                <span className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/50 bg-background/45 text-foreground transition hover:border-primary/45 hover:text-primary">
+                  {uploadRenderSettingsOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                </span>
+              </button>
+              {uploadRenderSettingsOpen ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-muted-foreground">Video speed</span>
+                    <select
+                      className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                      value={videoPreset}
+                      onChange={(event) => setVideoPreset(normalizeVideoPreset(event.target.value))}
+                    >
+                      {X264_PRESET_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} className="bg-background text-foreground">
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[11px] text-muted-foreground">Audio bitrate</span>
+                    <select
+                      className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                      value={String(audioBitrateKbps)}
+                      onChange={(event) =>
+                        setAudioBitrateKbps(parseAudioBitrateKbpsValue(event.target.value, audioBitrateKbps))
+                      }
+                    >
+                      {AUDIO_BITRATE_KBPS_OPTIONS.map((kbps) => (
+                        <option key={kbps} value={String(kbps)} className="bg-background text-foreground">
+                          {kbps} kbps
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">Current</p>
+                    <p>{videoPreset} preset</p>
+                    <p>CRF {videoCrf}</p>
+                    <p>{audioBitrateKbps} kbps audio</p>
                   </div>
-                  <Slider
-                    min={VIDEO_CRF_MIN}
-                    max={VIDEO_CRF_MAX}
-                    step={1}
-                    className="editor-settings-slider"
-                    value={[videoCrf]}
-                    onValueChange={(values) =>
-                      setVideoCrf(parseVideoCrfValue(values?.[0], videoCrf))
-                    }
-                  />
-                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-                    <p>Lower CRF = higher quality + bigger file</p>
-                    <p>Higher CRF = lower quality + smaller file</p>
-                    <p className="pt-1 font-medium text-foreground/90">Quick guide:</p>
-                    <p>18-20: very high quality, large files</p>
-                    <p>21-23: good default balance</p>
-                    <p>24-28: smaller files, quality drops more visibly</p>
+                  <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 md:col-span-3">
+                    <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Video quality (CRF)</span>
+                      <span>{videoCrf}</span>
+                    </div>
+                    <Slider
+                      min={VIDEO_CRF_MIN}
+                      max={VIDEO_CRF_MAX}
+                      step={1}
+                      className="editor-settings-slider"
+                      value={[videoCrf]}
+                      onValueChange={(values) =>
+                        setVideoCrf(parseVideoCrfValue(values?.[0], videoCrf))
+                      }
+                    />
+                    <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                      <p>Lower CRF = higher quality + bigger file</p>
+                      <p>Higher CRF = lower quality + smaller file</p>
+                      <p className="pt-1 font-medium text-foreground/90">Quick guide:</p>
+                      <p>18-20: very high quality, large files</p>
+                      <p>21-23: good default balance</p>
+                      <p>24-28: smaller files, quality drops more visibly</p>
+                    </div>
                   </div>
                 </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Expand to tune encoder speed, CRF, and audio bitrate before upload starts.
+                </p>
+              )}
+            </div>
+
+            <div className="relative z-10 mt-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Upload Mode</p>
+                <Badge className="border-border/55 bg-background/40 text-muted-foreground">Tap to run instantly</Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {UPLOAD_MODE_PROMPT_OPTIONS.map((option) => {
+                  const locked = Boolean(option.premium && !paidTier);
+                  const active = uploadModePromptActiveSelection === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`hero-platform-pill flex items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all ${
+                        active
+                          ? "border-primary/70 bg-[linear-gradient(145deg,hsl(var(--primary)/0.22),hsl(var(--card)/0.66))] shadow-[0_20px_36px_-26px_hsl(var(--primary)/1)]"
+                          : "border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.84),hsl(var(--card)/0.52))]"
+                      } ${locked ? "cursor-not-allowed opacity-70" : "hover:border-primary/55 hover:bg-primary/10"}`}
+                      onClick={() => {
+                        if (locked) return;
+                        handleSelectUploadModePrompt(option.value);
+                      }}
+                      disabled={locked}
+                    >
+                      <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                        active ? "bg-primary/25 text-primary" : "bg-background/60 text-muted-foreground"
+                      }`}>
+                        {option.value === "ultra" ? (
+                          <Zap className="h-4 w-4" />
+                        ) : option.value === "retention_king" ? (
+                          <Crown className="h-4 w-4" />
+                        ) : option.value === "full_auto_youtube" ? (
+                          <Wand2 className="h-4 w-4" />
+                        ) : (
+                          <Gauge className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{option.label}</span>
+                          {option.premium ? (
+                            <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                              Premium
+                            </span>
+                          ) : null}
+                          {locked ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                          {option.description}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-2">
-              {UPLOAD_MODE_PROMPT_OPTIONS.map((option) => {
-                const locked = Boolean(option.premium && !paidTier);
-                const active = uploadModePromptActiveSelection === option.value;
-                return (
+            <div className="relative z-10 mt-3 overflow-hidden rounded-2xl border border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.9),hsl(var(--card)/0.6))] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-primary/80">Quick Setup</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    One-tap presets and AI placement controls for this upload.
+                  </p>
+                </div>
+                <Badge className="border-primary/35 bg-primary/10 text-primary">Fast Start</Badge>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                    !isVerticalMode && retentionStrategyProfile === "safe" && maxCutsRequested <= 6
+                      ? "border-primary/55 bg-primary/16 text-foreground shadow-sm"
+                      : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                  }`}
+                  onClick={() => applyQuickSetupPreset("simple")}
+                  aria-label="Apply simple preset"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Simple
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Clean pacing for context-first edits.</p>
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                    !isVerticalMode && retentionStrategyProfile === "balanced" && maxCutsRequested >= 7 && maxCutsRequested <= 9
+                      ? "border-primary/55 bg-primary/16 text-foreground shadow-sm"
+                      : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                  }`}
+                  onClick={() => applyQuickSetupPreset("balanced")}
+                  aria-label="Apply balanced preset"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Gauge className="h-4 w-4" aria-hidden />
+                    Balanced
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Middle-ground setup for most uploads.</p>
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                    isVerticalMode && retentionStrategyProfile === "viral" && maxCutsRequested >= 10
+                      ? "border-primary/55 bg-primary/16 text-foreground shadow-sm"
+                      : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                  }`}
+                  onClick={() => applyQuickSetupPreset("viral")}
+                  aria-label="Apply viral preset"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Flame className="h-4 w-4" aria-hidden />
+                    Viral
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Higher cut density with stronger momentum.</p>
+                </button>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.16),rgba(10,14,30,0.56))] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">AI placement controls</p>
+                    <p className="text-xs text-foreground/85">
+                      Decide where the editor agent applies zoom-ins, transitions, and impact SFX.
+                    </p>
+                  </div>
+                  <Badge className="border-primary/35 bg-primary/10 text-primary">Live</Badge>
+                </div>
+                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                   <button
-                    key={option.value}
                     type="button"
-                    className={`hero-platform-pill flex items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
-                      active
-                        ? "border-primary/65 bg-primary/14 shadow-[0_14px_30px_-20px_hsl(var(--primary)/0.9)]"
-                        : "border-border/55 bg-card/40"
-                    } ${locked ? "cursor-not-allowed opacity-70" : "hover:border-primary/55 hover:bg-primary/10"}`}
+                    className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                      smartZoomEnabled
+                        ? "border-primary/55 bg-primary/18 text-foreground"
+                        : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                    }`}
                     onClick={() => {
-                      if (locked) return;
-                      handleSelectUploadModePrompt(option.value);
+                      setSelectedYouTubeNichePresetId(null);
+                      setSmartZoomEnabled((prev) => !prev);
                     }}
-                    disabled={locked}
+                    aria-pressed={smartZoomEnabled}
+                    aria-label="Toggle smart zoom-ins"
                   >
-                    <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                      active ? "bg-primary/25 text-primary" : "bg-background/60 text-muted-foreground"
-                    }`}>
-                      {option.value === "ultra" ? (
-                        <Zap className="h-4 w-4" />
-                      ) : option.value === "retention_king" ? (
-                        <Crown className="h-4 w-4" />
-                      ) : option.value === "full_auto_youtube" ? (
-                        <Wand2 className="h-4 w-4" />
-                      ) : (
-                        <Gauge className="h-4 w-4" />
-                      )}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">{option.label}</span>
-                        {locked ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : null}
-                      </span>
-                      <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                        {option.description}
-                      </span>
-                    </span>
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <MousePointerClick className="h-4 w-4" aria-hidden />
+                      Smart Zoom-ins
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI punch-in framing on emphasis beats.</p>
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                      autoTransitionsEnabled
+                        ? "border-primary/55 bg-primary/18 text-foreground"
+                        : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      setSelectedYouTubeNichePresetId(null);
+                      setAutoTransitionsEnabled((prev) => !prev);
+                    }}
+                    aria-pressed={autoTransitionsEnabled}
+                    aria-label="Toggle auto transitions"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <ScissorsSquare className="h-4 w-4" aria-hidden />
+                      Auto Transitions
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI inserts transitions where scene energy shifts.</p>
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                      autoSoundFxEnabled
+                        ? "border-primary/55 bg-primary/18 text-foreground"
+                        : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      setSelectedYouTubeNichePresetId(null);
+                      setAutoSoundFxEnabled((prev) => !prev);
+                    }}
+                    aria-pressed={autoSoundFxEnabled}
+                    aria-label="Toggle impact sound effects"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Music className="h-4 w-4" aria-hidden />
+                      Impact Sound FX
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI layers subtle hits on key moments.</p>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="relative z-10 mt-3 overflow-hidden rounded-2xl border border-primary/30 bg-[radial-gradient(120%_180%_at_0%_0%,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(145deg,hsl(var(--card)/0.92),hsl(var(--card)/0.76))] p-4">
