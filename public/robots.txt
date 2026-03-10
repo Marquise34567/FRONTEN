@@ -1,4 +1,15 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /editor
+Disallow: /settings
+Disallow: /billing/success
+Disallow: /preview/google-ads-tracking
+Disallow: /editor/google-ads-tracking
+Disallow: /dev/control-panel
+Disallow: /control-panel
+Disallow: /__control-panel
+Disallow: /x-quantum-control-9
 
 Sitemap: https://www.autoeditor.app/sitemap.xml

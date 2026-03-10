@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import SeoHead from "@/components/SeoHead";
 
 const trackingId = "AW-17981894798";
 
@@ -101,6 +102,12 @@ const GoogleTagSetup = () => {
 
   return (
     <div className="min-h-screen bg-[#020405] text-[#f8fbfb]">
+      <SeoHead
+        title="Google Ads Tracking Setup Preview | AutoEditor"
+        description="Internal preview page for Google Ads conversion tracking setup."
+        path="/preview/google-ads-tracking"
+        noindex
+      />
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(78rem_42rem_at_75%_-5%,rgba(13,148,136,0.16),transparent_60%),radial-gradient(60rem_36rem_at_0%_100%,rgba(12,74,110,0.16),transparent_65%)]" />
       <div className="relative flex min-h-screen">
         <aside className="hidden w-20 flex-col items-center border-r border-white/5 bg-black/35 px-3 py-5 md:flex">

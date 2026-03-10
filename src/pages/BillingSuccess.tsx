@@ -11,6 +11,7 @@ import { useMe } from "@/hooks/use-me";
 import { useAuth } from "@/providers/AuthProvider";
 import { CheckCircle2, Sparkles } from "lucide-react";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
+import SeoHead from "@/components/SeoHead";
 
 const REDIRECT_SECONDS = 20;
 const GOOGLE_ADS_CONVERSION_SEND_TO = "AW-17981894798/TZAbCN2on4AcEI7ht_5C";
@@ -97,6 +98,12 @@ const BillingSuccess = () => {
   if (!accessToken) {
     return (
       <Suspense fallback={<Fragment />}><GlowBackdrop>
+        <SeoHead
+          title="Billing Session Required | AutoEditor"
+          description="Sign in to complete billing setup and continue in AutoEditor."
+          path="/billing/success"
+          noindex
+        />
         <Navbar />
         <main className="responsive-main min-h-screen flex items-center justify-center px-4 pt-24 pb-12">
           <div className="glass-card p-8 max-w-md text-center space-y-4">
@@ -117,6 +124,12 @@ const BillingSuccess = () => {
 
   return (
     <GlowBackdrop>
+      <SeoHead
+        title="Billing Success | AutoEditor"
+        description="Your AutoEditor subscription or trial is active. Continue to the editor to start your next project."
+        path="/billing/success"
+        noindex
+      />
       <Navbar />
       <main className="responsive-main min-h-screen flex items-center justify-center px-4 pt-24 pb-12">
         <motion.div

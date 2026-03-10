@@ -2,10 +2,34 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
+import SeoHead from "@/components/SeoHead";
+
+const HOW_IT_WORKS_SEO_DESCRIPTION =
+  "Learn how AutoEditor processes footage end to end: upload, hook detection, pacing optimization, caption styling, render, and final export review.";
+const HOW_IT_WORKS_SEO_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How AutoEditor Works",
+  "description": HOW_IT_WORKS_SEO_DESCRIPTION,
+  "url": "https://www.autoeditor.app/how-editor-works",
+  "step": [
+    { "@type": "HowToStep", "name": "Upload source footage" },
+    { "@type": "HowToStep", "name": "Choose format and pipeline" },
+    { "@type": "HowToStep", "name": "Configure captions and style controls" },
+    { "@type": "HowToStep", "name": "Run AI analysis and hook selection" },
+    { "@type": "HowToStep", "name": "Render and review export output" },
+  ],
+};
 
 const HowEditorWorks = () => {
   return (
     <GlowBackdrop>
+      <SeoHead
+        title="How AutoEditor Works: AI Editing Pipeline Explained"
+        description={HOW_IT_WORKS_SEO_DESCRIPTION}
+        path="/how-editor-works"
+        jsonLd={HOW_IT_WORKS_SEO_JSON_LD}
+      />
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
         <motion.div

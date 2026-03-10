@@ -10,6 +10,7 @@ import { ArrowRight, Lock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { useNavigate, Link, useLocation, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import SeoHead from "@/components/SeoHead";
 
 const resolveNextPath = (nextParam: string | null, location: ReturnType<typeof useLocation>) => {
   if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) return nextParam;
@@ -74,6 +75,12 @@ const Login = () => {
 
   return (
     <Suspense fallback={<div>Loading...</div>}><GlowBackdrop>
+      <SeoHead
+        title="Sign In | AutoEditor"
+        description="Sign in to your AutoEditor account to manage projects, exports, and creator workflow settings."
+        path="/login"
+        noindex
+      />
       <Navbar />
       <main className="responsive-main flex items-center justify-center min-h-screen px-4 pt-24">
         <motion.div

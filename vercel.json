@@ -1,13 +1,19 @@
 {
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "dist" }
-    }
-  ],
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "routes": [
     { "handle": "filesystem" },
-    { "src": "/.*", "dest": "/index.html" }
+    { "src": "^/$", "dest": "/index.html" },
+    { "src": "^/pricing/?$", "dest": "/pricing.html" },
+    { "src": "^/privacy-policy/?$", "dest": "/privacy-policy.html" },
+    { "src": "^/how-editor-works/?$", "dest": "/how-editor-works.html" },
+    { "src": "^/login/?$", "dest": "/login.html" },
+    { "src": "^/signup/?$", "dest": "/signup.html" },
+    { "src": "^/(app|editor|settings|billing/success|preview/google-ads-tracking|editor/google-ads-tracking|dev/control-panel(?:/(overview|emotion|analytics|audience|growth|infrastructure|security|algorithm|bank|ops))?|control-panel|__control-panel|x-quantum-control-9)/?$", "dest": "/index.html" },
+    { "src": "^/app/job/[^/]+/?$", "dest": "/index.html" },
+    { "src": "/.*", "status": 404, "dest": "/404.html" }
   ]
 }

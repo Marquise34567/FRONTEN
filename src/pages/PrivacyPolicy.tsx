@@ -2,10 +2,27 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
+import SeoHead from "@/components/SeoHead";
+
+const PRIVACY_SEO_DESCRIPTION =
+  "Read the AutoEditor Privacy Policy to understand what data we collect, how we use it, and your available privacy choices.";
+const PRIVACY_SEO_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "AutoEditor Privacy Policy",
+  "url": "https://www.autoeditor.app/privacy-policy",
+  "description": PRIVACY_SEO_DESCRIPTION,
+};
 
 const PrivacyPolicy = () => {
   return (
     <GlowBackdrop>
+      <SeoHead
+        title="Privacy Policy | AutoEditor"
+        description={PRIVACY_SEO_DESCRIPTION}
+        path="/privacy-policy"
+        jsonLd={PRIVACY_SEO_JSON_LD}
+      />
       <Navbar />
       <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
         <motion.div
