@@ -8274,6 +8274,7 @@ const Editor = () => {
     }
     return lift;
   }, [editorRateSuggestions, selectedRateSuggestionIdSet]);
+  const platformRateDecisionReady = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const platformRateScores = useMemo(() => {
     const scoreSignalBase = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 62;
     const scoreSignalDelta = retentionScoreDeltaDisplay ?? 0;
@@ -8339,14 +8340,23 @@ const Editor = () => {
     });
     const topEntry = entries.reduce((best, current) => (current.score > best.score ? current : best), entries[0]);
     const averageScore = Math.round(entries.reduce((sum, item) => sum + item.score, 0) / Math.max(1, entries.length));
-    const overallScore = clamp(Math.round(topEntry.score * 0.58 + averageScore * 0.42), 0, 100);
+    const overallScore = platformRateDecisionReady
+      ? clamp(Math.round(topEntry.score * 0.58 + averageScore * 0.42), 0, 100)
+      : null;
+    const scoreByPlatform = {
+      youtube: entries.find((entry) => entry.platform === "youtube")?.score ?? 0,
+      tiktok: entries.find((entry) => entry.platform === "tiktok")?.score ?? 0,
+      instagram_reels: entries.find((entry) => entry.platform === "instagram_reels")?.score ?? 0,
+    };
     return {
       entries,
-      topEntry,
+      topEntry: platformRateDecisionReady ? topEntry : null,
       averageScore,
+      scoreByPlatform,
       overallScore,
     };
   }, [
+    activeJob?.status,
     activeYouTubeTrustPercent,
     hookConfidenceScore,
     latestRetentionPoint?.predicted,
@@ -8361,13 +8371,14 @@ const Editor = () => {
     retentionStrategyProfile,
     retentionTargetPlatform,
     selectedRateSuggestionLift,
+    platformRateDecisionReady,
     youtubeConnected,
   ]);
   const platformRateUpdatedLabel = useMemo(
     () => new Date(platformRateUpdatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }),
     [platformRateUpdatedAtMs],
   );
-  const dopamineRateActive = platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
+  const dopamineRateActive = platformRateScores.overallScore !== null && platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
     : null;
@@ -10690,10 +10701,12 @@ const Editor = () => {
                     }
                   />
                 ) : null}
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Best platform forecast</p>
+                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {platformRateDecisionReady ? "Best platform score" : "Platform scores (pending final render)"}
+                </p>
                 <div className="mt-2 flex items-end gap-2">
                   <motion.p
-                    key={`${activeJob?.id || "none"}-${platformRateScores.overallScore}`}
+                    key={`${activeJob?.id || "none"}-${platformRateScores.overallScore ?? "pending"}`}
                     initial={{ opacity: 0.4, y: 6 }}
                     animate={
                       dopamineRateActive && !runtimeProfile.reducedMotion
@@ -10711,15 +10724,23 @@ const Editor = () => {
                         : "text-foreground"
                     }`}
                   >
-                    {platformRateScores.overallScore}
+                    {platformRateScores.overallScore ?? "--"}
                   </motion.p>
-                  <span className="pb-1 text-sm text-muted-foreground">/100</span>
+                  <span className="pb-1 text-sm text-muted-foreground">
+                    {platformRateDecisionReady ? "/100" : "pending"}
+                  </span>
                 </div>
                 <p className="mt-1 text-xs text-foreground/90">
-                  {platformRateScores.topEntry.label} is currently the strongest posting destination.
+                  {platformRateDecisionReady && platformRateScores.topEntry
+                    ? `${platformRateScores.topEntry.label} score: ${platformRateScores.topEntry.score}/100.`
+                    : "Winner is locked only after render status is ready."}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Average cross-platform score {platformRateScores.averageScore}/100.
+                  YouTube score: {platformRateScores.scoreByPlatform.youtube}/100 · TikTok score: {platformRateScores.scoreByPlatform.tiktok}/100 · IG Reels score: {platformRateScores.scoreByPlatform.instagram_reels}/100.
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Average cross-platform score {platformRateScores.averageScore}/100
+                  {platformRateDecisionReady ? "." : " (live estimate)."}
                 </p>
                 {dopamineRateActive ? (
                   <Badge className="mt-2 border-emerald-400/45 bg-emerald-500/12 text-emerald-100">
