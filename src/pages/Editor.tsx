@@ -54,11 +54,20 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "video/x-matroska",
 ]);
 const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
-const CAPTIONS_PIPELINE_ENABLED = false;
+const CAPTIONS_PIPELINE_ENABLED = (() => {
+  const raw = String(import.meta.env.VITE_CAPTIONS_PIPELINE_ENABLED ?? "true").trim().toLowerCase();
+  if (!raw) return true;
+  if (["0", "false", "no", "off", "disabled"].includes(raw)) return false;
+  return true;
+})();
 const PREVIEW_REFRESH_RETRY_LIMIT = 2;
 const PREVIEW_REFRESH_RETRY_DELAY_MS = 900;
-const PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS = 180;
-const PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC = 0.2;
+const PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS = 260;
+const PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC = 0.26;
+const PREVIEW_TIME_STATE_UPDATE_CONSTRAINED_INTERVAL_MS = 420;
+const PREVIEW_TIME_STATE_UPDATE_CONSTRAINED_DELTA_SEC = 0.38;
+const PREVIEW_IMPROVEMENT_POPUP_ROTATE_STANDARD_MS = 4200;
+const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
@@ -320,6 +329,15 @@ type AchievementSignal = {
   title: string;
   line: string;
   metric: string;
+};
+type PreviewImprovementTipTone = "warning" | "fix" | "boost";
+type PreviewImprovementTipIcon = "hook" | "trim" | "pace" | "target";
+type PreviewImprovementTip = {
+  id: string;
+  title: string;
+  detail: string;
+  tone: PreviewImprovementTipTone;
+  icon: PreviewImprovementTipIcon;
 };
 type EditorRateSuggestionAction =
   | "enable_a_mode"
@@ -2913,9 +2931,9 @@ const Editor = () => {
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
   const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(false);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({
-    available: false,
-    mode: "disabled",
-    reason: "Captions are disabled in the editor pipeline.",
+    available: CAPTIONS_PIPELINE_ENABLED,
+    mode: CAPTIONS_PIPELINE_ENABLED ? "runtime" : "disabled",
+    reason: CAPTIONS_PIPELINE_ENABLED ? null : "Captions are disabled in the editor pipeline.",
   });
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showSavedAnimation, setShowSavedAnimation] = useState(false);
@@ -2994,6 +3012,7 @@ const Editor = () => {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
+  const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
   const [showStoryMapPanel, setShowStoryMapPanel] = useState(true);
   const [showLiveOutcomeLoop, setShowLiveOutcomeLoop] = useState(false);
   const [showScanInsightsPanel, setShowScanInsightsPanel] = useState(true);
@@ -3002,6 +3021,7 @@ const Editor = () => {
   const [showLiveTranscriptEditor, setShowLiveTranscriptEditor] = useState(true);
   const [transcriptPanelTab, setTranscriptPanelTab] = useState<TranscriptPanelTab>("editor");
   const hookPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const activeTranscriptCueIndexRef = useRef(-1);
   const previewRetryCountByJobRef = useRef<Record<string, number>>({});
   const previewTimeSyncRef = useRef<{ atMs: number; timeSec: number }>({ atMs: 0, timeSec: 0 });
   const playbackTelemetryRef = useRef<Record<string, PreviewPlaybackTelemetry>>({});
@@ -3023,6 +3043,12 @@ const Editor = () => {
   const lowPowerMode = runtimeProfile.lowPowerDevice;
   const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
   const livePollingIntervalMs = performanceConstrained ? 4500 : 2500;
+  const previewTimeStateUpdateIntervalMs = performanceConstrained
+    ? PREVIEW_TIME_STATE_UPDATE_CONSTRAINED_INTERVAL_MS
+    : PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS;
+  const previewTimeStateUpdateDeltaSec = performanceConstrained
+    ? PREVIEW_TIME_STATE_UPDATE_CONSTRAINED_DELTA_SEC
+    : PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC;
   const shouldTickEta = Boolean(uploadingJobId || (activeJob && !isTerminalStatus(activeJob.status)));
   const etaTickIntervalMs = performanceConstrained ? ETA_TICK_CONSTRAINED_INTERVAL_MS : ETA_TICK_STANDARD_INTERVAL_MS;
   const ultraPipelineMode = isUltraPipelineMode(pipelinePowerMode);
@@ -3331,7 +3357,7 @@ const Editor = () => {
       });
       toast({
         title: "Caption settings updated",
-        description: "Captions remain disabled for editor renders.",
+        description: "Caption style saved for upcoming renders.",
       });
     } catch (err: any) {
       if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
@@ -8592,6 +8618,68 @@ const Editor = () => {
     0,
     100,
   );
+  const previewImprovementTips = useMemo<PreviewImprovementTip[]>(() => {
+    if (!activeJob) return [];
+    const tips: PreviewImprovementTip[] = [];
+    const topSkipSegment = skipRiskRetentionSegments[0] ?? weakRetentionSegments[0] ?? null;
+
+    if (retentionGoalGap !== null && retentionGoalGap >= 1.2) {
+      tips.push({
+        id: "raise-retention-goal",
+        title: `Recover ${retentionGoalGap.toFixed(1)} retention points`,
+        detail: "Tighten weak sections and improve the opening promise to close the current goal gap.",
+        tone: "boost",
+        icon: "target",
+      });
+    }
+    if (hookConfidenceScore < 72) {
+      tips.push({
+        id: "hook-tighten",
+        title: "Strengthen first 3 seconds",
+        detail: `Hook confidence is ${hookConfidenceScore}%. Lead with a sharper visual reveal or punchier line.`,
+        tone: "warning",
+        icon: "hook",
+      });
+    }
+    if (topSkipSegment) {
+      tips.push({
+        id: `drop-zone-${topSkipSegment.id}`,
+        title: `Patch drop at ${formatTimelineClock(topSkipSegment.startSec)}-${formatTimelineClock(topSkipSegment.endSec)}`,
+        detail: topSkipSegment.reason || "This segment has elevated skip risk. Trim or reframe this moment.",
+        tone: "fix",
+        icon: "trim",
+      });
+    }
+    if (timelineMomentumScore < 69 || previewStoryMapMomentumScore < 68) {
+      tips.push({
+        id: "momentum-pace",
+        title: "Increase pacing contrast",
+        detail: "Add tighter cuts before payoff and use faster setup-to-reveal transitions.",
+        tone: "fix",
+        icon: "pace",
+      });
+    }
+    if (!autoCutBoringEnabled || removedFillerPercent < 20) {
+      tips.push({
+        id: "filler-pass",
+        title: "Run a stronger filler pass",
+        detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Removing more dead-air should help completion.`,
+        tone: "warning",
+        icon: "trim",
+      });
+    }
+    return tips.slice(0, 6);
+  }, [
+    activeJob,
+    autoCutBoringEnabled,
+    hookConfidenceScore,
+    previewStoryMapMomentumScore,
+    removedFillerPercent,
+    retentionGoalGap,
+    skipRiskRetentionSegments,
+    timelineMomentumScore,
+    weakRetentionSegments,
+  ]);
   const achievementSignals = useMemo<AchievementSignal[]>(() => {
     const list: AchievementSignal[] = [];
     const predicted = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? null;
@@ -9175,16 +9263,124 @@ const Editor = () => {
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
+  const shouldSyncPreviewClock = showVideo && (
+    showStoryMapPanel ||
+    (transcriptSeekEnabled && transcriptPanelTab === "preview")
+  );
+  const activePreviewImprovementTip = previewImprovementTips.length > 0
+    ? previewImprovementTips[previewImprovementTipIndex % previewImprovementTips.length]
+    : null;
+  const sidePreviewImprovementTip = previewImprovementTips.length > 1
+    ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
+    : null;
+  const resolvePreviewImprovementToneMeta = (tone: PreviewImprovementTipTone) => {
+    if (tone === "warning") {
+      return {
+        label: "Needs attention",
+        cardClassName: "border-amber-300/45 bg-amber-500/12",
+        badgeClassName: "border-amber-300/40 bg-amber-400/16 text-amber-100",
+        iconClassName: "border-amber-300/45 bg-amber-400/16 text-amber-100",
+      };
+    }
+    if (tone === "fix") {
+      return {
+        label: "Quick fix",
+        cardClassName: "border-cyan-300/45 bg-cyan-500/12",
+        badgeClassName: "border-cyan-300/40 bg-cyan-400/16 text-cyan-100",
+        iconClassName: "border-cyan-300/45 bg-cyan-400/16 text-cyan-100",
+      };
+    }
+    return {
+      label: "Growth boost",
+      cardClassName: "border-primary/45 bg-primary/12",
+      badgeClassName: "border-primary/40 bg-primary/16 text-primary-foreground",
+      iconClassName: "border-primary/45 bg-primary/16 text-primary-foreground",
+    };
+  };
+  const renderPreviewImprovementIcon = (icon: PreviewImprovementTipIcon, className: string) => {
+    if (icon === "hook") return <Flame className={className} />;
+    if (icon === "trim") return <Scissors className={className} />;
+    if (icon === "target") return <Zap className={className} />;
+    return <Gauge className={className} />;
+  };
   const activeTranscriptCueIndex = useMemo(() => {
-    if (!transcriptSeekEnabled || !activeTranscriptCues.length) return -1;
-    for (let index = 0; index < activeTranscriptCues.length; index += 1) {
+    if (!transcriptSeekEnabled || !activeTranscriptCues.length) {
+      activeTranscriptCueIndexRef.current = -1;
+      return -1;
+    }
+    const timeSec = previewCurrentTimeSec;
+    const matches = (index: number) => {
       const cue = activeTranscriptCues[index];
-      if (previewCurrentTimeSec >= cue.start && previewCurrentTimeSec < cue.end + 0.08) {
-        return index;
+      return timeSec >= cue.start && timeSec < cue.end + 0.08;
+    };
+
+    const lastIndex = activeTranscriptCueIndexRef.current;
+    if (lastIndex >= 0 && lastIndex < activeTranscriptCues.length) {
+      if (matches(lastIndex)) return lastIndex;
+      const direction = timeSec >= activeTranscriptCues[lastIndex].end ? 1 : -1;
+      let cursor = lastIndex + direction;
+      let scanned = 0;
+      while (cursor >= 0 && cursor < activeTranscriptCues.length && scanned < 36) {
+        if (matches(cursor)) {
+          activeTranscriptCueIndexRef.current = cursor;
+          return cursor;
+        }
+        const cue = activeTranscriptCues[cursor];
+        if (direction > 0 && cue.start > timeSec) break;
+        if (direction < 0 && cue.end + 0.08 < timeSec) break;
+        cursor += direction;
+        scanned += 1;
       }
     }
+
+    let low = 0;
+    let high = activeTranscriptCues.length - 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const cue = activeTranscriptCues[mid];
+      if (timeSec < cue.start) {
+        high = mid - 1;
+        continue;
+      }
+      if (timeSec >= cue.end + 0.08) {
+        low = mid + 1;
+        continue;
+      }
+      activeTranscriptCueIndexRef.current = mid;
+      return mid;
+    }
+    activeTranscriptCueIndexRef.current = -1;
     return -1;
   }, [activeTranscriptCues, previewCurrentTimeSec, transcriptSeekEnabled]);
+  useEffect(() => {
+    if (!shouldSyncPreviewClock) return;
+    const video = previewVideoRef.current;
+    if (!video) return;
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    const nowMs = typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+    previewTimeSyncRef.current = { atMs: nowMs, timeSec: currentTime };
+    setPreviewCurrentTimeSec((prev) => (Math.abs(prev - currentTime) >= 0.01 ? currentTime : prev));
+  }, [activeJob?.id, resolvedPreviewOutputUrl, shouldSyncPreviewClock]);
+  useEffect(() => {
+    setPreviewImprovementTipIndex(0);
+  }, [activeJob?.id, previewImprovementTips.length]);
+  useEffect(() => {
+    if (!showVideo || previewImprovementTips.length <= 1) return;
+    const rotateEveryMs = performanceConstrained
+      ? PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS
+      : PREVIEW_IMPROVEMENT_POPUP_ROTATE_STANDARD_MS;
+    const timer = window.setInterval(() => {
+      setPreviewImprovementTipIndex((current) => {
+        if (previewImprovementTips.length <= 1) return 0;
+        return (current + 1) % previewImprovementTips.length;
+      });
+    }, rotateEveryMs);
+    return () => window.clearInterval(timer);
+  }, [performanceConstrained, previewImprovementTips.length, showVideo]);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -9611,11 +9807,16 @@ const Editor = () => {
       : Date.now();
     const lastSync = previewTimeSyncRef.current;
     if (
-      nowMs - lastSync.atMs >= PREVIEW_TIME_STATE_UPDATE_MIN_INTERVAL_MS ||
-      Math.abs(currentTime - lastSync.timeSec) >= PREVIEW_TIME_STATE_UPDATE_MIN_DELTA_SEC
+      shouldSyncPreviewClock &&
+      (
+        nowMs - lastSync.atMs >= previewTimeStateUpdateIntervalMs ||
+        Math.abs(currentTime - lastSync.timeSec) >= previewTimeStateUpdateDeltaSec
+      )
     ) {
       previewTimeSyncRef.current = { atMs: nowMs, timeSec: currentTime };
       setPreviewCurrentTimeSec((prev) => (Math.abs(prev - currentTime) >= 0.01 ? currentTime : prev));
+    } else {
+      previewTimeSyncRef.current = { atMs: nowMs, timeSec: currentTime };
     }
     const delta = currentTime - telemetry.lastTimeSec;
     if (Number.isFinite(delta)) {
@@ -9644,7 +9845,14 @@ const Editor = () => {
         telemetry.maxProgress >= 0.95,
       );
     }
-  }, [activeJob, ensurePlaybackTelemetry, submitPreviewFeedback]);
+  }, [
+    activeJob,
+    ensurePlaybackTelemetry,
+    previewTimeStateUpdateDeltaSec,
+    previewTimeStateUpdateIntervalMs,
+    shouldSyncPreviewClock,
+    submitPreviewFeedback,
+  ]);
 
   const handlePreviewPause = useCallback(() => {
     if (!activeJob) return;
@@ -12903,169 +13111,264 @@ const Editor = () => {
                 </div>
               )}
 
-              <div className="glass-card overflow-hidden">
-                <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
-                  {showVideo ? (
-                    <video
-                      ref={previewVideoRef}
-                      src={resolvedPreviewOutputUrl}
-                      preload={previewPreload}
-                      controls
-                      onLoadedMetadata={handlePreviewLoadedMetadata}
-                      onTimeUpdate={handlePreviewTimeUpdate}
-                      onPause={handlePreviewPause}
-                      onEnded={handlePreviewEnded}
-                      onError={handlePreviewVideoError}
-                      className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
-                    />
-                  ) : (
-                    <>
-                      <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
-                      <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
-                        <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
-                          {activeJob && !isTerminalStatus(activeJob.status) ? (
-                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                          ) : (
-                            <Play className="w-6 h-6 text-primary ml-0.5" />
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {activeJob
-                            ? normalizedActiveStatus === "ready"
-                              ? "Ready to export"
-                              : normalizedActiveStatus === "failed"
-                                ? activeJob.error === "queue_canceled_by_user"
-                                  ? "Job canceled"
-                                  : "Job failed"
-                                : "Processing your edit..."
-                            : "Select a job to preview"}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-                {activeJob ? (
-                  <div className="border-t border-border/55 bg-background/35 p-3">
-                    <div className="rounded-xl border border-primary/25 bg-[linear-gradient(145deg,rgba(28,24,52,0.72),rgba(14,20,46,0.64))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)]">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Editor Agent Story Map</p>
-                          <p className="mt-1 text-[11px] text-foreground/80">
-                            {isVerticalMode
-                              ? "Vertical flow map for TikTok + IG Reels pacing and payoff timing."
-                              : "Long-form story map with short-form breakout pacing markers."}
+              <div className="relative">
+                <div className="glass-card overflow-hidden">
+                  <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
+                    {showVideo ? (
+                      <video
+                        ref={previewVideoRef}
+                        src={resolvedPreviewOutputUrl}
+                        preload={previewPreload}
+                        controls
+                        onLoadedMetadata={handlePreviewLoadedMetadata}
+                        onTimeUpdate={handlePreviewTimeUpdate}
+                        onPause={handlePreviewPause}
+                        onEnded={handlePreviewEnded}
+                        onError={handlePreviewVideoError}
+                        className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
+                      />
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
+                        <div className="relative z-10 flex flex-col items-center gap-3 text-muted-foreground">
+                          <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+                            {activeJob && !isTerminalStatus(activeJob.status) ? (
+                              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                            ) : (
+                              <Play className="w-6 h-6 text-primary ml-0.5" />
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {activeJob
+                              ? normalizedActiveStatus === "ready"
+                                ? "Ready to export"
+                                : normalizedActiveStatus === "failed"
+                                  ? activeJob.error === "queue_canceled_by_user"
+                                    ? "Job canceled"
+                                    : "Job failed"
+                                  : "Processing your edit..."
+                              : "Select a job to preview"}
                           </p>
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
-                          <Badge className="border-primary/35 bg-primary/10 text-primary">
-                            Momentum {previewStoryMapMomentumScore}
-                          </Badge>
-                          {previewStoryBeatActive ? (
-                            <Badge className={PREVIEW_STORY_BEAT_META[previewStoryBeatActive.key].badgeClassName}>
-                              Now: {previewStoryBeatActive.label}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="border-border/60 bg-background/45 text-muted-foreground">
-                              Waiting
-                            </Badge>
-                          )}
-                          <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                            <span>Map</span>
-                            <Switch
-                              checked={showStoryMapPanel}
-                              onCheckedChange={setShowStoryMapPanel}
-                              aria-label="Toggle editor agent story map panel"
-                            />
-                          </label>
-                        </div>
-                      </div>
-                      {!showStoryMapPanel ? (
-                        <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
-                          Story map is hidden. Toggle Map ON to inspect beat pacing.
-                        </p>
-                      ) : (
-                        <>
-                          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                            {previewStoryBeatStats.map((segment) => (
-                              <div key={`story-map-metric-${segment.key}`} className="rounded-lg border border-primary/20 bg-background/35 p-2">
-                                <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{segment.shortLabel}</p>
-                                <p className="mt-1 text-sm font-semibold text-foreground">{formatTimelineClock(segment.durationSec)}</p>
-                                <p className="text-[10px] text-muted-foreground">{segment.coveragePct}% of timeline</p>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="relative mt-3 h-3 overflow-hidden rounded-full border border-border/55 bg-muted/55">
-                            {previewStoryBeatSegments.map((segment) => {
-                              const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
-                              const left = clamp((segment.startSec / total) * 100, 0, 100);
-                              const width = clamp(((segment.endSec - segment.startSec) / total) * 100, 1.5, 100 - left);
-                              return (
-                                <div
-                                  key={`preview-story-segment-${segment.key}`}
-                                  className={`absolute inset-y-0 ${PREVIEW_STORY_BEAT_META[segment.key].segmentClassName}`}
-                                  style={{
-                                    left: `${left}%`,
-                                    width: `${width}%`,
-                                  }}
-                                />
-                              );
-                            })}
-                            <span
-                              className="absolute inset-y-[-1px] w-[2px] bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.55)]"
-                              style={{ left: `${Math.min(99.4, previewStoryBeatPlayheadPct)}%` }}
-                            />
-                          </div>
-                          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-                            {previewStoryBeatSegments.map((segment) => {
-                              const active = previewStoryBeatActive?.key === segment.key;
-                              return (
-                                <button
-                                  key={`preview-story-chip-${segment.key}`}
-                                  type="button"
-                                  className={`rounded-lg border p-2 text-left transition ${
-                                    active
-                                      ? "border-primary/50 bg-primary/12 text-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
-                                      : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/35 hover:text-foreground"
-                                  }`}
-                                  disabled={!showVideo}
-                                  onClick={() => {
-                                    if (!showVideo) return;
-                                    const video = previewVideoRef.current;
-                                    const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
-                                      ? Number(video?.duration)
-                                      : previewStoryBeatTimelineDurationSec;
-                                    const target = clamp(segment.startSec + 0.05, 0, Math.max(0, maxDuration - 0.05));
-                                    if (video) {
-                                      try {
-                                        video.currentTime = target;
-                                      } catch {
-                                        // no-op: browsers can briefly reject seeks while metadata updates
-                                      }
-                                    }
-                                    setPreviewCurrentTimeSec(target);
-                                  }}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold text-foreground">{segment.label}</p>
-                                    <Badge variant="outline" className="border-border/55 bg-background/55 text-[10px] text-muted-foreground">
-                                      {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
-                                    </Badge>
+                      </>
+                    )}
+                    <AnimatePresence mode="wait">
+                      {showVideo && activePreviewImprovementTip ? (
+                        <motion.div
+                          key={`preview-inline-tip-${activePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
+                          initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                          transition={{ duration: 0.24, ease: "easeOut" }}
+                          className="pointer-events-none absolute left-2 right-2 top-2 z-20 lg:hidden"
+                        >
+                          {(() => {
+                            const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
+                            return (
+                              <div className={`rounded-xl border p-2.5 backdrop-blur-md ${toneMeta.cardClassName}`}>
+                                <div className="flex items-start gap-2">
+                                  <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
+                                    {renderPreviewImprovementIcon(activePreviewImprovementTip.icon, "h-3.5 w-3.5")}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-foreground/75">{toneMeta.label}</p>
+                                    <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                   </div>
-                                  <p className="mt-1 text-[11px] text-muted-foreground">{segment.reason}</p>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-2 text-[11px] text-muted-foreground">
-                            {previewStoryBeatActive
-                              ? `${previewStoryBeatActive.label}: ${previewStoryBeatActive.reason}`
-                              : "Story phases will appear once preview timeline data is ready."}
-                          </p>
-                        </>
-                      )}
-                    </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
                   </div>
-                ) : null}
+                  {activeJob ? (
+                    <div className="border-t border-border/55 bg-background/35 p-3">
+                      <div className="rounded-xl border border-primary/25 bg-[linear-gradient(145deg,rgba(28,24,52,0.72),rgba(14,20,46,0.64))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)]">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Editor Agent Story Map</p>
+                            <p className="mt-1 text-[11px] text-foreground/80">
+                              {isVerticalMode
+                                ? "Vertical flow map for TikTok + IG Reels pacing and payoff timing."
+                                : "Long-form story map with short-form breakout pacing markers."}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            <Badge className="border-primary/35 bg-primary/10 text-primary">
+                              Momentum {previewStoryMapMomentumScore}
+                            </Badge>
+                            {previewStoryBeatActive ? (
+                              <Badge className={PREVIEW_STORY_BEAT_META[previewStoryBeatActive.key].badgeClassName}>
+                                Now: {previewStoryBeatActive.label}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-border/60 bg-background/45 text-muted-foreground">
+                                Waiting
+                              </Badge>
+                            )}
+                            <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              <span>Map</span>
+                              <Switch
+                                checked={showStoryMapPanel}
+                                onCheckedChange={setShowStoryMapPanel}
+                                aria-label="Toggle editor agent story map panel"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        {!showStoryMapPanel ? (
+                          <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                            Story map is hidden. Toggle Map ON to inspect beat pacing.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                              {previewStoryBeatStats.map((segment) => (
+                                <div key={`story-map-metric-${segment.key}`} className="rounded-lg border border-primary/20 bg-background/35 p-2">
+                                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{segment.shortLabel}</p>
+                                  <p className="mt-1 text-sm font-semibold text-foreground">{formatTimelineClock(segment.durationSec)}</p>
+                                  <p className="text-[10px] text-muted-foreground">{segment.coveragePct}% of timeline</p>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="relative mt-3 h-3 overflow-hidden rounded-full border border-border/55 bg-muted/55">
+                              {previewStoryBeatSegments.map((segment) => {
+                                const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
+                                const left = clamp((segment.startSec / total) * 100, 0, 100);
+                                const width = clamp(((segment.endSec - segment.startSec) / total) * 100, 1.5, 100 - left);
+                                return (
+                                  <div
+                                    key={`preview-story-segment-${segment.key}`}
+                                    className={`absolute inset-y-0 ${PREVIEW_STORY_BEAT_META[segment.key].segmentClassName}`}
+                                    style={{
+                                      left: `${left}%`,
+                                      width: `${width}%`,
+                                    }}
+                                  />
+                                );
+                              })}
+                              <span
+                                className="absolute inset-y-[-1px] w-[2px] bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.55)]"
+                                style={{ left: `${Math.min(99.4, previewStoryBeatPlayheadPct)}%` }}
+                              />
+                            </div>
+                            <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                              {previewStoryBeatSegments.map((segment) => {
+                                const active = previewStoryBeatActive?.key === segment.key;
+                                return (
+                                  <button
+                                    key={`preview-story-chip-${segment.key}`}
+                                    type="button"
+                                    className={`rounded-lg border p-2 text-left transition ${
+                                      active
+                                        ? "border-primary/50 bg-primary/12 text-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
+                                        : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                                    }`}
+                                    disabled={!showVideo}
+                                    onClick={() => {
+                                      if (!showVideo) return;
+                                      const video = previewVideoRef.current;
+                                      const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
+                                        ? Number(video?.duration)
+                                        : previewStoryBeatTimelineDurationSec;
+                                      const target = clamp(segment.startSec + 0.05, 0, Math.max(0, maxDuration - 0.05));
+                                      if (video) {
+                                        try {
+                                          video.currentTime = target;
+                                        } catch {
+                                          // no-op: browsers can briefly reject seeks while metadata updates
+                                        }
+                                      }
+                                      setPreviewCurrentTimeSec(target);
+                                    }}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs font-semibold text-foreground">{segment.label}</p>
+                                      <Badge variant="outline" className="border-border/55 bg-background/55 text-[10px] text-muted-foreground">
+                                        {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
+                                      </Badge>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">{segment.reason}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <p className="mt-2 text-[11px] text-muted-foreground">
+                              {previewStoryBeatActive
+                                ? `${previewStoryBeatActive.label}: ${previewStoryBeatActive.reason}`
+                                : "Story phases will appear once preview timeline data is ready."}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <AnimatePresence>
+                  {showVideo && activePreviewImprovementTip ? (
+                    <motion.aside
+                      key={`preview-side-primary-${activePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
+                      initial={{ opacity: 0, x: -18, scale: 0.98 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: -14, scale: 0.98 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
+                      className="pointer-events-none absolute left-0 top-1/2 z-20 hidden w-56 -translate-x-[84%] -translate-y-1/2 xl:block"
+                    >
+                      {(() => {
+                        const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
+                        return (
+                          <div className={`rounded-xl border p-3 shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md ${toneMeta.cardClassName}`}>
+                            <div className="flex items-start gap-2.5">
+                              <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
+                                {renderPreviewImprovementIcon(activePreviewImprovementTip.icon, "h-4 w-4")}
+                              </span>
+                              <div className="min-w-0">
+                                <Badge variant="outline" className={`mb-1 border text-[10px] ${toneMeta.badgeClassName}`}>
+                                  {toneMeta.label}
+                                </Badge>
+                                <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
+                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </motion.aside>
+                  ) : null}
+                </AnimatePresence>
+                <AnimatePresence>
+                  {showVideo && sidePreviewImprovementTip ? (
+                    <motion.aside
+                      key={`preview-side-secondary-${sidePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
+                      initial={{ opacity: 0, x: 18, scale: 0.98 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: 14, scale: 0.98 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
+                      className="pointer-events-none absolute right-0 top-1/2 z-20 hidden w-56 translate-x-[84%] -translate-y-1/2 xl:block"
+                    >
+                      {(() => {
+                        const toneMeta = resolvePreviewImprovementToneMeta(sidePreviewImprovementTip.tone);
+                        return (
+                          <div className={`rounded-xl border p-3 shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md ${toneMeta.cardClassName}`}>
+                            <div className="flex items-start gap-2.5">
+                              <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
+                                {renderPreviewImprovementIcon(sidePreviewImprovementTip.icon, "h-4 w-4")}
+                              </span>
+                              <div className="min-w-0">
+                                <Badge variant="outline" className={`mb-1 border text-[10px] ${toneMeta.badgeClassName}`}>
+                                  {toneMeta.label}
+                                </Badge>
+                                <p className="text-xs font-semibold leading-snug text-foreground">{sidePreviewImprovementTip.title}</p>
+                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewImprovementTip.detail}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </motion.aside>
+                  ) : null}
+                </AnimatePresence>
               </div>
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
