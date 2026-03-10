@@ -195,6 +195,47 @@ export const useExportNotification = ({
     });
   }, [appName, logoUrl, openExportTarget, resolvedFallbackLogoUrl, toast]);
 
+  const collectServiceWorkerRegistrations = useCallback(async () => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return [] as ServiceWorkerRegistration[];
+    const collected: ServiceWorkerRegistration[] = [];
+    try {
+      const direct = await navigator.serviceWorker.getRegistration();
+      if (direct) collected.push(direct);
+    } catch {
+      // ignore lookup errors
+    }
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      if (Array.isArray(registrations)) {
+        collected.push(...registrations);
+      }
+    } catch {
+      // ignore lookup errors
+    }
+    if (collected.length === 0 && typeof window !== "undefined") {
+      try {
+        const ready = await Promise.race<ServiceWorkerRegistration | null>([
+          navigator.serviceWorker.ready.then((registration) => registration).catch(() => null),
+          new Promise<null>((resolve) => {
+            window.setTimeout(() => resolve(null), 1400);
+          }),
+        ]);
+        if (ready) collected.push(ready);
+      } catch {
+        // ignore ready-state failures
+      }
+    }
+    const unique: ServiceWorkerRegistration[] = [];
+    const seenScopes = new Set<string>();
+    for (const registration of collected) {
+      const scope = String(registration?.scope || "");
+      if (seenScopes.has(scope)) continue;
+      seenScopes.add(scope);
+      unique.push(registration);
+    }
+    return unique;
+  }, []);
+
   const showSystemNotification = useCallback(async (payload: ExportCompleteNotificationPayload) => {
     if (!canUseNotificationApi() || Notification.permission !== "granted") return false;
     const trimmedTitle = String(payload.title || "").trim();
@@ -214,7 +255,19 @@ export const useExportNotification = ({
         editorUrl: payload.editorUrl || null,
       },
       vibrate: [90, 40, 70],
+      requireInteraction: true,
     };
+
+    try {
+      const registrations = await collectServiceWorkerRegistrations();
+      for (const registration of registrations) {
+        if (typeof registration.showNotification !== "function") continue;
+        await registration.showNotification(notificationTitle, options);
+        return true;
+      }
+    } catch {
+      // Fall back to direct Notification constructor.
+    }
 
     try {
       const notification = new Notification(notificationTitle, options);
@@ -223,25 +276,13 @@ export const useExportNotification = ({
         notification.close();
         openExportTarget(payload);
       };
-      window.setTimeout(() => notification.close(), 18_000);
+      window.setTimeout(() => notification.close(), 28_000);
       return true;
     } catch {
-      // Constructor can fail in some environments; try service worker registration fallback.
-    }
-
-    if ("serviceWorker" in navigator) {
-      try {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (registration && typeof registration.showNotification === "function") {
-          await registration.showNotification(notificationTitle, options);
-          return true;
-        }
-      } catch {
-        // Ignore fallback failure.
-      }
+      // Ignore constructor failure.
     }
     return false;
-  }, [appName, openExportTarget, resolvedLogoUrl]);
+  }, [appName, collectServiceWorkerRegistrations, openExportTarget, resolvedLogoUrl]);
 
   const ensureNotificationPermission = useCallback(async (source: PermissionRequestSource = "export_start") => {
     if (!canUseNotificationApi()) {
@@ -316,24 +357,29 @@ export const useExportNotification = ({
     playSuccessTone();
     startTitleFlash();
 
-    if (permission === "granted") {
+    let resolvedPermission: NotificationPermissionState = permission;
+    if (resolvedPermission === "default" && typeof document !== "undefined" && document.hidden) {
+      resolvedPermission = await ensureNotificationPermission("export_start");
+    }
+
+    if (resolvedPermission === "granted") {
       await showSystemNotification(payload);
       return;
     }
-    if (permission === "default") {
+    if (resolvedPermission === "default") {
       const dismissed =
         typeof window !== "undefined" &&
         window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
       if (!dismissed) setShowEnableHint(true);
       return;
     }
-    if (permission === "denied") {
+    if (resolvedPermission === "denied") {
       const dismissed =
         typeof window !== "undefined" &&
         window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
       if (!dismissed) setShowEnableHint(true);
     }
-  }, [permission, playSuccessTone, renderToast, showSystemNotification, startTitleFlash]);
+  }, [ensureNotificationPermission, permission, playSuccessTone, renderToast, showSystemNotification, startTitleFlash]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
