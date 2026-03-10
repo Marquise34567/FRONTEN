@@ -307,6 +307,7 @@ type UploadModePromptSelection = PipelinePowerMode | "full_auto_youtube";
 type FullAutoYoutubeTarget = "auto" | "long_form" | "shorts";
 type FullAutoYoutubeVibe = "auto" | "hype" | "cinematic" | "chill" | "education";
 type HookSelectionMode = "manual" | "auto";
+type X264Preset = "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
@@ -796,6 +797,34 @@ const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; desc
   { id: "neon_glow", label: "Neon Glow", description: "Bright glow treatment for stylized edits." },
   { id: "karaoke_highlight", label: "Karaoke Highlight", description: "Word-by-word highlight styling." },
 ];
+const X264_PRESET_VALUES: X264Preset[] = [
+  "ultrafast",
+  "superfast",
+  "veryfast",
+  "faster",
+  "fast",
+  "medium",
+  "slow",
+  "slower",
+  "veryslow",
+];
+const X264_PRESET_OPTIONS: Array<{ value: X264Preset; label: string }> = [
+  { value: "ultrafast", label: "Ultra Fast" },
+  { value: "superfast", label: "Super Fast" },
+  { value: "veryfast", label: "Very Fast" },
+  { value: "faster", label: "Faster" },
+  { value: "fast", label: "Fast" },
+  { value: "medium", label: "Medium" },
+  { value: "slow", label: "Slow" },
+  { value: "slower", label: "Slower" },
+  { value: "veryslow", label: "Very Slow" },
+];
+const VIDEO_CRF_MIN = 16;
+const VIDEO_CRF_MAX = 35;
+const DEFAULT_VIDEO_PRESET: X264Preset = "superfast";
+const DEFAULT_VIDEO_CRF = 21;
+const AUDIO_BITRATE_KBPS_OPTIONS = [96, 128, 160, 192, 256, 320] as const;
+const DEFAULT_AUDIO_BITRATE_KBPS = 192;
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -845,7 +874,10 @@ interface JobSummary {
   status: JobStatus;
   createdAt: string;
   inputPath?: string;
+  inputDurationSeconds?: number | null;
   progress?: number;
+  queuePosition?: number | null;
+  queueEtaSeconds?: number | null;
   requestedQuality?: string | null;
   watermark?: boolean;
   renderMode?: "horizontal" | "vertical" | "standard" | string;
@@ -1601,6 +1633,27 @@ const appendVideoCacheBust = (url: string, cacheKey: string) => {
   }
 };
 
+const buildPreviewUrlIdentity = (value: unknown) => {
+  const normalized = normalizeUrlCandidate(value);
+  if (!normalized) return "";
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://autoeditor.local";
+    const parsed = new URL(normalized, base);
+    if (isAuthRequiredDownloadUrl(normalized)) {
+      const clip = parsed.searchParams.get("clip");
+      const identityPath = `${parsed.pathname}${clip ? `?clip=${clip}` : ""}`;
+      return identityPath || normalized;
+    }
+    return /^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return isAuthRequiredDownloadUrl(normalized)
+      ? normalized.replace(/[?#].*$/, "")
+      : normalized;
+  }
+};
+
 const buildJobPreviewCacheKey = (job: JobDetail | null) => {
   if (!job) return "";
   const analysis =
@@ -1611,13 +1664,19 @@ const buildJobPreviewCacheKey = (job: JobDetail | null) => {
     (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
     (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
     null;
+  const outputIdentity = sanitizeVideoUrlList([
+    ...(Array.isArray((job as any)?.outputUrls) ? (job as any).outputUrls : []),
+    (job as any)?.outputUrl,
+  ])
+    .map((entry) => buildPreviewUrlIdentity(entry))
+    .filter((entry) => entry.length > 0)
+    .join(",");
   const parts = [
+    String(job.id || ""),
     String(job.outputPath || ""),
+    outputIdentity,
     String(runtimeRaw?.startedAt || ""),
-    String(analysis?.pipelineUpdatedAt || ""),
     String(analysis?.hook_start_time ?? analysis?.hookStartTime ?? ""),
-    String(job.status || ""),
-    String(job.progress ?? ""),
   ].filter((value) => value.length > 0);
   return parts.join("|");
 };
@@ -1648,9 +1707,12 @@ const buildJobSummarySignature = (job: JobSummary) => {
     normalizeJobProgressForSignature(job.progress),
     String(job.createdAt || ""),
     String(job.inputPath || ""),
+    String(job.inputDurationSeconds ?? ""),
     String(job.requestedQuality || ""),
     String(job.watermark ?? ""),
     String(job.renderMode || ""),
+    String(job.queuePosition ?? ""),
+    String(job.queueEtaSeconds ?? ""),
     String(raw.outputPath || ""),
     String(raw.outputUrl || ""),
     String(raw.updatedAt || raw.pipelineUpdatedAt || ""),
@@ -1681,6 +1743,9 @@ const buildJobDetailSyncSignature = (job: JobDetail | null) => {
     String(job.id || ""),
     normalizeStatus(job.status),
     normalizeJobProgressForSignature(job.progress),
+    String(job.queuePosition ?? ""),
+    String(job.queueEtaSeconds ?? ""),
+    String(job.inputDurationSeconds ?? ""),
     String(job.outputPath || ""),
     String(job.outputUrl || ""),
     String(outputUrlCount),
@@ -1806,6 +1871,26 @@ const parseCreatorStyleLockPercent = (value: unknown): number | null => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
   return clampCreatorStyleLockPercent(numeric);
+};
+
+const normalizeVideoPreset = (value: unknown, fallback: X264Preset = DEFAULT_VIDEO_PRESET): X264Preset => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return X264_PRESET_VALUES.includes(normalized as X264Preset) ? (normalized as X264Preset) : fallback;
+};
+
+const parseVideoCrfValue = (value: unknown, fallback: number = DEFAULT_VIDEO_CRF): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return clamp(Math.round(numeric), VIDEO_CRF_MIN, VIDEO_CRF_MAX);
+};
+
+const parseAudioBitrateKbpsValue = (value: unknown, fallback: number = DEFAULT_AUDIO_BITRATE_KBPS): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  const rounded = Math.round(numeric);
+  return AUDIO_BITRATE_KBPS_OPTIONS.includes(rounded as (typeof AUDIO_BITRATE_KBPS_OPTIONS)[number])
+    ? rounded
+    : fallback;
 };
 
 const parseYouTubeVideoInput = (value: unknown): string | null => {
@@ -2105,19 +2190,52 @@ const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
       }
       const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null;
       if (!item) return null;
-      const atSec = firstFiniteNumber(item.atSec, item.timeSec, item.t, item.second, item.timestamp, index * 15);
-      const predicted = firstFiniteNumber(item.predicted, item.value, item.retention, item.score, item.y);
+      const atSec = firstFiniteNumber(
+        item.atSec,
+        item.timeSec,
+        item.timestampSec,
+        item.timestamp_seconds,
+        item.t,
+        item.second,
+        item.timestamp,
+        index * 15,
+      );
+      const predicted = firstFiniteNumber(
+        item.predicted,
+        item.predictedCompletion,
+        item.predicted_completion,
+        item.predictedPercent,
+        item.predicted_percent,
+        item.value,
+        item.retention,
+        item.watchPercent,
+        item.watchedPercent,
+        item.watched_pct,
+        item.completionPercent,
+        item.completion_percent,
+        item.score,
+        item.y,
+      );
       if (atSec === null || predicted === null) return null;
       const kind =
         typeof item.type === "string"
           ? item.type
           : typeof item.kind === "string"
             ? item.kind
-            : null;
+            : typeof item.category === "string"
+              ? item.category
+             : null;
       const label = typeof item.label === "string" && item.label.trim() ? item.label.trim() : null;
       const description =
         typeof item.description === "string" && item.description.trim() ? item.description.trim() : null;
-      const watchedPct = firstFiniteNumber(item.watchedPct, item.watched_percent, item.watchPercent);
+      const watchedPct = firstFiniteNumber(
+        item.watchedPct,
+        item.watchedPercent,
+        item.watched_percent,
+        item.watched_pct,
+        item.watchPercent,
+        item.watch_percent,
+      );
       return {
         atSec: Math.max(0, atSec),
         predicted: toPercent(predicted, predicted),
@@ -2369,6 +2487,7 @@ const Editor = () => {
   const uploadStartRef = useRef<Record<string, number>>({});
   const jobFileSizeRef = useRef<Record<string, number>>({});
   const statusStartRef = useRef<Record<string, { status: string; startedAt: number; startProgress: number }>>({});
+  const queueEtaSnapshotRef = useRef<Record<string, { etaSeconds: number; capturedAt: number }>>({});
   const lastKnownJobIdRef = useRef<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
@@ -2460,6 +2579,9 @@ const Editor = () => {
   const [longFormAggression, setLongFormAggression] = useState(88);
   const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(44);
   const [tangentKiller, setTangentKiller] = useState(true);
+  const [videoPreset, setVideoPreset] = useState<X264Preset>(DEFAULT_VIDEO_PRESET);
+  const [videoCrf, setVideoCrf] = useState<number>(DEFAULT_VIDEO_CRF);
+  const [audioBitrateKbps, setAudioBitrateKbps] = useState<number>(DEFAULT_AUDIO_BITRATE_KBPS);
   const [outcomeAutomationProfile, setOutcomeAutomationProfile] = useState<OutcomeAutomationProfile | null>(null);
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
@@ -2567,6 +2689,7 @@ const Editor = () => {
   const powerModeSyncJobRef = useRef<string | null>(null);
   const creativeVariantSyncJobRef = useRef<string | null>(null);
   const advancedModesSyncJobRef = useRef<string | null>(null);
+  const encodingSyncJobRef = useRef<string | null>(null);
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
@@ -4209,6 +4332,42 @@ const Editor = () => {
     const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
       ? (activeJob.analysis as Record<string, unknown>)
       : {};
+    const runtimeRaw =
+      (analysis.pipeline_runtime as Record<string, unknown> | undefined) ||
+      (analysis.pipelineRuntime as Record<string, unknown> | undefined) ||
+      null;
+    const startedAtRaw = runtimeRaw?.startedAt;
+    const startedAtMs = startedAtRaw ? new Date(String(startedAtRaw)).getTime() : Number.NaN;
+    if (!Number.isFinite(startedAtMs) || startedAtMs <= 0) return;
+    const existing = pipelineStartRef.current[activeJob.id];
+    if (!Number.isFinite(existing) || existing <= 0 || Math.abs(existing - startedAtMs) > 2000) {
+      pipelineStartRef.current[activeJob.id] = startedAtMs;
+    }
+  }, [activeJob?.id, activeJob?.analysis]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const normalized = normalizeStatus(activeJob.status);
+    const rawQueueEta = Number(activeJob.queueEtaSeconds);
+    if ((normalized !== "queued" && normalized !== "uploading") || !Number.isFinite(rawQueueEta) || rawQueueEta < 0) {
+      delete queueEtaSnapshotRef.current[activeJob.id];
+      return;
+    }
+    const rounded = Math.max(0, Math.round(rawQueueEta));
+    const existing = queueEtaSnapshotRef.current[activeJob.id];
+    if (!existing || Math.abs(existing.etaSeconds - rounded) >= 1) {
+      queueEtaSnapshotRef.current[activeJob.id] = {
+        etaSeconds: rounded,
+        capturedAt: Date.now(),
+      };
+    }
+  }, [activeJob?.id, activeJob?.status, activeJob?.queueEtaSeconds]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
+      ? (activeJob.analysis as Record<string, unknown>)
+      : {};
     const linkedVideoId = parseYouTubeVideoInput(
       analysis.youtube_video_id ??
       analysis.youtubeVideoId ??
@@ -4693,6 +4852,10 @@ const Editor = () => {
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
+              videoPreset,
+              videoCrf,
+              audioBitrateKbps,
+              encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
               ...adaptiveLearningPayload,
@@ -4723,6 +4886,10 @@ const Editor = () => {
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
+              videoPreset,
+              videoCrf,
+              audioBitrateKbps,
+              encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
               pipelinePowerMode: resolvedPipelinePowerMode,
               ...adaptiveLearningPayload,
@@ -4935,6 +5102,10 @@ const Editor = () => {
             longFormAggression: autoModeV3Defaults.longFormAggression,
             longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
             tangentKiller,
+            videoPreset,
+            videoCrf,
+            audioBitrateKbps,
+            encoding: { videoPreset, videoCrf, audioBitrateKbps },
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
           }),
@@ -5842,6 +6013,10 @@ const Editor = () => {
           longFormAggression: autoModeV3Defaults.longFormAggression,
           longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
           tangentKiller,
+          videoPreset,
+          videoCrf,
+          audioBitrateKbps,
+          encoding: { videoPreset, videoCrf, audioBitrateKbps },
           fastMode: fastModeForJob,
           pipelinePowerMode,
           coldStartAutopilot: coldStartAutopilotEnabled,
@@ -6017,6 +6192,9 @@ const Editor = () => {
       retentionStrategyProfile,
       retentionTargetPlatform,
       tangentKiller,
+      videoPreset,
+      videoCrf,
+      audioBitrateKbps,
       hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
@@ -6374,9 +6552,30 @@ const Editor = () => {
     transcriptHasSource,
     transcriptPanelTab,
   ]);
-  const metadataSummary = activeAnalysis?.metadata_summary && typeof activeAnalysis.metadata_summary === "object"
-    ? activeAnalysis.metadata_summary
-    : null;
+  const metadataSummary =
+    toObjectRecord(activeAnalysis?.metadata_summary) ??
+    toObjectRecord(activeAnalysis?.metadataSummary) ??
+    null;
+  const metadataClipsRaw = Array.isArray(metadataSummary?.clips) ? metadataSummary.clips : [];
+  const resolveClipPredictedCompletion = (value: any) => {
+    const raw = firstFiniteNumber(
+      value?.predictedCompletion,
+      value?.predicted_completion,
+      value?.predictedPercent,
+      value?.predicted_percent,
+      value?.predicted,
+      value?.watchPercent,
+      value?.watch_percent,
+      value?.watchedPercent,
+      value?.watched_percent,
+      value?.watched_pct,
+      value?.completionPercent,
+      value?.completion_percent,
+      value?.score,
+      value?.value,
+    );
+    return raw === null ? null : toPercent(raw, raw);
+  };
   const fullAutoProfileRaw =
     toObjectRecord(activeAnalysis?.fullAutoYoutube) ??
     toObjectRecord(activeAnalysis?.full_auto_youtube) ??
@@ -6452,68 +6651,88 @@ const Editor = () => {
     clip: number;
     predictedCompletion: number | null;
     reason: string | null;
-  }> = Array.isArray(metadataSummary?.clips)
-    ? metadataSummary.clips
+  }> = metadataClipsRaw.length > 0
+    ? metadataClipsRaw
         .map((entry: any, index: number) => {
-          const clipNumber = Number.isFinite(Number(entry?.clip)) ? Number(entry.clip) : index + 1;
-          const predictedCompletion = Number(entry?.predictedCompletion);
-          const reason = typeof entry?.reason === "string" ? entry.reason.trim() : "";
+          const clipNumber = Number.isFinite(Number(entry?.clip))
+            ? Math.max(1, Math.round(Number(entry.clip)))
+            : index + 1;
+          const predictedCompletion = resolveClipPredictedCompletion(entry);
+          const reasonRaw = [entry?.reason, entry?.description, entry?.note, entry?.summary]
+            .find((item) => typeof item === "string" && item.trim().length > 0);
+          const reason = typeof reasonRaw === "string" ? reasonRaw.trim() : "";
           return {
             clip: clipNumber,
-            predictedCompletion: Number.isFinite(predictedCompletion) ? predictedCompletion : null,
+            predictedCompletion,
             reason: reason.length > 0 ? reason : null,
           };
         })
+        .sort((left, right) => left.clip - right.clip)
         .slice(0, 6)
     : [];
-  const metadataRetention = metadataSummary?.retention && typeof metadataSummary.retention === "object"
-    ? metadataSummary.retention
-    : null;
-  const metadataNiche = metadataSummary?.niche && typeof metadataSummary.niche === "object"
-    ? metadataSummary.niche
-    : null;
+  const metadataRetention =
+    toObjectRecord(metadataSummary?.retention) ??
+    toObjectRecord(metadataSummary?.retention_summary) ??
+    null;
+  const metadataNiche =
+    toObjectRecord(metadataSummary?.niche) ??
+    toObjectRecord(metadataSummary?.niche_profile) ??
+    null;
   const verticalSelectionMode = typeof metadataSummary?.selectionMode === "string"
     ? metadataSummary.selectionMode
+    : typeof metadataSummary?.selection_mode === "string"
+      ? metadataSummary.selection_mode
     : null;
-  const verticalClipPredictions: VerticalClipPrediction[] = Array.isArray(metadataSummary?.clips)
-    ? metadataSummary.clips
+  const verticalClipPredictions: VerticalClipPrediction[] = metadataClipsRaw.length > 0
+    ? metadataClipsRaw
         .map((item: any) => {
-          const clip = Number(item?.clip);
-          const start = Number(item?.start);
-          const end = Number(item?.end);
-          const duration = Number(item?.duration);
-          const predictedCompletion = Number(item?.predictedCompletion);
-          if (
-            !Number.isFinite(clip) ||
-            !Number.isFinite(start) ||
-            !Number.isFinite(end) ||
-            !Number.isFinite(duration) ||
-            !Number.isFinite(predictedCompletion)
-          ) {
-            return null;
-          }
+          const clip = Number.isFinite(Number(item?.clip))
+            ? Math.max(1, Math.round(Number(item.clip)))
+            : Number.isFinite(Number(item?.index))
+              ? Math.max(1, Math.round(Number(item.index)) + 1)
+              : null;
+          if (!Number.isFinite(clip)) return null;
+          const predictedCompletion = resolveClipPredictedCompletion(item);
+          if (predictedCompletion === null) return null;
+          const startRaw = firstFiniteNumber(item?.start, item?.startSec, item?.start_sec, item?.timeSec, item?.time);
+          const endRaw = firstFiniteNumber(item?.end, item?.endSec, item?.end_sec);
+          const durationRaw = firstFiniteNumber(item?.duration, item?.durationSec, item?.duration_sec);
+          const fallbackDuration = Math.max(1.2, 180 / Math.max(1, metadataClipsRaw.length));
+          const durationFromBounds =
+            startRaw !== null && endRaw !== null && endRaw > startRaw ? endRaw - startRaw : null;
+          const duration = Math.max(0.4, durationRaw ?? durationFromBounds ?? fallbackDuration);
+          const start = Math.max(0, startRaw ?? (endRaw !== null ? Math.max(0, endRaw - duration) : (clip - 1) * fallbackDuration));
+          const end = Math.max(start + 0.2, endRaw ?? (start + duration));
+          const reasonRaw = [item?.reason, item?.description, item?.note, item?.summary]
+            .find((entry) => typeof entry === "string" && entry.trim().length > 0);
           return {
-            clip: Math.max(1, Math.round(clip)),
+            clip: clip,
             start,
             end,
-            duration: Math.max(0, duration),
+            duration: Math.max(0.2, end - start),
             predictedCompletion: Math.max(0, Math.min(100, predictedCompletion)),
-            reason: typeof item?.reason === "string" ? item.reason : "",
+            reason: typeof reasonRaw === "string" ? reasonRaw : "",
           } as VerticalClipPrediction;
         })
         .filter((item: VerticalClipPrediction | null): item is VerticalClipPrediction => Boolean(item))
         .sort((a, b) => a.clip - b.clip)
     : [];
-  const verticalPredictedAverage = Number.isFinite(Number(metadataSummary?.predictedAverage))
-    ? Number(metadataSummary.predictedAverage)
-    : verticalClipPredictions.length > 0
-      ? Number(
-          (
-            verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
-            verticalClipPredictions.length
-          ).toFixed(2),
-        )
-      : null;
+  const verticalPredictedAverage = (() => {
+    const metadataAverage = firstFiniteNumber(
+      metadataSummary?.predictedAverage,
+      metadataSummary?.predicted_average,
+      metadataSummary?.predictedAverageRetention,
+      metadataSummary?.predicted_average_retention,
+    );
+    if (metadataAverage !== null) return Number(toPercent(metadataAverage, metadataAverage).toFixed(2));
+    if (verticalClipPredictions.length === 0) return null;
+    return Number(
+      (
+        verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
+        verticalClipPredictions.length
+      ).toFixed(2),
+    );
+  })();
   const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
     activeAnalysis?.hook_selection_mode ??
     activeAnalysis?.hookSelectionMode ??
@@ -6740,23 +6959,51 @@ const Editor = () => {
           .filter((line: string) => line.length > 0)
           .slice(0, 8)
       : [];
-  const retentionScoreDisplay = Number.isFinite(Number(activeJob?.retentionScore))
-    ? Number(activeJob?.retentionScore)
-    : Number.isFinite(Number(retentionJudge?.retention_score))
-      ? Number(retentionJudge?.retention_score)
-      : null;
-  const retentionScoreBeforeDisplay = Number.isFinite(Number(metadataRetention?.beforeScore))
-    ? Number(metadataRetention.beforeScore)
-    : Number.isFinite(Number(activeAnalysis?.retention_score_before))
-      ? Number(activeAnalysis.retention_score_before)
-      : null;
-  const retentionScoreAfterDisplay = Number.isFinite(Number(metadataRetention?.afterScore))
-    ? Number(metadataRetention.afterScore)
-    : Number.isFinite(Number(activeAnalysis?.retention_score_after))
-      ? Number(activeAnalysis.retention_score_after)
-      : retentionScoreDisplay;
-  const retentionScoreDeltaDisplay = Number.isFinite(Number(metadataRetention?.delta))
-    ? Number(metadataRetention.delta)
+  const normalizeRetentionScoreValue = (value: number | null) => (
+    value === null ? null : Number(toPercent(value, value).toFixed(1))
+  );
+  const normalizeRetentionDeltaValue = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) return null;
+    const scaled = Math.abs(value) <= 1 ? value * 100 : value;
+    return Number(scaled.toFixed(1));
+  };
+  const retentionScoreDisplay = normalizeRetentionScoreValue(firstFiniteNumber(
+    activeJob?.retentionScore,
+    retentionJudge?.retention_score,
+    retentionJudge?.retentionScore,
+    metadataRetention?.afterScore,
+    metadataRetention?.after_score,
+    activeAnalysis?.retention_score_after,
+    activeAnalysis?.retentionScoreAfter,
+  ));
+  const retentionScoreBeforeDisplay = normalizeRetentionScoreValue(firstFiniteNumber(
+    metadataRetention?.beforeScore,
+    metadataRetention?.before_score,
+    metadataRetention?.scoreBefore,
+    metadataRetention?.sourceScore,
+    activeAnalysis?.retention_score_before,
+    activeAnalysis?.retentionScoreBefore,
+  ));
+  const retentionScoreAfterDisplay = normalizeRetentionScoreValue(firstFiniteNumber(
+    metadataRetention?.afterScore,
+    metadataRetention?.after_score,
+    metadataRetention?.scoreAfter,
+    metadataRetention?.score,
+    activeAnalysis?.retention_score_after,
+    activeAnalysis?.retentionScoreAfter,
+    retentionScoreDisplay,
+  ));
+  const explicitRetentionDelta = normalizeRetentionDeltaValue(firstFiniteNumber(
+    metadataRetention?.delta,
+    metadataRetention?.retentionDelta,
+    metadataRetention?.retention_delta,
+    metadataRetention?.scoreDelta,
+    metadataRetention?.delta_score,
+    activeAnalysis?.retention_score_delta,
+    activeAnalysis?.retentionScoreDelta,
+  ));
+  const retentionScoreDeltaDisplay = explicitRetentionDelta !== null
+    ? explicitRetentionDelta
     : (
       retentionScoreBeforeDisplay !== null &&
       retentionScoreAfterDisplay !== null
@@ -6777,6 +7024,40 @@ const Editor = () => {
       : activeJob?.error && activeJob.error.startsWith("FAILED_QUALITY_GATE:")
         ? activeJob.error.replace(/^FAILED_QUALITY_GATE:\s*/i, "").trim()
         : "";
+  const transcriptAutoRecoveryRecord =
+    activeAnalysis?.transcript_auto_recovery && typeof activeAnalysis.transcript_auto_recovery === "object"
+      ? activeAnalysis.transcript_auto_recovery
+      : activeAnalysis?.transcriptAutoRecovery && typeof activeAnalysis.transcriptAutoRecovery === "object"
+        ? activeAnalysis.transcriptAutoRecovery
+        : null;
+  const transcriptAutoRecoveryAttempts = transcriptAutoRecoveryRecord
+    ? Math.max(0, Math.round(Number(transcriptAutoRecoveryRecord.attempts || 0)))
+    : 0;
+  const transcriptAutoRecoveryLastReason = transcriptAutoRecoveryRecord
+    ? String(
+      transcriptAutoRecoveryRecord.lastReason ||
+      transcriptAutoRecoveryRecord.reason ||
+      "",
+    ).trim()
+    : "";
+  const transcriptAutoRecoveryLastSummary = transcriptAutoRecoveryRecord
+    ? String(
+      transcriptAutoRecoveryRecord.lastSummary ||
+      transcriptAutoRecoveryRecord.summary ||
+      "",
+    ).trim()
+    : "";
+  const transcriptAutoRecoveryLabel = transcriptAutoRecoveryAttempts > 0
+    ? (
+      transcriptAutoRecoveryLastSummary ||
+      `Auto-recovery attempted ${transcriptAutoRecoveryAttempts} time${transcriptAutoRecoveryAttempts === 1 ? "" : "s"}${
+        transcriptAutoRecoveryLastReason ? ` (${transcriptAutoRecoveryLastReason})` : ""
+      }.`
+    )
+    : "";
+  const failedRetrySuggestion = transcriptAutoRecoveryAttempts > 0
+    ? "Retry suggestion: auto-recovery already ran with transcript fallback. Adjust upload mode/settings and run Redo Renderer."
+    : "Retry suggestion: adjust settings and run Redo Renderer.";
   const activeStepKey = activeJob ? stepKeyForStatus(activeJob.status) : null;
   const currentStepIndex = activeStepKey
     ? PIPELINE_STEPS.findIndex((step) => step.key === activeStepKey)
@@ -7020,10 +7301,33 @@ const Editor = () => {
       }
       return parsed;
     }
-    // Do not fake a curve after render is finished; missing data should stay missing.
-    if (normalizedActiveStatus === "ready") return [];
+    const clipDerivedCurve = verticalClipPredictions
+      .map((clip, index) => {
+        const atSec = Number.isFinite(clip.end)
+          ? clip.end
+          : Number.isFinite(clip.start) && Number.isFinite(clip.duration)
+            ? clip.start + clip.duration
+            : (index + 1) * 15;
+        return {
+          atSec: Math.max(0, Number(atSec.toFixed(3))),
+          predicted: clamp(Math.round(clip.predictedCompletion), 0, 100),
+          kind: clip.predictedCompletion >= 80 ? ("best" as const) : clip.predictedCompletion <= 52 ? ("skip_zone" as const) : null,
+          label: `Clip ${clip.clip}`,
+          description: clip.reason || null,
+          watchedPct: clamp(Math.round(clip.predictedCompletion), 0, 100),
+        } as RetentionPoint;
+      })
+      .sort((left, right) => left.atSec - right.atSec);
+    if (clipDerivedCurve.length >= 2) return clipDerivedCurve;
+    if (normalizedActiveStatus === "failed" && retentionScoreAfterDisplay === null && retentionScoreDisplay === null) {
+      return [];
+    }
     const durationSec = Math.max(60, estimatedTimelineDurationSec);
-    const baseline = clamp(Math.round(retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 78), 55, 96);
+    const baseline = clamp(
+      Math.round(retentionScoreAfterDisplay ?? retentionScoreDisplay ?? verticalPredictedAverage ?? 78),
+      55,
+      96,
+    );
     const ratios = [0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1];
     return ratios.map((ratio, idx) => {
       const organicDrift = baseline - (ratio * 17) + (idx % 2 === 0 ? 2 : -1) + (ratio > 0.72 ? 3 : 0);
@@ -7039,6 +7343,8 @@ const Editor = () => {
     estimatedTimelineDurationSec,
     retentionScoreAfterDisplay,
     retentionScoreDisplay,
+    verticalClipPredictions,
+    verticalPredictedAverage,
   ]);
   const retentionLinePoints = useMemo(() => {
     if (retentionCurvePoints.length < 2) return "";
@@ -7985,6 +8291,7 @@ const Editor = () => {
   ].slice(0, 8);
   const logTimestamp = new Date().toLocaleTimeString([], { hour12: false });
   const previewOutputUrl = activeOutputUrls.find((url) => typeof url === "string" && url.length > 0) || "";
+  const previewOutputUrlIdentity = buildPreviewUrlIdentity(previewOutputUrl);
   const activePreviewRefreshNonce = activeJob ? previewRefreshNonceByJob[activeJob.id] || 0 : 0;
   useEffect(() => {
     let canceled = false;
@@ -8050,7 +8357,7 @@ const Editor = () => {
     activePreviewCacheKey,
     activePreviewRefreshNonce,
     normalizedActiveStatus,
-    previewOutputUrl,
+    previewOutputUrlIdentity,
   ]);
   useEffect(() => {
     setPreviewCurrentTimeSec(0);
@@ -8169,6 +8476,35 @@ const Editor = () => {
     setExploreX3Enabled(exploreX3 ?? false);
     setTopHumanGuardEnabled(topHumanGuard ?? false);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
+  }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    if (encodingSyncJobRef.current === activeJob.id) return;
+    const nextVideoPreset = normalizeVideoPreset(
+      activeRenderSettings?.videoPreset ??
+      activeRenderSettings?.video_preset ??
+      activeAnalysis?.videoPreset ??
+      activeAnalysis?.video_preset,
+      DEFAULT_VIDEO_PRESET,
+    );
+    const nextVideoCrf = parseVideoCrfValue(
+      activeRenderSettings?.videoCrf ??
+      activeRenderSettings?.video_crf ??
+      activeAnalysis?.videoCrf ??
+      activeAnalysis?.video_crf,
+      DEFAULT_VIDEO_CRF,
+    );
+    const nextAudioBitrateKbps = parseAudioBitrateKbpsValue(
+      activeRenderSettings?.audioBitrateKbps ??
+      activeRenderSettings?.audio_bitrate_kbps ??
+      activeAnalysis?.audioBitrateKbps ??
+      activeAnalysis?.audio_bitrate_kbps,
+      DEFAULT_AUDIO_BITRATE_KBPS,
+    );
+    encodingSyncJobRef.current = activeJob.id;
+    setVideoPreset(nextVideoPreset);
+    setVideoCrf(nextVideoCrf);
+    setAudioBitrateKbps(nextAudioBitrateKbps);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
     if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
@@ -8553,9 +8889,7 @@ const Editor = () => {
     if (!activeJob) return null;
     const normalized = normalizeStatus(activeJob.status);
     if (normalized === "ready" || normalized === "failed") return null;
-    // During upload we show explicit status text instead of an ETA to avoid
-    // confusing/sticky countdowns before the edit pipeline actually starts.
-    if (normalized === "uploading") return null;
+    const nowMs = Date.now();
     const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
     const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
     const stageMarker = statusStartRef.current[activeJob.id];
@@ -8567,38 +8901,100 @@ const Editor = () => {
       stageMarker && stageMarker.status === normalized && Number.isFinite(stageMarker.startProgress)
         ? clamp(stageMarker.startProgress, 0, 100)
         : 0;
-    const stageElapsed = Math.max(0, (Date.now() - stageStartedAt) / 1000);
-
-    // Otherwise, estimate remaining processing time from job progress and elapsed pipeline time.
-    const startAt = pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
-    const elapsed = Math.max(1, (Date.now() - startAt) / 1000);
-    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
-    const clampedProgress = clamp(jobProgress, 0, 100);
+    const stageElapsed = Math.max(0, (nowMs - stageStartedAt) / 1000);
     const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
     const baselineRemaining = Math.max(2, Math.round(baseline - stageElapsed));
-    const finalizeFloor = Math.min(90, Math.max(4, Math.round(6 + stageElapsed * 0.08)));
-    const antiStall = (seconds: number) => {
-      const rounded = Math.max(0, Math.round(seconds));
-      if (rounded > 1) return rounded;
-      // Avoid misleading "1s remaining" while still in non-terminal stages.
-      if (clampedProgress >= 95) return Math.max(baselineRemaining, finalizeFloor);
+    const queueSnapshot = queueEtaSnapshotRef.current[activeJob.id];
+    const queueEtaRemaining = queueSnapshot
+      ? Math.max(0, Math.round(queueSnapshot.etaSeconds - Math.max(0, (nowMs - queueSnapshot.capturedAt) / 1000)))
+      : null;
+
+    if (normalized === "queued") {
+      return queueEtaRemaining !== null ? queueEtaRemaining : baselineRemaining;
+    }
+
+    if (normalized === "uploading") {
+      const uploadTotal = uploadBytesTotal ?? fileSize;
+      const uploadSent = uploadBytesUploaded ?? null;
+      if (
+        uploadTotal !== null &&
+        uploadSent !== null &&
+        uploadTotal > 0 &&
+        uploadSent >= 0 &&
+        uploadSent < uploadTotal
+      ) {
+        const uploadStartAt = uploadStartRef.current[activeJob.id] ?? stageStartedAt;
+        const elapsedUploadSec = Math.max(0.5, (nowMs - uploadStartAt) / 1000);
+        const bytesPerSecond = uploadSent / elapsedUploadSec;
+        if (Number.isFinite(bytesPerSecond) && bytesPerSecond > 32 * 1024) {
+          const remainingBytes = Math.max(0, uploadTotal - uploadSent);
+          return Math.max(1, Math.round(remainingBytes / bytesPerSecond));
+        }
+      }
+      if (queueEtaRemaining !== null) return queueEtaRemaining;
       return baselineRemaining;
-    };
+    }
+
+    const runtimeFromAnalysisMs = (() => {
+      const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
+        ? (activeJob.analysis as Record<string, unknown>)
+        : null;
+      const runtimeRaw =
+        (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
+        (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
+        null;
+      const startedAtRaw = runtimeRaw?.startedAt;
+      const parsed = startedAtRaw ? new Date(String(startedAtRaw)).getTime() : Number.NaN;
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    })();
+    const startAt =
+      runtimeFromAnalysisMs ??
+      pipelineStartRef.current[activeJob.id] ??
+      new Date(activeJob.createdAt).getTime();
+    const elapsed = Math.max(1, (nowMs - startAt) / 1000);
+    const sourceDurationSec = firstFiniteNumber(activeJob.inputDurationSeconds, estimatedDurationSec);
+    const qualityMultiplier = targetQuality === "4k" ? 1.45 : targetQuality === "1080p" ? 1.2 : 1;
+    const modeMultiplier = activeJob.renderMode === "vertical" ? 1.08 : 1;
+    const durationDrivenTotalSeconds = sourceDurationSec !== null
+      ? Math.round(clamp(28 + sourceDurationSec * (1.05 * qualityMultiplier * modeMultiplier), 30, 12 * 60 * 60))
+      : null;
+    const durationDrivenRemaining = durationDrivenTotalSeconds !== null
+      ? Math.max(0, durationDrivenTotalSeconds - elapsed)
+      : null;
+
+    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
+    const clampedProgress = clamp(jobProgress, 0, 100);
     const stageProgressGain = Math.max(0, clampedProgress - stageStartProgress);
-    if (clampedProgress > 0 && stageProgressGain >= 0.5 && stageElapsed >= 2) {
-      const remainingPct = Math.max(0, 100 - clampedProgress);
-      const remaining = Math.round((stageElapsed * remainingPct) / stageProgressGain);
-      return antiStall(remaining);
+    const progressDrivenRemaining =
+      clampedProgress > 0 && stageProgressGain >= 0.5 && stageElapsed >= 2
+        ? Math.round((stageElapsed * Math.max(0, 100 - clampedProgress)) / stageProgressGain)
+        : jobProgress > 0
+          ? Math.round((elapsed * (100 - jobProgress)) / jobProgress)
+          : null;
+
+    let candidate = baselineRemaining;
+    if (durationDrivenRemaining !== null && progressDrivenRemaining !== null) {
+      const progressWeight = clamp(clampedProgress / 100, 0.25, 0.85);
+      candidate = Math.round(
+        progressDrivenRemaining * progressWeight +
+        durationDrivenRemaining * (1 - progressWeight),
+      );
+    } else if (progressDrivenRemaining !== null) {
+      candidate = progressDrivenRemaining;
+    } else if (durationDrivenRemaining !== null) {
+      candidate = Math.round(durationDrivenRemaining);
     }
-    if (jobProgress > 0) {
-      const remaining = Math.round((elapsed * (100 - jobProgress)) / jobProgress);
-      return antiStall(remaining);
-    }
+
+    const finalizeFloor = Math.min(90, Math.max(4, Math.round(6 + stageElapsed * 0.08)));
+    const rounded = Math.max(0, Math.round(candidate));
+    if (rounded > 1) return rounded;
+    if (clampedProgress >= 95) return Math.max(baselineRemaining, finalizeFloor);
     return baselineRemaining;
-  }, [activeJob, etaTick, uploadProgress, uploadBytesUploaded, uploadBytesTotal]);
+  }, [activeJob, etaTick, estimatedDurationSec, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
-    if (!seconds || seconds <= 0) return "Finalizing...";
+    if (seconds === null) return "Calculating...";
+    if (seconds <= 0) return "Finalizing...";
     const mins = Math.floor(seconds / 60);
     const hrs = Math.floor(mins / 60);
     const remMins = mins % 60;
@@ -8608,9 +9004,17 @@ const Editor = () => {
     return `${remSecs}s`;
   };
 
-  const showUploadStatusOnly = normalizedActiveStatus === "uploading";
-  const etaLabel = showUploadStatusOnly ? "Uploading..." : formatEta(etaSeconds);
-  const etaSuffix = !showUploadStatusOnly && etaSeconds !== null && etaSeconds > 0 ? " remaining" : "";
+  const etaLabel = formatEta(etaSeconds);
+  const etaDurationLabel = etaSeconds === null ? "--" : formatDurationClock(etaSeconds);
+  const etaQueuePosition = firstFiniteNumber(activeJob?.queuePosition);
+  const etaContextLabel = normalizedActiveStatus === "queued" && etaQueuePosition !== null && etaQueuePosition > 0
+    ? `Queue position #${Math.round(etaQueuePosition)}`
+    : normalizedActiveStatus === "uploading"
+      ? "Uploading source media before the full edit pipeline starts."
+      : estimatedDurationSec !== null
+        ? `Based on ${formatDurationClock(estimatedDurationSec)} source runtime and live pipeline speed.`
+        : "Based on live pipeline speed and current stage progress.";
+  const etaBadgeLabel = etaSeconds !== null && etaSeconds > 0 ? `${etaLabel} remaining` : etaLabel;
   const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
   const fullAutoPreviewBulletPoints = useMemo(() => {
@@ -9491,6 +9895,67 @@ const Editor = () => {
             <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
               <span>{MAX_CUTS_MIN}</span>
               <span>{MAX_CUTS_MAX}</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+            <p className="mb-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Render Encoding</p>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <label className="space-y-1">
+                <span className="text-[11px] text-muted-foreground">Video speed</span>
+                <select
+                  className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                  value={videoPreset}
+                  onChange={(event) => setVideoPreset(normalizeVideoPreset(event.target.value))}
+                >
+                  {X264_PRESET_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value} className="bg-background text-foreground">
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] text-muted-foreground">Audio bitrate</span>
+                <select
+                  className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                  value={String(audioBitrateKbps)}
+                  onChange={(event) =>
+                    setAudioBitrateKbps(parseAudioBitrateKbpsValue(event.target.value, audioBitrateKbps))
+                  }
+                >
+                  {AUDIO_BITRATE_KBPS_OPTIONS.map((kbps) => (
+                    <option key={kbps} value={String(kbps)} className="bg-background text-foreground">
+                      {kbps} kbps
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Current</p>
+                <p>{videoPreset} preset</p>
+                <p>CRF {videoCrf}</p>
+                <p>{audioBitrateKbps} kbps audio</p>
+              </div>
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 md:col-span-3">
+                <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Video quality (CRF)</span>
+                  <span>{videoCrf}</span>
+                </div>
+                <Slider
+                  min={VIDEO_CRF_MIN}
+                  max={VIDEO_CRF_MAX}
+                  step={1}
+                  className="editor-settings-slider"
+                  value={[videoCrf]}
+                  onValueChange={(values) =>
+                    setVideoCrf(parseVideoCrfValue(values?.[0], videoCrf))
+                  }
+                />
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Lower CRF improves detail but increases file size.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -11365,6 +11830,15 @@ const Editor = () => {
                         <Badge variant="outline" className="border-border/60 bg-muted/20 text-xs text-muted-foreground">
                           {Math.round(totalPipelineProgress)}%
                         </Badge>
+                        {!isTerminalStatus(activeJob.status) ? (
+                          <Badge
+                            variant="outline"
+                            className="border-primary/45 bg-primary/15 text-xs font-semibold text-primary"
+                          >
+                            <Clock className="mr-1 h-3.5 w-3.5" />
+                            ETA {etaLabel}
+                          </Badge>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -11909,10 +12383,23 @@ const Editor = () => {
                     </div>
 
                     {!isTerminalStatus(activeJob.status) && (
-                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-                        <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <div className="rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/12 via-background/85 to-[hsl(var(--glow-secondary)/0.12)] p-4 shadow-[0_0_0_1px_hsl(var(--primary)/0.08),0_16px_40px_-28px_hsl(var(--primary)/0.55)]">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/85">Realtime ETA</p>
+                            <p className="font-display text-3xl font-bold leading-none text-foreground tabular-nums sm:text-4xl">
+                              {etaDurationLabel}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{etaContextLabel}</p>
+                          </div>
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                            <Clock className="h-3.5 w-3.5" />
+                            {etaBadgeLabel}
+                          </span>
+                        </div>
+                        <div className="mb-2 mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
                           <span className="uppercase tracking-[0.16em]">Live Processing</span>
-                          <span className="font-semibold text-foreground">{etaLabel}{etaSuffix}</span>
+                          <span>Stage: {activeStageLabel}</span>
                         </div>
                         <Progress value={activeStageProgress} className="h-2 bg-muted [&>div]:bg-primary" />
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -11942,7 +12429,10 @@ const Editor = () => {
                       <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
                         <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
                         <p className="mt-1 text-xs text-destructive/90">{failedGateReason || activeJob.error || "Retry suggested."}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Retry suggestion: adjust settings and run Redo Renderer.</p>
+                        {transcriptAutoRecoveryLabel ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{transcriptAutoRecoveryLabel}</p>
+                        ) : null}
+                        <p className="mt-1 text-xs text-muted-foreground">{failedRetrySuggestion}</p>
                       </div>
                     )}
 
@@ -13129,7 +13619,7 @@ const Editor = () => {
         }}
       >
         <DialogContent
-          className="max-w-[calc(100vw-1rem)] overflow-hidden border border-primary/40 bg-[radial-gradient(140%_200%_at_0%_0%,hsl(var(--primary)/0.24),transparent_54%),radial-gradient(140%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.2),transparent_60%),linear-gradient(152deg,hsl(var(--card)/0.9),hsl(var(--card)/0.76))] p-0 backdrop-blur-xl sm:max-w-2xl [&>button]:hidden"
+          className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/40 bg-[radial-gradient(140%_200%_at_0%_0%,hsl(var(--primary)/0.24),transparent_54%),radial-gradient(140%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.2),transparent_60%),linear-gradient(152deg,hsl(var(--card)/0.9),hsl(var(--card)/0.76))] p-0 backdrop-blur-xl sm:max-w-2xl [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
@@ -13151,6 +13641,75 @@ const Editor = () => {
                 <p className="mt-1 truncate text-sm text-foreground">{pendingUploadSelection.file.name}</p>
               </div>
             ) : null}
+
+            <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-primary/10 px-3 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Render Settings</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Applied to this upload before processing starts.
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <label className="space-y-1">
+                  <span className="text-[11px] text-muted-foreground">Video speed</span>
+                  <select
+                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                    value={videoPreset}
+                    onChange={(event) => setVideoPreset(normalizeVideoPreset(event.target.value))}
+                  >
+                    {X264_PRESET_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value} className="bg-background text-foreground">
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] text-muted-foreground">Audio bitrate</span>
+                  <select
+                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
+                    value={String(audioBitrateKbps)}
+                    onChange={(event) =>
+                      setAudioBitrateKbps(parseAudioBitrateKbpsValue(event.target.value, audioBitrateKbps))
+                    }
+                  >
+                    {AUDIO_BITRATE_KBPS_OPTIONS.map((kbps) => (
+                      <option key={kbps} value={String(kbps)} className="bg-background text-foreground">
+                        {kbps} kbps
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Current</p>
+                  <p>{videoPreset} preset</p>
+                  <p>CRF {videoCrf}</p>
+                  <p>{audioBitrateKbps} kbps audio</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 md:col-span-3">
+                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Video quality (CRF)</span>
+                    <span>{videoCrf}</span>
+                  </div>
+                  <Slider
+                    min={VIDEO_CRF_MIN}
+                    max={VIDEO_CRF_MAX}
+                    step={1}
+                    className="editor-settings-slider"
+                    value={[videoCrf]}
+                    onValueChange={(values) =>
+                      setVideoCrf(parseVideoCrfValue(values?.[0], videoCrf))
+                    }
+                  />
+                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                    <p>Lower CRF = higher quality + bigger file</p>
+                    <p>Higher CRF = lower quality + smaller file</p>
+                    <p className="pt-1 font-medium text-foreground/90">Quick guide:</p>
+                    <p>18-20: very high quality, large files</p>
+                    <p>21-23: good default balance</p>
+                    <p>24-28: smaller files, quality drops more visibly</p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-2">
               {UPLOAD_MODE_PROMPT_OPTIONS.map((option) => {
