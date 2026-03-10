@@ -2885,7 +2885,7 @@ const Editor = () => {
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
-  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
+  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(true);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
@@ -5581,7 +5581,7 @@ const Editor = () => {
 
   useEffect(() => {
     if (isVerticalMode) return;
-    setSkipManualWebcamCrop(false);
+    setSkipManualWebcamCrop(true);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
     setSourceVideoMeta(null);
@@ -5651,6 +5651,7 @@ const Editor = () => {
     }
     setIsVerticalBuilderHidden(false);
     setPendingVerticalFile(file);
+    setSkipManualWebcamCrop(true);
     setWebcamCrop(null);
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
@@ -5674,6 +5675,20 @@ const Editor = () => {
       return buildDefaultWebcamCrop(nextSource.width, nextSource.height);
     });
   }, [buildDefaultWebcamCrop, normalizeWebcamCrop]);
+
+  const toggleVerticalWebcamStrip = useCallback(() => {
+    setCropInteraction(null);
+    setSkipManualWebcamCrop((prev) => {
+      const nextSkipManualCrop = !prev;
+      if (!nextSkipManualCrop && sourceVideoMeta) {
+        setWebcamCrop((current) => {
+          if (current) return normalizeWebcamCrop(current, sourceVideoMeta);
+          return buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
+        });
+      }
+      return nextSkipManualCrop;
+    });
+  }, [buildDefaultWebcamCrop, normalizeWebcamCrop, sourceVideoMeta]);
 
   const beginCropInteraction = useCallback((handle: CropHandle, event: React.PointerEvent<HTMLElement>) => {
     if (!webcamCrop) return;
@@ -8668,6 +8683,22 @@ const Editor = () => {
         icon: "trim",
       });
     }
+    if (tips.length === 0) {
+      tips.push({
+        id: "steady-upgrade",
+        title: "Push for stronger replay moments",
+        detail: "Add one stronger visual payoff beat and tighten micro-pauses to improve hold rate.",
+        tone: "boost",
+        icon: "pace",
+      });
+      tips.push({
+        id: "hook-polish-default",
+        title: "Polish the opener text punch",
+        detail: "Try a clearer first-line promise in the first 2-3 seconds to raise scroll-stop strength.",
+        tone: "fix",
+        icon: "hook",
+      });
+    }
     return tips.slice(0, 6);
   }, [
     activeJob,
@@ -10592,8 +10623,36 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
+  const uploadFormatCardClass = (active: boolean) =>
+    `group rounded-2xl border p-4 text-left transition-all ${
+      active
+        ? "border-primary/55 bg-[linear-gradient(145deg,rgba(59,130,246,0.16),rgba(16,185,129,0.12))] shadow-[0_24px_40px_-30px_hsl(var(--primary)/0.85)]"
+        : "border-border/60 bg-background/35 hover:border-primary/40 hover:bg-primary/8"
+    }`;
   const verticalModeChipClass = (active: boolean) =>
     `vertical-mode-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
+
+  const selectUploadFormatMode = useCallback((mode: "horizontal" | "vertical") => {
+    trackEditorEvent("upload_format_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        mode,
+        source: "upload_zone",
+      },
+    });
+    if (mode === "vertical") {
+      setSkipManualWebcamCrop(true);
+    }
+    setRenderMode(mode);
+  }, [
+    activeSubtitlePreset,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    setRenderMode,
+    trackEditorEvent,
+  ]);
 
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
@@ -13160,7 +13219,7 @@ const Editor = () => {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: -8, scale: 0.98 }}
                           transition={{ duration: 0.24, ease: "easeOut" }}
-                          className="pointer-events-none absolute left-2 right-2 top-2 z-20 lg:hidden"
+                          className="pointer-events-none absolute left-2 right-2 top-2 z-20 xl:hidden"
                         >
                           {(() => {
                             const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
@@ -13313,7 +13372,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: -14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute left-0 top-1/2 z-20 hidden w-56 -translate-x-[84%] -translate-y-1/2 xl:block"
+                      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
@@ -13345,7 +13404,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute right-0 top-1/2 z-20 hidden w-56 translate-x-[84%] -translate-y-1/2 xl:block"
+                      className="pointer-events-none absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(sidePreviewImprovementTip.tone);
