@@ -9,7 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
-import { CreditCard, Shield, Sparkles } from "lucide-react";
+import { Copy, CreditCard, Shield, Sparkles, Users } from "lucide-react";
 const PricingCards = lazy(() => import("@/components/PricingCards"));
 import UpgradeModal from "@/components/UpgradeModal";
 import LockedOverlay from "@/components/LockedOverlay";
@@ -18,6 +18,7 @@ import { useSubscription } from "@/hooks/use-subscription";
 import { useFounderAvailability } from "@/hooks/use-founder-availability";
 import { useAuth } from "@/providers/AuthProvider";
 import { ApiError, apiFetch } from "@/lib/api";
+import { registerExportNotificationServiceWorker } from "@/lib/register-export-notification-sw";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import {
@@ -50,6 +51,32 @@ type SettingsResponse = {
       mode?: string | null;
     };
   };
+  dailyEngagement?: DailyEngagementStatus;
+};
+
+type DailyEngagementStatus = {
+  enabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  nextSendAt?: string | null;
+  lastSentAt?: string | null;
+  provider?: {
+    emailConfigured?: boolean;
+    emailProvider?: string;
+    webPushConfigured?: boolean;
+    webPushPublicKey?: string | null;
+  };
+};
+
+const vapidKeyToUint8Array = (vapidPublicKey: string) => {
+  const padding = "=".repeat((4 - (vapidPublicKey.length % 4)) % 4);
+  const base64 = (vapidPublicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+  return outputArray;
 };
 
 const tierIndex = (tier: PlanTier) => PLAN_TIERS.indexOf(tier);
@@ -102,6 +129,9 @@ const Settings = () => {
   const [requiredPlan, setRequiredPlan] = useState<PlanTier>("starter");
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [dailyEngagement, setDailyEngagement] = useState<DailyEngagementStatus | null>(null);
+  const [savingDailyEmail, setSavingDailyEmail] = useState(false);
+  const [savingDailyPush, setSavingDailyPush] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["editor-settings", data?.user?.id],
@@ -112,6 +142,9 @@ const Settings = () => {
   useEffect(() => {
     if (settingsQuery.data?.settings) {
       setEditorSettings(settingsQuery.data.settings);
+    }
+    if (settingsQuery.data?.dailyEngagement) {
+      setDailyEngagement(settingsQuery.data.dailyEngagement);
     }
   }, [settingsQuery.data]);
 
@@ -261,6 +294,189 @@ const Settings = () => {
   const usage = data?.usage;
   const usageDaily = data?.usageDaily;
   const limits = data?.limits;
+  const referral = data?.referral;
+  const referralCode = referral?.referralCode ?? data?.user?.referralCode ?? null;
+  const referralLink =
+    referralCode && typeof window !== "undefined"
+      ? `${window.location.origin}/signup?ref=${encodeURIComponent(referralCode)}`
+      : null;
+  const copyReferralCode = async () => {
+    if (!referralCode) return;
+    try {
+      await navigator.clipboard.writeText(referralCode);
+      toast({ title: "Referral code copied", description: "Share it with friends." });
+    } catch {
+      toast({ title: "Copy failed", description: "Please copy the code manually." });
+    }
+  };
+
+  const handleDailyEmailPreference = async (emailEnabled: boolean) => {
+    if (!accessToken || !dailyEngagement) return;
+    try {
+      setSavingDailyEmail(true);
+      const result = await apiFetch<{ dailyEngagement: DailyEngagementStatus }>(
+        "/api/settings/engagement/preferences",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            emailEnabled,
+            enabled: emailEnabled || dailyEngagement.pushEnabled,
+          }),
+          token: accessToken,
+        },
+      );
+      setDailyEngagement(result.dailyEngagement);
+      toast({
+        title: "Daily email preference saved",
+        description: emailEnabled
+          ? "You will receive one creator tip per day by email."
+          : "Daily email nudges are off.",
+      });
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err?.message || "Could not save daily email preference." });
+    } finally {
+      setSavingDailyEmail(false);
+    }
+  };
+
+  const handleEnableDailyPush = async () => {
+    if (!accessToken || !dailyEngagement) return;
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      toast({
+        title: "Push not supported",
+        description: "This browser does not support push notifications.",
+      });
+      return;
+    }
+
+    const providerConfigured = Boolean(dailyEngagement.provider?.webPushConfigured);
+    if (!providerConfigured) {
+      toast({
+        title: "Push provider not configured",
+        description: "WEB_PUSH_VAPID_* values are missing on backend.",
+      });
+      return;
+    }
+    const publicKey = String(
+      dailyEngagement.provider?.webPushPublicKey || import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY || "",
+    ).trim();
+    if (!publicKey) {
+      toast({
+        title: "Push key missing",
+        description: "Missing public VAPID key.",
+      });
+      return;
+    }
+
+    try {
+      setSavingDailyPush(true);
+      if (typeof Notification === "undefined") {
+        toast({
+          title: "Notifications unavailable",
+          description: "This browser cannot request notification permission.",
+        });
+        return;
+      }
+      let permission = Notification.permission;
+      if (permission !== "granted") {
+        permission = await Notification.requestPermission();
+      }
+      if (permission !== "granted") {
+        toast({
+          title: "Permission not granted",
+          description: "Allow notifications in browser settings to enable push reminders.",
+        });
+        return;
+      }
+
+      let registration = await registerExportNotificationServiceWorker();
+      if (!registration) {
+        registration = await navigator.serviceWorker.ready;
+      }
+
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKeyToUint8Array(publicKey),
+        });
+      }
+
+      const payload = subscription.toJSON();
+      const endpoint = String(subscription.endpoint || "").trim();
+      const p256dh = String(payload.keys?.p256dh || "").trim();
+      const auth = String(payload.keys?.auth || "").trim();
+      if (!endpoint || !p256dh || !auth) {
+        throw new Error("invalid_push_subscription");
+      }
+
+      const result = await apiFetch<{ dailyEngagement: DailyEngagementStatus }>(
+        "/api/settings/engagement/push-subscription",
+        {
+          method: "POST",
+          body: JSON.stringify({ endpoint, p256dh, auth }),
+          token: accessToken,
+        },
+      );
+      setDailyEngagement(result.dailyEngagement);
+      toast({
+        title: "Daily push reminders enabled",
+        description: "You will get one daily creator nudge in your browser.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Push setup failed",
+        description: err?.message || "Could not enable push reminders.",
+      });
+    } finally {
+      setSavingDailyPush(false);
+    }
+  };
+
+  const handleDisableDailyPush = async () => {
+    if (!accessToken) return;
+    try {
+      setSavingDailyPush(true);
+      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            await subscription.unsubscribe().catch(() => undefined);
+          }
+        }
+      }
+
+      const result = await apiFetch<{ dailyEngagement: DailyEngagementStatus }>(
+        "/api/settings/engagement/push-subscription",
+        {
+          method: "DELETE",
+          token: accessToken,
+        },
+      );
+      setDailyEngagement(result.dailyEngagement);
+      toast({
+        title: "Daily push reminders disabled",
+        description: "Browser push nudges are off.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Update failed",
+        description: err?.message || "Could not disable push reminders.",
+      });
+    } finally {
+      setSavingDailyPush(false);
+    }
+  };
+  const copyReferralLink = async () => {
+    if (!referralLink) return;
+    try {
+      await navigator.clipboard.writeText(referralLink);
+      toast({ title: "Referral link copied", description: "Invite your friends with this link." });
+    } catch {
+      toast({ title: "Copy failed", description: "Please copy the link manually." });
+    }
+  };
   const isDevAccount = Boolean(data?.flags?.dev);
   const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
   const maxRendersPerMonth =
@@ -290,6 +506,18 @@ const Settings = () => {
   const isFounderPlan = tier === "founder";
   const currentTierIndex = tierIndex(currentPlan || "free");
   const advancedLocked = !features.advancedEffects;
+  const pushSupported =
+    typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+  const dailyProvider = dailyEngagement?.provider;
+  const dailyEmailConfigured = Boolean(dailyProvider?.emailConfigured);
+  const dailyPushConfigured = Boolean(dailyProvider?.webPushConfigured);
+  const dailyEmailProviderLabel = String(dailyProvider?.emailProvider || "none");
+  const nextDailySendLabel = dailyEngagement?.nextSendAt
+    ? new Date(dailyEngagement.nextSendAt).toLocaleString()
+    : "Not scheduled";
+  const lastDailySendLabel = dailyEngagement?.lastSentAt
+    ? new Date(dailyEngagement.lastSentAt).toLocaleString()
+    : "Not sent yet";
 
   return (
     <Suspense fallback={<Fragment />}><GlowBackdrop>
@@ -782,6 +1010,140 @@ const Settings = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="glass-card p-6 mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-foreground">Daily Creator Nudges</h2>
+                <p className="text-sm text-muted-foreground">
+                  Get one daily fun fact + editing tip by email and optional browser push.
+                </p>
+              </div>
+            </div>
+
+            {!dailyEngagement ? (
+              <p className="text-sm text-muted-foreground">Loading daily engagement preferences...</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Daily email nudges</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Send one short creator insight to {data?.user?.email ?? "your email"} every day.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(dailyEngagement.emailEnabled)}
+                      disabled={savingDailyEmail || !dailyEmailConfigured}
+                      onCheckedChange={(checked) => {
+                        void handleDailyEmailPreference(checked);
+                      }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Email provider: {dailyEmailProviderLabel}
+                  </p>
+                  {!dailyEmailConfigured ? (
+                    <p className="mt-1 text-[11px] text-amber-300/90">
+                      Configure DAILY_ENGAGEMENT_WEBHOOK_URL or RESEND_API_KEY to enable daily email nudges.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Daily browser push reminders</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Deliver the same daily nudge as a browser notification.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(dailyEngagement.pushEnabled)}
+                      disabled={savingDailyPush || !pushSupported || !dailyPushConfigured}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          void handleEnableDailyPush();
+                          return;
+                        }
+                        void handleDisableDailyPush();
+                      }}
+                    />
+                  </div>
+                  {!pushSupported ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Push reminders require Service Worker + Push support in your browser.
+                    </p>
+                  ) : null}
+                  {!dailyPushConfigured ? (
+                    <p className="mt-1 text-[11px] text-amber-300/90">
+                      Configure WEB_PUSH_VAPID_SUBJECT, WEB_PUSH_VAPID_PUBLIC_KEY, and WEB_PUSH_VAPID_PRIVATE_KEY.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 text-xs">
+                  <div className="glass-card p-3">
+                    <p className="text-muted-foreground">Next daily send</p>
+                    <p className="text-foreground mt-1">{nextDailySendLabel}</p>
+                  </div>
+                  <div className="glass-card p-3">
+                    <p className="text-muted-foreground">Last delivered</p>
+                    <p className="text-foreground mt-1">{lastDailySendLabel}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div id="referrals" className="glass-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Users className="w-5 h-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-foreground">Referral Program</h2>
+                <p className="text-sm text-muted-foreground">Refer 3 users and earn 1 free month.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="glass-card p-4 space-y-3">
+                <p className="text-xs text-muted-foreground">Your referral code</p>
+                <p className="text-xl font-bold font-display text-foreground tracking-[0.12em]">
+                  {referralCode ?? "Generating..."}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" className="rounded-lg" onClick={copyReferralCode} disabled={!referralCode}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Code
+                  </Button>
+                  <Button type="button" variant="outline" className="rounded-lg" onClick={copyReferralLink} disabled={!referralLink}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Link
+                  </Button>
+                </div>
+                {referralLink ? (
+                  <p className="text-[11px] text-muted-foreground break-all">{referralLink}</p>
+                ) : null}
+              </div>
+              <div className="glass-card p-4 space-y-3">
+                <p className="text-xs text-muted-foreground">Progress to next free month</p>
+                <p className="text-lg font-semibold text-foreground">
+                  {referral?.progressInCurrentCycle ?? 0} / {referral?.referralsPerReward ?? 3} referrals
+                </p>
+                <Progress
+                  value={
+                    ((referral?.progressInCurrentCycle ?? 0) / Math.max(1, referral?.referralsPerReward ?? 3)) * 100
+                  }
+                />
+                <div className="text-sm text-muted-foreground">
+                  <p>Total referred users: {referral?.referredUsersCount ?? 0}</p>
+                  <p>Free months earned: {referral?.rewardsEarnedMonths ?? 0}</p>
+                  <p>{referral?.referralsToNextReward ?? 3} referrals left for your next free month.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="glass-card p-6">
