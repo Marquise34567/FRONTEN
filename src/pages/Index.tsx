@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import { Progress } from "@/components/ui/progress";
 import { lazy, Suspense } from "react";
@@ -11,6 +11,7 @@ import { ArrowRight, CheckCircle2, Gauge, ScissorsSquare, Sparkles, Upload, Yout
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/providers/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
+import SeoHead from "@/components/SeoHead";
 
 const ALLOWED_UPLOAD_EXTENSIONS = [".mp4", ".m4v", ".mkv"];
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
@@ -373,6 +374,40 @@ const topBurstPoints = [
   "left-[88%] top-[5.3rem]",
 ] as const;
 
+const HOME_SEO_DESCRIPTION =
+  "AutoEditor is an AI video editor for creators. Detect hooks, remove dead air, add captions, improve pacing, and export faster for YouTube, TikTok, Shorts, and Reels.";
+const HOME_SEO_KEYWORDS =
+  "AI video editor, YouTube video editor, TikTok editor, Shorts editor, Reels editor, dead air remover, auto captions, creator growth editing";
+const HOME_SEO_JSON_LD = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "AutoEditor",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Web",
+    "url": "https://www.autoeditor.app/",
+    "description": HOME_SEO_DESCRIPTION,
+    "offers": [
+      {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+      },
+      {
+        "@type": "Offer",
+        "price": "19",
+        "priceCurrency": "USD",
+      },
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "AutoEditor",
+    "url": "https://www.autoeditor.app/",
+  },
+];
+
 const conversionStats = [
   { label: "From One Upload", value: "3+ publish-ready cuts" },
   { label: "Workflow Time", value: "Minutes, not hours" },
@@ -713,6 +748,8 @@ const Index = () => {
   const demoPipelineTimersRef = useRef<number[]>([]);
   const demoDragDepthRef = useRef(0);
   const shouldReduceMotion = useReducedMotion();
+  const [isPerformanceConstrained, setIsPerformanceConstrained] = useState(false);
+  const lowEndMotionMode = shouldReduceMotion || isPerformanceConstrained;
   const { toast } = useToast();
 
   // Defer mounting heavy backdrop until idle/after first paint to speed initial load
@@ -728,29 +765,62 @@ const Index = () => {
     };
   }, []);
 
-  // Check document-level performance flag set earlier to avoid heavy animations
-  const isPerformanceConstrained = typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-performance") === "constrained";
-
-  // Detect low-power / low-capacity devices and toggle performance flags
+  // Detect low-power / low-capacity devices and toggle performance flags.
   useEffect(() => {
-    try {
-      const docEl = document.documentElement;
-      // Add class to reduce or remove CSS animation delays immediately
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    type ConnectionLike = {
+      saveData?: boolean;
+      effectiveType?: string;
+      addEventListener?: (event: "change", listener: () => void) => void;
+      removeEventListener?: (event: "change", listener: () => void) => void;
+      addListener?: (listener: () => void) => void;
+      removeListener?: (listener: () => void) => void;
+    };
+
+    type NavigatorWithPerfHints = Navigator & {
+      hardwareConcurrency?: number;
+      deviceMemory?: number;
+      connection?: ConnectionLike;
+    };
+
+    const nav = navigator as NavigatorWithPerfHints;
+    const docEl = document.documentElement;
+    const connection = nav.connection;
+    const sync = () => {
+      const hwConcurrency = nav.hardwareConcurrency ?? 4;
+      const deviceMemory = nav.deviceMemory ?? 4;
+      const saveData = Boolean(connection?.saveData);
+      const effectiveType = String(connection?.effectiveType || "").toLowerCase();
+      const lowBandwidth = effectiveType.includes("slow-2g") || effectiveType.includes("2g");
+      const smallViewport = window.innerWidth <= 767;
+      const constrained = hwConcurrency <= 4 || deviceMemory <= 2 || saveData || lowBandwidth || smallViewport;
+
+      setIsPerformanceConstrained(constrained);
+      docEl.setAttribute("data-performance", constrained ? "constrained" : "standard");
+      docEl.classList.toggle("performance-constrained", constrained);
       docEl.classList.add("no-animation-delays");
+    };
 
-      const hwConcurrency = (navigator as any).hardwareConcurrency || 4;
-      const deviceMemory = (navigator as any).deviceMemory || 4;
-      if (hwConcurrency <= 2 || (deviceMemory && deviceMemory <= 1)) {
-        docEl.setAttribute("data-performance", "constrained");
+    try {
+      sync();
+      window.addEventListener("resize", sync, { passive: true });
+      if (connection?.addEventListener) {
+        connection.addEventListener("change", sync);
+      } else if (connection?.addListener) {
+        connection.addListener(sync);
       }
 
-      // Also optimize for small viewports (mobile)
-      if (window.innerWidth <= 767) {
-        docEl.setAttribute("data-performance", "constrained");
-      }
-    } catch (e) {
-      // ignore
+      return () => {
+        window.removeEventListener("resize", sync);
+        if (connection?.removeEventListener) {
+          connection.removeEventListener("change", sync);
+        } else if (connection?.removeListener) {
+          connection.removeListener(sync);
+        }
+      };
+    } catch {
+      setIsPerformanceConstrained(false);
     }
   }, []);
  
@@ -1155,7 +1225,7 @@ const Index = () => {
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [demoPhase, demoUploadFile]);
+  }, [demoPhase, demoUploadFile, isPerformanceConstrained]);
 
   const activeDemo = demoSteps[activeDemoStep];
   const activeDemoProgress = demoPhase === "idle" ? activeDemo.progress : demoPhaseProgress[demoPhase];
@@ -1166,7 +1236,7 @@ const Index = () => {
         ? activeDemo.cue
         : demoPhaseCue[demoPhase];
   const isTrialHolyGlowActive =
-    isTrialCtaHovered && !isTrialHoverTakeoverActive && isTrialHolyGlowReady && !shouldReduceMotion;
+    isTrialCtaHovered && !isTrialHoverTakeoverActive && isTrialHolyGlowReady && !lowEndMotionMode;
   const isDemoProcessing = demoPhase !== "idle" && demoPhase !== "ready";
   const demoPrimaryActionLabel =
     demoPhase === "ready"
@@ -1182,12 +1252,20 @@ const Index = () => {
               : "Upload";
 
   return (
-    <GlowBackdrop>
+    <MotionConfig reducedMotion={lowEndMotionMode ? "always" : "never"}>
+      <GlowBackdrop>
+        <SeoHead
+          title="AI Video Editor for YouTube, TikTok, Shorts & Reels | AutoEditor"
+          description={HOME_SEO_DESCRIPTION}
+          keywords={HOME_SEO_KEYWORDS}
+          path="/"
+          jsonLd={HOME_SEO_JSON_LD}
+        />
         <div className="relative min-h-screen overflow-hidden">
           <div className="relative z-10">
             <Navbar />
             <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
-        {showBackdrop && !isPerformanceConstrained ? <ViralBackdrop /> : null}
+        {showBackdrop && !lowEndMotionMode ? <ViralBackdrop /> : null}
         <AnimatePresence>
           {isTrialHoverTakeoverActive ? (
             <>
@@ -1967,7 +2045,8 @@ const Index = () => {
             </main>
           </div>
         </div>
-    </GlowBackdrop>
+      </GlowBackdrop>
+    </MotionConfig>
   );
 };
 

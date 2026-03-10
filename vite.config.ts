@@ -48,9 +48,21 @@ export default defineConfig(({ mode }) => ({
   build: {
     chunkSizeWarningLimit: 550,
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        pricing: path.resolve(__dirname, "pricing.html"),
+        privacyPolicy: path.resolve(__dirname, "privacy-policy.html"),
+        howEditorWorks: path.resolve(__dirname, "how-editor-works.html"),
+        login: path.resolve(__dirname, "login.html"),
+        signup: path.resolve(__dirname, "signup.html"),
+      },
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules/recharts")) return "vendor-charts";
+          if (id.includes("node_modules/react-player")) return "vendor-player";
+          if (id.includes("node_modules/framer-motion")) return "vendor-motion";
+          if (id.includes("node_modules/@supabase")) return "vendor-supabase";
+          if (id.includes("node_modules/tus-js-client")) return "vendor-upload";
           return undefined;
         },
       },
