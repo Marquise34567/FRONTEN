@@ -1037,7 +1037,7 @@ const Settings = () => {
                     </div>
                     <Switch
                       checked={Boolean(dailyEngagement.emailEnabled)}
-                      disabled={savingDailyEmail || !dailyEmailConfigured}
+                      disabled={savingDailyEmail || (!dailyEmailConfigured && !dailyEngagement.emailEnabled)}
                       onCheckedChange={(checked) => {
                         void handleDailyEmailPreference(checked);
                       }}
@@ -1063,7 +1063,7 @@ const Settings = () => {
                     </div>
                     <Switch
                       checked={Boolean(dailyEngagement.pushEnabled)}
-                      disabled={savingDailyPush || !pushSupported || !dailyPushConfigured}
+                      disabled={savingDailyPush || !pushSupported || (!dailyPushConfigured && !dailyEngagement.pushEnabled)}
                       onCheckedChange={(checked) => {
                         if (checked) {
                           void handleEnableDailyPush();
