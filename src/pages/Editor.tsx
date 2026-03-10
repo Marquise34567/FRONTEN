@@ -343,7 +343,7 @@ type FullAutoYoutubeVibe = "auto" | "hype" | "cinematic" | "chill" | "education"
 type HookSelectionMode = "manual" | "auto";
 type X264Preset = "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow";
 type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
-type EditorSettingsSection = "format" | "vibe" | "cuts";
+type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
 type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3" | "top_human_guard";
@@ -804,6 +804,7 @@ const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: strin
   { key: "format", label: "Format" },
   { key: "vibe", label: "Style" },
   { key: "cuts", label: "Cuts" },
+  { key: "captions", label: "Captions" },
 ];
 const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
   { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
@@ -3456,7 +3457,7 @@ const Editor = () => {
       setSavingSubtitleStyle(true);
       const result = await apiFetch<EditorSettingsResponse>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({ subtitleStyle: nextStyle, autoCaptions: false }),
+        body: JSON.stringify({ subtitleStyle: nextStyle }),
         token: accessToken,
       });
       const runtimeCaptions = result?.capabilities?.captions;
@@ -3464,7 +3465,7 @@ const Editor = () => {
         setCaptionCapability(runtimeCaptions);
       }
       const persisted = normalizeSubtitleStyleFromSettings(result?.settings?.subtitleStyle ?? nextStyle);
-      const persistedAutoCaptions = false;
+      const persistedAutoCaptions = autoCaptionsEnabled;
       setSubtitleStyleDraft(persisted);
       setAutoCaptionsEnabled(persistedAutoCaptions);
       setSubtitleStyleDirty(false);
@@ -5280,7 +5281,7 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && requestedMode === "vertical";
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
     const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const subtitlesPayload = {
@@ -6553,7 +6554,7 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && requestedMode === "vertical";
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
         const fastModeForJob = ultraPipelineMode;
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -6892,6 +6893,7 @@ const Editor = () => {
     }
     return [];
   }, [activeJob, activePreviewCacheKey]);
+  const activeJobReadyForDownload = Boolean(activeJob && normalizedActiveStatus === "ready");
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
@@ -7130,14 +7132,14 @@ const Editor = () => {
   const transcriptEditedCueCount = liveEditedTranscriptCues.length;
   const transcriptCutCount = liveTranscriptEditorRows.filter((row) => row.decision === "cut").length;
   const transcriptKeepCount = liveTranscriptEditorRows.filter((row) => row.decision === "keep" || row.decision === "hook").length;
-  const transcriptDefaultTab: TranscriptPanelTab = liveTranscriptEditorRows.length > 0
+  const transcriptHasEditor = liveTranscriptEditorRows.length > 0;
+  const transcriptHasPreview = activeJobReadyForDownload && liveEditedTranscriptCues.length > 0;
+  const transcriptHasSource = liveSourceTranscriptCues.length > 0;
+  const transcriptDefaultTab: TranscriptPanelTab = transcriptHasEditor
     ? "editor"
-    : liveEditedTranscriptCues.length > 0
+    : transcriptHasPreview
       ? "preview"
       : "source";
-  const transcriptHasEditor = liveTranscriptEditorRows.length > 0;
-  const transcriptHasPreview = liveEditedTranscriptCues.length > 0;
-  const transcriptHasSource = liveSourceTranscriptCues.length > 0;
   useEffect(() => {
     setTranscriptPanelTab(transcriptDefaultTab);
   }, [activeJob?.id, transcriptDefaultTab]);
@@ -8069,6 +8071,7 @@ const Editor = () => {
     [estimatedTimelineDurationSec, retentionTimelineDurationSec],
   );
   const previewStoryBeatSegments = useMemo<PreviewStoryBeatSegment[]>(() => {
+    if (!activeJobReadyForDownload) return [];
     const totalSec = Math.max(24, previewStoryBeatTimelineDurationSec);
     const resolvedHookStart = clamp(
       firstFiniteNumber(
@@ -8152,6 +8155,7 @@ const Editor = () => {
       },
     ];
   }, [
+    activeJobReadyForDownload,
     bestRetentionSegments,
     cliffhangerAtSec,
     hookEndSec,
@@ -8807,7 +8811,7 @@ const Editor = () => {
     100,
   );
   const previewImprovementTips = useMemo<PreviewImprovementTip[]>(() => {
-    if (!activeJob) return [];
+    if (!activeJob || !activeJobReadyForDownload) return [];
     const tips: PreviewImprovementTip[] = [];
     const topSkipSegment = skipRiskRetentionSegments[0] ?? weakRetentionSegments[0] ?? null;
 
@@ -8884,6 +8888,7 @@ const Editor = () => {
     }
     return tips.slice(0, 6);
   }, [
+    activeJobReadyForDownload,
     activeJob,
     autoCutBoringEnabled,
     hookConfidenceScore,
@@ -9399,7 +9404,7 @@ const Editor = () => {
     let previewBlobUrl: string | null = null;
     const jobId = activeJob?.id || "";
     const baseUrl = String(previewOutputUrl || "").trim();
-    if (!jobId && !baseUrl) {
+    if (!activeJobReadyForDownload || (!jobId && !baseUrl)) {
       setResolvedPreviewOutputUrl("");
       return () => {};
     }
@@ -9455,6 +9460,7 @@ const Editor = () => {
   }, [
     accessToken,
     activeJob?.id,
+    activeJobReadyForDownload,
     activePreviewCacheKey,
     activePreviewRefreshNonce,
     normalizedActiveStatus,
@@ -9475,7 +9481,7 @@ const Editor = () => {
     if (!resolvedPreviewOutputUrl) return;
     previewRetryCountByJobRef.current[jobId] = 0;
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
-  const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
+  const showVideo = Boolean(activeJobReadyForDownload && resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
   const previewTranscriptCaptionsEnabled = showVideo && activeTranscriptCues.length > 0;
   const shouldSyncPreviewClock = showVideo && (
@@ -9489,7 +9495,7 @@ const Editor = () => {
   const sidePreviewImprovementTip = previewImprovementTips.length > 1
     ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
     : null;
-  const shouldShowPreviewImprovementPopups = Boolean(activeJob && activePreviewImprovementTip);
+  const shouldShowPreviewImprovementPopups = Boolean(showVideo && activePreviewImprovementTip);
   const activePreviewTipAppliedIds = activeJob?.id
     ? (previewTipAppliedIdsByJob[activeJob.id] || [])
     : [];
@@ -9705,6 +9711,17 @@ const Editor = () => {
     if (icon === "target") return <Zap className={className} />;
     return <Gauge className={className} />;
   };
+  const compactPreviewTipDetail = useCallback((value: string) => {
+    const normalized = String(value || "").replace(/\s+/g, " ").trim();
+    if (!normalized) return "";
+    const sentence = normalized
+      .split(/[.;!?:]/)
+      .map((part) => part.trim())
+      .find((part) => part.length > 0) || normalized;
+    const lead = sentence.split(/,\s+| - /).map((part) => part.trim()).find((part) => part.length > 0) || sentence;
+    if (lead.length <= 60) return lead;
+    return `${lead.slice(0, 57).trimEnd()}...`;
+  }, []);
   const activeTranscriptCueIndex = useMemo(() => {
     if (!showVideo || !activeTranscriptCues.length) {
       activeTranscriptCueIndexRef.current = -1;
@@ -9764,6 +9781,14 @@ const Editor = () => {
     if (raw.length <= 190) return raw;
     return `${raw.slice(0, 187).trimEnd()}...`;
   }, [activePreviewTranscriptCue]);
+  const activePreviewTipDetailCompact = useMemo(
+    () => (activePreviewImprovementTip ? compactPreviewTipDetail(activePreviewImprovementTip.detail) : ""),
+    [activePreviewImprovementTip, compactPreviewTipDetail],
+  );
+  const sidePreviewTipDetailCompact = useMemo(
+    () => (sidePreviewImprovementTip ? compactPreviewTipDetail(sidePreviewImprovementTip.detail) : ""),
+    [compactPreviewTipDetail, sidePreviewImprovementTip],
+  );
   useEffect(() => {
     if (!shouldSyncPreviewClock) return;
     const video = previewVideoRef.current;
@@ -11093,6 +11118,37 @@ const Editor = () => {
     setPendingUploadSelection((prev) => (prev ? { ...prev, mode } : prev));
   }, [selectUploadFormatMode]);
 
+  const toggleAutoCaptions = useCallback(() => {
+    if (captionsToggleDisabled) return;
+    const nextState = !autoCaptionsEnabled;
+    trackEditorEvent("captions_toggled", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: { enabled: nextState },
+    });
+    setAutoCaptionsEnabled(nextState);
+    setSubtitleStyleDirty(true);
+  }, [
+    activeSubtitlePreset,
+    autoCaptionsEnabled,
+    captionsToggleDisabled,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    trackEditorEvent,
+  ]);
+
+  const openCaptionSettings = useCallback(() => {
+    setEditorSettingsSection("captions");
+    if (typeof document === "undefined") return;
+    window.setTimeout(() => {
+      const node = document.querySelector("[data-editor-step='fine-tune']");
+      if (node instanceof HTMLElement) {
+        node.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 20);
+  }, []);
+
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
       return (
@@ -11355,35 +11411,6 @@ const Editor = () => {
             ) : null}
           </div>
           <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Creative Variant</p>
-                <p className="text-xs text-muted-foreground">
-                  Changes transcript-led hook ranking and pacing so rerenders can explore different edit personalities.
-                </p>
-              </div>
-              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                {activeCreativeVariantLabel}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-              {CREATIVE_VARIANT_OPTIONS.map((variant) => (
-                <button
-                  key={variant.value}
-                  type="button"
-                  className={sectionPillClass(creativeVariant === variant.value)}
-                  onClick={() => setCreativeVariant(variant.value)}
-                  aria-label={variant.label}
-                >
-                  <div className="flex flex-col items-center">
-                    <span className="text-[11px] font-semibold">{variant.label}</span>
-                    <span className="mt-1 text-center text-[10px] text-muted-foreground">{variant.description}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-foreground">Advanced Learning Modes</p>
@@ -11482,108 +11509,6 @@ const Editor = () => {
               <p className="mt-2 text-[11px] text-muted-foreground">
                 Lower = prioritize global winner policies. Higher = follow this creator's learned style profile more aggressively.
               </p>
-            </div>
-          </div>
-          {renderYouTubeOutcomeLoopCard({
-            title: "Editor Settings: YouTube Auth + Learning",
-            subtitle: "This connection is per account and feeds the live outcome loop used by the editor modes.",
-            compact: true,
-            showModeImpact: true,
-          })}
-
-          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-foreground">Vibe</span>
-              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                {RETENTION_PROFILE_OPTIONS.find((profile) => profile.value === retentionStrategyProfile)?.label || "Balanced"}
-              </span>
-            </div>
-            <Slider
-              min={0}
-              max={RETENTION_PROFILE_SEQUENCE.length - 1}
-              step={1}
-              value={[retentionSliderValue]}
-              className="editor-settings-slider"
-              onValueChange={(values) => {
-                const candidate = Number(values?.[0] ?? retentionSliderValue);
-                const next = RETENTION_PROFILE_SEQUENCE[clamp(Math.round(candidate), 0, RETENTION_PROFILE_SEQUENCE.length - 1)];
-                menuTouchedRef.current.strategy = true;
-                setRetentionStrategyProfile(next);
-              }}
-            />
-            <div className="mt-2 grid grid-cols-3 gap-2">
-                      {RETENTION_PROFILE_OPTIONS.map((profile) => (
-                <Tooltip key={profile.value}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                              className={sectionPillClass(retentionStrategyProfile === profile.value)}
-                      onClick={() => {
-                        menuTouchedRef.current.strategy = true;
-                        trackEditorEvent("retention_profile_selected", {
-                          retentionProfile: profile.value,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: {
-                            fromMode: isVerticalMode ? "vertical" : "horizontal",
-                          },
-                        });
-                        setRetentionStrategyProfile(profile.value);
-                      }}
-                              aria-label={profile.label}
-                    >
-                              <div className="flex flex-col items-center">
-                                {profile.value === "safe" ? (
-                                  <ShieldCheck className="h-5 w-5" aria-hidden />
-                                ) : profile.value === "balanced" ? (
-                                  <Gauge className="h-5 w-5" aria-hidden />
-                                ) : (
-                                  <Zap className="h-5 w-5" aria-hidden />
-                                )}
-                                <span className="text-[11px] mt-1">{profile.label}</span>
-                              </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{RETENTION_PROFILE_HINTS[profile.value]}</TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
-            <p className="mb-3 text-sm text-foreground">Content Type</p>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              {EDITOR_MODE_OPTIONS.map((mode) => (
-                <Tooltip key={mode.value}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className={sectionPillClass(editorMode === mode.value)}
-                      onClick={() => {
-                        menuTouchedRef.current.editorMode = true;
-                        trackEditorEvent("editor_mode_selected", {
-                          retentionProfile: retentionStrategyProfile,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: { editorMode: mode.value },
-                        });
-                        setEditorMode(mode.value);
-                      }}
-                      aria-label={mode.label}
-                    >
-                      <div className="flex flex-col items-center">
-                        {mode.value === "auto" ? (
-                          <Wand2 className="h-5 w-5" aria-hidden />
-                        ) : (
-                          <MousePointerClick className="h-5 w-5" aria-hidden />
-                        )}
-                        <span className="text-[11px] mt-1">{mode.label}</span>
-                      </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{mode.description}</TooltipContent>
-                </Tooltip>
-              ))}
             </div>
           </div>
         </div>
@@ -11797,8 +11722,9 @@ const Editor = () => {
         </div>
       );
     }
-    return (
-      <div className="space-y-4">
+    if (section === "captions") {
+      return (
+        <div className="space-y-4">
         <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -11808,29 +11734,18 @@ const Editor = () => {
               </p>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button
-                type="button"
-                className={`min-h-12 rounded-xl px-5 md:min-h-10 ${
-                  autoCaptionsEnabled
-                    ? "bg-primary text-white hover:bg-primary/90"
-                    : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
-                }`}
-                onClick={() => {
-                  if (captionsToggleDisabled) return;
-                  const nextState = !autoCaptionsEnabled;
-                  trackEditorEvent("captions_toggled", {
-                    retentionProfile: retentionStrategyProfile,
-                    targetPlatform: retentionTargetPlatform,
-                    captionStyle: activeSubtitlePreset,
-                    metadata: { enabled: nextState },
-                  });
-                  setAutoCaptionsEnabled(nextState);
-                  setSubtitleStyleDirty(true);
-                }}
-                disabled={captionsToggleDisabled}
-              >
-                {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
-              </Button>
+                <Button
+                  type="button"
+                  className={`min-h-12 rounded-xl px-5 md:min-h-10 ${
+                    autoCaptionsEnabled
+                      ? "bg-primary text-white hover:bg-primary/90"
+                      : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                  }`}
+                  onClick={toggleAutoCaptions}
+                  disabled={captionsToggleDisabled}
+                >
+                  {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                </Button>
               {captionEngineOffline ? (
                 <Button
                   type="button"
@@ -11956,8 +11871,10 @@ const Editor = () => {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </div>
-    );
+        </div>
+      );
+    }
+    return null;
   };
 
   const topToolbarToggleClass = (active: boolean) =>
@@ -12639,12 +12556,7 @@ const Editor = () => {
                                   ? "bg-primary text-white hover:bg-primary/90"
                                   : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
                               }`}
-                              onClick={() => {
-                                if (captionsToggleDisabled) return;
-                                const nextState = !autoCaptionsEnabled;
-                                setAutoCaptionsEnabled(nextState);
-                                setSubtitleStyleDirty(true);
-                              }}
+                              onClick={toggleAutoCaptions}
                               disabled={captionsToggleDisabled}
                               aria-pressed={autoCaptionsEnabled}
                               aria-label={autoCaptionsEnabled ? "Captions enabled" : "Captions disabled"}
@@ -12714,7 +12626,7 @@ const Editor = () => {
                         </div>
                       </div>
 
-                      <div className="editor-tools-step-card">
+                      <div className="editor-tools-step-card" data-editor-step="fine-tune">
                         <div className="mb-3 flex items-center justify-between gap-2">
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
@@ -13724,7 +13636,9 @@ const Editor = () => {
                           <p className="text-sm text-muted-foreground">
                             {activeJob
                               ? normalizedActiveStatus === "ready"
-                                ? "Ready to export"
+                                ? resolvedPreviewOutputUrl
+                                  ? "Ready to export"
+                                  : "Finalizing export..."
                                 : normalizedActiveStatus === "failed"
                                   ? activeJob.error === "queue_canceled_by_user"
                                     ? "Job canceled"
@@ -13740,6 +13654,32 @@ const Editor = () => {
                         <div className="max-w-[92%] text-center text-sm font-medium leading-snug text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.95)] sm:text-base">
                           {activePreviewTranscriptText}
                         </div>
+                      </div>
+                    ) : null}
+                    {showVideo ? (
+                      <div className="pointer-events-auto absolute right-2 top-2 z-20 flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className={`h-8 rounded-full px-3 text-[11px] ${
+                            autoCaptionsEnabled
+                              ? "bg-primary text-white hover:bg-primary/90"
+                              : "border border-border/60 bg-background/70 text-foreground hover:border-primary/45 hover:bg-primary/10"
+                          }`}
+                          onClick={toggleAutoCaptions}
+                          disabled={captionsToggleDisabled}
+                        >
+                          {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 rounded-full border-border/60 bg-background/70 px-3 text-[11px] text-foreground"
+                          onClick={openCaptionSettings}
+                        >
+                          Customize
+                        </Button>
                       </div>
                     ) : null}
                     <AnimatePresence mode="wait">
@@ -13772,7 +13712,7 @@ const Editor = () => {
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[10px] uppercase tracking-[0.14em] text-foreground/75">{toneMeta.label}</p>
                                     <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
-                                    <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
+                                    <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                     <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
                                       {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply live"}
                                     </p>
@@ -13940,7 +13880,7 @@ const Editor = () => {
                                   {toneMeta.label}
                                 </Badge>
                                 <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
-                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
+                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
                                   {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
                                 </p>
@@ -13984,7 +13924,7 @@ const Editor = () => {
                                   {toneMeta.label}
                                 </Badge>
                                 <p className="text-xs font-semibold leading-snug text-foreground">{sidePreviewImprovementTip.title}</p>
-                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewImprovementTip.detail}</p>
+                                <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
                                   {sidePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
                                 </p>
@@ -15325,6 +15265,36 @@ const Editor = () => {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="relative z-10 mt-3 rounded-2xl border border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.9),hsl(var(--card)/0.6))] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-primary/80">Creative Variant</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Pick a render personality before upload starts.
+                  </p>
+                </div>
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                  {activeCreativeVariantLabel}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                {CREATIVE_VARIANT_OPTIONS.map((variant) => (
+                  <button
+                    key={variant.value}
+                    type="button"
+                    className={sectionPillClass(creativeVariant === variant.value)}
+                    onClick={() => setCreativeVariant(variant.value)}
+                    aria-label={variant.label}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className="text-[11px] font-semibold">{variant.label}</span>
+                      <span className="mt-1 text-center text-[10px] text-muted-foreground">{variant.description}</span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
