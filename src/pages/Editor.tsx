@@ -2762,6 +2762,13 @@ const normalizeSubtitleStyleFromSettings = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : "basic_clean";
 };
 
+const resolveStoredAutoDownloadEnabled = () => {
+  if (typeof window === "undefined") return true;
+  const local = window.localStorage.getItem("autoDownloadEnabled");
+  if (local === null) return true;
+  return local === "true";
+};
+
 type CaptionCapability = {
   available: boolean;
   provider?: string | null;
@@ -3108,8 +3115,7 @@ const Editor = () => {
   const { data: me, refetch: refetchMe } = useMe({
     refetchInterval: meRefetchInterval,
   });
-  const [entitlements, setEntitlements] = useState<{ autoDownloadAllowed?: boolean } | null>(null);
-  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean | null>(null);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(true);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
@@ -4190,6 +4196,18 @@ const Editor = () => {
     async (url: string, fileName?: string) => {
       const resolvedUrl = String(url || "").trim();
       if (!resolvedUrl) throw new Error("download_url_missing");
+      const resolvedFileName = (() => {
+        const normalized = String(fileName || "").trim();
+        if (normalized) return normalized;
+        try {
+          const parsed = new URL(resolvedUrl, window.location.origin);
+          const fromPath = parsed.pathname.split("/").pop();
+          if (fromPath) return decodeURIComponent(fromPath);
+        } catch (error) {
+          // Ignore parse errors and keep fallback name.
+        }
+        return "export.mp4";
+      })();
       if (isAuthRequiredDownloadUrl(resolvedUrl)) {
         if (!accessToken) throw new Error("download_auth_required");
         const response = await fetch(resolvedUrl, {
@@ -4204,7 +4222,7 @@ const Editor = () => {
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = blobUrl;
-        if (fileName) link.download = fileName;
+        link.download = resolvedFileName;
         link.rel = "noopener";
         link.style.display = "none";
         document.body.appendChild(link);
@@ -4219,8 +4237,7 @@ const Editor = () => {
 
       const link = document.createElement("a");
       link.href = resolvedUrl;
-      if (fileName) link.download = fileName;
-      link.target = "_blank";
+      link.download = resolvedFileName;
       link.rel = "noopener";
       link.style.display = "none";
       document.body.appendChild(link);
@@ -4550,23 +4567,19 @@ const Editor = () => {
   ]);
 
   useEffect(() => {
+    const localAutoDownloadEnabled = resolveStoredAutoDownloadEnabled();
     if (!accessToken) {
-      const local = typeof window !== "undefined" ? window.localStorage.getItem("autoDownloadEnabled") : null;
-      setAutoDownloadEnabled(local === "true");
+      setAutoDownloadEnabled(localAutoDownloadEnabled);
       return;
     }
-    apiFetch('/api/billing/entitlements', { token: accessToken })
-      .then((d) => setEntitlements(d?.entitlements ? d.entitlements : null))
-      .catch(async (err) => {
-        setEntitlements(null);
-        if (err instanceof ApiError && err.status === 401) {
-          setAuthError(true);
-          try { await signOut() } catch (e) {}
-        }
-      });
     apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
       .then((d) => {
-        setAutoDownloadEnabled(Boolean(d?.settings?.autoDownload));
+        const autoDownloadFromSettings = d?.settings?.autoDownload;
+        setAutoDownloadEnabled(
+          typeof autoDownloadFromSettings === "boolean"
+            ? autoDownloadFromSettings
+            : localAutoDownloadEnabled,
+        );
         setAutoCaptionsEnabled(false);
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
@@ -4580,7 +4593,7 @@ const Editor = () => {
         }
       })
       .catch(async (err) => {
-        setAutoDownloadEnabled(null);
+        setAutoDownloadEnabled(localAutoDownloadEnabled);
         if (err instanceof ApiError && err.status === 401) {
           setAuthError(true);
           try { await signOut() } catch (e) {}
@@ -4909,14 +4922,29 @@ const Editor = () => {
               : "";
             let fileName: string | undefined;
             let url: string | undefined;
-            if (summaryJob && isLikelyVideoUrl((summaryJob as any).outputUrl)) {
-              url = String((summaryJob as any).outputUrl);
+            if (summaryJob) {
               fileName = (summaryJob as any).fileName ?? undefined;
-            } else if (accessToken) {
+            }
+            if (accessToken) {
+              try {
+                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: "POST", token: accessToken });
+                url = out.url;
+              } catch (error) {
+                // fallback to output-url discovery
+              }
+            }
+            if (!url && summaryJob && isLikelyVideoUrl((summaryJob as any).outputUrl)) {
+              url = String((summaryJob as any).outputUrl);
+            }
+            if ((!url || !fileName) && accessToken) {
               try {
                 const resp = await apiFetch<{ job?: any }>(`/api/jobs/${id}`, { token: accessToken });
-                url = isLikelyVideoUrl(resp?.job?.outputUrl) ? String(resp?.job?.outputUrl) : undefined;
-                fileName = resp?.job?.fileName ?? undefined;
+                if (!url) {
+                  url = isLikelyVideoUrl(resp?.job?.outputUrl) ? String(resp?.job?.outputUrl) : undefined;
+                }
+                if (!fileName) {
+                  fileName = resp?.job?.fileName ?? undefined;
+                }
               } catch (error) {
                 // fallback to download-url endpoint
               }
@@ -4940,41 +4968,8 @@ const Editor = () => {
               editorUrl,
             });
 
-            // ensure entitlements/settings are loaded
-            let resolvedEntitlements = entitlements;
-            if (resolvedEntitlements === null && accessToken) {
-              const d = await apiFetch('/api/billing/entitlements', { token: accessToken });
-              resolvedEntitlements = d?.entitlements ?? null;
-              setEntitlements(resolvedEntitlements);
-            }
-            let resolvedAutoDownloadEnabled = autoDownloadEnabled;
-            if (resolvedAutoDownloadEnabled === null) {
-              if (accessToken) {
-                const s = await apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken });
-                resolvedAutoDownloadEnabled = Boolean(s?.settings?.autoDownload);
-                setAutoDownloadEnabled(resolvedAutoDownloadEnabled);
-                setAutoCaptionsEnabled(false);
-                const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(s?.settings?.subtitleStyle);
-                setSubtitleStyleDraft(resolvedSubtitleStyle);
-                setSubtitleStyleDirty(false);
-                const runtimeCaptions = s?.capabilities?.captions;
-                if (runtimeCaptions && typeof runtimeCaptions.available === "boolean") {
-                  setCaptionCapability(runtimeCaptions);
-                  if (!runtimeCaptions.available) {
-                    setAutoCaptionsEnabled(false);
-                  }
-                }
-              } else {
-                const local = typeof window !== 'undefined' ? window.localStorage.getItem('autoDownloadEnabled') : null;
-                resolvedAutoDownloadEnabled = local === "true";
-                setAutoDownloadEnabled(resolvedAutoDownloadEnabled);
-              }
-            }
-            // decide whether to auto-download
-            const allowed = resolvedEntitlements?.autoDownloadAllowed ?? false;
-            const enabled = resolvedAutoDownloadEnabled ?? false;
             const downloadedKey = `auto_downloaded_${id}`;
-            if (!allowed || !enabled) return;
+            if (!autoDownloadEnabled) return;
             if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
 
             if (!url && accessToken) {
@@ -4997,13 +4992,11 @@ const Editor = () => {
                 analysis: (summaryJob as any)?.analysis ?? null,
               };
               submitDownloadFeedback(telemetryJob, 0, "frontend_auto_download");
-              // assume success; if browser blocked, user can tap in modal
-              // set a short timeout to mark as downloaded optimistically
-              setTimeout(() => {
+              if (typeof window !== "undefined") {
                 try {
                   window.localStorage.setItem(downloadedKey, 'true');
                 } catch (e) {}
-              }, 1200);
+              }
             } catch (e) {
               // show modal fallback
               setAutoDownloadModal({ open: true, url, fileName, jobId: id });
@@ -5014,7 +5007,7 @@ const Editor = () => {
         })();
       }
     }
-  }, [jobs, refetchMe, entitlements, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback, triggerFileDownload]);
+  }, [jobs, refetchMe, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback, triggerFileDownload]);
 
   useEffect(() => {
     if (!activeJob) return;
