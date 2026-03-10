@@ -2955,7 +2955,6 @@ const Editor = () => {
   ));
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
-  const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
   const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
   const [youtubeOAuthBusyAction, setYouTubeOAuthBusyAction] = useState<"connect" | "exchange" | "disconnect" | null>(null);
@@ -3005,7 +3004,6 @@ const Editor = () => {
     editorMode: false,
   });
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
-  const fullAnalysisSectionRef = useRef<HTMLDivElement | null>(null);
   const feedbackDeepDiveSectionRefs = useRef<Partial<Record<FeedbackDeepDiveSection, HTMLDivElement | null>>>({});
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -10519,7 +10517,6 @@ const Editor = () => {
         if (suggestion.linkedDropOffEventId) {
           setFocusedDropOffEventId(suggestion.linkedDropOffEventId);
         }
-        setVideoAnalysisOpen(true);
         openFeedbackDeepDiveSection("timeline");
         break;
       default:
@@ -14218,6 +14215,7 @@ const Editor = () => {
                       </div>
                     )}
 
+                    <Dialog open={feedbackDeepDiveOpen} onOpenChange={setFeedbackDeepDiveOpen}>
                     <DialogContent className="deepdive-shell max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
                       <DialogHeader>
                         <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
