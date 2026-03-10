@@ -1098,6 +1098,15 @@ type BingeMoment = {
   score: number;
   reason: string;
 };
+type PreviewStoryBeatKey = "hook" | "build_up" | "payoff" | "cliffhanger";
+type PreviewStoryBeatSegment = {
+  key: PreviewStoryBeatKey;
+  label: string;
+  shortLabel: string;
+  startSec: number;
+  endSec: number;
+  reason: string;
+};
 type FeedbackDeepDiveSection = "retention_vs_emotion" | "emotional_parts" | "binge_parts" | "timeline";
 
 type PreviewPlaybackTelemetry = {
@@ -2350,6 +2359,41 @@ const EMOTION_PROFILE_META: Record<
     badgeClassName: "border-emerald-400/45 bg-emerald-500/15 text-emerald-100",
     barClassName: "from-emerald-400/90 via-lime-300/85 to-cyan-300/80",
     detail: "Emotion-forward sections with face and voice emphasis.",
+  },
+};
+
+const PREVIEW_STORY_BEAT_META: Record<
+  PreviewStoryBeatKey,
+  {
+    label: string;
+    shortLabel: string;
+    badgeClassName: string;
+    segmentClassName: string;
+  }
+> = {
+  hook: {
+    label: "Hook",
+    shortLabel: "Hook",
+    badgeClassName: "border-primary/35 bg-primary/12 text-primary-foreground",
+    segmentClassName: "bg-gradient-to-r from-primary/90 to-primary/65",
+  },
+  build_up: {
+    label: "Build-up",
+    shortLabel: "Build",
+    badgeClassName: "border-sky-400/40 bg-sky-500/12 text-sky-100",
+    segmentClassName: "bg-gradient-to-r from-sky-400/85 to-cyan-300/80",
+  },
+  payoff: {
+    label: "Payoff",
+    shortLabel: "Payoff",
+    badgeClassName: "border-emerald-400/40 bg-emerald-500/12 text-emerald-100",
+    segmentClassName: "bg-gradient-to-r from-emerald-400/85 to-lime-300/80",
+  },
+  cliffhanger: {
+    label: "Cliffhanger",
+    shortLabel: "Cliff",
+    badgeClassName: "border-amber-400/40 bg-amber-500/12 text-amber-100",
+    segmentClassName: "bg-gradient-to-r from-amber-400/90 to-orange-300/85",
   },
 };
 
@@ -7466,6 +7510,119 @@ const Editor = () => {
     () => retentionTimelineSegments.filter((segment) => segment.category === "weak").slice(0, 3),
     [retentionTimelineSegments],
   );
+  const previewStoryBeatTimelineDurationSec = useMemo(
+    () => Math.max(
+      24,
+      estimatedTimelineDurationSec,
+      retentionTimelineDurationSec,
+    ),
+    [estimatedTimelineDurationSec, retentionTimelineDurationSec],
+  );
+  const previewStoryBeatSegments = useMemo<PreviewStoryBeatSegment[]>(() => {
+    const totalSec = Math.max(24, previewStoryBeatTimelineDurationSec);
+    const resolvedHookStart = clamp(
+      firstFiniteNumber(
+        Number.isFinite(hookStartSec) ? hookStartSec : null,
+        selectedHookCandidate?.start,
+        0,
+      ) ?? 0,
+      0,
+      Math.max(0, totalSec - 1),
+    );
+    const hookEndCandidate = firstFiniteNumber(
+      Number.isFinite(hookEndSec) ? hookEndSec : null,
+      selectedHookCandidate ? selectedHookCandidate.start + selectedHookCandidate.duration : null,
+      resolvedHookStart + Math.max(6, totalSec * 0.12),
+    ) ?? (resolvedHookStart + Math.max(6, totalSec * 0.12));
+    const resolvedHookEnd = clamp(
+      Math.max(resolvedHookStart + 1.5, hookEndCandidate),
+      resolvedHookStart + 1.5,
+      Math.max(resolvedHookStart + 1.5, totalSec - 1),
+    );
+    const payoffAnchor = firstFiniteNumber(
+      bestRetentionSegments[0]?.startSec,
+      bestRetentionSegments[0]?.midpointSec,
+      selectedHookCandidate ? selectedHookCandidate.start + selectedHookCandidate.duration + Math.max(10, totalSec * 0.2) : null,
+      resolvedHookEnd + Math.max(10, totalSec * 0.24),
+    ) ?? (resolvedHookEnd + Math.max(10, totalSec * 0.24));
+    const cliffAnchor = clamp(
+      firstFiniteNumber(cliffhangerAtSec, totalSec * 0.82) ?? (totalSec * 0.82),
+      resolvedHookEnd + 6,
+      Math.max(resolvedHookEnd + 6, totalSec - 1),
+    );
+    const buildStartSec = resolvedHookEnd;
+    const buildEndSec = clamp(
+      Math.max(buildStartSec + 2, Math.min(payoffAnchor, cliffAnchor - 2)),
+      buildStartSec + 2,
+      Math.max(buildStartSec + 2, totalSec - 7),
+    );
+    const payoffStartSec = buildEndSec;
+    const payoffEndSec = clamp(
+      Math.max(payoffStartSec + 2, Math.min(cliffAnchor, payoffStartSec + Math.max(8, totalSec * 0.22))),
+      payoffStartSec + 2,
+      Math.max(payoffStartSec + 2, totalSec - 2),
+    );
+    const cliffStartSec = clamp(
+      Math.max(payoffEndSec, cliffAnchor),
+      payoffEndSec,
+      Math.max(payoffEndSec, totalSec - 0.2),
+    );
+    return [
+      {
+        key: "hook",
+        label: PREVIEW_STORY_BEAT_META.hook.label,
+        shortLabel: PREVIEW_STORY_BEAT_META.hook.shortLabel,
+        startSec: resolvedHookStart,
+        endSec: resolvedHookEnd,
+        reason: "Scroll-stop opener and first emotional promise.",
+      },
+      {
+        key: "build_up",
+        label: PREVIEW_STORY_BEAT_META.build_up.label,
+        shortLabel: PREVIEW_STORY_BEAT_META.build_up.shortLabel,
+        startSec: buildStartSec,
+        endSec: buildEndSec,
+        reason: "Context + tension rise before the main payoff.",
+      },
+      {
+        key: "payoff",
+        label: PREVIEW_STORY_BEAT_META.payoff.label,
+        shortLabel: PREVIEW_STORY_BEAT_META.payoff.shortLabel,
+        startSec: payoffStartSec,
+        endSec: payoffEndSec,
+        reason: "Core reveal/moment that should reward attention.",
+      },
+      {
+        key: "cliffhanger",
+        label: PREVIEW_STORY_BEAT_META.cliffhanger.label,
+        shortLabel: PREVIEW_STORY_BEAT_META.cliffhanger.shortLabel,
+        startSec: cliffStartSec,
+        endSec: totalSec,
+        reason: "Open loop transition that drives next-second retention.",
+      },
+    ];
+  }, [
+    bestRetentionSegments,
+    cliffhangerAtSec,
+    hookEndSec,
+    hookStartSec,
+    previewStoryBeatTimelineDurationSec,
+    selectedHookCandidate,
+  ]);
+  const previewStoryBeatActive = useMemo(() => {
+    if (previewStoryBeatSegments.length === 0) return null;
+    const last = previewStoryBeatSegments[previewStoryBeatSegments.length - 1];
+    const currentSec = clamp(previewCurrentTimeSec, 0, last.endSec);
+    return previewStoryBeatSegments.find((segment, index) => (
+      currentSec >= segment.startSec &&
+      (currentSec < segment.endSec || index === previewStoryBeatSegments.length - 1)
+    )) || previewStoryBeatSegments[0];
+  }, [previewCurrentTimeSec, previewStoryBeatSegments]);
+  const previewStoryBeatPlayheadPct = useMemo(() => {
+    if (previewStoryBeatSegments.length === 0) return 0;
+    const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1].endSec);
+    return clamp((previewCurrentTimeSec / total) * 100, 0, 100);
+  }, [previewCurrentTimeSec, previewStoryBeatSegments]);
   const emotionalBeatAnchorSeconds = useMemo(() => {
     const raw =
       activeAnalysis?.emotional_beat_anchors ??
@@ -12386,6 +12543,83 @@ const Editor = () => {
                     </>
                   )}
                 </div>
+                {activeJob ? (
+                  <div className="border-t border-border/55 bg-background/35 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Editor Agent Story Map</p>
+                      {previewStoryBeatActive ? (
+                        <Badge className={PREVIEW_STORY_BEAT_META[previewStoryBeatActive.key].badgeClassName}>
+                          Now: {previewStoryBeatActive.label}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-border/60 bg-background/45 text-muted-foreground">
+                          Waiting
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="relative mt-2 h-2 overflow-hidden rounded-full border border-border/55 bg-muted/55">
+                      {previewStoryBeatSegments.map((segment) => {
+                        const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
+                        const left = clamp((segment.startSec / total) * 100, 0, 100);
+                        const width = clamp(((segment.endSec - segment.startSec) / total) * 100, 1.5, 100 - left);
+                        return (
+                          <div
+                            key={`preview-story-segment-${segment.key}`}
+                            className={`absolute inset-y-0 ${PREVIEW_STORY_BEAT_META[segment.key].segmentClassName}`}
+                            style={{
+                              left: `${left}%`,
+                              width: `${width}%`,
+                            }}
+                          />
+                        );
+                      })}
+                      <span
+                        className="absolute inset-y-[-1px] w-[2px] bg-white/90 shadow-[0_0_8px_rgba(255,255,255,0.45)]"
+                        style={{ left: `${Math.min(99.4, previewStoryBeatPlayheadPct)}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {previewStoryBeatSegments.map((segment) => {
+                        const active = previewStoryBeatActive?.key === segment.key;
+                        return (
+                          <button
+                            key={`preview-story-chip-${segment.key}`}
+                            type="button"
+                            className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                              active
+                                ? "border-primary/50 bg-primary/15 text-foreground"
+                                : "border-border/60 bg-background/50 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                            }`}
+                            disabled={!showVideo}
+                            onClick={() => {
+                              if (!showVideo) return;
+                              const video = previewVideoRef.current;
+                              const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
+                                ? Number(video?.duration)
+                                : previewStoryBeatTimelineDurationSec;
+                              const target = clamp(segment.startSec + 0.05, 0, Math.max(0, maxDuration - 0.05));
+                              if (video) {
+                                try {
+                                  video.currentTime = target;
+                                } catch {
+                                  // no-op: browsers can briefly reject seeks while metadata updates
+                                }
+                              }
+                              setPreviewCurrentTimeSec(target);
+                            }}
+                          >
+                            {segment.shortLabel} {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      {previewStoryBeatActive
+                        ? `${previewStoryBeatActive.label}: ${previewStoryBeatActive.reason}`
+                        : "Story phases will appear once preview timeline data is ready."}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
