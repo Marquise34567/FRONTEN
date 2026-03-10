@@ -71,6 +71,7 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
+const UPLOAD_MODE_PROMPT_DEFER_MS = 16;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
@@ -2798,6 +2799,7 @@ const Editor = () => {
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
+  const [uploadModeNichePresetsEnabled, setUploadModeNichePresetsEnabled] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -5638,11 +5640,14 @@ const Editor = () => {
   }, []);
 
   const setRenderMode = useCallback((mode: "horizontal" | "vertical") => {
+    if (mode === "vertical" && modeParam !== "vertical") {
+      setSkipManualWebcamCrop(true);
+    }
     const next = new URLSearchParams(searchParams);
     if (mode === "vertical") next.set("mode", "vertical");
     else next.delete("mode");
     setSearchParams(next, { replace: false });
-  }, [searchParams, setSearchParams]);
+  }, [modeParam, searchParams, setSearchParams]);
 
   const prepareVerticalFile = (file: File) => {
     if (!isAllowedUploadFile(file)) {
@@ -10210,16 +10215,9 @@ const Editor = () => {
       selection === "full_auto_youtube"
         ? { pipelinePowerMode: "standard" as PipelinePowerMode, fullAutoYoutubeEnabled: true }
         : { pipelinePowerMode: selection as PipelinePowerMode, fullAutoYoutubeEnabled: false };
-
-    if (selection === "full_auto_youtube") {
-      setFullAutoYoutubeEnabled(true);
-      if (pipelinePowerMode !== "standard") {
-        handleSelectPipelinePowerMode("standard");
-      }
-    } else {
-      setFullAutoYoutubeEnabled(false);
-      handleSelectPipelinePowerMode(selection as PipelinePowerMode);
-    }
+    const pendingFile = pending.file;
+    const pendingFileCount = pending.fileCount;
+    const pendingMode = pending.mode;
 
     trackEditorEvent("upload_mode_prompt_selected", {
       retentionProfile: retentionStrategyProfile,
@@ -10227,17 +10225,38 @@ const Editor = () => {
       captionStyle: activeSubtitlePreset,
       metadata: {
         selection,
-        mode: pending.mode,
+        mode: pendingMode,
       },
     });
 
     closeUploadModePrompt();
-    continueWithSelectedFile(
-      pending.file,
-      pending.fileCount,
-      pending.mode,
-      uploadModeOverride,
-    );
+    const startUpload = () => {
+      if (selection === "full_auto_youtube") {
+        setFullAutoYoutubeEnabled(true);
+        if (pipelinePowerMode !== "standard") {
+          handleSelectPipelinePowerMode("standard");
+        }
+      } else {
+        setFullAutoYoutubeEnabled(false);
+        handleSelectPipelinePowerMode(selection as PipelinePowerMode);
+      }
+
+      continueWithSelectedFile(
+        pendingFile,
+        pendingFileCount,
+        pendingMode,
+        uploadModeOverride,
+      );
+    };
+
+    if (typeof window === "undefined") {
+      startUpload();
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(startUpload, UPLOAD_MODE_PROMPT_DEFER_MS);
+    });
   }, [
     activeSubtitlePreset,
     closeUploadModePrompt,
@@ -12535,6 +12554,52 @@ const Editor = () => {
             ) : null}
 
             <section className="min-w-0 space-y-6">
+              <div className="glass-card border border-primary/25 bg-[linear-gradient(135deg,rgba(15,23,42,0.72),rgba(2,132,199,0.14))] p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Choose Format Before Upload</p>
+                      <p className="text-xs text-muted-foreground">
+                        Vertical mode auto-crops to 9:16. If webcam strip is enabled, layout space is reserved automatically.
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="border-primary/45 bg-primary/10 text-primary">
+                      {isVerticalMode ? "Vertical selected" : "Horizontal selected"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <button
+                      type="button"
+                      className={uploadFormatCardClass(!isVerticalMode)}
+                      onClick={() => selectUploadFormatMode("horizontal")}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
+                          <p className="text-xs text-muted-foreground">Best for long-form YouTube and standard exports.</p>
+                        </div>
+                        <Monitor className="h-5 w-5 text-primary" />
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className={uploadFormatCardClass(isVerticalMode)}
+                      onClick={() => selectUploadFormatMode("vertical")}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
+                          <p className="text-xs text-muted-foreground">
+                            Shorts-first flow with auto crop, premium captions, and optional webcam strip spacing.
+                          </p>
+                        </div>
+                        <Smartphone className="h-5 w-5 text-primary" />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div
                 ref={uploadDropZoneRef}
                 className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
@@ -12559,7 +12624,7 @@ const Editor = () => {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {isVerticalMode
-                      ? "Then place the webcam crop box for the top panel and preview the stacked 9:16 layout."
+                      ? "Auto-crops to 9:16 by default. Turn on Webcam Strip to reserve top-panel space automatically."
                       : "MP4, M4V, or MKV up to 2GB"}
                   </p>
                   {performanceConstrained && (
@@ -12590,45 +12655,64 @@ const Editor = () => {
 
               {isVerticalMode && !isVerticalBuilderHidden && (
                 <div className="glass-card vertical-mode-shell p-5 space-y-5">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="vertical-mode-title text-sm font-medium text-foreground">Vertical Clip Builder</p>
-                      <p className="vertical-mode-subtitle text-xs text-muted-foreground">
-                        {skipManualWebcamCrop
-                          ? "Manual webcam crop is skipped. Vertical clips render directly from the source framing."
-                          : "Manual Webcam Selector is now a crop tool. Top panel uses the selected crop, bottom panel uses the full frame."}
-                      </p>
-                      <button
-                        type="button"
-                        className="hero-platform-pill vertical-mode-toggle mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/35 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
-                        onClick={() => {
-                          setCropInteraction(null);
-                          setSkipManualWebcamCrop((prev) => !prev);
-                        }}
-                      >
-                        <span
-                          className={`inline-block h-2.5 w-2.5 rounded-full ${
-                            skipManualWebcamCrop ? "bg-emerald-400" : "bg-muted-foreground/60"
-                          }`}
-                        />
-                        {skipManualWebcamCrop ? "Using source framing (skip manual crop)" : "Use manual webcam crop"}
-                      </button>
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-primary/35 bg-[linear-gradient(145deg,rgba(30,41,59,0.72),rgba(14,116,144,0.2))] p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Creator Studio</p>
+                          <p className="vertical-mode-subtitle text-xs text-muted-foreground">
+                            Premium short-form workflow with automatic 9:16 framing, animated captions, and optional webcam strip spacing.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">9:16 Auto Crop</Badge>
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Animated Captions</Badge>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">1.</span> Upload once and preview instantly.
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">2.</span> Choose auto 9:16 or enable webcam strip.
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">3.</span> Fine-tune captions, then render ranked clips.
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {[0, 3, 4].map((count) => (
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-foreground">Layout mode</p>
                         <button
-                          key={count}
                           type="button"
-                          className={verticalModeChipClass(verticalClipCount === count)}
-                          onClick={() => setVerticalClipCount(count)}
+                          className="hero-platform-pill vertical-mode-toggle mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/35 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
+                          onClick={toggleVerticalWebcamStrip}
                         >
-                          {count === 0 ? "Auto" : `${count} clips`}
+                          <span
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${
+                              skipManualWebcamCrop ? "bg-muted-foreground/60" : "bg-emerald-400"
+                            }`}
+                          />
+                          {skipManualWebcamCrop ? "Auto 9:16 (no webcam strip)" : "Webcam strip enabled (space reserved)"}
                         </button>
-                      ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {[0, 3, 4].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            className={verticalModeChipClass(verticalClipCount === count)}
+                            onClick={() => setVerticalClipCount(count)}
+                          >
+                            {count === 0 ? "Auto" : `${count} clips`}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="vertical-mode-note text-[11px] text-muted-foreground">
+                        Auto picks 3-4 ranked clips. Fixed values force an exact short-form batch size.
+                      </p>
                     </div>
-                    <p className="vertical-mode-note text-[11px] text-muted-foreground">
-                      Auto picks 3-4 ranked clips. Fixed values force an exact short-form batch size.
-                    </p>
                   </div>
 
                   <div className="grid gap-3">
@@ -12939,7 +13023,7 @@ const Editor = () => {
                                 </p>
                               </div>
                               <Badge variant="secondary" className="text-[10px]">
-                                {skipManualWebcamCrop ? "Manual crop off" : "Manual crop on"}
+                                {skipManualWebcamCrop ? "Auto 9:16 layout" : "Webcam strip layout"}
                               </Badge>
                             </div>
 
@@ -13062,9 +13146,9 @@ const Editor = () => {
                             <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                               <MousePointerClick className="w-3.5 h-3.5" />
                               {skipManualWebcamCrop
-                                ? "Manual webcam crop is disabled. Source framing will be used."
+                                ? "Auto 9:16 mode is active. The full source is framed directly for shorts."
                                 : webcamCrop
-                                ? "Drag the crop region to set your top webcam strip framing."
+                                ? "Drag the crop region to place your webcam strip. Bottom panel spacing is auto-reserved."
                                 : "Webcam crop initializes when video metadata loads."}
                             </p>
                           </div>
@@ -13152,8 +13236,8 @@ const Editor = () => {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="vertical-mode-note text-xs text-muted-foreground">
                           {skipManualWebcamCrop
-                            ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, single-frame vertical render (manual crop skipped).`
-                            : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, top webcam strip + bottom full-frame stack.`}
+                            ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, auto-cropped 9:16 shorts framing.`
+                            : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, webcam strip + auto-spaced bottom frame.`}
                         </p>
                         <Button
                           type="button"
@@ -14134,578 +14218,6 @@ const Editor = () => {
                       </div>
                     )}
 
-                    <Dialog open={videoAnalysisOpen} onOpenChange={setVideoAnalysisOpen}>
-                      <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-3 backdrop-blur-xl sm:max-w-5xl sm:p-4">
-                        <div ref={fullAnalysisSectionRef} className="retention-summary-shell glass-card space-y-3 rounded-2xl p-3 sm:p-4">
-                          <div className="retention-summary-hero rounded-xl p-3">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                              <div className="space-y-1">
-                                <p className="retention-summary-kicker">Feedback Snapshot</p>
-                                <p className="font-premium text-base text-foreground sm:text-lg">Retention Command Deck</p>
-                                <p className="text-xs text-foreground/85">{retentionSnapshotHeadline}</p>
-                              </div>
-                              <div className="flex flex-wrap items-center justify-end gap-1.5">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="retention-summary-feedback-btn btn-glow h-8 rounded-full px-3 text-[11px]"
-                                  onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
-                                >
-                                  <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                                  Open Detailed Feedback
-                                </Button>
-                                <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
-                                  {confidenceLabel}{confidenceValue ? ` · ${confidenceValue}` : ""}
-                                </Badge>
-                                <Badge className="border-primary/35 bg-primary/10 text-primary">
-                                  {hookSelectionSource === "fallback" ? "Fallback hook" : "Auto hook"}
-                                </Badge>
-                                {achievementSignals.slice(0, 2).map((signal) => (
-                                  <Badge key={signal.id} className="border-primary/45 bg-primary/15 text-primary-foreground">
-                                    <Trophy className="mr-1 h-3.5 w-3.5" />
-                                    {signal.title}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="retention-summary-metric-grid mt-3">
-                              <div className="retention-summary-metric rounded-lg p-2.5">
-                                <p className="retention-summary-metric-label">Current score</p>
-                                <p className="retention-summary-metric-value">{currentRetentionScoreLabel}</p>
-                                <p className="retention-summary-metric-subline">
-                                  {retentionCurveIsEstimated ? "Model estimate" : "Measured telemetry"}
-                                </p>
-                              </div>
-                              <div className="retention-summary-metric rounded-lg p-2.5">
-                                <p className="retention-summary-metric-label">Goal gap</p>
-                                <p className="retention-summary-metric-value">
-                                  {retentionGoalGap === null ? "--" : retentionGoalGap <= 0 ? "Met" : `${retentionGoalGap.toFixed(1)} pts`}
-                                </p>
-                                <p className="retention-summary-metric-subline">Target {RETENTION_GOAL_PERCENT}%</p>
-                              </div>
-                              <div className="retention-summary-metric rounded-lg p-2.5">
-                                <p className="retention-summary-metric-label">Sharpest drop</p>
-                                <p className="retention-summary-metric-value">{topMajorDropValueLabel}</p>
-                                <p className="retention-summary-metric-subline">{topMajorDropRangeLabel}</p>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="retention-summary-mini-metric flex items-center justify-between rounded-lg px-2.5 py-2">
-                            <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Best rebound</span>
-                            <span className="font-premium text-sm text-foreground">{topRewatchSpikeValueLabel}</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground">{topRewatchSpikeRangeLabel}</p>
-
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          aria-label="Open detailed retention graph analysis"
-                          onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              openFeedbackDeepDiveSection("retention_vs_emotion");
-                            }
-                          }}
-                          className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                        >
-                          <p className="retention-summary-card-kicker">Retention Delta</p>
-                          {retentionScoreDeltaDisplay !== null ? (
-                            <motion.p
-                              key={`${activeJob.id}-${retentionScoreDeltaDisplay}`}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className={`mt-1 font-premium text-3xl font-semibold tracking-tight ${
-                                retentionScoreDeltaDisplay >= 0 ? "text-emerald-300" : "text-amber-300"
-                              }`}
-                            >
-                              {retentionScoreDeltaDisplay > 0 ? "+" : ""}{retentionScoreDeltaDisplay.toFixed(1)}
-                              <span className="ml-1 text-lg align-middle">{retentionScoreDeltaDisplay >= 0 ? "↑" : "↓"}</span>
-                            </motion.p>
-                          ) : !isTerminalStatus(activeJob.status) ? (
-                            <div className="mt-2 h-9 w-28 animate-pulse rounded-md bg-muted/50" />
-                          ) : (
-                            <p className="mt-1 text-sm text-muted-foreground">Pending</p>
-                          )}
-                          <p className="mt-2 break-words text-xs text-foreground/90">
-                            Hook chosen: {hookWindowLabel}
-                            {hookText ? ` — ${hookText}` : ""}
-                          </p>
-                          {hookReason ? (
-                            <p className="mt-1 text-xs text-muted-foreground">Reason: {hookReason}</p>
-                          ) : null}
-                          {showFullAutoEditorAddedSummary ? (
-                            <p className="mt-1 text-xs text-primary/90">{fullAutoEditorAddedSummary}</p>
-                          ) : null}
-                        </div>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          aria-label="Open detailed retention before and after analysis"
-                          onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              openFeedbackDeepDiveSection("retention_vs_emotion");
-                            }
-                          }}
-                          className="retention-summary-card glass-card rounded-xl p-3 cursor-pointer transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                        >
-                          <p className="retention-summary-card-kicker">Before vs After</p>
-                          {retentionBeforeBar !== null && retentionAfterBar !== null ? (
-                            <div className="mt-2 space-y-2">
-                              <div>
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>Before</span>
-                                  <span>{retentionScoreBeforeDisplay?.toFixed(1)}</span>
-                                </div>
-                                <div className="h-2 rounded-full bg-muted/60">
-                                  <motion.div
-                                    className="h-full rounded-full bg-slate-400/80"
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${retentionBeforeBar}%` }}
-                                    transition={{ duration: 0.35, ease: "easeOut" }}
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>After</span>
-                                  <span>{retentionScoreAfterDisplay?.toFixed(1)}</span>
-                                </div>
-                                <div className="h-2 rounded-full bg-muted/60">
-                                  <motion.div
-                                    className="h-full rounded-full bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))]"
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${retentionAfterBar}%` }}
-                                    transition={{ duration: 0.45, ease: "easeOut" }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="mt-2 space-y-2">
-                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/45" />
-                              <div className="h-3 w-full animate-pulse rounded-md bg-muted/40" />
-                            </div>
-                          )}
-                          <p className="retention-summary-card-note mt-2">Click chart for full retention breakdown.</p>
-                        </div>
-                      </div>
-
-                      {renderEditorAgentRateCard()}
-
-                      {renderYouTubeOutcomeLoopCard()}
-
-                      <div className="retention-summary-card retention-summary-timeline-block glass-card rounded-xl p-3">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="retention-summary-card-kicker">Video Scan Timeline Deep Dive</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Best parts, likely skips, weaker parts, and one-click fix/remove actions.
-                            </p>
-                          </div>
-                          <Badge className="border-border/50 bg-background/60 text-foreground/80">
-                            {Math.round(retentionTimelineDurationSec)}s scanned
-                          </Badge>
-                        </div>
-
-                        <div className="relative mt-3 h-4 overflow-hidden rounded-full border border-border/50 bg-muted/35">
-                          {retentionTimelineSegments.map((segment) => {
-                            const meta = RETENTION_TIMELINE_CATEGORY_META[segment.category];
-                            return (
-                              <Tooltip key={`timeline-segment-${segment.id}`}>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    aria-label={`${segment.categoryLabel} ${formatTimelineClock(segment.startSec)}-${formatTimelineClock(segment.endSec)}`}
-                                    className={`absolute inset-y-0 rounded-sm transition-colors ${meta.segmentClassName}`}
-                                    onClick={() => openFeedbackDeepDiveSection("timeline")}
-                                    style={{
-                                      left: `${segment.positionPct}%`,
-                                      width: `${segment.widthPct}%`,
-                                    }}
-                                  />
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">
-                                  <p className="text-[11px] font-medium">
-                                    {segment.categoryLabel}: {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    Predicted {segment.predicted}% retention
-                                    {segment.dropFromPrevious > 0 ? ` · drop ${segment.dropFromPrevious}%` : ""}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground">{segment.reason}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {(["best", "skip_risk", "weak", "steady"] as const).map((category) => {
-                            const meta = RETENTION_TIMELINE_CATEGORY_META[category];
-                            return (
-                              <Badge key={`retention-legend-${category}`} className={meta.badgeClassName}>
-                                {meta.label}
-                              </Badge>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-3">
-                          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-200">Best Parts</p>
-                            {bestRetentionSegments.length > 0 ? (
-                              <div className="mt-2 space-y-1.5">
-                                {bestRetentionSegments.map((segment) => (
-                                  <p key={`best-retention-${segment.id}`} className="text-xs text-emerald-100/90">
-                                    {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                  </p>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-xs text-emerald-100/75">No standout moments detected yet.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-rose-100">Viewers May Skip</p>
-                            {skipRiskRetentionSegments.length > 0 ? (
-                              <div className="mt-2 space-y-2">
-                                {skipRiskRetentionSegments.map((segment) => {
-                                  const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
-                                  const queuedAction = timelineSegmentActionByKey[actionKey];
-                                  const submitting = timelineSegmentActionSubmittingKey === actionKey;
-                                  return (
-                                    <div key={`skip-risk-${segment.id}`} className="rounded border border-rose-400/25 bg-rose-950/20 p-2">
-                                      <p className="text-xs text-rose-100">
-                                        {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                      </p>
-                                      <p className="mt-1 text-[11px] text-rose-100/80">{segment.reason}</p>
-                                      <div className="mt-2 flex flex-wrap gap-1.5">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-[11px]"
-                                          disabled={!canQueueTimelineSegmentAction || submitting}
-                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
-                                        >
-                                          {submitting ? (
-                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <Wand2 className="mr-1 h-3 w-3" />
-                                          )}
-                                          {queuedAction === "fix" ? "Fix queued" : "Fix part"}
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-[11px]"
-                                          disabled={!canQueueTimelineSegmentAction || submitting}
-                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
-                                        >
-                                          {submitting ? (
-                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <Scissors className="mr-1 h-3 w-3" />
-                                          )}
-                                          {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-xs text-rose-100/75">No high skip-risk windows detected.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-amber-100">Weaker Parts</p>
-                            {weakRetentionSegments.length > 0 ? (
-                              <div className="mt-2 space-y-2">
-                                {weakRetentionSegments.map((segment) => {
-                                  const actionKey = toTimelineSegmentActionKey(activeJob.id, segment.id);
-                                  const queuedAction = timelineSegmentActionByKey[actionKey];
-                                  const submitting = timelineSegmentActionSubmittingKey === actionKey;
-                                  return (
-                                    <div key={`weak-retention-${segment.id}`} className="rounded border border-amber-400/25 bg-amber-950/20 p-2">
-                                      <p className="text-xs text-amber-100">
-                                        {formatTimelineClock(segment.startSec)}-{formatTimelineClock(segment.endSec)} · {segment.predicted}%
-                                      </p>
-                                      <p className="mt-1 text-[11px] text-amber-100/80">{segment.reason}</p>
-                                      <div className="mt-2 flex flex-wrap gap-1.5">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-[11px]"
-                                          disabled={!canQueueTimelineSegmentAction || submitting}
-                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "fix")}
-                                        >
-                                          {submitting ? (
-                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <Wand2 className="mr-1 h-3 w-3" />
-                                          )}
-                                          {queuedAction === "fix" ? "Fix queued" : "Fix part"}
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-[11px]"
-                                          disabled={!canQueueTimelineSegmentAction || submitting}
-                                          onClick={() => void handleQueueTimelineSegmentAction(segment, "remove")}
-                                        >
-                                          {submitting ? (
-                                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <Scissors className="mr-1 h-3 w-3" />
-                                          )}
-                                          {queuedAction === "remove" ? "Removal queued" : "Remove on redo"}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-xs text-amber-100/75">No weaker windows detected.</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <p className="mt-3 text-[11px] text-muted-foreground">
-                          {canQueueTimelineSegmentAction
-                            ? "Queued actions are saved to retention feedback and applied when you run Redo Renderer."
-                            : "Actions unlock once the render is ready."}
-                        </p>
-                      </div>
-
-                      <div className="overflow-hidden rounded-lg border border-border/50 bg-background/30">
-                        <button
-                          type="button"
-                          aria-expanded={retentionDetailsOpen}
-                          className="flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
-                          onClick={() => setRetentionDetailsOpen((prev) => !prev)}
-                        >
-                          <span className="font-medium">{retentionDetailsOpen ? "Hide retention details" : "Show retention details"}</span>
-                          <span className="text-muted-foreground">{retentionDetailsOpen ? "Collapse" : "Expand"}</span>
-                        </button>
-                        {retentionDetailsOpen ? (
-                          <div className="space-y-2 border-t border-border/40 p-3 text-xs text-muted-foreground">
-                            {detectedRetentionStrategyProfile ? (
-                              <p>Profile: {formatNicheLabel(detectedRetentionStrategyProfile)}</p>
-                            ) : null}
-                            {detectedRetentionContentFormat ? (
-                              <p>Format: {formatNicheLabel(detectedRetentionContentFormat)}</p>
-                            ) : null}
-                            {detectedRetentionTargetPlatform ? (
-                              <p>Target: {formatPlatformLabel(detectedRetentionTargetPlatform)}</p>
-                            ) : null}
-                            {detectedAutoPreset ? (
-                              <p>Auto preset: {formatNicheLabel(detectedAutoPreset)}</p>
-                            ) : null}
-                            {detectedAutoStyle ? (
-                              <p>Auto style: {formatNicheLabel(detectedAutoStyle)}</p>
-                            ) : null}
-                            {detectedAutoContentType ? (
-                              <p>Content type: {formatNicheLabel(detectedAutoContentType)}</p>
-                            ) : null}
-                            {detectedAutoFormat && !detectedRetentionContentFormat ? (
-                              <p>Auto format: {formatNicheLabel(detectedAutoFormat)}</p>
-                            ) : null}
-                            {retentionKingBlendPctDisplay !== null ? (
-                              <p>
-                                Quality blend: {retentionKingBlendPctDisplay.toFixed(1)}%
-                                {retentionKingBlendLevelDisplay ? ` (${formatNicheLabel(retentionKingBlendLevelDisplay)})` : ""}
-                              </p>
-                            ) : null}
-                            {dynamicScoreBeforePopup !== null || dynamicScoreAfterPopup !== null ? (
-                              <p>
-                                Dynamic score:
-                                {dynamicScoreBeforePopup !== null ? ` before ${dynamicScoreBeforePopup.toFixed(1)}%` : ""}
-                                {dynamicScoreAfterPopup !== null ? ` after ${dynamicScoreAfterPopup.toFixed(1)}%` : ""}
-                              </p>
-                            ) : null}
-                            {dynamicThoughtBefore ? (
-                              <p>Model thought (before): {dynamicThoughtBefore}</p>
-                            ) : null}
-                            {dynamicThoughtAfter ? (
-                              <p>Model thought (after): {dynamicThoughtAfter}</p>
-                            ) : null}
-                            {activeJob.renderMode === "vertical" && verticalPredictedAverage !== null ? (
-                              <p>
-                                Predicted completion: {verticalPredictedAverage.toFixed(1)}%
-                                {verticalSelectionMode ? ` (${formatNicheLabel(verticalSelectionMode)})` : ""}
-                              </p>
-                            ) : null}
-                            {activeJob.renderMode === "vertical" && metadataClipSummaries.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Top clip predictions:</p>
-                                {metadataClipSummaries.map((entry) => (
-                                  <p key={`clip-prediction-${entry.clip}`} className="text-foreground/90">
-                                    - Clip {entry.clip}: {entry.predictedCompletion !== null ? `${Math.round(entry.predictedCompletion)}% viewed` : "n/a"}
-                                    {entry.reason ? ` — ${entry.reason}` : ""}
-                                  </p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {detectedNicheRaw ? (
-                              <p>
-                                Detected niche: {formatNicheLabel(detectedNicheRaw)}
-                                {detectedNicheConfidencePercent !== null ? ` (${detectedNicheConfidencePercent}% confidence)` : ""}
-                              </p>
-                            ) : null}
-                            {detectedNicheRationale.length > 0 ? (
-                              <div className="space-y-1">
-                                {detectedNicheRationale.map((line, index) => (
-                                  <p key={`niche-rationale-${index}`}>- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {retentionImprovements.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Improvements:</p>
-                                {retentionImprovements.map((line, index) => (
-                                  <p key={`improve-${index}`} className="text-foreground/90">- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {whyKeepWatching.length > 0 ? (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">Why viewers stay:</p>
-                                {whyKeepWatching.map((line, index) => (
-                                  <p key={`why-${index}`} className="text-foreground/90">- {line}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                            {normalizeStatus(activeJob.status) === "failed" && failedGateReason ? (
-                              <div className="space-y-1">
-                                <p className="text-destructive">Gate reason: {failedGateReason}</p>
-                                {genericReasons.length > 0 ? (
-                                  <div className="space-y-1">
-                                    {genericReasons.map((line, index) => (
-                                      <p key={`generic-${index}`}>- {line}</p>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            <div className="space-y-1 pt-1">
-                              <p>
-                                Creator correction feedback:
-                              </p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {CREATOR_FEEDBACK_ACTIONS.map((action) => (
-                                  <Button
-                                    key={action.category}
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 px-2 text-[11px]"
-                                    disabled={creatorFeedbackSubmitting !== null || normalizeStatus(activeJob.status) !== "ready"}
-                                    onClick={() => void submitCreatorFeedback(action.category)}
-                                  >
-                                    {creatorFeedbackSubmitting === action.category ? (
-                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                    ) : null}
-                                    {action.label}
-                                  </Button>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                className={`text-xs underline underline-offset-4 ${
-                                  analyzeUnlockedForActiveJob
-                                    ? "text-muted-foreground hover:text-foreground"
-                                    : "cursor-not-allowed text-muted-foreground/70"
-                                }`}
-                                disabled={!analyzeUnlockedForActiveJob}
-                                onClick={() => setShowAdvancedDebug((prev) => !prev)}
-                              >
-                                {showAdvancedDebug && analyzeUnlockedForActiveJob ? "Hide Analyze" : "Analyze"}
-                              </button>
-                              {!analyzeUnlockedForActiveJob ? (
-                                <p className="mt-1 text-[11px] text-muted-foreground">
-                                  Click a feedback button above to unlock Analyze for this render.
-                                </p>
-                              ) : null}
-                            </div>
-                            {showAdvancedDebug && analyzeUnlockedForActiveJob ? (
-                              <div className="space-y-1 text-[11px]">
-                                <p>Selected strategy: {String(activeAnalysis?.selected_strategy ?? pipelineJudgeMeta?.selectedStrategy ?? "n/a")}</p>
-                                <p>Pattern interrupts: {String(activeAnalysis?.pattern_interrupt_count ?? "n/a")}</p>
-                                <p>Interrupt density: {String(activeAnalysis?.pattern_interrupt_density ?? "n/a")}</p>
-                                <p>Max cuts requested: {String(activeAnalysis?.maxCuts ?? activeAnalysis?.max_cuts ?? activeAnalysis?.maxCutsRequested ?? "n/a")}</p>
-                                <p>Editor mode: {String(activeAnalysis?.editorMode ?? activeAnalysis?.editor_mode ?? activeAnalysis?.contentMode ?? "n/a")}</p>
-                                <p>Boredom removed ratio: {String(activeAnalysis?.boredom_removed_ratio ?? "n/a")}</p>
-                                <p>Emotional beat cuts: {String(activeAnalysis?.emotional_beat_cut_count ?? "n/a")}</p>
-                                <p>Emotional lead trimmed (s): {String(activeAnalysis?.emotional_lead_trimmed_seconds ?? "n/a")}</p>
-                                <p className="break-all">
-                                  Emotional tuning:
-                                  {" "}
-                                  {activeAnalysis?.emotional_tuning_profile
-                                    ? JSON.stringify(activeAnalysis.emotional_tuning_profile)
-                                    : "n/a"}
-                                </p>
-                                <p>Editor engine: {String(activeAnalysis?.editor_engine_version ?? "n/a")}</p>
-                                <p>Editor config: {String(activeAnalysis?.editor_config_version ?? "n/a")}</p>
-                                <p>Attempts stored: {retentionAttempts.length}</p>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-
-                        <div className="editor-pipeline-log-shell overflow-hidden rounded-lg border border-border/50 bg-[#060912]/95">
-                        <button
-                          type="button"
-                          aria-expanded={pipelineLogOpen}
-                          className="editor-pipeline-log-toggle hero-cta-button hero-cta-secondary flex min-h-12 w-full items-center justify-between px-3 text-left text-xs text-foreground transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 sm:min-h-10"
-                          onClick={() => setPipelineLogOpen((prev) => !prev)}
-                        >
-                          <span className="font-medium">Processing Log</span>
-                          <span className="font-mono text-[11px] text-muted-foreground">{pipelineLogOpen ? "Hide" : "Show"} stream</span>
-                        </button>
-                        {pipelineLogOpen ? (
-                          <div className="editor-pipeline-log-stream pipeline-scrollbar max-h-56 overflow-y-auto border-t border-border/40 px-3 py-2 font-mono text-[11px]">
-                            {pipelineLogEntries.length > 0 ? (
-                              pipelineLogEntries.map((entry, index) => (
-                                <p
-                                  key={`${entry.message}-${index}`}
-                                  className={`editor-pipeline-log-entry mb-1 ${
-                                    entry.level === "error"
-                                      ? "text-destructive"
-                                      : entry.level === "warn"
-                                        ? "text-amber-300"
-                                        : entry.level === "success"
-                                          ? "text-emerald-300"
-                                          : "text-muted-foreground"
-                                  }`}
-                                >
-                                  [{logTimestamp}] {entry.message}
-                                </p>
-                              ))
-                            ) : (
-                              <p className="editor-pipeline-log-entry text-muted-foreground">[{logTimestamp}] Awaiting backend stage messages...</p>
-                            )}
-                          </div>
-                        ) : null}
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog open={feedbackDeepDiveOpen} onOpenChange={setFeedbackDeepDiveOpen}>
                     <DialogContent className="deepdive-shell max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
                       <DialogHeader>
                         <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
@@ -15341,6 +14853,65 @@ const Editor = () => {
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Higher cut density with stronger momentum.</p>
                 </button>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-border/55 bg-background/30 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
+                    <p className="mt-1 text-xs text-foreground/85">
+                      {uploadModeNichePresetsEnabled
+                        ? "Pick a niche to auto-apply pacing, cut density, and effect defaults."
+                        : "Turn this on to show one-tap YouTube niche presets in this modal."}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className={uploadModeNichePresetsEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/55 bg-background/35 text-muted-foreground"}>
+                      {uploadModeNichePresetsEnabled ? "Enabled" : "Disabled"}
+                    </Badge>
+                    <Switch
+                      checked={uploadModeNichePresetsEnabled}
+                      onCheckedChange={(checked) => {
+                        setUploadModeNichePresetsEnabled(checked);
+                        trackEditorEvent("upload_mode_niche_presets_toggled", {
+                          retentionProfile: retentionStrategyProfile,
+                          targetPlatform: retentionTargetPlatform,
+                          captionStyle: activeSubtitlePreset,
+                          metadata: {
+                            enabled: checked,
+                            source: "upload_mode_modal",
+                          },
+                        });
+                      }}
+                      aria-label="Toggle YouTube niche presets"
+                    />
+                  </div>
+                </div>
+
+                {uploadModeNichePresetsEnabled ? (
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
+                      const active = selectedYouTubeNichePresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => applyYouTubeNichePreset(preset)}
+                          className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
+                            active
+                              ? "border-primary/55 bg-primary/14 shadow-sm"
+                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                          }`}
+                          aria-pressed={active}
+                          aria-label={`Apply ${preset.label} preset`}
+                        >
+                          <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
 
               <div className="mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.16),rgba(10,14,30,0.56))] p-3">
