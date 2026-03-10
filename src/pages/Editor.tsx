@@ -10194,6 +10194,7 @@ const Editor = () => {
     setUploadModePromptOpen(false);
     setUploadRenderSettingsOpen(false);
     setPendingUploadSelection(null);
+    setUploadModeNichePresetsEnabled(false);
   }, []);
 
   const handleSelectUploadModePrompt = useCallback((selection: UploadModePromptSelection) => {
