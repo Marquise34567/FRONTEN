@@ -319,6 +319,25 @@ type AchievementSignal = {
   line: string;
   metric: string;
 };
+type EditorRateSuggestionAction =
+  | "enable_a_mode"
+  | "enable_binge_mode"
+  | "enable_auto_cut"
+  | "boost_cuts"
+  | "set_platform_tiktok"
+  | "set_platform_reels"
+  | "set_platform_youtube"
+  | "set_profile_viral"
+  | "set_profile_balanced"
+  | "open_timeline_deep_dive";
+type EditorRateSuggestion = {
+  id: string;
+  title: string;
+  detail: string;
+  action: EditorRateSuggestionAction;
+  predictedLift: Partial<Record<RetentionTargetPlatform, number>>;
+  linkedDropOffEventId?: string | null;
+};
 type OutcomeAutomationProfile = {
   enabled: boolean;
   source: "real_distribution_analytics";
@@ -466,6 +485,14 @@ const PLATFORM_OPTIONS: Array<{ value: RetentionTargetPlatform; label: string }>
   { value: "instagram_reels", label: "IG Reels" },
   { value: "youtube", label: "YouTube" },
 ];
+const RATE_CARD_PLATFORM_LABEL: Record<RetentionTargetPlatform, string> = {
+  tiktok: "TikTok",
+  instagram_reels: "IG Reels",
+  youtube: "YouTube",
+};
+const RATE_CARD_DOPAMINE_THRESHOLD = 86;
+const RATE_CARD_LIVE_TICK_MS = 3200;
+const RATE_CARD_LIVE_TICK_CONSTRAINED_MS = 5200;
 const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
   tiktok: "Fastest pacing, denser pattern interrupts, and short-form hook pressure.",
   instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
@@ -2488,6 +2515,7 @@ const Editor = () => {
   const jobFileSizeRef = useRef<Record<string, number>>({});
   const statusStartRef = useRef<Record<string, { status: string; startedAt: number; startProgress: number }>>({});
   const queueEtaSnapshotRef = useRef<Record<string, { etaSeconds: number; capturedAt: number }>>({});
+  const etaMonotonicRef = useRef<Record<string, { status: string; etaSeconds: number; progress: number }>>({});
   const lastKnownJobIdRef = useRef<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
   const [etaTick, setEtaTick] = useState(0);
@@ -2636,6 +2664,10 @@ const Editor = () => {
   const [youtubeSignalByJob, setYouTubeSignalByJob] = useState<Record<string, YouTubeSignalState | null>>({});
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
+  const [platformRateCardEnabled, setPlatformRateCardEnabled] = useState(true);
+  const [platformRateRealtimeTick, setPlatformRateRealtimeTick] = useState(0);
+  const [platformRateUpdatedAtMs, setPlatformRateUpdatedAtMs] = useState(() => Date.now());
+  const [rateSuggestionSelectionsByJob, setRateSuggestionSelectionsByJob] = useState<Record<string, string[]>>({});
   const [focusedDropOffEventId, setFocusedDropOffEventId] = useState<string | null>(null);
   const [autoFixingRetentionGoal, setAutoFixingRetentionGoal] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
@@ -8109,6 +8141,233 @@ const Editor = () => {
     0,
     100,
   );
+  const selectedRateSuggestionIds = activeJob?.id ? (rateSuggestionSelectionsByJob[activeJob.id] || []) : [];
+  const selectedRateSuggestionIdSet = useMemo(() => new Set(selectedRateSuggestionIds), [selectedRateSuggestionIds]);
+  const platformRateLiveWave = useMemo(() => {
+    if (!activeJob?.id) return 0;
+    let seed = 0;
+    for (let index = 0; index < activeJob.id.length; index += 1) {
+      seed += activeJob.id.charCodeAt(index);
+    }
+    const phase = (platformRateRealtimeTick + (seed % 23)) * 0.58;
+    return Math.sin(phase) * 1.3 + Math.cos(phase * 0.47) * 0.8;
+  }, [activeJob?.id, platformRateRealtimeTick]);
+  const editorRateSuggestions = useMemo<EditorRateSuggestion[]>(() => {
+    const suggestions: EditorRateSuggestion[] = [];
+    if (!aModeEnabled) {
+      suggestions.push({
+        id: "rate-enable-a-mode",
+        title: "Enable A-Mode precision scan",
+        detail: "Turns on facial + emotion intelligence to stabilize weak retention windows.",
+        action: "enable_a_mode",
+        predictedLift: { youtube: 4, tiktok: 5, instagram_reels: 4 },
+      });
+    }
+    if (!bingeModeEnabled) {
+      suggestions.push({
+        id: "rate-enable-binge",
+        title: "Turn on binge pacing",
+        detail: "Adds curiosity loops, re-hooks, and stronger section handoffs.",
+        action: "enable_binge_mode",
+        predictedLift: { youtube: 2, tiktok: 6, instagram_reels: 4 },
+      });
+    }
+    if (!autoCutBoringEnabled) {
+      suggestions.push({
+        id: "rate-enable-autocut",
+        title: "Enable Auto-Cut for filler",
+        detail: "Removes slow/empty pockets that usually reduce watch-through.",
+        action: "enable_auto_cut",
+        predictedLift: { youtube: 4, tiktok: 3, instagram_reels: 3 },
+      });
+    }
+    if (retentionGoalNeedsFixes && maxCutsRequested <= 10) {
+      suggestions.push({
+        id: "rate-boost-cuts",
+        title: "Increase cut density by 2",
+        detail: "Raises pace in weaker parts to close the current retention gap.",
+        action: "boost_cuts",
+        predictedLift: { youtube: 2, tiktok: 5, instagram_reels: 4 },
+      });
+    }
+    if (modeMomentumScore >= 74 && retentionTargetPlatform !== "tiktok") {
+      suggestions.push({
+        id: "rate-set-target-tiktok",
+        title: "Switch target to TikTok",
+        detail: "Current momentum profile is better suited for faster scroll environments.",
+        action: "set_platform_tiktok",
+        predictedLift: { tiktok: 5, instagram_reels: 2 },
+      });
+    }
+    if (modeConsistencyScore < 62 && retentionTargetPlatform !== "youtube") {
+      suggestions.push({
+        id: "rate-set-target-youtube",
+        title: "Switch target to YouTube",
+        detail: "Longer context pacing can reduce overcut risk on this timeline.",
+        action: "set_platform_youtube",
+        predictedLift: { youtube: 5, instagram_reels: 1 },
+      });
+    }
+    if (modePackagingScore >= 66 && modeConsistencyScore >= 64 && retentionTargetPlatform !== "instagram_reels") {
+      suggestions.push({
+        id: "rate-set-target-reels",
+        title: "Switch target to IG Reels",
+        detail: "Current pacing and packaging profile fits a balanced short-form audience.",
+        action: "set_platform_reels",
+        predictedLift: { instagram_reels: 5, tiktok: 1, youtube: 1 },
+      });
+    }
+    if (modePackagingScore >= 72 && retentionStrategyProfile !== "viral") {
+      suggestions.push({
+        id: "rate-set-viral",
+        title: "Set profile to Viral",
+        detail: "Packaging signal is strong enough to support a more aggressive hook cadence.",
+        action: "set_profile_viral",
+        predictedLift: { youtube: 1, tiktok: 5, instagram_reels: 4 },
+      });
+    }
+    if (modeConsistencyScore < 65 && retentionStrategyProfile !== "balanced") {
+      suggestions.push({
+        id: "rate-set-balanced",
+        title: "Set profile to Balanced",
+        detail: "Balances intensity and continuity for steadier completion rates.",
+        action: "set_profile_balanced",
+        predictedLift: { youtube: 4, tiktok: 2, instagram_reels: 4 },
+      });
+    }
+    const topDrop = majorDropOffMoments[0];
+    if (topDrop) {
+      suggestions.push({
+        id: `rate-focus-drop-${topDrop.id}`,
+        title: `Fix largest drop at ${formatTimelineClock(topDrop.from.atSec)}-${formatTimelineClock(topDrop.to.atSec)}`,
+        detail: "Opens timeline deep dive so you can apply fix/remove actions to the highest-risk segment.",
+        action: "open_timeline_deep_dive",
+        predictedLift: { youtube: 4, tiktok: 4, instagram_reels: 4 },
+        linkedDropOffEventId: topDrop.id,
+      });
+    }
+    return suggestions.slice(0, 6);
+  }, [
+    aModeEnabled,
+    autoCutBoringEnabled,
+    bingeModeEnabled,
+    majorDropOffMoments,
+    maxCutsRequested,
+    modeConsistencyScore,
+    modeMomentumScore,
+    modePackagingScore,
+    retentionGoalNeedsFixes,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+  ]);
+  const selectedRateSuggestionLift = useMemo(() => {
+    const lift = {
+      youtube: 0,
+      tiktok: 0,
+      instagram_reels: 0,
+    };
+    for (const suggestion of editorRateSuggestions) {
+      if (!selectedRateSuggestionIdSet.has(suggestion.id)) continue;
+      lift.youtube += Number(suggestion.predictedLift.youtube || 0);
+      lift.tiktok += Number(suggestion.predictedLift.tiktok || 0);
+      lift.instagram_reels += Number(suggestion.predictedLift.instagram_reels || 0);
+    }
+    return lift;
+  }, [editorRateSuggestions, selectedRateSuggestionIdSet]);
+  const platformRateScores = useMemo(() => {
+    const scoreSignalBase = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 62;
+    const scoreSignalDelta = retentionScoreDeltaDisplay ?? 0;
+    const trustSignal = activeYouTubeTrustPercent ?? (youtubeConnected ? 56 : 38);
+    const baseScores: Record<RetentionTargetPlatform, number> = {
+      youtube: clamp(
+        Math.round(
+          scoreSignalBase * 0.45 +
+          modeConsistencyScore * 0.2 +
+          modeCompletionScore * 0.15 +
+          hookConfidenceScore * 0.12 +
+          trustSignal * 0.08 +
+          (retentionTargetPlatform === "youtube" ? 4 : 0) +
+          scoreSignalDelta * 1.2 +
+          platformRateLiveWave,
+        ),
+        0,
+        100,
+      ),
+      tiktok: clamp(
+        Math.round(
+          scoreSignalBase * 0.34 +
+          modeMomentumScore * 0.26 +
+          modePackagingScore * 0.2 +
+          hookConfidenceScore * 0.11 +
+          modeCompletionScore * 0.09 +
+          (retentionStrategyProfile === "viral" ? 4 : 0) +
+          (retentionTargetPlatform === "tiktok" ? 5 : 0) +
+          scoreSignalDelta * 1.6 +
+          platformRateLiveWave * 1.2,
+        ),
+        0,
+        100,
+      ),
+      instagram_reels: clamp(
+        Math.round(
+          scoreSignalBase * 0.38 +
+          modePackagingScore * 0.22 +
+          modeConsistencyScore * 0.16 +
+          modeMomentumScore * 0.12 +
+          hookConfidenceScore * 0.12 +
+          (retentionTargetPlatform === "instagram_reels" ? 5 : 0) +
+          scoreSignalDelta * 1.35 +
+          platformRateLiveWave * 0.9,
+        ),
+        0,
+        100,
+      ),
+    };
+    const entries = (["youtube", "tiktok", "instagram_reels"] as RetentionTargetPlatform[]).map((platform) => {
+      const boosted = clamp(Math.round(baseScores[platform] + selectedRateSuggestionLift[platform]), 0, 100);
+      const note = platform === "youtube"
+        ? (youtubeConnected ? "Strengthened by linked outcome trust and completion stability." : "Connect YouTube to improve confidence with real outcomes.")
+        : platform === "tiktok"
+          ? "Benefits from speed, pattern interrupts, and higher hook pressure."
+          : "Rewards balanced pacing with smooth transitions and quick payoff.";
+      return {
+        platform,
+        label: RATE_CARD_PLATFORM_LABEL[platform],
+        score: boosted,
+        note,
+      };
+    });
+    const topEntry = entries.reduce((best, current) => (current.score > best.score ? current : best), entries[0]);
+    const averageScore = Math.round(entries.reduce((sum, item) => sum + item.score, 0) / Math.max(1, entries.length));
+    const overallScore = clamp(Math.round(topEntry.score * 0.58 + averageScore * 0.42), 0, 100);
+    return {
+      entries,
+      topEntry,
+      averageScore,
+      overallScore,
+    };
+  }, [
+    activeYouTubeTrustPercent,
+    hookConfidenceScore,
+    latestRetentionPoint?.predicted,
+    modeCompletionScore,
+    modeConsistencyScore,
+    modeMomentumScore,
+    modePackagingScore,
+    platformRateLiveWave,
+    retentionScoreAfterDisplay,
+    retentionScoreDeltaDisplay,
+    retentionScoreDisplay,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    selectedRateSuggestionLift,
+    youtubeConnected,
+  ]);
+  const platformRateUpdatedLabel = useMemo(
+    () => new Date(platformRateUpdatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }),
+    [platformRateUpdatedAtMs],
+  );
+  const dopamineRateActive = platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
     : null;
@@ -8887,16 +9146,41 @@ const Editor = () => {
 
   const etaSeconds = useMemo(() => {
     if (!activeJob) return null;
+    const jobId = activeJob.id;
     const normalized = normalizeStatus(activeJob.status);
-    if (normalized === "ready" || normalized === "failed") return null;
+    if (normalized === "ready" || normalized === "failed") {
+      delete etaMonotonicRef.current[jobId];
+      return null;
+    }
+    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
+    const clampedProgress = clamp(jobProgress, 0, 100);
+    const stabilizeEta = (value: number) => {
+      const nextEta = Math.max(0, Math.round(value));
+      const previous = etaMonotonicRef.current[jobId];
+      if (!previous || previous.status !== normalized || clampedProgress + 0.5 < previous.progress) {
+        etaMonotonicRef.current[jobId] = {
+          status: normalized,
+          etaSeconds: nextEta,
+          progress: clampedProgress,
+        };
+        return nextEta;
+      }
+      const lockedEta = Math.min(nextEta, previous.etaSeconds);
+      etaMonotonicRef.current[jobId] = {
+        status: normalized,
+        etaSeconds: lockedEta,
+        progress: Math.max(previous.progress, clampedProgress),
+      };
+      return lockedEta;
+    };
     const nowMs = Date.now();
-    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
+    const fileSize = jobFileSizeRef.current[jobId] ?? uploadBytesTotal ?? null;
     const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
-    const stageMarker = statusStartRef.current[activeJob.id];
+    const stageMarker = statusStartRef.current[jobId];
     const stageStartedAt =
       stageMarker && stageMarker.status === normalized
         ? stageMarker.startedAt
-        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime();
+        : pipelineStartRef.current[jobId] ?? new Date(activeJob.createdAt).getTime();
     const stageStartProgress =
       stageMarker && stageMarker.status === normalized && Number.isFinite(stageMarker.startProgress)
         ? clamp(stageMarker.startProgress, 0, 100)
@@ -8904,13 +9188,13 @@ const Editor = () => {
     const stageElapsed = Math.max(0, (nowMs - stageStartedAt) / 1000);
     const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
     const baselineRemaining = Math.max(2, Math.round(baseline - stageElapsed));
-    const queueSnapshot = queueEtaSnapshotRef.current[activeJob.id];
+    const queueSnapshot = queueEtaSnapshotRef.current[jobId];
     const queueEtaRemaining = queueSnapshot
       ? Math.max(0, Math.round(queueSnapshot.etaSeconds - Math.max(0, (nowMs - queueSnapshot.capturedAt) / 1000)))
       : null;
 
     if (normalized === "queued") {
-      return queueEtaRemaining !== null ? queueEtaRemaining : baselineRemaining;
+      return stabilizeEta(queueEtaRemaining !== null ? queueEtaRemaining : baselineRemaining);
     }
 
     if (normalized === "uploading") {
@@ -8923,16 +9207,16 @@ const Editor = () => {
         uploadSent >= 0 &&
         uploadSent < uploadTotal
       ) {
-        const uploadStartAt = uploadStartRef.current[activeJob.id] ?? stageStartedAt;
+        const uploadStartAt = uploadStartRef.current[jobId] ?? stageStartedAt;
         const elapsedUploadSec = Math.max(0.5, (nowMs - uploadStartAt) / 1000);
         const bytesPerSecond = uploadSent / elapsedUploadSec;
         if (Number.isFinite(bytesPerSecond) && bytesPerSecond > 32 * 1024) {
           const remainingBytes = Math.max(0, uploadTotal - uploadSent);
-          return Math.max(1, Math.round(remainingBytes / bytesPerSecond));
+          return stabilizeEta(Math.max(1, Math.round(remainingBytes / bytesPerSecond)));
         }
       }
-      if (queueEtaRemaining !== null) return queueEtaRemaining;
-      return baselineRemaining;
+      if (queueEtaRemaining !== null) return stabilizeEta(queueEtaRemaining);
+      return stabilizeEta(baselineRemaining);
     }
 
     const runtimeFromAnalysisMs = (() => {
@@ -8949,7 +9233,7 @@ const Editor = () => {
     })();
     const startAt =
       runtimeFromAnalysisMs ??
-      pipelineStartRef.current[activeJob.id] ??
+      pipelineStartRef.current[jobId] ??
       new Date(activeJob.createdAt).getTime();
     const elapsed = Math.max(1, (nowMs - startAt) / 1000);
     const sourceDurationSec = firstFiniteNumber(activeJob.inputDurationSeconds, estimatedDurationSec);
@@ -8962,8 +9246,6 @@ const Editor = () => {
       ? Math.max(0, durationDrivenTotalSeconds - elapsed)
       : null;
 
-    const jobProgress = typeof activeJob.progress === "number" ? activeJob.progress : 0;
-    const clampedProgress = clamp(jobProgress, 0, 100);
     const stageProgressGain = Math.max(0, clampedProgress - stageStartProgress);
     const progressDrivenRemaining =
       clampedProgress > 0 && stageProgressGain >= 0.5 && stageElapsed >= 2
@@ -8987,9 +9269,9 @@ const Editor = () => {
 
     const finalizeFloor = Math.min(90, Math.max(4, Math.round(6 + stageElapsed * 0.08)));
     const rounded = Math.max(0, Math.round(candidate));
-    if (rounded > 1) return rounded;
-    if (clampedProgress >= 95) return Math.max(baselineRemaining, finalizeFloor);
-    return baselineRemaining;
+    if (rounded > 1) return stabilizeEta(rounded);
+    if (clampedProgress >= 95) return stabilizeEta(Math.max(baselineRemaining, finalizeFloor));
+    return stabilizeEta(baselineRemaining);
   }, [activeJob, etaTick, estimatedDurationSec, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
@@ -9334,6 +9616,90 @@ const Editor = () => {
   useEffect(() => {
     setFocusedDropOffEventId(null);
   }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    if (typeof window === "undefined") return;
+    const intervalMs = performanceConstrained ? RATE_CARD_LIVE_TICK_CONSTRAINED_MS : RATE_CARD_LIVE_TICK_MS;
+    const timer = window.setInterval(() => {
+      setPlatformRateRealtimeTick((prev) => prev + 1);
+      setPlatformRateUpdatedAtMs(Date.now());
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [activeJob?.id, performanceConstrained]);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    setPlatformRateRealtimeTick(0);
+    setPlatformRateUpdatedAtMs(Date.now());
+  }, [activeJob?.id]);
+
+  const handleApplyEditorRateSuggestion = useCallback((suggestion: EditorRateSuggestion) => {
+    if (!activeJob?.id) return;
+    const selectedForJob = rateSuggestionSelectionsByJob[activeJob.id] || [];
+    if (selectedForJob.includes(suggestion.id)) return;
+
+    setRateSuggestionSelectionsByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: [...(prev[activeJob.id] || []), suggestion.id],
+    }));
+
+    switch (suggestion.action) {
+      case "enable_a_mode":
+        setAModeEnabled(true);
+        break;
+      case "enable_binge_mode":
+        setBingeModeEnabled(true);
+        break;
+      case "enable_auto_cut":
+        setAutoCutBoringEnabled(true);
+        break;
+      case "boost_cuts":
+        setMaxCutsRequested((prev) => clamp(prev + 2, MAX_CUTS_MIN, MAX_CUTS_MAX));
+        break;
+      case "set_platform_tiktok":
+        menuTouchedRef.current.targetPlatform = true;
+        setRetentionTargetPlatform("tiktok");
+        break;
+      case "set_platform_reels":
+        menuTouchedRef.current.targetPlatform = true;
+        setRetentionTargetPlatform("instagram_reels");
+        break;
+      case "set_platform_youtube":
+        menuTouchedRef.current.targetPlatform = true;
+        setRetentionTargetPlatform("youtube");
+        break;
+      case "set_profile_viral":
+        menuTouchedRef.current.strategy = true;
+        setRetentionStrategyProfile("viral");
+        break;
+      case "set_profile_balanced":
+        menuTouchedRef.current.strategy = true;
+        setRetentionStrategyProfile("balanced");
+        break;
+      case "open_timeline_deep_dive":
+        if (suggestion.linkedDropOffEventId) {
+          setFocusedDropOffEventId(suggestion.linkedDropOffEventId);
+        }
+        setVideoAnalysisOpen(true);
+        openFeedbackDeepDiveSection("timeline");
+        break;
+      default:
+        break;
+    }
+
+    setPlatformRateRealtimeTick((prev) => prev + 1);
+    setPlatformRateUpdatedAtMs(Date.now());
+    toast({
+      title: "Suggestion added",
+      description: `${suggestion.title} applied to live editor settings.`,
+    });
+  }, [
+    activeJob?.id,
+    openFeedbackDeepDiveSection,
+    rateSuggestionSelectionsByJob,
+    toast,
+  ]);
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
@@ -10258,6 +10624,209 @@ const Editor = () => {
     CREATIVE_VARIANT_OPTIONS.find((variant) => variant.value === creativeVariant)?.label ?? "Balanced";
   const activeTargetPlatformLabel =
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
+  const renderEditorAgentRateCard = ({
+    title = "Editor Agent Rate Card",
+    subtitle = "Realtime prediction for YouTube, TikTok, and IG Reels. Add agent suggestions to boost scores instantly.",
+    compact = false,
+    className = "",
+  }: {
+    title?: string;
+    subtitle?: string;
+    compact?: boolean;
+    className?: string;
+  } = {}) => {
+    const shellClassName = compact
+      ? `rounded-xl border border-primary/35 bg-[linear-gradient(145deg,rgba(28,34,62,0.72),rgba(12,18,38,0.68))] p-3 shadow-[0_18px_34px_-28px_hsl(var(--primary)/0.95)] ${className}`.trim()
+      : `retention-summary-card glass-card rounded-xl border border-primary/25 bg-[linear-gradient(150deg,rgba(32,36,72,0.62),rgba(16,20,44,0.72))] p-3 ${className}`.trim();
+    return (
+      <div className={shellClassName}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
+            <p className="mt-1 text-xs text-foreground/85">{subtitle}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Live update {platformRateUpdatedLabel} · {selectedRateSuggestionIds.length} selected opinion{selectedRateSuggestionIds.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="border-primary/35 bg-primary/10 text-primary">
+              <Gauge className="mr-1 h-3.5 w-3.5" />
+              Agent live
+            </Badge>
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/35 bg-background/45 px-2.5 py-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
+                {platformRateCardEnabled ? "ON" : "OFF"}
+              </span>
+              <Switch
+                checked={platformRateCardEnabled}
+                onCheckedChange={setPlatformRateCardEnabled}
+                className="data-[state=checked]:bg-primary"
+                aria-label="Toggle editor agent rate card"
+              />
+            </div>
+          </div>
+        </div>
+
+        {!platformRateCardEnabled ? (
+          <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+            Rate card is paused. Toggle ON to resume live platform scoring and suggestions.
+          </p>
+        ) : (
+          <>
+            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+              <div className="relative overflow-hidden rounded-xl border border-primary/25 bg-background/45 p-3">
+                {dopamineRateActive ? (
+                  <motion.div
+                    className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-emerald-300/25 blur-2xl"
+                    animate={
+                      runtimeProfile.reducedMotion
+                        ? { opacity: 0.6 }
+                        : { opacity: [0.35, 0.9, 0.35], scale: [1, 1.24, 1] }
+                    }
+                    transition={
+                      runtimeProfile.reducedMotion
+                        ? { duration: 0.2 }
+                        : { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+                    }
+                  />
+                ) : null}
+                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Best platform forecast</p>
+                <div className="mt-2 flex items-end gap-2">
+                  <motion.p
+                    key={`${activeJob?.id || "none"}-${platformRateScores.overallScore}`}
+                    initial={{ opacity: 0.4, y: 6 }}
+                    animate={
+                      dopamineRateActive && !runtimeProfile.reducedMotion
+                        ? { opacity: 1, y: 0, scale: [1, 1.09, 1] }
+                        : { opacity: 1, y: 0, scale: 1 }
+                    }
+                    transition={
+                      dopamineRateActive && !runtimeProfile.reducedMotion
+                        ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
+                        : { duration: 0.22, ease: "easeOut" }
+                    }
+                    className={`font-display text-5xl font-bold leading-none tabular-nums ${
+                      dopamineRateActive
+                        ? "bg-gradient-to-r from-emerald-200 via-white to-cyan-200 bg-clip-text text-transparent drop-shadow-[0_0_18px_rgba(52,211,153,0.55)]"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {platformRateScores.overallScore}
+                  </motion.p>
+                  <span className="pb-1 text-sm text-muted-foreground">/100</span>
+                </div>
+                <p className="mt-1 text-xs text-foreground/90">
+                  {platformRateScores.topEntry.label} is currently the strongest posting destination.
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Average cross-platform score {platformRateScores.averageScore}/100.
+                </p>
+                {dopamineRateActive ? (
+                  <Badge className="mt-2 border-emerald-400/45 bg-emerald-500/12 text-emerald-100">
+                    <Flame className="mr-1 h-3.5 w-3.5" />
+                    High-score momentum unlocked
+                  </Badge>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                {platformRateScores.entries.map((entry) => {
+                  const barClassName = entry.platform === "youtube"
+                    ? "from-rose-300/80 to-red-400/80"
+                    : entry.platform === "tiktok"
+                      ? "from-cyan-300/80 to-blue-400/80"
+                      : "from-fuchsia-300/80 to-pink-400/80";
+                  return (
+                    <div key={`rate-platform-${entry.platform}`} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-foreground">{entry.label}</p>
+                        <Badge className="border-primary/35 bg-primary/10 text-foreground">{entry.score}</Badge>
+                      </div>
+                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted/65">
+                        <motion.div
+                          className={`h-full rounded-full bg-gradient-to-r ${barClassName}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${entry.score}%` }}
+                          transition={{ duration: 0.32, ease: "easeOut" }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{entry.note}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-primary/25 bg-background/40 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+                  Realtime changes to increase score
+                </p>
+                <Badge className="border-primary/35 bg-primary/10 text-primary">
+                  <Zap className="mr-1 h-3.5 w-3.5" />
+                  Editor agent suggestions
+                </Badge>
+              </div>
+              <div className="mt-2 space-y-2">
+                {editorRateSuggestions.length > 0 ? (
+                  editorRateSuggestions.map((suggestion) => {
+                    const applied = selectedRateSuggestionIdSet.has(suggestion.id);
+                    const liftSummary = (["youtube", "tiktok", "instagram_reels"] as RetentionTargetPlatform[])
+                      .map((platform) => {
+                        const amount = Number(suggestion.predictedLift[platform] || 0);
+                        if (amount <= 0) return "";
+                        return `${RATE_CARD_PLATFORM_LABEL[platform]} +${amount}`;
+                      })
+                      .filter(Boolean)
+                      .join(" · ");
+                    return (
+                      <div
+                        key={suggestion.id}
+                        className={`rounded-lg border p-2.5 ${
+                          applied
+                            ? "border-emerald-400/35 bg-emerald-500/10"
+                            : "border-border/60 bg-background/45"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-foreground">{suggestion.title}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{suggestion.detail}</p>
+                            {liftSummary ? (
+                              <p className="mt-1 text-[11px] text-foreground/85">{liftSummary}</p>
+                            ) : null}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={applied ? "default" : "outline"}
+                            className="h-8 min-w-24 px-2 text-[11px]"
+                            disabled={applied}
+                            onClick={() => handleApplyEditorRateSuggestion(suggestion)}
+                          >
+                            {applied ? (
+                              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                            ) : (
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            {applied ? "Added" : "Add live"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-lg border border-border/55 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                    No extra changes needed right now. The current configuration is already optimized for this timeline.
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
   const renderYouTubeOutcomeLoopCard = ({
     title = "YouTube Outcome Loop",
     subtitle = "Connect channel -> map job/video -> sync retention outcomes -> tune policy over time.",
@@ -12118,6 +12687,10 @@ const Editor = () => {
                       subtitle: "YouTube auth, job/video mapping, and analytics sync are now directly available in the live pipeline.",
                       compact: true,
                     })}
+                    {renderEditorAgentRateCard({
+                      compact: true,
+                      subtitle: "Live platform scorecard for YouTube, TikTok, and IG Reels with one-click score boosts.",
+                    })}
 
                     {normalizedActiveStatus === "ready" && (
                       <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
@@ -12805,6 +13378,8 @@ const Editor = () => {
                           <p className="retention-summary-card-note mt-2">Click chart for full retention breakdown.</p>
                         </div>
                       </div>
+
+                      {renderEditorAgentRateCard()}
 
                       {renderYouTubeOutcomeLoopCard()}
 
