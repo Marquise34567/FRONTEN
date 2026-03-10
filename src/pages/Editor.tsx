@@ -2962,6 +2962,7 @@ const Editor = () => {
   ));
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
+  const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
   const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
   const [youtubeOAuthBusyAction, setYouTubeOAuthBusyAction] = useState<"connect" | "exchange" | "disconnect" | null>(null);
@@ -3011,6 +3012,7 @@ const Editor = () => {
     editorMode: false,
   });
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
+  const fullAnalysisSectionRef = useRef<HTMLDivElement | null>(null);
   const feedbackDeepDiveSectionRefs = useRef<Partial<Record<FeedbackDeepDiveSection, HTMLDivElement | null>>>({});
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -9300,6 +9302,7 @@ const Editor = () => {
   const sidePreviewImprovementTip = previewImprovementTips.length > 1
     ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
     : null;
+  const shouldShowPreviewImprovementPopups = Boolean(activeJob && activePreviewImprovementTip);
   const resolvePreviewImprovementToneMeta = (tone: PreviewImprovementTipTone) => {
     if (tone === "warning") {
       return {
@@ -9396,7 +9399,7 @@ const Editor = () => {
     setPreviewImprovementTipIndex(0);
   }, [activeJob?.id, previewImprovementTips.length]);
   useEffect(() => {
-    if (!showVideo || previewImprovementTips.length <= 1) return;
+    if (!activeJob || previewImprovementTips.length <= 1) return;
     const rotateEveryMs = performanceConstrained
       ? PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS
       : PREVIEW_IMPROVEMENT_POPUP_ROTATE_STANDARD_MS;
@@ -9407,7 +9410,7 @@ const Editor = () => {
       });
     }, rotateEveryMs);
     return () => window.clearInterval(timer);
-  }, [performanceConstrained, previewImprovementTips.length, showVideo]);
+  }, [activeJob, performanceConstrained, previewImprovementTips.length]);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -10511,6 +10514,7 @@ const Editor = () => {
         if (suggestion.linkedDropOffEventId) {
           setFocusedDropOffEventId(suggestion.linkedDropOffEventId);
         }
+        setVideoAnalysisOpen(true);
         openFeedbackDeepDiveSection("timeline");
         break;
       default:
@@ -13287,19 +13291,19 @@ const Editor = () => {
                       </>
                     )}
                     <AnimatePresence mode="wait">
-                      {showVideo && activePreviewImprovementTip ? (
+                      {shouldShowPreviewImprovementPopups && activePreviewImprovementTip ? (
                         <motion.div
                           key={`preview-inline-tip-${activePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
-                          initial={{ opacity: 0, y: -10, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                          transition={{ duration: 0.24, ease: "easeOut" }}
-                          className="pointer-events-none absolute left-2 right-2 top-2 z-20 xl:hidden"
+                          initial={{ opacity: 0, y: -14, scale: 0.96 }}
+                          animate={{ opacity: 1, y: [0, -2, 0], scale: [1, 1.01, 1] }}
+                          exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                          transition={{ duration: 0.34, ease: "easeOut" }}
+                          className="pointer-events-none absolute left-2 right-2 top-2 z-20"
                         >
                           {(() => {
                             const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
                             return (
-                              <div className={`rounded-xl border p-2.5 backdrop-blur-md ${toneMeta.cardClassName}`}>
+                              <div className={`rounded-xl border p-2.5 shadow-[0_16px_38px_-24px_rgba(2,6,23,0.9)] backdrop-blur-md ${toneMeta.cardClassName}`}>
                                 <div className="flex items-start gap-2">
                                   <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
                                     {renderPreviewImprovementIcon(activePreviewImprovementTip.icon, "h-3.5 w-3.5")}
@@ -13307,6 +13311,7 @@ const Editor = () => {
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[10px] uppercase tracking-[0.14em] text-foreground/75">{toneMeta.label}</p>
                                     <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
+                                    <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
                                   </div>
                                 </div>
                               </div>
@@ -13447,7 +13452,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: -14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 xl:block"
+                      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
@@ -13479,7 +13484,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 xl:block"
+                      className="pointer-events-none absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(sidePreviewImprovementTip.tone);
