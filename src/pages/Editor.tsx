@@ -338,6 +338,25 @@ type EditorRateSuggestion = {
   predictedLift: Partial<Record<RetentionTargetPlatform, number>>;
   linkedDropOffEventId?: string | null;
 };
+type YouTubeNichePreset = {
+  id: string;
+  label: string;
+  description: string;
+  renderMode?: "horizontal" | "vertical";
+  editorMode: EditorModeSelection;
+  retentionStrategyProfile: RetentionStrategyProfile;
+  creativeVariant: CreativeVariant;
+  maxCuts: number;
+  longFormPreset: LongFormPreset;
+  longFormAggression: number;
+  longFormClarityVsSpeed: number;
+  tangentKiller: boolean;
+  smartZoom: boolean;
+  transitions: boolean;
+  soundFx: boolean;
+  autoCaptions: boolean;
+  pipelinePowerMode?: PipelinePowerMode;
+};
 type OutcomeAutomationProfile = {
   enabled: boolean;
   source: "real_distribution_analytics";
@@ -814,6 +833,224 @@ const FULL_AUTO_YOUTUBE_VIBE_OPTIONS: Array<{ value: FullAutoYoutubeVibe; label:
   { value: "cinematic", label: "Cinematic", description: "Smoother pacing, filmic transitions, polished lower-thirds." },
   { value: "chill", label: "Chill", description: "Subtle cuts, softer motion, ambient visual treatment." },
   { value: "education", label: "Education", description: "Clarity-first cuts, chapter cues, and calmer overlays." },
+];
+const YOUTUBE_NICHE_PRESET_OPTIONS: YouTubeNichePreset[] = [
+  {
+    id: "youtube_gaming_highlights",
+    label: "Gaming Highlights",
+    description: "Fast punch-ins and impact transitions for high-energy gameplay moments.",
+    renderMode: "horizontal",
+    editorMode: "gaming",
+    retentionStrategyProfile: "viral",
+    creativeVariant: "punchy",
+    maxCuts: 12,
+    longFormPreset: "aggressive",
+    longFormAggression: 78,
+    longFormClarityVsSpeed: 48,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: true,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_reaction_stream",
+    label: "Reaction Stream",
+    description: "Aggressive dead-air cleanup with zoom emphasis on face reactions.",
+    renderMode: "horizontal",
+    editorMode: "reaction",
+    retentionStrategyProfile: "viral",
+    creativeVariant: "curiosity_first",
+    maxCuts: 11,
+    longFormPreset: "aggressive",
+    longFormAggression: 74,
+    longFormClarityVsSpeed: 54,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: true,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_commentary_drama",
+    label: "Commentary Drama",
+    description: "Narrative-first pacing that keeps story flow while trimming fluff.",
+    renderMode: "horizontal",
+    editorMode: "commentary",
+    retentionStrategyProfile: "balanced",
+    creativeVariant: "dramatic",
+    maxCuts: 8,
+    longFormPreset: "balanced",
+    longFormAggression: 55,
+    longFormClarityVsSpeed: 72,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: false,
+    autoCaptions: false,
+  },
+  {
+    id: "youtube_education_tutorial",
+    label: "Education/Tutorial",
+    description: "Clarity-first cadence with fewer cuts and minimal visual noise.",
+    renderMode: "horizontal",
+    editorMode: "education",
+    retentionStrategyProfile: "safe",
+    creativeVariant: "balanced",
+    maxCuts: 6,
+    longFormPreset: "balanced",
+    longFormAggression: 42,
+    longFormClarityVsSpeed: 86,
+    tangentKiller: false,
+    smartZoom: false,
+    transitions: false,
+    soundFx: false,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_podcast_clips",
+    label: "Podcast Clips",
+    description: "Multi-speaker continuity with subtle edits and no overcutting.",
+    renderMode: "horizontal",
+    editorMode: "podcast",
+    retentionStrategyProfile: "balanced",
+    creativeVariant: "balanced",
+    maxCuts: 5,
+    longFormPreset: "balanced",
+    longFormAggression: 38,
+    longFormClarityVsSpeed: 88,
+    tangentKiller: false,
+    smartZoom: false,
+    transitions: false,
+    soundFx: false,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_tech_review",
+    label: "Tech Review",
+    description: "Crisp product-demo pacing with smooth section-to-section handoffs.",
+    renderMode: "horizontal",
+    editorMode: "vlog",
+    retentionStrategyProfile: "balanced",
+    creativeVariant: "balanced",
+    maxCuts: 7,
+    longFormPreset: "balanced",
+    longFormAggression: 52,
+    longFormClarityVsSpeed: 74,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: false,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_finance_breakdown",
+    label: "Finance Breakdown",
+    description: "Trust-focused pacing with clean cuts and lower sensory overload.",
+    renderMode: "horizontal",
+    editorMode: "commentary",
+    retentionStrategyProfile: "safe",
+    creativeVariant: "curiosity_first",
+    maxCuts: 6,
+    longFormPreset: "balanced",
+    longFormAggression: 46,
+    longFormClarityVsSpeed: 84,
+    tangentKiller: true,
+    smartZoom: false,
+    transitions: false,
+    soundFx: false,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_storytime_vlog",
+    label: "Storytime/Vlog",
+    description: "Keeps emotional peaks, trims tangents, and smooths narrative beats.",
+    renderMode: "horizontal",
+    editorMode: "vlog",
+    retentionStrategyProfile: "balanced",
+    creativeVariant: "dramatic",
+    maxCuts: 8,
+    longFormPreset: "aggressive",
+    longFormAggression: 64,
+    longFormClarityVsSpeed: 62,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: false,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_documentary_essay",
+    label: "Documentary Essay",
+    description: "Long-form coherence with selective transitions and restrained effects.",
+    renderMode: "horizontal",
+    editorMode: "commentary",
+    retentionStrategyProfile: "safe",
+    creativeVariant: "dramatic",
+    maxCuts: 5,
+    longFormPreset: "balanced",
+    longFormAggression: 40,
+    longFormClarityVsSpeed: 90,
+    tangentKiller: false,
+    smartZoom: false,
+    transitions: true,
+    soundFx: false,
+    autoCaptions: false,
+  },
+  {
+    id: "youtube_comedy_sketch",
+    label: "Comedy Sketch",
+    description: "Punchline-preserving cut rhythm with high-energy motion accents.",
+    renderMode: "horizontal",
+    editorMode: "reaction",
+    retentionStrategyProfile: "viral",
+    creativeVariant: "punchy",
+    maxCuts: 10,
+    longFormPreset: "aggressive",
+    longFormAggression: 72,
+    longFormClarityVsSpeed: 50,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: true,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_sports_recap",
+    label: "Sports Recap",
+    description: "Fast highlights with momentum-preserving transitions and emphasis zooms.",
+    renderMode: "horizontal",
+    editorMode: "sports",
+    retentionStrategyProfile: "viral",
+    creativeVariant: "punchy",
+    maxCuts: 12,
+    longFormPreset: "aggressive",
+    longFormAggression: 80,
+    longFormClarityVsSpeed: 46,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: true,
+    autoCaptions: true,
+  },
+  {
+    id: "youtube_shorts_remix",
+    label: "YouTube Shorts Remix",
+    description: "Vertical hook-first style with dense pacing for Shorts watch loops.",
+    renderMode: "vertical",
+    editorMode: "reaction",
+    retentionStrategyProfile: "viral",
+    creativeVariant: "punchy",
+    maxCuts: 13,
+    longFormPreset: "auto",
+    longFormAggression: 68,
+    longFormClarityVsSpeed: 48,
+    tangentKiller: true,
+    smartZoom: true,
+    transitions: true,
+    soundFx: true,
+    autoCaptions: true,
+  },
 ];
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
@@ -2712,6 +2949,10 @@ const Editor = () => {
   const [platformRateRealtimeTick, setPlatformRateRealtimeTick] = useState(0);
   const [platformRateUpdatedAtMs, setPlatformRateUpdatedAtMs] = useState(() => Date.now());
   const [rateSuggestionSelectionsByJob, setRateSuggestionSelectionsByJob] = useState<Record<string, string[]>>({});
+  const [smartZoomEnabled, setSmartZoomEnabled] = useState(true);
+  const [autoTransitionsEnabled, setAutoTransitionsEnabled] = useState(true);
+  const [autoSoundFxEnabled, setAutoSoundFxEnabled] = useState(true);
+  const [selectedYouTubeNichePresetId, setSelectedYouTubeNichePresetId] = useState<string | null>(null);
   const [focusedDropOffEventId, setFocusedDropOffEventId] = useState<string | null>(null);
   const [autoFixingRetentionGoal, setAutoFixingRetentionGoal] = useState(false);
   const [aModeEnabled, setAModeEnabled] = useState(true);
@@ -2765,6 +3006,7 @@ const Editor = () => {
   const powerModeSyncJobRef = useRef<string | null>(null);
   const creativeVariantSyncJobRef = useRef<string | null>(null);
   const advancedModesSyncJobRef = useRef<string | null>(null);
+  const aiEffectsSyncJobRef = useRef<string | null>(null);
   const encodingSyncJobRef = useRef<string | null>(null);
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
@@ -4512,16 +4754,34 @@ const Editor = () => {
     if (!activeJob?.id) {
       powerModeSyncJobRef.current = null;
       advancedModesSyncJobRef.current = null;
+      aiEffectsSyncJobRef.current = null;
     }
   }, [activeJob?.id]);
 
   useEffect(() => {
-    if (!accessToken || !hasActiveJobs || authError || !effectiveBackgroundPollingIntervalMs) return;
+    if (
+      !accessToken ||
+      !hasActiveJobs ||
+      authError ||
+      !effectiveBackgroundPollingIntervalMs ||
+      !isNetworkOnline ||
+      !isPageVisible
+    ) {
+      return;
+    }
     const timer = setInterval(() => {
       void fetchJobs({ background: true, silent: true });
     }, effectiveBackgroundPollingIntervalMs);
     return () => clearInterval(timer);
-  }, [accessToken, hasActiveJobs, fetchJobs, authError, effectiveBackgroundPollingIntervalMs]);
+  }, [
+    accessToken,
+    hasActiveJobs,
+    fetchJobs,
+    authError,
+    effectiveBackgroundPollingIntervalMs,
+    isNetworkOnline,
+    isPageVisible,
+  ]);
 
   useEffect(() => {
     if (
@@ -4529,7 +4789,9 @@ const Editor = () => {
       authError ||
       !selectedJobId ||
       !shouldPollSelectedJobInBackground ||
-      !effectiveBackgroundJobPollingIntervalMs
+      !effectiveBackgroundJobPollingIntervalMs ||
+      !isNetworkOnline ||
+      !isPageVisible
     ) {
       return;
     }
@@ -4542,6 +4804,8 @@ const Editor = () => {
     authError,
     effectiveBackgroundJobPollingIntervalMs,
     fetchJob,
+    isNetworkOnline,
+    isPageVisible,
     selectedJobId,
     shouldPollSelectedJobInBackground,
   ]);
@@ -4923,6 +5187,9 @@ const Editor = () => {
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
+              smartZoom: smartZoomEnabled,
+              transitions: autoTransitionsEnabled,
+              soundFx: autoSoundFxEnabled,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -4957,6 +5224,9 @@ const Editor = () => {
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
+              smartZoom: smartZoomEnabled,
+              transitions: autoTransitionsEnabled,
+              soundFx: autoSoundFxEnabled,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -5173,6 +5443,9 @@ const Editor = () => {
             maxCuts: autoModeV3Defaults.maxCuts,
             editorMode: editorModeForJob,
             creativeVariant,
+            smartZoom: smartZoomEnabled,
+            transitions: autoTransitionsEnabled,
+            soundFx: autoSoundFxEnabled,
             hookSelectionMode: defaultHookSelectionMode,
             longFormPreset: autoModeV3Defaults.longFormPreset,
             longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -6084,6 +6357,9 @@ const Editor = () => {
           maxCuts: autoModeV3Defaults.maxCuts,
           editorMode: editorModeForJob,
           creativeVariant,
+          smartZoom: smartZoomEnabled,
+          transitions: autoTransitionsEnabled,
+          soundFx: autoSoundFxEnabled,
           hookSelectionMode: hookSelectionModeForJob,
           longFormPreset: autoModeV3Defaults.longFormPreset,
           longFormAggression: autoModeV3Defaults.longFormAggression,
@@ -6271,6 +6547,9 @@ const Editor = () => {
       videoPreset,
       videoCrf,
       audioBitrateKbps,
+      smartZoomEnabled,
+      autoTransitionsEnabled,
+      autoSoundFxEnabled,
       hookSelectionModeByJob,
       selectedHookByJob,
       subtitleStyleDraft,
@@ -8906,6 +9185,34 @@ const Editor = () => {
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
     if (!activeJob?.id) return;
+    if (aiEffectsSyncJobRef.current === activeJob.id) return;
+    const nextSmartZoom = parseBooleanLike(
+      activeRenderSettings?.smartZoom ??
+      activeRenderSettings?.smart_zoom ??
+      activeAnalysis?.smartZoom ??
+      activeAnalysis?.smart_zoom,
+    );
+    const nextTransitions = parseBooleanLike(
+      activeRenderSettings?.transitions ??
+      activeRenderSettings?.enableTransitions ??
+      activeRenderSettings?.enable_transitions ??
+      activeAnalysis?.transitions ??
+      activeAnalysis?.enableTransitions ??
+      activeAnalysis?.enable_transitions,
+    );
+    const nextSoundFx = parseBooleanLike(
+      activeRenderSettings?.soundFx ??
+      activeRenderSettings?.sound_fx ??
+      activeAnalysis?.soundFx ??
+      activeAnalysis?.sound_fx,
+    );
+    aiEffectsSyncJobRef.current = activeJob.id;
+    if (nextSmartZoom !== null) setSmartZoomEnabled(nextSmartZoom);
+    if (nextTransitions !== null) setAutoTransitionsEnabled(nextTransitions);
+    if (nextSoundFx !== null) setAutoSoundFxEnabled(nextSoundFx);
+  }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
+  useEffect(() => {
+    if (!activeJob?.id) return;
     if (encodingSyncJobRef.current === activeJob.id) return;
     const nextVideoPreset = normalizeVideoPreset(
       activeRenderSettings?.videoPreset ??
@@ -9638,10 +9945,14 @@ const Editor = () => {
 
     setOnlyHookAndCut(false);
     setDefaultHookSelectionMode("auto");
+    setSelectedYouTubeNichePresetId(null);
     setAutoCaptionsEnabled(true);
     setRetentionTargetPlatform("youtube");
     setMaxCutsRequested(targetMaxCuts);
     setEditorMode(modeByVibe[vibe] ?? "auto");
+    setSmartZoomEnabled(true);
+    setAutoTransitionsEnabled(true);
+    setAutoSoundFxEnabled(vibe === "hype" || target === "shorts");
 
     if (target === "shorts") {
       setRetentionStrategyProfile("viral");
@@ -9788,13 +10099,14 @@ const Editor = () => {
   useEffect(() => {
     if (!activeJob?.id) return;
     if (typeof window === "undefined") return;
+    if (!isPageVisible) return;
     const intervalMs = performanceConstrained ? RATE_CARD_LIVE_TICK_CONSTRAINED_MS : RATE_CARD_LIVE_TICK_MS;
     const timer = window.setInterval(() => {
       setPlatformRateRealtimeTick((prev) => prev + 1);
       setPlatformRateUpdatedAtMs(Date.now());
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeJob?.id, performanceConstrained]);
+  }, [activeJob?.id, performanceConstrained, isPageVisible]);
 
   useEffect(() => {
     if (!activeJob?.id) return;
@@ -9869,10 +10181,58 @@ const Editor = () => {
     toast,
   ]);
 
+  const applyYouTubeNichePreset = (preset: YouTubeNichePreset) => {
+    menuTouchedRef.current.strategy = true;
+    menuTouchedRef.current.targetPlatform = true;
+    menuTouchedRef.current.editorMode = true;
+
+    setSelectedYouTubeNichePresetId(preset.id);
+    setFullAutoYoutubeEnabled(false);
+    setRenderMode(preset.renderMode ?? "horizontal");
+    setRetentionTargetPlatform("youtube");
+    setRetentionStrategyProfile(preset.retentionStrategyProfile);
+    setEditorMode(preset.editorMode);
+    setCreativeVariant(preset.creativeVariant);
+    setMaxCutsRequested(clamp(Math.round(preset.maxCuts), MAX_CUTS_MIN, MAX_CUTS_MAX));
+    setLongFormPreset(preset.longFormPreset);
+    setLongFormAggression(Math.round(clamp(preset.longFormAggression, 0, 100)));
+    setLongFormClarityVsSpeed(Math.round(clamp(preset.longFormClarityVsSpeed, 0, 100)));
+    setTangentKiller(preset.tangentKiller);
+    setOnlyHookAndCut(false);
+    setDefaultHookSelectionMode("auto");
+    setSmartZoomEnabled(preset.smartZoom);
+    setAutoTransitionsEnabled(preset.transitions);
+    setAutoSoundFxEnabled(preset.soundFx);
+    if (autoCaptionsEnabled !== preset.autoCaptions) {
+      setAutoCaptionsEnabled(preset.autoCaptions);
+      setSubtitleStyleDirty(true);
+    }
+    if (pipelinePowerMode !== "standard") {
+      setPipelinePowerMode("standard");
+    }
+
+    trackEditorEvent("youtube_niche_preset_applied", {
+      retentionProfile: preset.retentionStrategyProfile,
+      targetPlatform: "youtube",
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        presetId: preset.id,
+        editorMode: preset.editorMode,
+        renderMode: preset.renderMode ?? "horizontal",
+        maxCuts: preset.maxCuts,
+        smartZoom: preset.smartZoom,
+        transitions: preset.transitions,
+        soundFx: preset.soundFx,
+      },
+    });
+  };
+
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
     menuTouchedRef.current.strategy = true;
     menuTouchedRef.current.targetPlatform = true;
     menuTouchedRef.current.editorMode = true;
+    setSelectedYouTubeNichePresetId(null);
+    setFullAutoYoutubeEnabled(false);
 
     if (preset === "simple") {
       setRenderMode("horizontal");
@@ -9880,18 +10240,27 @@ const Editor = () => {
       setRetentionTargetPlatform("youtube");
       setEditorMode("auto");
       setMaxCutsRequested(6);
+      setSmartZoomEnabled(false);
+      setAutoTransitionsEnabled(false);
+      setAutoSoundFxEnabled(false);
     } else if (preset === "balanced") {
       setRenderMode("horizontal");
       setRetentionStrategyProfile("balanced");
       setRetentionTargetPlatform("instagram_reels");
       setEditorMode("auto");
       setMaxCutsRequested(8);
+      setSmartZoomEnabled(true);
+      setAutoTransitionsEnabled(true);
+      setAutoSoundFxEnabled(false);
     } else {
       setRenderMode("vertical");
       setRetentionStrategyProfile("viral");
       setRetentionTargetPlatform("tiktok");
       setEditorMode("reaction");
       setMaxCutsRequested(12);
+      setSmartZoomEnabled(true);
+      setAutoTransitionsEnabled(true);
+      setAutoSoundFxEnabled(true);
     }
 
     if (!autoCaptionsEnabled) {
@@ -11515,6 +11884,109 @@ const Editor = () => {
                             </button>
                           </div>
                         </div>
+                        <div className="mb-3 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
+                            <span className="text-[11px] text-muted-foreground">Click any niche</span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
+                              const active = selectedYouTubeNichePresetId === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => applyYouTubeNichePreset(preset)}
+                                  className={`min-h-[86px] rounded-xl border px-3 py-2 text-left transition-all ${
+                                    active
+                                      ? "border-primary/55 bg-primary/14 shadow-sm"
+                                      : "border-border/55 bg-background/35 hover:border-primary/35 hover:bg-primary/8"
+                                  }`}
+                                  aria-pressed={active}
+                                  aria-label={`Apply ${preset.label} preset`}
+                                >
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                                    <p className="text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="mb-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.14),rgba(10,14,30,0.52))] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">AI placement controls</p>
+                              <p className="text-xs text-foreground/85">
+                                The editor agent decides where zoom-ins, transitions, and impact SFX should land.
+                              </p>
+                            </div>
+                            <Badge className="border-primary/35 bg-primary/10 text-primary">Live</Badge>
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+                            <button
+                              type="button"
+                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                                smartZoomEnabled
+                                  ? "border-primary/55 bg-primary/18 text-foreground"
+                                  : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                setSelectedYouTubeNichePresetId(null);
+                                setSmartZoomEnabled((prev) => !prev);
+                              }}
+                              aria-pressed={smartZoomEnabled}
+                              aria-label="Toggle smart zoom-ins"
+                            >
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <MousePointerClick className="h-4 w-4" aria-hidden />
+                                Smart Zoom-ins
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI punch-in framing on emphasis beats.</p>
+                            </button>
+                            <button
+                              type="button"
+                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                                autoTransitionsEnabled
+                                  ? "border-primary/55 bg-primary/18 text-foreground"
+                                  : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                setSelectedYouTubeNichePresetId(null);
+                                setAutoTransitionsEnabled((prev) => !prev);
+                              }}
+                              aria-pressed={autoTransitionsEnabled}
+                              aria-label="Toggle auto transitions"
+                            >
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <ScissorsSquare className="h-4 w-4" aria-hidden />
+                                Auto Transitions
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI inserts transitions where scene energy changes.</p>
+                            </button>
+                            <button
+                              type="button"
+                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                                autoSoundFxEnabled
+                                  ? "border-primary/55 bg-primary/18 text-foreground"
+                                  : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                setSelectedYouTubeNichePresetId(null);
+                                setAutoSoundFxEnabled((prev) => !prev);
+                              }}
+                              aria-pressed={autoSoundFxEnabled}
+                              aria-label="Toggle impact sound effects"
+                            >
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <Music className="h-4 w-4" aria-hidden />
+                                Impact Sound FX
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI layers subtle swooshes/hits on key moments.</p>
+                            </button>
+                          </div>
+                        </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 items-stretch">
                           <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
                             <p className="text-xs text-muted-foreground">Vibe · {activeRetentionLabel}</p>
@@ -11582,6 +12054,15 @@ const Editor = () => {
                             </span>
                             <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
                               {activeEditorModeLabel}
+                            </span>
+                            <span className={`rounded-full border px-2.5 py-1 ${smartZoomEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                              Zoom {smartZoomEnabled ? "On" : "Off"}
+                            </span>
+                            <span className={`rounded-full border px-2.5 py-1 ${autoTransitionsEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                              Transitions {autoTransitionsEnabled ? "On" : "Off"}
+                            </span>
+                            <span className={`rounded-full border px-2.5 py-1 ${autoSoundFxEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                              SFX {autoSoundFxEnabled ? "On" : "Off"}
                             </span>
                             {coldStartAutopilotEnabled ? (
                               <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
@@ -13049,375 +13530,22 @@ const Editor = () => {
                     )}
 
                     <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode</p>
-                          <p className="text-xs text-muted-foreground">Modern retention automation with facial + emotion intelligence.</p>
-                        </div>
-                        <Switch
-                          checked={aModeEnabled}
-                          onCheckedChange={setAModeEnabled}
-                          className="data-[state=checked]:bg-primary"
-                          aria-label="Toggle advanced AI retention mode"
-                        />
-                      </div>
-
-                      {aModeEnabled ? (
-                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Facial Scan Overlay</p>
-                                <p className="mt-1 text-xs text-foreground/90">
-                                  Focus lock near {formatTimelineClock(facialFocusSec)} estimated to lift retention by +{facialRetentionBoostPct}%.
-                                </p>
-                              </div>
-                              <Badge className="border-primary/35 bg-primary/10 text-foreground">+{facialRetentionBoostPct}%</Badge>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                              {facialHeatmapMoments.map((zone) => (
-                                <div key={`${zone.label}-${zone.at}`} className="rounded-md border border-border/60 bg-background/55 p-2">
-                                  <p className="text-[10px] text-muted-foreground">{zone.label} · {zone.at}</p>
-                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted/70">
-                                    <div
-                                      className="h-full rounded-full bg-gradient-to-r from-primary to-glow-secondary"
-                                      style={{ width: `${zone.intensity}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Binge Mode</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Curiosity loops, cliffhangers, emotional arcs, dynamic pacing, and re-hooks.
-                                </p>
-                              </div>
-                              <Switch
-                                checked={bingeModeEnabled}
-                                onCheckedChange={setBingeModeEnabled}
-                                className="data-[state=checked]:bg-primary"
-                                aria-label="Toggle binge optimization mode"
-                              />
-                            </div>
-                            {bingeModeEnabled ? (
-                              <div className="mt-2 space-y-2">
-                                {bingeWorthyMoments.slice(0, 3).map((moment) => (
-                                  <div key={`binge-moment-${moment.id}`} className="rounded-md border border-border/60 bg-background/50 p-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-xs text-foreground">{moment.timestampLabel}</p>
-                                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{moment.score}%</Badge>
-                                    </div>
-                                    <p className="mt-1 text-[11px] text-muted-foreground">{moment.reason}</p>
-                                  </div>
-                                ))}
-                                <div className="flex flex-wrap gap-1.5">
-                                  {bingeSuggestions.slice(0, 3).map((line, index) => (
-                                    <Badge
-                                      key={`binge-suggestion-${index}`}
-                                      className="border-primary/30 bg-primary/10 text-foreground"
-                                    >
-                                      {line}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-xs text-muted-foreground">Binge optimizations are currently paused.</p>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          Enable A-Mode to apply facial scan recognition and binge-flow suggestions.
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="rounded-xl border border-primary/20 bg-[linear-gradient(160deg,rgba(19,26,54,0.64),rgba(23,18,44,0.62))] p-3 sm:p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Retention + Emotion Analysis</p>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {topEmotionSignal ? (
-                            <Badge className={topEmotionSignal.badgeClassName}>
-                              Top Emotion: {topEmotionSignal.label}
-                            </Badge>
-                          ) : null}
-                          <Badge className={`${retentionGoalMet ? "border-success/35 bg-success/10 text-success" : "border-warning/35 bg-warning/10 text-warning"}`}>
-                            {latestRetentionPoint ? `${latestRetentionPoint.predicted}% predicted` : "Predicting"}
-                          </Badge>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="mt-2 h-36 w-full overflow-hidden rounded-lg border border-border/60 bg-background/55 p-2 text-left transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                        aria-label="Open detailed retention and emotion analysis"
-                        onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
-                      >
-                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-                          <line
-                            x1="0"
-                            y1={100 - RETENTION_GOAL_PERCENT}
-                            x2="100"
-                            y2={100 - RETENTION_GOAL_PERCENT}
-                            stroke="hsl(var(--primary) / 0.35)"
-                            strokeDasharray="3 3"
-                            strokeWidth="1"
-                          />
-                          <polyline
-                            points={retentionLinePoints}
-                            fill="none"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          {emotionLinePoints ? (
-                            <polyline
-                              points={emotionLinePoints}
-                              fill="none"
-                              stroke="hsl(var(--glow-secondary))"
-                              strokeWidth="2"
-                              strokeDasharray="4 3"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          ) : null}
-                          {emotionTimelineHighlights.slice(0, 5).map((item) => {
-                            const x = clamp((item.timestampSec / Math.max(1, retentionTimelineDurationSec)) * 100, 0, 100);
-                            const y = 100 - clamp(item.strength, 0, 100);
-                            return (
-                              <circle
-                                key={`emotion-dot-${item.id}`}
-                                cx={x}
-                                cy={y}
-                                r="1.8"
-                                fill="hsl(var(--glow-secondary))"
-                                stroke="hsl(var(--background))"
-                                strokeWidth="0.6"
-                              />
-                            );
-                          })}
-                        </svg>
-                      </button>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>Goal line: {RETENTION_GOAL_PERCENT}%+</span>
-                        <span>{retentionGoalMet ? "On track" : "Tune with A-Mode suggestions"} · Click graph for deep dive</span>
-                      </div>
-                    </div>
-
-                    {!isTerminalStatus(activeJob.status) && (
-                      <div className="rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/12 via-background/85 to-[hsl(var(--glow-secondary)/0.12)] p-4 shadow-[0_0_0_1px_hsl(var(--primary)/0.08),0_16px_40px_-28px_hsl(var(--primary)/0.55)]">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/85">Realtime ETA</p>
-                            <p className="font-display text-3xl font-bold leading-none text-foreground tabular-nums sm:text-4xl">
-                              {etaDurationLabel}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{etaContextLabel}</p>
-                          </div>
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
-                            <Clock className="h-3.5 w-3.5" />
-                            {etaBadgeLabel}
-                          </span>
-                        </div>
-                        <div className="mb-2 mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span className="uppercase tracking-[0.16em]">Live Processing</span>
-                          <span>Stage: {activeStageLabel}</span>
-                        </div>
-                        <Progress value={activeStageProgress} className="h-2 bg-muted [&>div]:bg-primary" />
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
-                          <div className="h-10 rounded-lg bg-muted/35 animate-pulse" />
-                        </div>
-                        {canCancelJob && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="mt-3 min-h-12 w-full border-destructive/40 text-destructive hover:bg-destructive/10 sm:min-h-10 sm:w-auto"
-                            disabled={cancelingJobId === activeJob.id}
-                            onClick={() => void handleCancelJob(activeJob.id)}
-                          >
-                            {cancelingJobId === activeJob.id ? (
-                              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                            ) : (
-                              <XCircle className="mr-1.5 h-4 w-4" />
-                            )}
-                            {cancelButtonLabel}
-                          </Button>
-                        )}
-                      </div>
-                    )}
-
-                    {normalizeStatus(activeJob.status) === "failed" && (
-                      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3">
-                        <p className="text-sm font-medium text-destructive">Processing failed in {failedStepKey ? STATUS_LABELS[failedStepKey] || "pipeline" : "pipeline"}.</p>
-                        <p className="mt-1 text-xs text-destructive/90">{failedGateReason || activeJob.error || "Retry suggested."}</p>
-                        {transcriptAutoRecoveryLabel ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{transcriptAutoRecoveryLabel}</p>
-                        ) : null}
-                        <p className="mt-1 text-xs text-muted-foreground">{failedRetrySuggestion}</p>
-                      </div>
-                    )}
-
-                    {canShowRealtimeHookSelector && (
-                      <div className="rounded-xl border border-primary/35 bg-primary/5 p-3 space-y-2">
-                        <div className="space-y-1">
-                          <p className="text-xs uppercase tracking-[0.2em] text-primary/80">Hook Job</p>
                           <p className="text-xs text-muted-foreground">
-                            Automatic hook mode is on. The editor chooses the best 5-8 second opening hook.
+                            Facial scan, binge-flow, retention, emotion, and autonomous editing details are now on a dedicated page.
                           </p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          Hook mode: Auto
-                        </p>
-                        {selectedHookCandidate ? (
-                          <p className="text-xs text-foreground/90">
-                            Selected: {formatHookRange(
-                              selectedHookCandidate.start,
-                              selectedHookCandidate.start + selectedHookCandidate.duration
-                            )}
-                          </p>
-                        ) : null}
+                        <Button
+                          type="button"
+                          className="min-h-10 w-full gap-2 sm:w-auto"
+                          onClick={() => navigate("/editor/a-mode")}
+                        >
+                          Open A-Mode Page
+                        </Button>
                       </div>
-                    )}
-
-                    {activeJob && autonomousEditor && (
-                      <div className="rounded-xl border border-primary/25 bg-[linear-gradient(160deg,rgba(12,31,45,0.72),rgba(23,18,44,0.68))] p-3 shadow-[0_18px_34px_-28px_hsl(var(--primary)/0.95)] sm:p-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Wand2 className="h-4 w-4 text-primary" aria-hidden />
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Autonomous Editor</p>
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Self-running hook, cut, pacing, and story decisions built from transcript, audio, visual, emotion, and reward signals.
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousStatusLabel}</Badge>
-                            {autonomousLearning ? (
-                              <Badge className="border-cyan-400/35 bg-cyan-400/10 text-cyan-100">
-                                {autonomousLearning.throttled ? "Learning queued" : "Learning live"}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
-                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Hook Decision</p>
-                              <div className="flex flex-wrap justify-end gap-1.5">
-                                <Badge className="border-primary/35 bg-primary/10 text-foreground">{autonomousHookSourceLabel}</Badge>
-                                <Badge className="border-border/55 bg-background/55 text-foreground">{autonomousHookPlacementLabel}</Badge>
-                              </div>
-                            </div>
-                            <p className="mt-2 text-sm font-medium text-foreground">
-                              {autonomousHookOutputRangeLabel ||
-                                autonomousHookSourceRangeLabel ||
-                                (selectedHookCandidate
-                                  ? formatHookRange(
-                                      selectedHookCandidate.start,
-                                      selectedHookCandidate.start + selectedHookCandidate.duration,
-                                    )
-                                  : "No hook chosen yet")}
-                            </p>
-                            {autonomousHookSourceRangeLabel ? (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                Source moment: {autonomousHookSourceRangeLabel}
-                              </p>
-                            ) : null}
-                            {autonomousHookOutputRangeLabel ? (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                Final cut position: {autonomousHookOutputRangeLabel}
-                              </p>
-                            ) : null}
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {autonomousHookPlacementHint}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {autonomousSelectedHook?.reason || hookReason || "Waiting for enough signal to lock the opener."}
-                            </p>
-                          </div>
-
-                          <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Quality Gate</p>
-                              <Badge className={`${autonomousQualityGate?.passed === false ? "border-destructive/35 bg-destructive/10 text-destructive" : "border-emerald-400/35 bg-emerald-400/10 text-emerald-100"}`}>
-                                {autonomousQualityGate?.passed === false ? "Needs work" : autonomousQualityGate?.passed === true ? "Passed" : "Evaluating"}
-                              </Badge>
-                            </div>
-                            <p className="mt-2 text-sm font-medium text-foreground">
-                              {autonomousQualityGate?.totalChecks
-                                ? `${autonomousQualityGate.passedChecks ?? 0}/${autonomousQualityGate.totalChecks} checks`
-                                : "Checks pending"}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {autonomousQualityGate?.summary || "Boundary critic, hook timing, and structural checks decide whether the cut is safe to ship."}
-                            </p>
-                            {autonomousCutQualityPercent !== null ? (
-                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/70">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-primary via-[hsl(var(--glow-secondary))] to-cyan-300"
-                                  style={{ width: `${autonomousCutQualityPercent}%` }}
-                                />
-                              </div>
-                            ) : null}
-                            {autonomousCutQualityPercent !== null ? (
-                              <p className="mt-1 text-[11px] text-muted-foreground">Cut quality {autonomousCutQualityPercent}%</p>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {(autonomousNotes.length > 0) || autonomousLearning ? (
-                          <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2">
-                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Why It Edited This Way</p>
-                              <div className="mt-2 space-y-1.5">
-                                {autonomousNotes.map((note, index) => (
-                                  <p key={`autonomous-note-${index}`} className="text-[11px] text-muted-foreground">
-                                    {note}
-                                  </p>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="rounded-lg border border-border/50 bg-background/45 p-3">
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Outcome Learning</p>
-                              {autonomousLearning ? (
-                                <div className="mt-2 space-y-2">
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {autonomousLearning.boundaryCritic?.trained ? (
-                                      <Badge className="border-emerald-400/35 bg-emerald-400/10 text-emerald-100">Boundary critic retrained</Badge>
-                                    ) : null}
-                                    {autonomousLearningRecordedAtLabel ? (
-                                      <Badge className="border-border/55 bg-background/55 text-foreground">
-                                        {autonomousLearningRecordedAtLabel}
-                                      </Badge>
-                                    ) : null}
-                                  </div>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    {autonomousLearningReasonLabel
-                                      ? `Boundary critic ${autonomousLearningReasonLabel}.`
-                                      : "Learning summary available after feedback and telemetry passes."}
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="mt-2 text-[11px] text-muted-foreground">
-                                  Feedback and watch behavior will appear here after the first learning cycle completes.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
-
+                    </div>
                     {normalizeStatus(activeJob.status) === "ready" && (
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
@@ -15205,3 +15333,4 @@ const Editor = () => {
 };
 
 export default Editor;
+

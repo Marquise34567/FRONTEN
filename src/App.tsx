@@ -3,38 +3,60 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Suspense, lazy, useEffect, useRef, type ReactNode } from "react";
 import Index from "./pages/Index";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import Editor from "./pages/Editor";
-import JobDetail from "./pages/JobDetail";
-import Pricing from "./pages/Pricing";
-import Settings from "./pages/Settings";
-import NotFound from "./pages/NotFound";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import HowEditorWorks from "./pages/HowEditorWorks";
-import BillingSuccess from "./pages/BillingSuccess";
-import GoogleTagSetup from "./pages/GoogleTagSetup";
-import ControlPanel from "./pages/ControlPanel";
-import ControlPanelAudience from "./pages/ControlPanelAudience";
-import ControlPanelAlgorithm from "./pages/ControlPanelAlgorithm";
-import ControlPanelBank from "./pages/ControlPanelBank";
-import ControlPanelEmotion from "./pages/ControlPanelEmotion";
-import ControlPanelGrowth from "./pages/ControlPanelGrowth";
-import ControlPanelInfrastructure from "./pages/ControlPanelInfrastructure";
-import ControlPanelOps from "./pages/ControlPanelOps";
-import ControlPanelSecurity from "./pages/ControlPanelSecurity";
-import ControlPanelAnalytics from "./pages/ControlPanelAnalytics";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
 import RequireDevAdmin from "@/components/RequireDevAdmin";
 import { useScreenProfile } from "@/hooks/use-screen-profile";
-import { useEffect } from "react";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { useRealtimePresence } from "@/hooks/use-realtime-presence";
+import { PENDING_REFERRAL_CODE_KEY, parseReferralCode } from "@/lib/referrals";
 
-const queryClient = new QueryClient();
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const Editor = lazy(() => import("./pages/Editor"));
+const EditorAMode = lazy(() => import("./pages/EditorAMode"));
+const JobDetail = lazy(() => import("./pages/JobDetail"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Settings = lazy(() => import("./pages/Settings"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const HowEditorWorks = lazy(() => import("./pages/HowEditorWorks"));
+const BillingSuccess = lazy(() => import("./pages/BillingSuccess"));
+const GoogleTagSetup = lazy(() => import("./pages/GoogleTagSetup"));
+const ControlPanel = lazy(() => import("./pages/ControlPanel"));
+const ControlPanelAudience = lazy(() => import("./pages/ControlPanelAudience"));
+const ControlPanelAlgorithm = lazy(() => import("./pages/ControlPanelAlgorithm"));
+const ControlPanelBank = lazy(() => import("./pages/ControlPanelBank"));
+const ControlPanelEmotion = lazy(() => import("./pages/ControlPanelEmotion"));
+const ControlPanelGrowth = lazy(() => import("./pages/ControlPanelGrowth"));
+const ControlPanelInfrastructure = lazy(() => import("./pages/ControlPanelInfrastructure"));
+const ControlPanelOps = lazy(() => import("./pages/ControlPanelOps"));
+const ControlPanelSecurity = lazy(() => import("./pages/ControlPanelSecurity"));
+const ControlPanelAnalytics = lazy(() => import("./pages/ControlPanelAnalytics"));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
+
+const RouteFallback = () => <div className="min-h-screen w-full bg-background" aria-hidden="true" />;
+
+const RouteSuspense = ({ children }: { children: ReactNode }) => (
+  <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+);
 
 const ClientErrorReporter = () => {
   const { accessToken } = useAuth();
@@ -97,6 +119,61 @@ const RealtimePresenceBridge = () => {
   return null;
 };
 
+const PendingReferralBridge = () => {
+  const { user, accessToken, loading } = useAuth();
+  const lastHandledUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (loading || !user?.id || !accessToken) return;
+    if (lastHandledUserIdRef.current === user.id) return;
+
+    const pendingCode = (() => {
+      try {
+        return parseReferralCode(window.localStorage.getItem(PENDING_REFERRAL_CODE_KEY));
+      } catch {
+        return null;
+      }
+    })();
+
+    if (!pendingCode) {
+      lastHandledUserIdRef.current = user.id;
+      return;
+    }
+
+    let canceled = false;
+    void apiFetch("/api/me/referrals/apply", {
+      method: "POST",
+      token: accessToken,
+      body: JSON.stringify({ code: pendingCode }),
+    })
+      .catch((error) => {
+        if (!(error instanceof ApiError)) return;
+        const terminalCodes = new Set([
+          "referral_already_applied",
+          "invalid_referral_code",
+          "referral_not_found",
+          "self_referral_not_allowed",
+        ]);
+        if (!terminalCodes.has(String(error.code || ""))) return;
+      })
+      .finally(() => {
+        if (canceled) return;
+        try {
+          window.localStorage.removeItem(PENDING_REFERRAL_CODE_KEY);
+        } catch {
+          // ignore storage failures
+        }
+        lastHandledUserIdRef.current = user.id;
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [accessToken, loading, user?.id]);
+
+  return null;
+};
+
 const RouteViewTracker = () => {
   const { accessToken } = useAuth();
   const location = useLocation();
@@ -116,6 +193,38 @@ const RouteViewTracker = () => {
       accessToken
     );
   }, [accessToken, location.pathname, location.search]);
+
+  return null;
+};
+
+const NOINDEX_ROUTE_PATTERNS: RegExp[] = [
+  /^\/login\/?$/i,
+  /^\/signup\/?$/i,
+  /^\/editor(?:\/.*)?$/i,
+  /^\/app(?:\/.*)?$/i,
+  /^\/settings\/?$/i,
+  /^\/billing\/success\/?$/i,
+  /^\/preview\/google-ads-tracking\/?$/i,
+  /^\/dev\/control-panel(?:\/.*)?$/i,
+  /^\/control-panel(?:\/.*)?$/i,
+  /^\/__control-panel(?:\/.*)?$/i,
+  /^\/x-quantum-control-9\/?$/i,
+];
+
+const RouteIndexingGuard = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const shouldNoindex = NOINDEX_ROUTE_PATTERNS.some((pattern) => pattern.test(location.pathname));
+    const desiredRobots = shouldNoindex ? "noindex, nofollow" : "index, follow";
+    let robotsTag = document.head.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+    if (!robotsTag) {
+      robotsTag = document.createElement("meta");
+      robotsTag.setAttribute("name", "robots");
+      document.head.appendChild(robotsTag);
+    }
+    robotsTag.setAttribute("content", desiredRobots);
+  }, [location.pathname]);
 
   return null;
 };
@@ -142,6 +251,27 @@ const YouTubeOAuthCallbackBridge = () => {
   return null;
 };
 
+const AuthenticatedRoutePrefetch = () => {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const timer = window.setTimeout(() => {
+      void import("./pages/Editor");
+      void import("./pages/EditorAMode");
+      void import("./pages/Settings");
+      void import("./pages/JobDetail");
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [user?.id]);
+
+  return null;
+};
+
 const App = () => {
   useScreenProfile();
 
@@ -150,21 +280,73 @@ const App = () => {
       <AuthProvider>
         <ClientErrorReporter />
         <RealtimePresenceBridge />
+        <PendingReferralBridge />
         <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
             <RouteViewTracker />
+            <RouteIndexingGuard />
             <YouTubeOAuthCallbackBridge />
+            <AuthenticatedRoutePrefetch />
             <Routes>
               <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/pricing" element={<Pricing />} />
-              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-              <Route path="/how-editor-works" element={<HowEditorWorks />} />
-              <Route path="/billing/success" element={<BillingSuccess />} />
-              <Route path="/preview/google-ads-tracking" element={<GoogleTagSetup />} />
+              <Route
+                path="/login"
+                element={
+                  <RouteSuspense>
+                    <Login />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/signup"
+                element={
+                  <RouteSuspense>
+                    <Signup />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/pricing"
+                element={
+                  <RouteSuspense>
+                    <Pricing />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/privacy-policy"
+                element={
+                  <RouteSuspense>
+                    <PrivacyPolicy />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/how-editor-works"
+                element={
+                  <RouteSuspense>
+                    <HowEditorWorks />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/billing/success"
+                element={
+                  <RouteSuspense>
+                    <BillingSuccess />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/preview/google-ads-tracking"
+                element={
+                  <RouteSuspense>
+                    <GoogleTagSetup />
+                  </RouteSuspense>
+                }
+              />
               <Route
                 path="/app"
                 element={
@@ -177,7 +359,19 @@ const App = () => {
                 path="/editor"
                 element={
                   <RequireAuth>
-                    <Editor />
+                    <RouteSuspense>
+                      <Editor />
+                    </RouteSuspense>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/editor/a-mode"
+                element={
+                  <RequireAuth>
+                    <RouteSuspense>
+                      <EditorAMode />
+                    </RouteSuspense>
                   </RequireAuth>
                 }
               />
@@ -185,7 +379,9 @@ const App = () => {
                 path="/app/job/:id"
                 element={
                   <RequireAuth>
-                    <JobDetail />
+                    <RouteSuspense>
+                      <JobDetail />
+                    </RouteSuspense>
                   </RequireAuth>
                 }
               />
@@ -193,7 +389,9 @@ const App = () => {
                 path="/settings"
                 element={
                   <RequireAuth>
-                    <Settings />
+                    <RouteSuspense>
+                      <Settings />
+                    </RouteSuspense>
                   </RequireAuth>
                 }
               />
@@ -201,7 +399,9 @@ const App = () => {
                 path="/editor/google-ads-tracking"
                 element={
                   <RequireAuth>
-                    <GoogleTagSetup />
+                    <RouteSuspense>
+                      <GoogleTagSetup />
+                    </RouteSuspense>
                   </RequireAuth>
                 }
               />
@@ -240,7 +440,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanel />
+                      <RouteSuspense>
+                        <ControlPanel />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -250,7 +452,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelEmotion />
+                      <RouteSuspense>
+                        <ControlPanelEmotion />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -260,7 +464,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelAnalytics />
+                      <RouteSuspense>
+                        <ControlPanelAnalytics />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -270,7 +476,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelAudience />
+                      <RouteSuspense>
+                        <ControlPanelAudience />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -280,7 +488,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelGrowth />
+                      <RouteSuspense>
+                        <ControlPanelGrowth />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -290,7 +500,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelInfrastructure />
+                      <RouteSuspense>
+                        <ControlPanelInfrastructure />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -300,7 +512,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelSecurity />
+                      <RouteSuspense>
+                        <ControlPanelSecurity />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -310,7 +524,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelAlgorithm />
+                      <RouteSuspense>
+                        <ControlPanelAlgorithm />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -320,7 +536,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelBank />
+                      <RouteSuspense>
+                        <ControlPanelBank />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -330,7 +548,9 @@ const App = () => {
                 element={
                   <RequireAuth>
                     <RequireDevAdmin>
-                      <ControlPanelOps />
+                      <RouteSuspense>
+                        <ControlPanelOps />
+                      </RouteSuspense>
                     </RequireDevAdmin>
                   </RequireAuth>
                 }
@@ -345,7 +565,14 @@ const App = () => {
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<NotFound />} />
+              <Route
+                path="*"
+                element={
+                  <RouteSuspense>
+                    <NotFound />
+                  </RouteSuspense>
+                }
+              />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
