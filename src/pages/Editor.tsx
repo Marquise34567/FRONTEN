@@ -10992,8 +10992,10 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
-  const uploadFormatCardClass = (active: boolean) =>
-    `group relative min-h-[154px] overflow-hidden rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+  const uploadFormatCardClass = (active: boolean, compact = false) =>
+    `group relative overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+      compact ? "min-h-[108px] rounded-xl p-3" : "min-h-[154px] rounded-2xl p-4"
+    } ${
       active
         ? "border-primary/60 bg-[linear-gradient(145deg,rgba(59,130,246,0.2),rgba(16,185,129,0.14))] shadow-[0_24px_44px_-30px_hsl(var(--primary)/0.95)] ring-1 ring-primary/45"
         : "border-border/60 bg-background/35 hover:border-primary/40 hover:bg-primary/8"
@@ -15085,7 +15087,7 @@ const Editor = () => {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
-                  className={uploadFormatCardClass(pendingUploadMode === "horizontal")}
+                  className={uploadFormatCardClass(pendingUploadMode === "horizontal", true)}
                   onClick={() => selectPendingUploadFormatMode("horizontal")}
                   aria-pressed={pendingUploadMode === "horizontal"}
                   aria-label="Select horizontal format for this upload"
@@ -15103,7 +15105,7 @@ const Editor = () => {
                 </button>
                 <button
                   type="button"
-                  className={uploadFormatCardClass(pendingUploadMode === "vertical")}
+                  className={uploadFormatCardClass(pendingUploadMode === "vertical", true)}
                   onClick={() => selectPendingUploadFormatMode("vertical")}
                   aria-pressed={pendingUploadMode === "vertical"}
                   aria-label="Select vertical format for this upload"
