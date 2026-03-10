@@ -12876,7 +12876,6 @@ const Editor = () => {
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-foreground">Choose Format Before Upload</p>
                       <p className="text-xs text-muted-foreground">
                         Vertical mode auto-crops to 9:16. If webcam strip is enabled, layout space is reserved automatically.
                       </p>
@@ -15077,7 +15076,7 @@ const Editor = () => {
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Output Format</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Choose Format Before Upload</p>
                   <p className="mt-1 text-xs text-muted-foreground">{recommendedUploadFormatLabel}</p>
                 </div>
                 <Badge className="border-primary/40 bg-primary/12 text-primary">
