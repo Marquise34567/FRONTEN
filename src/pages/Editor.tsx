@@ -72,6 +72,7 @@ const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
 const UPLOAD_MODE_PROMPT_DEFER_MS = 16;
+const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
@@ -333,12 +334,29 @@ type AchievementSignal = {
 };
 type PreviewImprovementTipTone = "warning" | "fix" | "boost";
 type PreviewImprovementTipIcon = "hook" | "trim" | "pace" | "target";
+type PreviewImprovementTipAction =
+  | "raise_retention_goal"
+  | "tighten_hook"
+  | "skip_segment"
+  | "increase_pacing"
+  | "stronger_filler_pass"
+  | "steady_upgrade"
+  | "hook_polish";
+type PreviewTipSkipRange = {
+  id: string;
+  startSec: number;
+  endSec: number;
+};
 type PreviewImprovementTip = {
   id: string;
   title: string;
   detail: string;
   tone: PreviewImprovementTipTone;
   icon: PreviewImprovementTipIcon;
+  action: PreviewImprovementTipAction;
+  segmentId?: string;
+  segmentStartSec?: number;
+  segmentEndSec?: number;
 };
 type EditorRateSuggestionAction =
   | "enable_a_mode"
@@ -1511,6 +1529,19 @@ const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
   "cutting",
   "pacing",
   "story",
+]);
+const LIVE_SETTINGS_MUTABLE_STATUSES = new Set([
+  "queued",
+  "uploading",
+  "analyzing",
+  "hooking",
+  "cutting",
+  "pacing",
+  "story",
+  "subtitling",
+  "audio",
+  "retention",
+  "rendering",
 ]);
 
 const STATUS_LABELS: Record<string, string> = {
@@ -2807,6 +2838,7 @@ const Editor = () => {
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
   const [uploadModeNichePresetsEnabled, setUploadModeNichePresetsEnabled] = useState(false);
+  const [uploadModeNichePresetGridReady, setUploadModeNichePresetGridReady] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -3022,6 +3054,9 @@ const Editor = () => {
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
+  const [previewTipAppliedIdsByJob, setPreviewTipAppliedIdsByJob] = useState<Record<string, string[]>>({});
+  const [previewTipSkipRangesByJob, setPreviewTipSkipRangesByJob] = useState<Record<string, PreviewTipSkipRange[]>>({});
+  const [previewTipPlaybackRateByJob, setPreviewTipPlaybackRateByJob] = useState<Record<string, number>>({});
   const [showStoryMapPanel, setShowStoryMapPanel] = useState(true);
   const [showLiveOutcomeLoop, setShowLiveOutcomeLoop] = useState(false);
   const [showScanInsightsPanel, setShowScanInsightsPanel] = useState(true);
@@ -5827,6 +5862,9 @@ const Editor = () => {
     return clamp(raw, 200, DEFAULT_VERTICAL_OUTPUT.height - 200);
   }, [webcamTopHeightPct]);
 
+  const effectiveVerticalBottomFitMode: VerticalFitMode =
+    skipManualWebcamCrop ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode;
+
   const verticalSelectionReady = skipManualWebcamCrop
     ? Boolean(pendingVerticalFile && sourceVideoMeta)
     : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
@@ -5942,7 +5980,7 @@ const Editor = () => {
           drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
-            bottomFitMode,
+            effectiveVerticalBottomFitMode,
           );
         } else {
           drawVideoRegion(
@@ -5953,7 +5991,7 @@ const Editor = () => {
           drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
-            bottomFitMode,
+            effectiveVerticalBottomFitMode,
           );
           ctx.strokeStyle = "rgba(255,255,255,0.35)";
           ctx.lineWidth = 2;
@@ -5963,7 +6001,7 @@ const Editor = () => {
           ctx.stroke();
         }
 
-        if (CAPTIONS_PIPELINE_ENABLED && (isVerticalMode || autoCaptionsEnabled)) {
+        if (isVerticalMode || autoCaptionsEnabled) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
@@ -6092,7 +6130,7 @@ const Editor = () => {
     verticalPreviewUrl,
     sourceVideoMeta,
     effectiveWebcamCrop,
-    bottomFitMode,
+    effectiveVerticalBottomFitMode,
     topHeightPx,
     skipManualWebcamCrop,
     autoCaptionsEnabled,
@@ -6143,7 +6181,7 @@ const Editor = () => {
             }
           : undefined,
         topHeightPx: verticalLayout === "stacked" ? topHeightPx : null,
-        bottomFit: bottomFitMode,
+        bottomFit: verticalLayout === "single" ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode,
         webcamFit: "cover",
         paddingPx: verticalLayout === "stacked" ? clamp(webcamPaddingPx, 0, webcamPaddingMax) : 0,
       },
@@ -6208,6 +6246,8 @@ const Editor = () => {
       mode: isVerticalMode ? "vertical" : "horizontal",
     });
     setUploadRenderSettingsOpen(false);
+    setUploadModeNichePresetsEnabled(false);
+    setUploadModeNichePresetGridReady(false);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -6651,6 +6691,21 @@ const Editor = () => {
     if (!accessToken || !activeJob) return false;
     try {
       const clipParam = clipIndex + 1;
+      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
+      const fallbackFileName =
+        activeJob.renderMode === "vertical"
+          ? `${baseName}-clip-${clipParam}.mp4`
+          : `${baseName}.mp4`;
+      const previewDownloadCandidate = clipIndex === 0 ? String(resolvedPreviewOutputUrl || "").trim() : "";
+      if (previewDownloadCandidate) {
+        try {
+          await triggerFileDownload(previewDownloadCandidate, fallbackFileName);
+          submitDownloadFeedback(activeJob, clipIndex, "frontend_preview_download");
+          return true;
+        } catch {
+          // Fall back to fresh backend signed URL resolution.
+        }
+      }
       let downloadUrl = "";
       try {
         const data = await apiFetch<{ url: string }>(`/api/jobs/${activeJob.id}/download-url`, {
@@ -6684,11 +6739,6 @@ const Editor = () => {
           outputUrls: sanitized.length > 0 ? sanitized : null,
         };
       });
-      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
-      const fallbackFileName =
-        activeJob.renderMode === "vertical"
-          ? `${baseName}-clip-${clipParam}.mp4`
-          : `${baseName}.mp4`;
       await triggerFileDownload(downloadUrl, fallbackFileName);
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
       return true;
@@ -8643,6 +8693,7 @@ const Editor = () => {
         detail: "Tighten weak sections and improve the opening promise to close the current goal gap.",
         tone: "boost",
         icon: "target",
+        action: "raise_retention_goal",
       });
     }
     if (hookConfidenceScore < 72) {
@@ -8652,6 +8703,7 @@ const Editor = () => {
         detail: `Hook confidence is ${hookConfidenceScore}%. Lead with a sharper visual reveal or punchier line.`,
         tone: "warning",
         icon: "hook",
+        action: "tighten_hook",
       });
     }
     if (topSkipSegment) {
@@ -8661,6 +8713,10 @@ const Editor = () => {
         detail: topSkipSegment.reason || "This segment has elevated skip risk. Trim or reframe this moment.",
         tone: "fix",
         icon: "trim",
+        action: "skip_segment",
+        segmentId: topSkipSegment.id,
+        segmentStartSec: topSkipSegment.startSec,
+        segmentEndSec: topSkipSegment.endSec,
       });
     }
     if (timelineMomentumScore < 69 || previewStoryMapMomentumScore < 68) {
@@ -8670,6 +8726,7 @@ const Editor = () => {
         detail: "Add tighter cuts before payoff and use faster setup-to-reveal transitions.",
         tone: "fix",
         icon: "pace",
+        action: "increase_pacing",
       });
     }
     if (!autoCutBoringEnabled || removedFillerPercent < 20) {
@@ -8679,6 +8736,7 @@ const Editor = () => {
         detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Removing more dead-air should help completion.`,
         tone: "warning",
         icon: "trim",
+        action: "stronger_filler_pass",
       });
     }
     if (tips.length === 0) {
@@ -8688,6 +8746,7 @@ const Editor = () => {
         detail: "Add one stronger visual payoff beat and tighten micro-pauses to improve hold rate.",
         tone: "boost",
         icon: "pace",
+        action: "steady_upgrade",
       });
       tips.push({
         id: "hook-polish-default",
@@ -8695,6 +8754,7 @@ const Editor = () => {
         detail: "Try a clearer first-line promise in the first 2-3 seconds to raise scroll-stop strength.",
         tone: "fix",
         icon: "hook",
+        action: "hook_polish",
       });
     }
     return tips.slice(0, 6);
@@ -9292,9 +9352,11 @@ const Editor = () => {
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   const showVideo = Boolean(activeJob && normalizedActiveStatus === "ready" && resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
+  const previewTranscriptCaptionsEnabled = showVideo && activeTranscriptCues.length > 0;
   const shouldSyncPreviewClock = showVideo && (
     showStoryMapPanel ||
-    (transcriptSeekEnabled && transcriptPanelTab === "preview")
+    (transcriptSeekEnabled && transcriptPanelTab === "preview") ||
+    previewTranscriptCaptionsEnabled
   );
   const activePreviewImprovementTip = previewImprovementTips.length > 0
     ? previewImprovementTips[previewImprovementTipIndex % previewImprovementTips.length]
@@ -9303,6 +9365,191 @@ const Editor = () => {
     ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
     : null;
   const shouldShowPreviewImprovementPopups = Boolean(activeJob && activePreviewImprovementTip);
+  const activePreviewTipAppliedIds = activeJob?.id
+    ? (previewTipAppliedIdsByJob[activeJob.id] || [])
+    : [];
+  const activePreviewTipAppliedIdSet = useMemo(
+    () => new Set(activePreviewTipAppliedIds),
+    [activePreviewTipAppliedIds],
+  );
+  const activePreviewTipAlreadyApplied = Boolean(
+    activePreviewImprovementTip && activePreviewTipAppliedIdSet.has(activePreviewImprovementTip.id),
+  );
+  const sidePreviewTipAlreadyApplied = Boolean(
+    sidePreviewImprovementTip && activePreviewTipAppliedIdSet.has(sidePreviewImprovementTip.id),
+  );
+  const activePreviewTipSkipRanges = activeJob?.id
+    ? (previewTipSkipRangesByJob[activeJob.id] || [])
+    : [];
+  const activePreviewPlaybackRate = activeJob?.id
+    ? (previewTipPlaybackRateByJob[activeJob.id] || 1)
+    : 1;
+  const canApplyLiveSettingsInCurrentStage = Boolean(
+    activeJob && LIVE_SETTINGS_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
+  );
+  const handleApplyPreviewImprovementTip = useCallback(async (tip: PreviewImprovementTip) => {
+    if (!activeJob?.id) return;
+    const jobId = activeJob.id;
+    const alreadyApplied = (previewTipAppliedIdsByJob[jobId] || []).includes(tip.id);
+    if (alreadyApplied) {
+      toast({
+        title: "Tip already active",
+        description: "This fix is already applied to the live preview controls.",
+      });
+      return;
+    }
+
+    const patchPayload: Record<string, unknown> = {};
+    const applyMaxCuts = (nextValue: number) => {
+      const nextCuts = clamp(nextValue, MAX_CUTS_MIN, MAX_CUTS_MAX);
+      setMaxCutsRequested(nextCuts);
+      patchPayload.maxCuts = nextCuts;
+      return nextCuts;
+    };
+
+    setPreviewTipAppliedIdsByJob((prev) => ({
+      ...prev,
+      [jobId]: [...(prev[jobId] || []), tip.id],
+    }));
+
+    if (tip.action === "raise_retention_goal") {
+      menuTouchedRef.current.strategy = true;
+      setAModeEnabled(true);
+      setBingeModeEnabled(true);
+      setAutoCutBoringEnabled(true);
+      setAutoTransitionsEnabled(true);
+      setRetentionStrategyProfile("viral");
+      applyMaxCuts(maxCutsRequested + 3);
+      patchPayload.onlyCuts = false;
+      patchPayload.transitions = true;
+      patchPayload.retentionStrategyProfile = "viral";
+    } else if (tip.action === "tighten_hook") {
+      menuTouchedRef.current.strategy = true;
+      setRetentionStrategyProfile("viral");
+      setAutoTransitionsEnabled(true);
+      const canOpenHookSelector =
+        activeJob.renderMode !== "vertical" &&
+        REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status));
+      if (canOpenHookSelector) {
+        setHookSelectorOpen(true);
+      }
+      patchPayload.retentionStrategyProfile = "viral";
+      patchPayload.transitions = true;
+    } else if (tip.action === "skip_segment") {
+      setAutoCutBoringEnabled(true);
+      applyMaxCuts(maxCutsRequested + 1);
+      patchPayload.onlyCuts = false;
+      if (
+        typeof tip.segmentId === "string" &&
+        Number.isFinite(tip.segmentStartSec) &&
+        Number.isFinite(tip.segmentEndSec)
+      ) {
+        const startSec = clamp(Number(tip.segmentStartSec), 0, Number.MAX_SAFE_INTEGER);
+        const endSec = Math.max(startSec + 0.08, Number(tip.segmentEndSec));
+        setPreviewTipSkipRangesByJob((prev) => {
+          const existing = prev[jobId] || [];
+          if (existing.some((entry) => entry.id === tip.id)) return prev;
+          return {
+            ...prev,
+            [jobId]: [...existing, { id: tip.id, startSec, endSec }].sort((left, right) => left.startSec - right.startSec),
+          };
+        });
+        const actionKey = toTimelineSegmentActionKey(jobId, tip.segmentId);
+        setTimelineSegmentActionByKey((prev) => ({ ...prev, [actionKey]: "remove" }));
+      }
+    } else if (tip.action === "increase_pacing") {
+      setBingeModeEnabled(true);
+      setAutoTransitionsEnabled(true);
+      applyMaxCuts(maxCutsRequested + 2);
+      patchPayload.onlyCuts = false;
+      patchPayload.transitions = true;
+      setPreviewTipPlaybackRateByJob((prev) => ({
+        ...prev,
+        [jobId]: Math.max(1.06, prev[jobId] || 1),
+      }));
+    } else if (tip.action === "stronger_filler_pass") {
+      setAutoCutBoringEnabled(true);
+      applyMaxCuts(maxCutsRequested + 2);
+      patchPayload.onlyCuts = false;
+      setPreviewTipPlaybackRateByJob((prev) => ({
+        ...prev,
+        [jobId]: Math.max(1.03, prev[jobId] || 1),
+      }));
+    } else if (tip.action === "steady_upgrade") {
+      setSmartZoomEnabled(true);
+      setAutoTransitionsEnabled(true);
+      patchPayload.smartZoom = true;
+      patchPayload.transitions = true;
+      setPreviewTipPlaybackRateByJob((prev) => ({
+        ...prev,
+        [jobId]: Math.max(1.02, prev[jobId] || 1),
+      }));
+    } else if (tip.action === "hook_polish") {
+      menuTouchedRef.current.strategy = true;
+      setRetentionStrategyProfile("balanced");
+      setAutoTransitionsEnabled(true);
+      patchPayload.retentionStrategyProfile = "balanced";
+      patchPayload.transitions = true;
+    }
+
+    setPlatformRateRealtimeTick((prev) => prev + 1);
+    setPlatformRateUpdatedAtMs(Date.now());
+    if (previewImprovementTips.length > 1) {
+      setPreviewImprovementTipIndex((current) => (current + 1) % previewImprovementTips.length);
+    }
+
+    let toastDescription = `${tip.title} applied to live preview controls.`;
+    if (canApplyLiveSettingsInCurrentStage && accessToken && Object.keys(patchPayload).length > 0) {
+      try {
+        await apiFetch(`/api/jobs/${jobId}/live-settings`, {
+          method: "PATCH",
+          token: accessToken,
+          body: JSON.stringify(patchPayload),
+        });
+        toastDescription = `${tip.title} applied in real time while this render is still running.`;
+      } catch (error: any) {
+        if (error instanceof ApiError && error.code === "live_settings_stage_locked") {
+          toastDescription = "Render has already locked, so this tip now affects preview controls and next passes only.";
+        } else {
+          toastDescription = `${tip.title} applied to preview controls. Live sync failed, but you can still download the current preview output.`;
+        }
+      }
+    } else if (Object.keys(patchPayload).length > 0) {
+      toastDescription = "Applied to preview controls. Download uses the current preview output as shown.";
+    }
+
+    trackEditorEvent("preview_tip_applied", {
+      category: "interaction",
+      jobId,
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: activeSubtitlePreset,
+      metadata: {
+        tipId: tip.id,
+        action: tip.action,
+        stage: normalizeStatus(activeJob.status),
+        liveSyncAttempted: canApplyLiveSettingsInCurrentStage && Boolean(accessToken) && Object.keys(patchPayload).length > 0,
+      },
+    });
+
+    toast({
+      title: "Tip applied",
+      description: toastDescription,
+    });
+  }, [
+    accessToken,
+    activeJob?.id,
+    activeJob?.status,
+    activeSubtitlePreset,
+    canApplyLiveSettingsInCurrentStage,
+    maxCutsRequested,
+    previewImprovementTips.length,
+    previewTipAppliedIdsByJob,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    toast,
+    trackEditorEvent,
+  ]);
   const resolvePreviewImprovementToneMeta = (tone: PreviewImprovementTipTone) => {
     if (tone === "warning") {
       return {
@@ -9334,7 +9581,7 @@ const Editor = () => {
     return <Gauge className={className} />;
   };
   const activeTranscriptCueIndex = useMemo(() => {
-    if (!transcriptSeekEnabled || !activeTranscriptCues.length) {
+    if (!showVideo || !activeTranscriptCues.length) {
       activeTranscriptCueIndexRef.current = -1;
       return -1;
     }
@@ -9381,7 +9628,17 @@ const Editor = () => {
     }
     activeTranscriptCueIndexRef.current = -1;
     return -1;
-  }, [activeTranscriptCues, previewCurrentTimeSec, transcriptSeekEnabled]);
+  }, [activeTranscriptCues, previewCurrentTimeSec, showVideo]);
+  const activePreviewTranscriptCue =
+    activeTranscriptCueIndex >= 0 && activeTranscriptCueIndex < activeTranscriptCues.length
+      ? activeTranscriptCues[activeTranscriptCueIndex]
+      : null;
+  const activePreviewTranscriptText = useMemo(() => {
+    const raw = String(activePreviewTranscriptCue?.text || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    if (raw.length <= 190) return raw;
+    return `${raw.slice(0, 187).trimEnd()}...`;
+  }, [activePreviewTranscriptCue]);
   useEffect(() => {
     if (!shouldSyncPreviewClock) return;
     const video = previewVideoRef.current;
@@ -9411,6 +9668,14 @@ const Editor = () => {
     }, rotateEveryMs);
     return () => window.clearInterval(timer);
   }, [activeJob, performanceConstrained, previewImprovementTips.length]);
+  useEffect(() => {
+    if (!showVideo) return;
+    const video = previewVideoRef.current;
+    if (!video) return;
+    const nextRate = clamp(activePreviewPlaybackRate, 0.75, 1.35);
+    if (Math.abs((video.playbackRate || 1) - nextRate) < 0.01) return;
+    video.playbackRate = nextRate;
+  }, [activePreviewPlaybackRate, showVideo, activeJob?.id, resolvedPreviewOutputUrl]);
   const canApplyHookRealtime = Boolean(
     activeJob && REALTIME_HOOK_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
@@ -9793,16 +10058,17 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    video.playbackRate = clamp(activePreviewPlaybackRate, 0.75, 1.35);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
     ensurePlaybackTelemetry(activeJob.id, duration, currentTime);
     previewTimeSyncRef.current = {
       atMs: typeof performance !== "undefined" && typeof performance.now === "function"
         ? performance.now()
-        : Date.now(),
+      : Date.now(),
       timeSec: currentTime,
     };
     setPreviewCurrentTimeSec(currentTime);
-  }, [activeJob, ensurePlaybackTelemetry]);
+  }, [activeJob, activePreviewPlaybackRate, ensurePlaybackTelemetry]);
 
   const handleSeekPreviewToTranscriptCue = useCallback((cue: EditorTranscriptCue) => {
     if (!transcriptSeekEnabled) return;
@@ -9831,7 +10097,24 @@ const Editor = () => {
     if (!Number.isFinite(duration) || duration <= 0) return;
 
     const telemetry = ensurePlaybackTelemetry(activeJob.id, duration);
-    const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    let currentTime = clamp(Number(video.currentTime || 0), 0, duration);
+    if (activePreviewTipSkipRanges.length > 0) {
+      const matchingSkipRange = activePreviewTipSkipRanges.find((range) => (
+        currentTime >= range.startSec &&
+        currentTime < Math.max(range.startSec + 0.06, range.endSec - 0.02)
+      ));
+      if (matchingSkipRange) {
+        const seekTarget = clamp(matchingSkipRange.endSec + 0.02, 0, Math.max(0, duration - 0.02));
+        if (seekTarget > currentTime + 0.01) {
+          try {
+            video.currentTime = seekTarget;
+            currentTime = seekTarget;
+          } catch {
+            // No-op: browsers may reject rapid seeks while metadata updates.
+          }
+        }
+      }
+    }
     const nowMs = typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
@@ -9876,6 +10159,7 @@ const Editor = () => {
       );
     }
   }, [
+    activePreviewTipSkipRanges,
     activeJob,
     ensurePlaybackTelemetry,
     previewTimeStateUpdateDeltaSec,
@@ -10141,6 +10425,13 @@ const Editor = () => {
   const uploadModePromptActiveSelection: UploadModePromptSelection = fullAutoYoutubeEnabled
     ? "full_auto_youtube"
     : pipelinePowerMode;
+  const recommendedUploadFormat: "horizontal" | "vertical" =
+    retentionTargetPlatform === "youtube" ? "horizontal" : "vertical";
+  const recommendedUploadFormatLabel = recommendedUploadFormat === "vertical"
+    ? "Recommended now: Vertical 9:16 for TikTok + IG Reels."
+    : "Recommended now: Horizontal 16:9 for YouTube long-form.";
+  const pendingUploadMode: "horizontal" | "vertical" =
+    pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal");
   const activeAdvancedLearningModeLabels = useMemo(() => {
     const labels: string[] = [];
     if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
@@ -10189,9 +10480,31 @@ const Editor = () => {
   const closeUploadModePrompt = useCallback(() => {
     setUploadModePromptOpen(false);
     setUploadRenderSettingsOpen(false);
-    setPendingUploadSelection(null);
     setUploadModeNichePresetsEnabled(false);
+    setUploadModeNichePresetGridReady(false);
+    setPendingUploadSelection(null);
   }, []);
+
+  useEffect(() => {
+    if (!uploadModePromptOpen || !uploadModeNichePresetsEnabled) {
+      setUploadModeNichePresetGridReady(false);
+      return;
+    }
+    if (typeof window === "undefined") {
+      setUploadModeNichePresetGridReady(true);
+      return;
+    }
+    let timeoutId: number | null = null;
+    const frameId = window.requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        setUploadModeNichePresetGridReady(true);
+      }, 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [uploadModePromptOpen, uploadModeNichePresetsEnabled]);
 
   const handleSelectUploadModePrompt = useCallback((selection: UploadModePromptSelection) => {
     const pending = pendingUploadSelection;
@@ -10638,22 +10951,25 @@ const Editor = () => {
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
   const uploadFormatCardClass = (active: boolean) =>
-    `group rounded-2xl border p-4 text-left transition-all ${
+    `group relative min-h-[154px] overflow-hidden rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
       active
-        ? "border-primary/55 bg-[linear-gradient(145deg,rgba(59,130,246,0.16),rgba(16,185,129,0.12))] shadow-[0_24px_40px_-30px_hsl(var(--primary)/0.85)]"
+        ? "border-primary/60 bg-[linear-gradient(145deg,rgba(59,130,246,0.2),rgba(16,185,129,0.14))] shadow-[0_24px_44px_-30px_hsl(var(--primary)/0.95)] ring-1 ring-primary/45"
         : "border-border/60 bg-background/35 hover:border-primary/40 hover:bg-primary/8"
     }`;
   const verticalModeChipClass = (active: boolean) =>
     `vertical-mode-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
 
-  const selectUploadFormatMode = useCallback((mode: "horizontal" | "vertical") => {
+  const selectUploadFormatMode = useCallback((
+    mode: "horizontal" | "vertical",
+    source: "upload_zone" | "upload_mode_modal" = "upload_zone",
+  ) => {
     trackEditorEvent("upload_format_selected", {
       retentionProfile: retentionStrategyProfile,
       targetPlatform: retentionTargetPlatform,
       captionStyle: activeSubtitlePreset,
       metadata: {
         mode,
-        source: "upload_zone",
+        source,
       },
     });
     if (mode === "vertical") {
@@ -10667,6 +10983,11 @@ const Editor = () => {
     setRenderMode,
     trackEditorEvent,
   ]);
+
+  const selectPendingUploadFormatMode = useCallback((mode: "horizontal" | "vertical") => {
+    selectUploadFormatMode(mode, "upload_mode_modal");
+    setPendingUploadSelection((prev) => (prev ? { ...prev, mode } : prev));
+  }, [selectUploadFormatMode]);
 
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
@@ -10685,10 +11006,15 @@ const Editor = () => {
                 });
                 setRenderMode("horizontal");
               }}
+              aria-pressed={!isVerticalMode}
+              aria-label="Switch render format to horizontal 16:9"
             >
-              <div className="flex flex-col items-center">
-                <Monitor className="h-5 w-5" aria-hidden />
-                <span className="text-[11px] mt-1">Horizontal</span>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Horizontal 16:9</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Long-form YouTube and widescreen exports.</p>
+                </div>
+                <Monitor className="h-5 w-5 shrink-0" aria-hidden />
               </div>
             </button>
             <button
@@ -10703,10 +11029,15 @@ const Editor = () => {
                 });
                 setRenderMode("vertical");
               }}
+              aria-pressed={isVerticalMode}
+              aria-label="Switch render format to vertical 9:16"
             >
-              <div className="flex flex-col items-center">
-                <Smartphone className="h-5 w-5" aria-hidden />
-                <span className="text-[11px] mt-1">Vertical</span>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Vertical 9:16</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Short-form framing with auto crop.</p>
+                </div>
+                <Smartphone className="h-5 w-5 shrink-0" aria-hidden />
               </div>
             </button>
           </div>
@@ -12085,35 +12416,11 @@ const Editor = () => {
                             </button>
                           </div>
                         </div>
-                        <div className="mb-3 space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
-                            <span className="text-[11px] text-muted-foreground">Click any niche</span>
-                          </div>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                            {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
-                              const active = selectedYouTubeNichePresetId === preset.id;
-                              return (
-                                <button
-                                  key={preset.id}
-                                  type="button"
-                                  onClick={() => applyYouTubeNichePreset(preset)}
-                                  className={`min-h-[86px] rounded-xl border px-3 py-2 text-left transition-all ${
-                                    active
-                                      ? "border-primary/55 bg-primary/14 shadow-sm"
-                                      : "border-border/55 bg-background/35 hover:border-primary/35 hover:bg-primary/8"
-                                  }`}
-                                  aria-pressed={active}
-                                  aria-label={`Apply ${preset.label} preset`}
-                                >
-                                  <div className="space-y-1">
-                                    <p className="text-sm font-semibold text-foreground">{preset.label}</p>
-                                    <p className="text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
+                        <div className="mb-3 rounded-xl border border-border/55 bg-background/25 px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets moved</p>
+                          <p className="mt-1 text-xs text-foreground/85">
+                            Choose YouTube niche presets in the Upload Mode popup right before rendering.
+                          </p>
                         </div>
                         <div className="mb-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.14),rgba(10,14,30,0.52))] p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -12557,38 +12864,63 @@ const Editor = () => {
                       <p className="text-xs text-muted-foreground">
                         Vertical mode auto-crops to 9:16. If webcam strip is enabled, layout space is reserved automatically.
                       </p>
+                      <p className="mt-1 text-[11px] text-primary/90">{recommendedUploadFormatLabel}</p>
                     </div>
-                    <Badge variant="outline" className="border-primary/45 bg-primary/10 text-primary">
-                      {isVerticalMode ? "Vertical selected" : "Horizontal selected"}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="border-primary/45 bg-primary/10 text-primary">
+                        {isVerticalMode ? "Vertical selected" : "Horizontal selected"}
+                      </Badge>
+                      <Badge variant="outline" className="border-border/60 bg-background/35 text-muted-foreground">
+                        {recommendedUploadFormat === "vertical" ? "Vertical recommended" : "Horizontal recommended"}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <button
                       type="button"
                       className={uploadFormatCardClass(!isVerticalMode)}
                       onClick={() => selectUploadFormatMode("horizontal")}
+                      aria-pressed={!isVerticalMode}
+                      aria-label="Select horizontal 16:9 format"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="space-y-1">
                           <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
-                          <p className="text-xs text-muted-foreground">Best for long-form YouTube and standard exports.</p>
+                          <p className="text-xs text-muted-foreground">Best for long-form YouTube and standard widescreen exports.</p>
                         </div>
-                        <Monitor className="h-5 w-5 text-primary" />
+                        <div className="flex items-center gap-1.5">
+                          {!isVerticalMode ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                          <Monitor className="h-5 w-5 text-primary" />
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">YouTube long-form</span>
+                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">Podcasts</span>
                       </div>
                     </button>
                     <button
                       type="button"
                       className={uploadFormatCardClass(isVerticalMode)}
                       onClick={() => selectUploadFormatMode("vertical")}
+                      aria-pressed={isVerticalMode}
+                      aria-label="Select vertical 9:16 format"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="space-y-1">
                           <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
                           <p className="text-xs text-muted-foreground">
                             Shorts-first flow with auto crop, premium captions, and optional webcam strip spacing.
                           </p>
                         </div>
-                        <Smartphone className="h-5 w-5 text-primary" />
+                        <div className="flex items-center gap-1.5">
+                          {isVerticalMode ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                          <Smartphone className="h-5 w-5 text-primary" />
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">TikTok</span>
+                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">IG Reels</span>
+                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">Shorts</span>
                       </div>
                     </button>
                   </div>
@@ -13216,13 +13548,22 @@ const Editor = () => {
                                   <button
                                     key={fit}
                                     type="button"
-                                    className={verticalModeChipClass(bottomFitMode === fit)}
-                                    onClick={() => setBottomFitMode(fit)}
+                                    className={`${verticalModeChipClass(effectiveVerticalBottomFitMode === fit)} ${skipManualWebcamCrop ? "cursor-not-allowed opacity-60" : ""}`}
+                                    onClick={() => {
+                                      if (skipManualWebcamCrop) return;
+                                      setBottomFitMode(fit);
+                                    }}
+                                    disabled={skipManualWebcamCrop}
                                   >
                                     {fit === "cover" ? "Cover (default)" : "Contain"}
                                   </button>
                                 ))}
                               </div>
+                              {skipManualWebcamCrop ? (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Auto 9:16 mode locks fit to full-frame cover for complete Shorts framing.
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -13290,6 +13631,13 @@ const Editor = () => {
                         </div>
                       </>
                     )}
+                    {showVideo && activePreviewTranscriptText ? (
+                      <div className="pointer-events-none absolute inset-x-2 bottom-3 z-20 flex justify-center">
+                        <div className="max-w-[92%] rounded-lg border border-black/60 bg-black/72 px-3 py-1.5 text-center text-sm font-semibold leading-snug text-white shadow-[0_14px_24px_-16px_rgba(0,0,0,0.95)] backdrop-blur-sm">
+                          {activePreviewTranscriptText}
+                        </div>
+                      </div>
+                    ) : null}
                     <AnimatePresence mode="wait">
                       {shouldShowPreviewImprovementPopups && activePreviewImprovementTip ? (
                         <motion.div
@@ -13298,12 +13646,21 @@ const Editor = () => {
                           animate={{ opacity: 1, y: [0, -2, 0], scale: [1, 1.01, 1] }}
                           exit={{ opacity: 0, y: -10, scale: 0.98 }}
                           transition={{ duration: 0.34, ease: "easeOut" }}
-                          className="pointer-events-none absolute left-2 right-2 top-2 z-20"
+                          className="pointer-events-auto absolute left-2 right-2 top-2 z-20"
                         >
                           {(() => {
                             const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
                             return (
-                              <div className={`rounded-xl border p-2.5 shadow-[0_16px_38px_-24px_rgba(2,6,23,0.9)] backdrop-blur-md ${toneMeta.cardClassName}`}>
+                              <button
+                                type="button"
+                                className={`w-full rounded-xl border p-2.5 text-left shadow-[0_16px_38px_-24px_rgba(2,6,23,0.9)] backdrop-blur-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+                                  activePreviewTipAlreadyApplied
+                                    ? "ring-1 ring-emerald-300/45"
+                                    : "hover:border-primary/45"
+                                } ${toneMeta.cardClassName}`}
+                                onClick={() => void handleApplyPreviewImprovementTip(activePreviewImprovementTip)}
+                                aria-label={`Apply tip: ${activePreviewImprovementTip.title}`}
+                              >
                                 <div className="flex items-start gap-2">
                                   <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
                                     {renderPreviewImprovementIcon(activePreviewImprovementTip.icon, "h-3.5 w-3.5")}
@@ -13312,9 +13669,12 @@ const Editor = () => {
                                     <p className="text-[10px] uppercase tracking-[0.14em] text-foreground/75">{toneMeta.label}</p>
                                     <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                     <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
+                                    <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
+                                      {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply live"}
+                                    </p>
                                   </div>
                                 </div>
-                              </div>
+                              </button>
                             );
                           })()}
                         </motion.div>
@@ -13452,12 +13812,21 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: -14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
+                      className="pointer-events-auto absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
                         return (
-                          <div className={`rounded-xl border p-3 shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md ${toneMeta.cardClassName}`}>
+                          <button
+                            type="button"
+                            className={`w-full rounded-xl border p-3 text-left shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+                              activePreviewTipAlreadyApplied
+                                ? "ring-1 ring-emerald-300/45"
+                                : "hover:border-primary/45"
+                            } ${toneMeta.cardClassName}`}
+                            onClick={() => void handleApplyPreviewImprovementTip(activePreviewImprovementTip)}
+                            aria-label={`Apply tip: ${activePreviewImprovementTip.title}`}
+                          >
                             <div className="flex items-start gap-2.5">
                               <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
                                 {renderPreviewImprovementIcon(activePreviewImprovementTip.icon, "h-4 w-4")}
@@ -13468,9 +13837,12 @@ const Editor = () => {
                                 </Badge>
                                 <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewImprovementTip.detail}</p>
+                                <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
+                                  {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                </p>
                               </div>
                             </div>
-                          </div>
+                          </button>
                         );
                       })()}
                     </motion.aside>
@@ -13484,12 +13856,21 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-none absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
+                      className="pointer-events-auto absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(sidePreviewImprovementTip.tone);
                         return (
-                          <div className={`rounded-xl border p-3 shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md ${toneMeta.cardClassName}`}>
+                          <button
+                            type="button"
+                            className={`w-full rounded-xl border p-3 text-left shadow-[0_18px_38px_-26px_rgba(8,14,30,0.95)] backdrop-blur-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+                              sidePreviewTipAlreadyApplied
+                                ? "ring-1 ring-emerald-300/45"
+                                : "hover:border-primary/45"
+                            } ${toneMeta.cardClassName}`}
+                            onClick={() => void handleApplyPreviewImprovementTip(sidePreviewImprovementTip)}
+                            aria-label={`Apply tip: ${sidePreviewImprovementTip.title}`}
+                          >
                             <div className="flex items-start gap-2.5">
                               <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${toneMeta.iconClassName}`}>
                                 {renderPreviewImprovementIcon(sidePreviewImprovementTip.icon, "h-4 w-4")}
@@ -13500,9 +13881,12 @@ const Editor = () => {
                                 </Badge>
                                 <p className="text-xs font-semibold leading-snug text-foreground">{sidePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewImprovementTip.detail}</p>
+                                <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
+                                  {sidePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                </p>
                               </div>
                             </div>
-                          </div>
+                          </button>
                         );
                       })()}
                     </motion.aside>
@@ -14647,6 +15031,56 @@ const Editor = () => {
             ) : null}
 
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Output Format</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{recommendedUploadFormatLabel}</p>
+                </div>
+                <Badge className="border-primary/40 bg-primary/12 text-primary">
+                  {pendingUploadMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  className={uploadFormatCardClass(pendingUploadMode === "horizontal")}
+                  onClick={() => selectPendingUploadFormatMode("horizontal")}
+                  aria-pressed={pendingUploadMode === "horizontal"}
+                  aria-label="Select horizontal format for this upload"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
+                      <p className="text-xs text-muted-foreground">Long-form YouTube and widescreen delivery.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {pendingUploadMode === "horizontal" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                      <Monitor className="h-5 w-5 text-primary" />
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className={uploadFormatCardClass(pendingUploadMode === "vertical")}
+                  onClick={() => selectPendingUploadFormatMode("vertical")}
+                  aria-pressed={pendingUploadMode === "vertical"}
+                  aria-label="Select vertical format for this upload"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
+                      <p className="text-xs text-muted-foreground">Short-form framing with automatic crop behavior.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {pendingUploadMode === "vertical" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                      <Smartphone className="h-5 w-5 text-primary" />
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-3 text-left"
@@ -14856,59 +15290,55 @@ const Editor = () => {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
-                    <p className="mt-1 text-xs text-foreground/85">
-                      {uploadModeNichePresetsEnabled
-                        ? "Pick a niche to auto-apply pacing, cut density, and effect defaults."
-                        : "Turn this on to show one-tap YouTube niche presets in this modal."}
-                    </p>
+                    <p className="mt-1 text-xs text-foreground/85">Pick a niche to auto-apply pacing, cut density, and effect defaults.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge className={uploadModeNichePresetsEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/55 bg-background/35 text-muted-foreground"}>
+                    <Badge className={uploadModeNichePresetsEnabled
+                      ? "border-primary/35 bg-primary/10 text-primary"
+                      : "border-border/55 bg-background/40 text-muted-foreground"}
+                    >
                       {uploadModeNichePresetsEnabled ? "Enabled" : "Disabled"}
                     </Badge>
                     <Switch
                       checked={uploadModeNichePresetsEnabled}
-                      onCheckedChange={(checked) => {
-                        setUploadModeNichePresetsEnabled(checked);
-                        trackEditorEvent("upload_mode_niche_presets_toggled", {
-                          retentionProfile: retentionStrategyProfile,
-                          targetPlatform: retentionTargetPlatform,
-                          captionStyle: activeSubtitlePreset,
-                          metadata: {
-                            enabled: checked,
-                            source: "upload_mode_modal",
-                          },
-                        });
-                      }}
+                      onCheckedChange={(checked) => setUploadModeNichePresetsEnabled(Boolean(checked))}
                       aria-label="Toggle YouTube niche presets"
                     />
                   </div>
                 </div>
 
                 {uploadModeNichePresetsEnabled ? (
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
-                      const active = selectedYouTubeNichePresetId === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => applyYouTubeNichePreset(preset)}
-                          className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
-                            active
-                              ? "border-primary/55 bg-primary/14 shadow-sm"
-                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
-                          }`}
-                          aria-pressed={active}
-                          aria-label={`Apply ${preset.label} preset`}
-                        >
-                          <p className="text-sm font-semibold text-foreground">{preset.label}</p>
-                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                  uploadModeNichePresetGridReady ? (
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
+                        const active = selectedYouTubeNichePresetId === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => applyYouTubeNichePreset(preset)}
+                            className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
+                              active
+                                ? "border-primary/55 bg-primary/14 shadow-sm"
+                                : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                            }`}
+                            aria-pressed={active}
+                            aria-label={`Apply ${preset.label} preset`}
+                          >
+                            <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">Loading niche presets...</p>
+                  )
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Turn this on to load niche presets only when needed for the current upload.
+                  </p>
+                )}
               </div>
 
               <div className="mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.16),rgba(10,14,30,0.56))] p-3">
