@@ -262,11 +262,32 @@ const inferPreviewEmoji = (value: string) => {
   }
   return "";
 };
+const drawRoundedRectPath = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) => {
+  const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+};
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const VERTICAL_CAPTION_POSITION_MIN = 0.02;
-const VERTICAL_CAPTION_POSITION_MAX = 0.98;
+const VERTICAL_CAPTION_POSITION_MIN = 0;
+const VERTICAL_CAPTION_POSITION_MAX = 1;
 const clampCaptionPosition = (value: number) =>
   Number(clamp(value, VERTICAL_CAPTION_POSITION_MIN, VERTICAL_CAPTION_POSITION_MAX).toFixed(4));
 const MAX_CUTS_MIN = 1;
@@ -603,8 +624,8 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   description: string;
   platformHint?: string;
 }> = [
-  { id: "rage_mode", label: "CapCut Kinetic", description: "Fast kinetic pops with aggressive mobile readability.", platformHint: "TikTok" },
-  { id: "bold_clean_box", label: "Reels Clean Box", description: "Clear white captions in a high-readability box.", platformHint: "IG Reels" },
+  { id: "rage_mode", label: "TikTok Headline", description: "Big all-caps white headline look for viral clips.", platformHint: "TikTok" },
+  { id: "bold_clean_box", label: "White Story Card", description: "Rounded white card with dark text, similar to social headline overlays.", platformHint: "IG Reels" },
   { id: "cinema_punch", label: "Shorts Bold", description: "High-contrast cinematic styling for Shorts.", platformHint: "YouTube Shorts" },
   { id: "mrbeast_animated", label: "Opus Pop", description: "Word-level hype captions with creator-style pop timing." },
   { id: "basic_clean", label: "Minimal Bold", description: "Minimal layout with clean bold readability." },
@@ -643,12 +664,12 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "kinetic_word", animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   bold_clean_box: {
-    fontId: "sans_bold", outlineColor: "000000", outlineWidth: 6, animation: "none", shadowStrength: 46,
-    dynamicMode: "classic", animationSpeed: 0.96, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
+    fontId: "sans_bold", outlineColor: "0B0D12", outlineWidth: 1, animation: "none", shadowStrength: 22,
+    dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
-    fontId: "impact", outlineColor: "1A0202", outlineWidth: 14, animation: "bounce", shadowStrength: 76,
-    dynamicMode: "kinetic_word", animationSpeed: 1.14, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
+    fontId: "impact", outlineColor: "000000", outlineWidth: 12, animation: "none", shadowStrength: 68,
+    dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   ice_pop: {
     fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62,
@@ -667,8 +688,8 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "classic", animationSpeed: 0.92, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   shadow_strike: {
-    fontId: "display_black", outlineColor: "111827", outlineWidth: 10, animation: "none", shadowStrength: 92,
-    dynamicMode: "classic", animationSpeed: 1.02, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: false,
+    fontId: "display_black", outlineColor: "000000", outlineWidth: 9, animation: "none", shadowStrength: 90,
+    dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
 };
 const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, VerticalCaptionPresetOptionId> = {
@@ -707,16 +728,16 @@ const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
     glowColor: "rgba(34, 211, 238, 0.46)",
   },
   bold_clean_box: {
-    textColor: "#FFFFFF",
-    boxColor: "rgba(0, 0, 0, 0.72)",
-    borderColor: "rgba(248, 250, 252, 0.8)",
-    glowColor: "rgba(15, 23, 42, 0.42)",
+    textColor: "#0B0D12",
+    boxColor: "rgba(255, 255, 255, 0.96)",
+    borderColor: "rgba(15, 23, 42, 0.78)",
+    glowColor: "rgba(15, 23, 42, 0.18)",
   },
   rage_mode: {
-    textColor: "#FDE68A",
-    boxColor: "rgba(127, 29, 29, 0.56)",
-    borderColor: "rgba(251, 191, 36, 0.82)",
-    glowColor: "rgba(251, 146, 60, 0.52)",
+    textColor: "#FFFFFF",
+    boxColor: "rgba(0, 0, 0, 0)",
+    borderColor: "rgba(255, 255, 255, 0.96)",
+    glowColor: "rgba(0, 0, 0, 0.68)",
   },
   ice_pop: {
     textColor: "#E0F2FE",
@@ -744,10 +765,25 @@ const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
   },
   shadow_strike: {
     textColor: "#FFFFFF",
-    boxColor: "rgba(15, 23, 42, 0.72)",
-    borderColor: "rgba(148, 163, 184, 0.84)",
-    glowColor: "rgba(15, 23, 42, 0.78)",
+    boxColor: "rgba(0, 0, 0, 0)",
+    borderColor: "rgba(255, 255, 255, 0.9)",
+    glowColor: "rgba(0, 0, 0, 0.86)",
   },
+};
+const VERTICAL_CAPTION_PRESET_RENDER_HINTS: Record<
+  VerticalCaptionPresetOptionId,
+  { boxEnabled: boolean; uppercase: boolean }
+> = {
+  basic_clean: { boxEnabled: true, uppercase: false },
+  mrbeast_animated: { boxEnabled: false, uppercase: true },
+  neon_glow: { boxEnabled: false, uppercase: true },
+  bold_clean_box: { boxEnabled: true, uppercase: false },
+  rage_mode: { boxEnabled: false, uppercase: true },
+  ice_pop: { boxEnabled: false, uppercase: true },
+  retro_wave: { boxEnabled: false, uppercase: true },
+  glitch_pop: { boxEnabled: false, uppercase: true },
+  cinema_punch: { boxEnabled: true, uppercase: false },
+  shadow_strike: { boxEnabled: false, uppercase: true },
 };
 const DEFAULT_VERTICAL_CAPTION_STYLE: VerticalCaptionPresetOptionId = "rage_mode";
 const CREATOR_STYLE_LOCK_MIN = 0;
@@ -2837,8 +2873,6 @@ const Editor = () => {
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
-  const [uploadModeNichePresetsEnabled, setUploadModeNichePresetsEnabled] = useState(false);
-  const [uploadModeNichePresetGridReady, setUploadModeNichePresetGridReady] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -5790,6 +5824,11 @@ const Editor = () => {
     const nextX = clampCaptionPosition((event.clientX - rect.left) / rect.width);
     const nextY = clampCaptionPosition((event.clientY - rect.top) / rect.height);
     event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore capture failures on browsers that reject this pointer state.
+    }
     setVerticalCaptionPositionX(nextX);
     setVerticalCaptionPositionY(nextY);
     setVerticalCaptionDragState({
@@ -5895,9 +5934,16 @@ const Editor = () => {
     const captionBaseText = captionRawText || "Auto captions preview";
     const captionNoFillers = verticalCaptionRemoveFillers ? removePreviewFillers(captionBaseText) : captionBaseText;
     const captionAutoEmoji = verticalCaptionAutoEmoji ? inferPreviewEmoji(captionNoFillers) : "";
-    const captionTextForPreview = captionAutoEmoji && !PREVIEW_EMOJI_PATTERN.test(captionNoFillers)
+    const captionTextForPreviewRaw = captionAutoEmoji && !PREVIEW_EMOJI_PATTERN.test(captionNoFillers)
       ? `${captionNoFillers} ${captionAutoEmoji}`
       : captionNoFillers;
+    const captionPresetRenderHints =
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const shouldUppercasePreview = captionPresetRenderHints.uppercase && captionRawText.length === 0;
+    const captionTextForPreview = shouldUppercasePreview
+      ? captionTextForPreviewRaw.toUpperCase()
+      : captionTextForPreviewRaw;
 
     const drawVideoRegion = (
       src: WebcamCrop,
@@ -6046,17 +6092,38 @@ const Editor = () => {
             const lineHeight = Math.round(fontPx * 1.08);
             const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
             const textBlockHeight = lineHeight * lines.length;
-            const hitPadding = Math.round(fontPx * 0.55);
+            const boxEnabled = captionPresetRenderHints.boxEnabled;
+            const boxPaddingX = Math.round(fontPx * (boxEnabled ? 0.52 : 0.36));
+            const boxPaddingY = Math.round(fontPx * (boxEnabled ? 0.42 : 0.28));
+            const boxWidth = blockTextWidth + boxPaddingX * 2;
+            const boxHeight = textBlockHeight + boxPaddingY * 2;
+            const hitPadding = Math.round(fontPx * 0.2);
             verticalCaptionHitboxRef.current = {
-              left: centerX - blockTextWidth / 2 - hitPadding,
-              right: centerX + blockTextWidth / 2 + hitPadding,
-              top: centerY - textBlockHeight / 2 - hitPadding,
-              bottom: centerY + textBlockHeight / 2 + hitPadding,
+              left: centerX - boxWidth / 2 - hitPadding,
+              right: centerX + boxWidth / 2 + hitPadding,
+              top: centerY - boxHeight / 2 - hitPadding,
+              bottom: centerY + boxHeight / 2 + hitPadding,
             };
 
-            ctx.shadowColor = captionPalette.glowColor;
-            ctx.shadowBlur = Math.round(fontPx * (0.08 + captionShadowStrength * 0.52));
-            ctx.shadowOffsetY = Math.round(fontPx * 0.05 * captionShadowStrength);
+            if (boxEnabled) {
+              const radius = Math.round(Math.min(fontPx * 0.38, boxHeight * 0.24));
+              ctx.shadowColor = captionPalette.glowColor;
+              ctx.shadowBlur = Math.round(fontPx * (0.05 + captionShadowStrength * 0.28));
+              ctx.shadowOffsetY = Math.round(fontPx * 0.08);
+              drawRoundedRectPath(ctx, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, radius);
+              ctx.fillStyle = captionPalette.boxColor;
+              ctx.fill();
+              ctx.shadowColor = "transparent";
+              ctx.shadowBlur = 0;
+              ctx.shadowOffsetY = 0;
+              ctx.lineWidth = Math.max(1, Math.round(fontPx * 0.04));
+              ctx.strokeStyle = captionPalette.borderColor;
+              ctx.stroke();
+            }
+
+            ctx.shadowColor = boxEnabled ? "rgba(15, 23, 42, 0.22)" : captionPalette.glowColor;
+            ctx.shadowBlur = Math.round(fontPx * (boxEnabled ? 0.08 : 0.08 + captionShadowStrength * 0.52));
+            ctx.shadowOffsetY = Math.round(fontPx * (boxEnabled ? 0.03 : 0.05) * Math.max(0.35, captionShadowStrength));
             const centerOffset = ((lines.length - 1) * lineHeight) / 2;
             const allTokens = captionTextForPreview
               .replace(/\s+/g, " ")
@@ -6246,8 +6313,6 @@ const Editor = () => {
       mode: isVerticalMode ? "vertical" : "horizontal",
     });
     setUploadRenderSettingsOpen(false);
-    setUploadModeNichePresetsEnabled(false);
-    setUploadModeNichePresetGridReady(false);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -10480,31 +10545,8 @@ const Editor = () => {
   const closeUploadModePrompt = useCallback(() => {
     setUploadModePromptOpen(false);
     setUploadRenderSettingsOpen(false);
-    setUploadModeNichePresetsEnabled(false);
-    setUploadModeNichePresetGridReady(false);
     setPendingUploadSelection(null);
   }, []);
-
-  useEffect(() => {
-    if (!uploadModePromptOpen || !uploadModeNichePresetsEnabled) {
-      setUploadModeNichePresetGridReady(false);
-      return;
-    }
-    if (typeof window === "undefined") {
-      setUploadModeNichePresetGridReady(true);
-      return;
-    }
-    let timeoutId: number | null = null;
-    const frameId = window.requestAnimationFrame(() => {
-      timeoutId = window.setTimeout(() => {
-        setUploadModeNichePresetGridReady(true);
-      }, 0);
-    });
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-    };
-  }, [uploadModePromptOpen, uploadModeNichePresetsEnabled]);
 
   const handleSelectUploadModePrompt = useCallback((selection: UploadModePromptSelection) => {
     const pending = pendingUploadSelection;
@@ -15292,53 +15334,30 @@ const Editor = () => {
                     <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
                     <p className="mt-1 text-xs text-foreground/85">Pick a niche to auto-apply pacing, cut density, and effect defaults.</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className={uploadModeNichePresetsEnabled
-                      ? "border-primary/35 bg-primary/10 text-primary"
-                      : "border-border/55 bg-background/40 text-muted-foreground"}
-                    >
-                      {uploadModeNichePresetsEnabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                    <Switch
-                      checked={uploadModeNichePresetsEnabled}
-                      onCheckedChange={(checked) => setUploadModeNichePresetsEnabled(Boolean(checked))}
-                      aria-label="Toggle YouTube niche presets"
-                    />
-                  </div>
+                  <Badge className="border-primary/35 bg-primary/10 text-primary">In Upload Mode</Badge>
                 </div>
-
-                {uploadModeNichePresetsEnabled ? (
-                  uploadModeNichePresetGridReady ? (
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
-                        const active = selectedYouTubeNichePresetId === preset.id;
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => applyYouTubeNichePreset(preset)}
-                            className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
-                              active
-                                ? "border-primary/55 bg-primary/14 shadow-sm"
-                                : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
-                            }`}
-                            aria-pressed={active}
-                            aria-label={`Apply ${preset.label} preset`}
-                          >
-                            <p className="text-sm font-semibold text-foreground">{preset.label}</p>
-                            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-muted-foreground">Loading niche presets...</p>
-                  )
-                ) : (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    Turn this on to load niche presets only when needed for the current upload.
-                  </p>
-                )}
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
+                    const active = selectedYouTubeNichePresetId === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyYouTubeNichePreset(preset)}
+                        className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
+                          active
+                            ? "border-primary/55 bg-primary/14 shadow-sm"
+                            : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                        }`}
+                        aria-pressed={active}
+                        aria-label={`Apply ${preset.label} preset`}
+                      >
+                        <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.16),rgba(10,14,30,0.56))] p-3">
