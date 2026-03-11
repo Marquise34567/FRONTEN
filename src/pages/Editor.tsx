@@ -72,7 +72,6 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
-const UPLOAD_MODE_PROMPT_DEFER_MS = 16;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
@@ -319,6 +318,7 @@ type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
+type VerticalSelectionMode = "best_moments" | "story_arc" | "hook_storm" | "loop_builder";
 type VerticalCaptionPresetOptionId =
   | "basic_clean"
   | "mrbeast_animated"
@@ -591,6 +591,57 @@ const RETENTION_PROFILE_HINTS: Record<RetentionStrategyProfile, string> = {
   balanced: "Balanced = adaptive cuts + smooth flow",
   viral: "Viral = faster cuts + shock hooks",
 };
+const VERTICAL_SHORT_FORM_MODE_PRESETS: Array<{
+  id: VerticalSelectionMode;
+  label: string;
+  description: string;
+  profile: RetentionStrategyProfile;
+  platform: RetentionTargetPlatform;
+  editorMode: EditorModeSelection;
+  creativeVariant: CreativeVariant;
+  captionPreset: VerticalCaptionPresetOptionId;
+}> = [
+  {
+    id: "hook_storm",
+    label: "Hook Storm",
+    description: "Most aggressive hook-first ranking for short-form retention spikes.",
+    profile: "viral",
+    platform: "tiktok",
+    editorMode: "reaction",
+    creativeVariant: "punchy",
+    captionPreset: "rage_mode",
+  },
+  {
+    id: "best_moments",
+    label: "Best Moments",
+    description: "Balanced highlight extraction with broad audience-safe pacing.",
+    profile: "balanced",
+    platform: "instagram_reels",
+    editorMode: "auto",
+    creativeVariant: "balanced",
+    captionPreset: "bold_clean_box",
+  },
+  {
+    id: "story_arc",
+    label: "Story Arc",
+    description: "Narrative-first sequence for mini-story clips and explainers.",
+    profile: "safe",
+    platform: "youtube",
+    editorMode: "commentary",
+    creativeVariant: "dramatic",
+    captionPreset: "cinema_punch",
+  },
+  {
+    id: "loop_builder",
+    label: "Loop Builder",
+    description: "Pacing tuned for loopability and replay-friendly endings.",
+    profile: "viral",
+    platform: "tiktok",
+    editorMode: "reaction",
+    creativeVariant: "curiosity_first",
+    captionPreset: "mrbeast_animated",
+  },
+];
 const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; label: string }> = [
   { id: "impact", label: "Impact" },
   { id: "sans_bold", label: "Sans Bold" },
@@ -1180,12 +1231,13 @@ type VerticalCaptionDragState = {
   startX: number;
   startY: number;
 };
-type VerticalLayoutMode = "stacked" | "single";
+type VerticalLayoutMode = "stacked" | "single" | "auto";
 type VerticalModePayload = {
   enabled: true;
   output: { width: number; height: number };
   source?: { width: number; height: number };
   layout?: VerticalLayoutMode;
+  selectionMode?: VerticalSelectionMode;
   webcamCrop?: WebcamCrop | null;
   webcamPlacement?: { heightPct: number };
   topHeightPx?: number | null;
@@ -3243,6 +3295,8 @@ const mapEditorModeForBackend = (
   return value;
 };
 const isUltraPipelineMode = (mode: PipelinePowerMode) => mode === "ultra";
+const mapPipelinePowerModeForRequest = (mode: PipelinePowerMode): PipelinePowerMode =>
+  mode === "retention_king" ? "standard" : mode;
 const resolveFullAutoYoutubeTarget = (
   target: FullAutoYoutubeTarget,
   isVerticalMode: boolean,
@@ -3331,6 +3385,7 @@ const Editor = () => {
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
+  const [uploadModeExtrasOpen, setUploadModeExtrasOpen] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -3375,7 +3430,8 @@ const Editor = () => {
   });
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical";
-  const [verticalClipCount, setVerticalClipCount] = useState(0);
+  const [verticalClipCount, setVerticalClipCount] = useState(3);
+  const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("hook_storm");
   const [verticalCaptionText, setVerticalCaptionText] = useState("");
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
@@ -5667,6 +5723,7 @@ const Editor = () => {
       uploadModeOverride?: {
         pipelinePowerMode?: PipelinePowerMode;
         fullAutoYoutubeEnabled?: boolean;
+        continuityFirstMode?: boolean;
       };
     },
   ) => {
@@ -5678,18 +5735,22 @@ const Editor = () => {
     void ensureNotificationPermission("export_start");
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
     const resolvedPipelinePowerMode = renderOptions?.uploadModeOverride?.pipelinePowerMode ?? pipelinePowerMode;
+    const pipelinePowerModeForRequest = mapPipelinePowerModeForRequest(resolvedPipelinePowerMode);
     const resolvedFullAutoYoutubeEnabled = typeof renderOptions?.uploadModeOverride?.fullAutoYoutubeEnabled === "boolean"
       ? renderOptions.uploadModeOverride.fullAutoYoutubeEnabled
       : fullAutoYoutubeEnabled;
+    const resolvedContinuityFirstMode = typeof renderOptions?.uploadModeOverride?.continuityFirstMode === "boolean"
+      ? renderOptions.uploadModeOverride.continuityFirstMode
+      : continuityFirstEnabled;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
     const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
       strategyProfile: effectiveRetentionStrategyProfile,
       longFormPreset,
     });
-    const editorModeForJob = mapEditorModeForBackend(editorMode, resolvedPipelinePowerMode);
+    const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerModeForRequest);
     const autoModeV3Defaults = resolveAutoModeV3Defaults({
       editorMode: editorModeForJob,
-      pipelinePowerMode: resolvedPipelinePowerMode,
+      pipelinePowerMode: pipelinePowerModeForRequest,
       strategyProfile: effectiveRetentionStrategyProfile,
       aggressionLevel: effectiveRetentionAggressionLevel,
       maxCuts: maxCutsRequested,
@@ -5697,11 +5758,11 @@ const Editor = () => {
       longFormAggression,
       longFormClarityVsSpeed,
     });
-    const fastModeForJob = isUltraPipelineMode(resolvedPipelinePowerMode);
+    const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
     const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
     const adaptiveLearningPayload = {
       coldStartAutopilot: coldStartAutopilotEnabled,
-      continuityFirstMode: continuityFirstEnabled,
+      continuityFirstMode: resolvedContinuityFirstMode,
       exploreX3Mode: exploreX3Enabled,
       topHumanGuardMode: topHumanGuardEnabled,
       creatorStyleLock: creatorStyleLockForJob,
@@ -5793,7 +5854,7 @@ const Editor = () => {
               audioBitrateKbps,
               encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
-              pipelinePowerMode: resolvedPipelinePowerMode,
+              pipelinePowerMode: pipelinePowerModeForRequest,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -5830,7 +5891,7 @@ const Editor = () => {
               audioBitrateKbps,
               encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
-              pipelinePowerMode: resolvedPipelinePowerMode,
+              pipelinePowerMode: pipelinePowerModeForRequest,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -6126,7 +6187,8 @@ const Editor = () => {
     setBottomFitMode("cover");
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
-    setVerticalClipCount(0);
+    setVerticalClipCount(3);
+    setVerticalSelectionMode("hook_storm");
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -6198,6 +6260,7 @@ const Editor = () => {
     setBottomFitMode("cover");
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
+    setVerticalClipCount(3);
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -6376,9 +6439,7 @@ const Editor = () => {
   const effectiveVerticalBottomFitMode: VerticalFitMode =
     skipManualWebcamCrop ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode;
 
-  const verticalSelectionReady = skipManualWebcamCrop
-    ? Boolean(pendingVerticalFile && sourceVideoMeta)
-    : Boolean(pendingVerticalFile && sourceVideoMeta && effectiveWebcamCrop);
+  const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta);
 
   useEffect(() => {
     const video = verticalCompositionVideoRef.current;
@@ -6700,29 +6761,23 @@ const Editor = () => {
       toast({ title: "Preparing preview", description: "Wait for video metadata to load, then try again." });
       return;
     }
-    if (!skipManualWebcamCrop && !effectiveWebcamCrop) {
-      toast({ title: "Set webcam crop", description: "Adjust the crop box before rendering vertical output." });
-      return;
-    }
-    const verticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
-      verticalClipCount,
+      verticalClipCount: Math.max(3, verticalClipCount || 3),
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
-        layout: verticalLayout,
+        layout: "auto",
+        selectionMode: verticalSelectionMode,
         source: sourceVideoMeta,
-        webcamCrop: verticalLayout === "stacked" ? effectiveWebcamCrop : null,
-        webcamPlacement: verticalLayout === "stacked"
-          ? {
-              heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
-            }
-          : undefined,
-        topHeightPx: verticalLayout === "stacked" ? topHeightPx : null,
-        bottomFit: verticalLayout === "single" ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode,
+        webcamCrop: null,
+        webcamPlacement: {
+          heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
+        },
+        topHeightPx,
+        bottomFit: AUTO_VERTICAL_SINGLE_FIT_MODE,
         webcamFit: "cover",
-        paddingPx: verticalLayout === "stacked" ? clamp(webcamPaddingPx, 0, webcamPaddingMax) : 0,
+        paddingPx: 0,
       },
     });
     if (!ok) return;
@@ -6763,6 +6818,7 @@ const Editor = () => {
     uploadModeOverride?: {
       pipelinePowerMode?: PipelinePowerMode;
       fullAutoYoutubeEnabled?: boolean;
+      continuityFirstMode?: boolean;
     },
   ) => {
     if (fileCount > 1) {
@@ -6785,6 +6841,7 @@ const Editor = () => {
       mode: isVerticalMode ? "vertical" : "horizontal",
     });
     setUploadRenderSettingsOpen(false);
+    setUploadModeExtrasOpen(false);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -6967,10 +7024,11 @@ const Editor = () => {
           strategyProfile: effectiveRetentionStrategyProfile,
           longFormPreset,
         });
-        const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerMode);
+        const pipelinePowerModeForRequest = mapPipelinePowerModeForRequest(pipelinePowerMode);
+        const editorModeForJob = mapEditorModeForBackend(editorMode, pipelinePowerModeForRequest);
         const autoModeV3Defaults = resolveAutoModeV3Defaults({
           editorMode: editorModeForJob,
-          pipelinePowerMode,
+          pipelinePowerMode: pipelinePowerModeForRequest,
           strategyProfile: effectiveRetentionStrategyProfile,
           aggressionLevel: effectiveRetentionAggressionLevel,
           maxCuts: maxCutsRequested,
@@ -6982,7 +7040,7 @@ const Editor = () => {
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
         const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
-        const fastModeForJob = ultraPipelineMode;
+        const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
         const preferredHook = selectedHookByJob[job.id] || null;
@@ -7018,7 +7076,7 @@ const Editor = () => {
           audioBitrateKbps,
           encoding: { videoPreset, videoCrf, audioBitrateKbps },
           fastMode: fastModeForJob,
-          pipelinePowerMode,
+          pipelinePowerMode: pipelinePowerModeForRequest,
           coldStartAutopilot: coldStartAutopilotEnabled,
           continuityFirstMode: continuityFirstEnabled,
           exploreX3Mode: exploreX3Enabled,
@@ -7708,7 +7766,7 @@ const Editor = () => {
     toObjectRecord(metadataSummary?.niche) ??
     toObjectRecord(metadataSummary?.niche_profile) ??
     null;
-  const verticalSelectionMode = typeof metadataSummary?.selectionMode === "string"
+  const verticalSelectionModeFromJob = typeof metadataSummary?.selectionMode === "string"
     ? metadataSummary.selectionMode
     : typeof metadataSummary?.selection_mode === "string"
       ? metadataSummary.selection_mode
@@ -11863,6 +11921,7 @@ const Editor = () => {
   const closeUploadModePrompt = useCallback(() => {
     setUploadModePromptOpen(false);
     setUploadRenderSettingsOpen(false);
+    setUploadModeExtrasOpen(false);
     setPendingUploadSelection(null);
   }, []);
 
@@ -11881,8 +11940,8 @@ const Editor = () => {
 
     const uploadModeOverride =
       selection === "full_auto_youtube"
-        ? { pipelinePowerMode: "standard" as PipelinePowerMode, fullAutoYoutubeEnabled: true }
-        : { pipelinePowerMode: selection as PipelinePowerMode, fullAutoYoutubeEnabled: false };
+        ? { pipelinePowerMode: "standard" as PipelinePowerMode, fullAutoYoutubeEnabled: true, continuityFirstMode: true }
+        : { pipelinePowerMode: selection as PipelinePowerMode, fullAutoYoutubeEnabled: false, continuityFirstMode: true };
     const pendingFile = pending.file;
     const pendingFileCount = pending.fileCount;
     const pendingMode = pending.mode;
@@ -11899,6 +11958,7 @@ const Editor = () => {
 
     closeUploadModePrompt();
     const startUpload = () => {
+      setContinuityFirstEnabled(true);
       if (selection === "full_auto_youtube") {
         setFullAutoYoutubeEnabled(true);
         if (pipelinePowerMode !== "standard") {
@@ -11916,15 +11976,7 @@ const Editor = () => {
         uploadModeOverride,
       );
     };
-
-    if (typeof window === "undefined") {
-      startUpload();
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      window.setTimeout(startUpload, UPLOAD_MODE_PROMPT_DEFER_MS);
-    });
+    startUpload();
   }, [
     activeSubtitlePreset,
     closeUploadModePrompt,
@@ -11949,11 +12001,12 @@ const Editor = () => {
       setTangentKiller(true);
       return;
     }
-    setRetentionStrategyProfile("viral");
-    setLongFormPreset("ultra");
-    setLongFormAggression((prev) => Math.max(prev, LONG_FORM_PRESET_DEFAULTS.ultra.aggression));
-    setLongFormClarityVsSpeed((prev) => Math.min(prev, LONG_FORM_PRESET_DEFAULTS.ultra.clarityVsSpeed));
+    setRetentionStrategyProfile("balanced");
+    setLongFormPreset("balanced");
+    setLongFormAggression((prev) => Math.min(prev, 58));
+    setLongFormClarityVsSpeed((prev) => Math.max(prev, 78));
     setTangentKiller(true);
+    setContinuityFirstEnabled(true);
   }, [pipelinePowerMode]);
 
   useEffect(() => {
@@ -12428,6 +12481,8 @@ const Editor = () => {
     } else {
       presetMode = "vertical";
       setRenderMode("vertical");
+      setVerticalSelectionMode("hook_storm");
+      setVerticalClipCount(3);
       setRetentionStrategyProfile("viral");
       setRetentionTargetPlatform("tiktok");
       setEditorMode("reaction");
@@ -12468,7 +12523,42 @@ const Editor = () => {
         : "border-border/60 bg-background/35 hover:border-primary/40 hover:bg-primary/8"
     }`;
   const verticalModeChipClass = (active: boolean) =>
-    `vertical-mode-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
+    `vertical-opus-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
+  const activeVerticalShortFormPreset = useMemo(
+    () =>
+      VERTICAL_SHORT_FORM_MODE_PRESETS.find((preset) => preset.id === verticalSelectionMode) ||
+      VERTICAL_SHORT_FORM_MODE_PRESETS[0],
+    [verticalSelectionMode],
+  );
+
+  const applyVerticalShortFormPreset = useCallback((presetId: VerticalSelectionMode) => {
+    const preset = VERTICAL_SHORT_FORM_MODE_PRESETS.find((entry) => entry.id === presetId);
+    if (!preset) return;
+    menuTouchedRef.current.strategy = true;
+    menuTouchedRef.current.targetPlatform = true;
+    menuTouchedRef.current.editorMode = true;
+    setVerticalSelectionMode(preset.id);
+    setVerticalClipCount(3);
+    setRetentionStrategyProfile(preset.profile);
+    setRetentionTargetPlatform(preset.platform);
+    setEditorMode(preset.editorMode);
+    setCreativeVariant(preset.creativeVariant);
+    applyVerticalCaptionPreset(preset.captionPreset);
+    if (!autoCaptionsEnabled) {
+      setAutoCaptionsEnabled(true);
+      setSubtitleStyleDirty(true);
+    }
+    trackEditorEvent("vertical_short_form_mode_selected", {
+      retentionProfile: preset.profile,
+      targetPlatform: preset.platform,
+      captionStyle: preset.captionPreset,
+      metadata: {
+        selectionMode: preset.id,
+        editorMode: preset.editorMode,
+        creativeVariant: preset.creativeVariant,
+      },
+    });
+  }, [autoCaptionsEnabled, applyVerticalCaptionPreset, setSubtitleStyleDirty, trackEditorEvent]);
 
   const selectUploadFormatMode = useCallback((
     mode: "horizontal" | "vertical",
@@ -12747,7 +12837,7 @@ const Editor = () => {
               <div>
                 <p className="text-sm font-semibold text-foreground">Power Modes</p>
                 <p className="text-xs text-muted-foreground">
-                  Balanced keeps the middle ground, Fast prioritizes turnaround while still requiring a transcript, and Quality keeps transcript-guided hook picking on.
+                  Balanced keeps the middle ground, Fast prioritizes turnaround while still requiring a transcript, and Quality adds cleaner transcript-guided story flow with sentence-safe cuts.
                 </p>
               </div>
               <Badge className={paidTier ? "border-primary/45 bg-primary/20 text-primary-foreground" : "border-border/50 bg-background/40 text-muted-foreground"}>
@@ -12788,7 +12878,7 @@ const Editor = () => {
               <p className="mt-2 text-[11px] text-primary/90">
                 {pipelinePowerMode === "ultra"
                   ? "Fast mode active: accelerated upload/process with transcript still required."
-                  : "Quality mode active: transcript-guided hook analysis + aggressive binge cut profile enabled."}
+                  : "Quality mode active: transcript-guided hook analysis with cleaner long-form pacing and continuity guards."}
               </p>
             ) : null}
           </div>
@@ -13514,7 +13604,7 @@ const Editor = () => {
               Safe/Balanced/Viral controls candidate pacing aggression, then boundary critic blocks rough joins.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Balanced keeps the middle ground, Fast prioritizes turnaround while transcript remains required, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.
+              Balanced keeps the middle ground, Fast prioritizes turnaround while transcript remains required, and Quality keeps transcript-guided hook selection with sentence-safe continuity checks enforced.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
@@ -14292,7 +14382,7 @@ const Editor = () => {
                     </p>
                   ) : retentionKingPipelineMode ? (
                     <p className="text-[11px] text-primary">
-                      Quality mode active: transcript-guided hook analysis enabled.
+                      Quality mode active: transcript-guided hook analysis with cleaner long-form continuity.
                     </p>
                   ) : null}
                   {uploadingJobId && (
@@ -14308,64 +14398,65 @@ const Editor = () => {
               </div>
 
               {isVerticalMode && !isVerticalBuilderHidden && (
-                <div className="glass-card vertical-mode-shell p-5 space-y-5">
+                <div className="glass-card vertical-opus-shell p-5 space-y-5">
                   <div className="space-y-3">
-                    <div className="rounded-2xl border border-primary/35 bg-[linear-gradient(145deg,rgba(30,41,59,0.72),rgba(14,116,144,0.2))] p-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="vertical-opus-hero rounded-2xl border border-primary/40 p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
-                          <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Creator Studio</p>
+                          <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Repurpose Studio</p>
                           <p className="vertical-mode-subtitle text-xs text-muted-foreground">
-                            Premium short-form workflow with automatic 9:16 framing, animated captions, and optional webcam strip spacing.
+                            Opus-style short-form workflow: one upload, three dynamic variations, mobile-first captions.
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">9:16 Auto Crop</Badge>
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Animated Captions</Badge>
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">3 Variations</Badge>
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">9:16 Auto Frame</Badge>
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Auto Webcam Top</Badge>
                         </div>
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">1.</span> Upload once and preview instantly.
+                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">1.</span> Upload source once.
                         </div>
-                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">2.</span> Choose auto 9:16 or enable webcam strip.
+                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">2.</span> Pick short-form mode preset.
                         </div>
-                        <div className="rounded-xl border border-border/50 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">3.</span> Fine-tune captions, then render ranked clips.
+                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">3.</span> Export 3 ranked clips.
                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-foreground">Layout mode</p>
-                        <button
-                          type="button"
-                          className="hero-platform-pill vertical-mode-toggle mt-2 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/35 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
-                          onClick={toggleVerticalWebcamStrip}
-                        >
-                          <span
-                            className={`inline-block h-2.5 w-2.5 rounded-full ${
-                              skipManualWebcamCrop ? "bg-muted-foreground/60" : "bg-emerald-400"
-                            }`}
-                          />
-                          {skipManualWebcamCrop ? "Auto 9:16 (no webcam strip)" : "Webcam strip enabled (space reserved)"}
-                        </button>
+                    <div className="vertical-opus-card rounded-2xl border border-border/50 bg-card/45 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-foreground">Short-form Modes</p>
+                        <Badge variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
+                          Active: {activeVerticalShortFormPreset.label}
+                        </Badge>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {[0, 3, 4].map((count) => (
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                        {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
                           <button
-                            key={count}
+                            key={preset.id}
                             type="button"
-                            className={verticalModeChipClass(verticalClipCount === count)}
-                            onClick={() => setVerticalClipCount(count)}
+                            className={sectionPillClass(verticalSelectionMode === preset.id)}
+                            onClick={() => applyVerticalShortFormPreset(preset.id)}
+                            aria-label={preset.label}
                           >
-                            {count === 0 ? "Auto" : `${count} clips`}
+                            <div className="flex flex-col items-center">
+                              <span className="text-[11px] font-semibold">{preset.label}</span>
+                              <span className="mt-1 text-center text-[10px] text-muted-foreground">{preset.description}</span>
+                            </div>
                           </button>
                         ))}
                       </div>
-                      <p className="vertical-mode-note text-[11px] text-muted-foreground">
-                        Auto picks 3-4 ranked clips. Fixed values force an exact short-form batch size.
-                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-1 text-[10px] text-primary">
+                          Output locked to 3 dynamic clips
+                        </span>
+                        <span className="rounded-full border border-border/55 bg-background/45 px-2 py-1 text-[10px] text-muted-foreground">
+                          Webcam layout is auto-detected and placed at top when found
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -14660,156 +14751,56 @@ const Editor = () => {
 
                   {!verticalPreviewUrl && (
                     <p className="vertical-mode-note text-xs text-muted-foreground">
-                      Upload a file to open the webcam crop tool and 9:16 stacked preview.
+                      Upload a file to start auto layout preview and generate three ranked vertical variations.
                     </p>
                   )}
 
                   {verticalPreviewUrl && (
                     <div className="space-y-4">
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
-                        <div className="space-y-3">
-                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/45 p-3 space-y-3">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <p className="text-xs font-medium text-foreground">Manual Webcam Selector</p>
-                                <p className="text-[11px] text-muted-foreground">
-                                  Drag the crop box for the top strip. Move inside to reposition and drag handles to resize.
-                                </p>
-                              </div>
-                              <Badge variant="secondary" className="text-[10px]">
-                                {skipManualWebcamCrop ? "Auto 9:16 layout" : "Webcam strip layout"}
+                        <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-medium text-foreground">Source Preview</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Auto layout detects webcam-like framing and pins it to the top strip. If none is detected, output stays full-frame 9:16.
+                              </p>
+                            </div>
+                            <Badge variant="secondary" className="text-[10px]">
+                              Auto Layout
+                            </Badge>
+                          </div>
+                          <div
+                            ref={sourcePreviewRef}
+                            className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80"
+                            style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
+                          >
+                            <video
+                              ref={verticalSourceVideoRef}
+                              src={verticalPreviewUrl}
+                              preload={previewPreload}
+                              controls
+                              onLoadedMetadata={handleVerticalSourceMetadata}
+                              className="h-full w-full object-contain"
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {sourceVideoMeta ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                Source {Math.round(sourceVideoMeta.width)} x {Math.round(sourceVideoMeta.height)}
                               </Badge>
-                            </div>
-
-                            {!skipManualWebcamCrop ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 gap-1.5 text-xs"
-                                  onClick={() => {
-                                    if (!sourceVideoMeta) return;
-                                    setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
-                                    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-                                  }}
-                                >
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                  Reset crop
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 gap-1.5 text-xs"
-                                  onClick={() => {
-                                    if (!sourceVideoMeta) return;
-                                    setWebcamCrop((prev) =>
-                                      normalizeWebcamCrop(
-                                        {
-                                          x: 0,
-                                          y: prev?.y ?? Math.round(sourceVideoMeta.height * 0.05),
-                                          w: sourceVideoMeta.width,
-                                          h: prev?.h ?? Math.round(sourceVideoMeta.height * 0.4),
-                                        },
-                                        sourceVideoMeta,
-                                      ),
-                                    );
-                                  }}
-                                >
-                                  <Monitor className="h-3.5 w-3.5" />
-                                  Snap full width
-                                </Button>
-                              </div>
                             ) : null}
-
-                            <div
-                              ref={sourcePreviewRef}
-                              className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80 touch-none select-none"
-                              style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
-                            >
-                              <video
-                                ref={verticalSourceVideoRef}
-                                src={verticalPreviewUrl}
-                                preload={previewPreload}
-                                controls
-                                onLoadedMetadata={handleVerticalSourceMetadata}
-                                className="h-full w-full object-contain"
-                              />
-                              {!skipManualWebcamCrop && webcamCropStyle && (
-                                <div
-                                  className={`absolute border-2 border-primary bg-primary/15 ${cropInteraction ? "ring-2 ring-primary/40" : ""}`}
-                                  style={{
-                                    ...webcamCropStyle,
-                                    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.38)",
-                                  }}
-                                  onPointerDown={(event) => beginCropInteraction("move", event)}
-                                >
-                                  <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
-                                    Top strip
-                                  </span>
-                                  {webcamPaddingPx > 0 && webcamCrop && (
-                                    <div
-                                      className="absolute border border-foreground/70 border-dashed pointer-events-none"
-                                      style={{
-                                        left: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.w) * 100}%`,
-                                        top: `${(clamp(webcamPaddingPx, 0, webcamPaddingMax) / webcamCrop.h) * 100}%`,
-                                        width: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.w) * 100}%`,
-                                        height: `${100 - ((clamp(webcamPaddingPx, 0, webcamPaddingMax) * 2) / webcamCrop.h) * 100}%`,
-                                      }}
-                                    />
-                                  )}
-                                  {([
-                                    { key: "nw", className: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize" },
-                                    { key: "n", className: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize" },
-                                    { key: "ne", className: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize" },
-                                    { key: "e", className: "right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
-                                    { key: "se", className: "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize" },
-                                    { key: "s", className: "left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize" },
-                                    { key: "sw", className: "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize" },
-                                    { key: "w", className: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize" },
-                                  ] as { key: CropHandle; className: string }[]).map((handle) => (
-                                    <span
-                                      key={handle.key}
-                                      className={`absolute h-4 w-4 rounded-full border-2 border-background/80 bg-primary shadow-lg ring-1 ring-primary/55 ${handle.className}`}
-                                      onPointerDown={(event) => beginCropInteraction(handle.key, event)}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              {sourceVideoMeta ? (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Source {Math.round(sourceVideoMeta.width)} x {Math.round(sourceVideoMeta.height)}
-                                </Badge>
-                              ) : null}
-                              {!skipManualWebcamCrop && webcamCrop ? (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Crop {Math.round(webcamCrop.w)} x {Math.round(webcamCrop.h)}
-                                </Badge>
-                              ) : null}
-                              {!skipManualWebcamCrop && webcamCrop ? (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Offset {Math.round(webcamCrop.x)}, {Math.round(webcamCrop.y)}
-                                </Badge>
-                              ) : null}
-                            </div>
-
-                            <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                              <MousePointerClick className="w-3.5 h-3.5" />
-                              {skipManualWebcamCrop
-                                ? "Auto 9:16 mode is active. The full source is framed directly for shorts."
-                                : webcamCrop
-                                ? "Drag the crop region to place your webcam strip. Bottom panel spacing is auto-reserved."
-                                : "Webcam crop initializes when video metadata loads."}
-                            </p>
+                            <Badge variant="outline" className="text-[10px]">
+                              Output {DEFAULT_VERTICAL_OUTPUT.width} x {DEFAULT_VERTICAL_OUTPUT.height}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px]">
+                              Clips 3
+                            </Badge>
                           </div>
                         </div>
 
                         <div className="space-y-3">
-                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/50 p-3 space-y-3">
+                          <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/50 p-3 space-y-3">
                             <video
                               ref={verticalCompositionVideoRef}
                               src={verticalPreviewUrl}
@@ -14833,64 +14824,21 @@ const Editor = () => {
                               </div>
                             </div>
                             <p className="text-[11px] text-muted-foreground">
-                              Click or drag anywhere in the preview to move captions, then use Style sliders to adjust size and drop shadow.
+                              Drag captions in the preview for final placement. Caption style and animation are applied per variation.
                             </p>
                           </div>
-                          <div className="vertical-mode-panel rounded-xl border border-border/40 bg-card/40 p-3 space-y-3">
-                            {!skipManualWebcamCrop ? (
-                              <>
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                    <span>Webcam height</span>
-                                    <span>{Math.round(topHeightPx)}px ({Math.round(webcamTopHeightPct)}%)</span>
-                                  </div>
-                                  <Slider
-                                    value={[webcamTopHeightPct]}
-                                    min={20}
-                                    max={70}
-                                    step={1}
-                                    onValueChange={(value) => setWebcamTopHeightPct(clamp(value[0] ?? DEFAULT_WEBCAM_TOP_HEIGHT_PCT, 20, 70))}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                    <span>Padding</span>
-                                    <span>{Math.round(webcamPaddingPx)}px</span>
-                                  </div>
-                                  <Slider
-                                    value={[webcamPaddingPx]}
-                                    min={0}
-                                    max={Math.max(0, Math.min(120, webcamPaddingMax))}
-                                    step={1}
-                                    disabled={webcamPaddingMax <= 0}
-                                    onValueChange={(value) => setWebcamPaddingPx(clamp(Math.round(value[0] ?? 0), 0, webcamPaddingMax))}
-                                  />
-                                </div>
-                              </>
-                            ) : null}
-                            <div className="space-y-2">
-                              <p className="text-xs text-muted-foreground">Bottom fit</p>
-                              <div className="flex flex-wrap items-center gap-2">
-                                {(["cover", "contain"] as VerticalFitMode[]).map((fit) => (
-                                  <button
-                                    key={fit}
-                                    type="button"
-                                    className={`${verticalModeChipClass(effectiveVerticalBottomFitMode === fit)} ${skipManualWebcamCrop ? "cursor-not-allowed opacity-60" : ""}`}
-                                    onClick={() => {
-                                      if (skipManualWebcamCrop) return;
-                                      setBottomFitMode(fit);
-                                    }}
-                                    disabled={skipManualWebcamCrop}
-                                  >
-                                    {fit === "cover" ? "Cover (default)" : "Contain"}
-                                  </button>
-                                ))}
+                          <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/40 p-3 space-y-2">
+                            <p className="text-xs font-medium text-foreground">Mode Snapshot</p>
+                            <div className="grid grid-cols-1 gap-2 text-[11px] text-muted-foreground">
+                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
+                                Selection mode: <span className="font-medium text-foreground">{activeVerticalShortFormPreset.label}</span>
                               </div>
-                              {skipManualWebcamCrop ? (
-                                <p className="text-[11px] text-muted-foreground">
-                                  Auto 9:16 mode locks fit to full-frame cover for complete Shorts framing.
-                                </p>
-                              ) : null}
+                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
+                                Caption style: <span className="font-medium text-foreground">{VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === verticalCaptionPreset)?.label || "TikTok Headline"}</span>
+                              </div>
+                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
+                                Creative variant: <span className="font-medium text-foreground">{CREATIVE_VARIANT_OPTIONS.find((option) => option.value === creativeVariant)?.label || "Balanced"}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -14898,18 +14846,16 @@ const Editor = () => {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="vertical-mode-note text-xs text-muted-foreground">
-                          {skipManualWebcamCrop
-                            ? `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, auto-cropped 9:16 shorts framing.`
-                            : `Output: ${DEFAULT_VERTICAL_OUTPUT.width} x ${DEFAULT_VERTICAL_OUTPUT.height}, webcam strip + auto-spaced bottom frame.`}
+                          Export produces 3 dynamic short-form variations with modern TikTok-style caption treatment and auto webcam-top placement when detected.
                         </p>
                         <Button
                           type="button"
-                          className="hero-cta-button hero-cta-primary vertical-mode-cta w-full gap-2 rounded-full px-5 sm:w-auto"
-                          disabled={!verticalSelectionReady || !!uploadingJobId || !!cropInteraction}
+                          className="hero-cta-button hero-cta-primary vertical-opus-cta w-full gap-2 rounded-full px-5 sm:w-auto"
+                          disabled={!verticalSelectionReady || !!uploadingJobId}
                           onClick={startVerticalRender}
                         >
                           <ScissorsSquare className="w-4 h-4" />
-                          Create Vertical Clips
+                          Create 3 Dynamic Variations
                         </Button>
                       </div>
                     </div>
@@ -15765,6 +15711,7 @@ const Editor = () => {
                     )}
 
                     <Dialog open={feedbackDeepDiveOpen} onOpenChange={setFeedbackDeepDiveOpen}>
+                    {feedbackDeepDiveOpen ? (
                     <DialogContent className="deepdive-shell max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto p-3 backdrop-blur-xl sm:max-w-6xl sm:p-5">
                       <DialogHeader>
                         <DialogTitle className="text-xl font-display">Feedback Deep Dive</DialogTitle>
@@ -16153,6 +16100,7 @@ const Editor = () => {
                         </div>
                       </div>
                     </DialogContent>
+                    ) : null}
                   </Dialog>
                   </>
                 )}
@@ -16168,6 +16116,7 @@ const Editor = () => {
           if (!open) closeUploadModePrompt();
         }}
       >
+      {uploadModePromptOpen ? (
       <DialogContent
           className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_28px_90px_-42px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
@@ -16390,6 +16339,32 @@ const Editor = () => {
               </div>
             </div>
 
+            <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setUploadModeExtrasOpen((prev) => !prev)}
+                aria-expanded={uploadModeExtrasOpen}
+              >
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Extra Setup</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Creative variant, quick presets, AI placement controls, and director notes.
+                  </p>
+                </div>
+                <span className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/50 bg-background/45 text-foreground transition hover:border-primary/45 hover:text-primary">
+                  {uploadModeExtrasOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                </span>
+              </button>
+              {!uploadModeExtrasOpen ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Hidden by default for a faster popup open.
+                </p>
+              ) : null}
+            </div>
+
+            {uploadModeExtrasOpen ? (
+              <>
             <div className="relative z-10 mt-3 rounded-2xl border border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.9),hsl(var(--card)/0.6))] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -16675,6 +16650,8 @@ const Editor = () => {
                   : `No advanced toggles active · Style lock ${clampCreatorStyleLockPercent(creatorStyleLockPercent)}%`}
               </p>
             </div>
+              </>
+            ) : null}
 
             <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[11px] text-muted-foreground">
@@ -16691,6 +16668,7 @@ const Editor = () => {
             </div>
           </div>
         </DialogContent>
+      ) : null}
       </Dialog>
 
       <Dialog
@@ -16707,6 +16685,7 @@ const Editor = () => {
           setEditorGuideOpen(open);
         }}
       >
+        {editorGuideOpen ? (
         <DialogContent className="max-h-[85vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-display">Editor Help Menu</DialogTitle>
@@ -16752,7 +16731,7 @@ const Editor = () => {
                 <p><span className="font-medium">Horizontal (Original):</span> Keeps long-form framing and context for standard videos.</p>
                 <p><span className="font-medium">Vertical (9:16):</span> Short-form clip mode with webcam crop and stacked composition options.</p>
                 <p><span className="font-medium">Retention Profiles:</span> Safe/Balanced/Viral are not redundant; they change pacing aggression before the boundary critic gate.</p>
-                <p><span className="font-medium">Power Modes:</span> Balanced is the middle ground, Fast prioritizes speed while transcript stays required, and Quality keeps transcript-guided hook selection while continuity checks stay enforced.</p>
+                <p><span className="font-medium">Power Modes:</span> Balanced is the middle ground, Fast prioritizes speed while transcript stays required, and Quality keeps transcript-guided hook selection with continuity and sentence-complete cuts emphasized.</p>
                 <p><span className="font-medium">Cold-Start Autopilot:</span> Conservative defaults for new creators until enough platform outcomes are synced.</p>
                 <p><span className="font-medium">Continuity-First:</span> Tightens boundary critic behavior and slows pacing to avoid harsh transitions.</p>
                 <p><span className="font-medium">Explore x3:</span> Tests three policy candidates, then auto-promotes winning behavior through outcome learning.</p>
@@ -16802,6 +16781,7 @@ const Editor = () => {
             </div>
           </div>
         </DialogContent>
+        ) : null}
       </Dialog>
 
       <Dialog
@@ -16968,6 +16948,7 @@ const Editor = () => {
           if (!open) handleCloseStoryMapAgentPrompt();
         }}
       >
+        {storyMapAgentPromptOpen ? (
         <DialogContent className="max-w-[calc(100vw-1rem)] border border-cyan-300/35 bg-[radial-gradient(140%_170%_at_0%_0%,rgba(56,189,248,0.2),transparent_58%),linear-gradient(152deg,rgba(15,23,42,0.94),rgba(2,6,23,0.95))] p-4 shadow-[0_30px_72px_-34px_rgba(14,116,144,0.9)] backdrop-blur-xl sm:max-w-2xl sm:p-6">
           <DialogHeader>
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -17040,6 +17021,7 @@ const Editor = () => {
             </div>
           )}
         </DialogContent>
+        ) : null}
       </Dialog>
 
       <Dialog
@@ -17050,6 +17032,7 @@ const Editor = () => {
           }
         }}
       >
+          {showYouTubePackagingUi && youtubePackagingPopupOpen ? (
           <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-cyan-300/35 bg-[radial-gradient(160%_140%_at_2%_0%,rgba(56,189,248,0.22),transparent_58%),radial-gradient(120%_140%_at_98%_0%,rgba(59,130,246,0.15),transparent_62%),linear-gradient(152deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_35px_80px_-36px_rgba(14,165,233,0.9)] backdrop-blur-xl sm:max-w-5xl sm:p-6">
             <DialogHeader>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -17275,6 +17258,7 @@ const Editor = () => {
               </div>
             )}
           </DialogContent>
+          ) : null}
       </Dialog>
 
       <Dialog
@@ -17285,6 +17269,7 @@ const Editor = () => {
           }
         }}
       >
+        {exportOpen ? (
         <DialogContent
           className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
@@ -17481,6 +17466,7 @@ const Editor = () => {
             </div>
           </div>
         </DialogContent>
+        ) : null}
       </Dialog>
       <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
         <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
