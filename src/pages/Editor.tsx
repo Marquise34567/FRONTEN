@@ -14951,7 +14951,7 @@ const Editor = () => {
                         </div>
                       </>
                     )}
-                    {showVideo && activePreviewTranscriptText ? (
+                    {showVideo && autoCaptionsEnabled && activePreviewTranscriptText ? (
                       <div className="pointer-events-none absolute inset-x-4 bottom-3 z-20 flex justify-center">
                         <div className="max-w-[92%] text-center text-sm font-medium leading-snug text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.95)] sm:text-base">
                           {activePreviewTranscriptText}
