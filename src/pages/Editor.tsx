@@ -12348,13 +12348,16 @@ const Editor = () => {
   }, [previewStoryBeatTimelineDurationSec, showVideo]);
 
   const applyYouTubeNichePreset = (preset: YouTubeNichePreset) => {
+    const presetMode = preset.renderMode ?? "horizontal";
+
     menuTouchedRef.current.strategy = true;
     menuTouchedRef.current.targetPlatform = true;
     menuTouchedRef.current.editorMode = true;
 
     setSelectedYouTubeNichePresetId(preset.id);
     setFullAutoYoutubeEnabled(false);
-    setRenderMode(preset.renderMode ?? "horizontal");
+    setRenderMode(presetMode);
+    setPendingUploadSelection((prev) => (prev ? { ...prev, mode: presetMode } : prev));
     setRetentionTargetPlatform("youtube");
     setRetentionStrategyProfile(preset.retentionStrategyProfile);
     setEditorMode(preset.editorMode);
@@ -12384,7 +12387,7 @@ const Editor = () => {
       metadata: {
         presetId: preset.id,
         editorMode: preset.editorMode,
-        renderMode: preset.renderMode ?? "horizontal",
+        renderMode: presetMode,
         maxCuts: preset.maxCuts,
         smartZoom: preset.smartZoom,
         transitions: preset.transitions,
@@ -12394,6 +12397,8 @@ const Editor = () => {
   };
 
   const applyQuickSetupPreset = (preset: "simple" | "balanced" | "viral") => {
+    let presetMode: "horizontal" | "vertical" = "horizontal";
+
     menuTouchedRef.current.strategy = true;
     menuTouchedRef.current.targetPlatform = true;
     menuTouchedRef.current.editorMode = true;
@@ -12401,6 +12406,7 @@ const Editor = () => {
     setFullAutoYoutubeEnabled(false);
 
     if (preset === "simple") {
+      presetMode = "horizontal";
       setRenderMode("horizontal");
       setRetentionStrategyProfile("safe");
       setRetentionTargetPlatform("youtube");
@@ -12410,6 +12416,7 @@ const Editor = () => {
       setAutoTransitionsEnabled(false);
       setAutoSoundFxEnabled(false);
     } else if (preset === "balanced") {
+      presetMode = "horizontal";
       setRenderMode("horizontal");
       setRetentionStrategyProfile("balanced");
       setRetentionTargetPlatform("instagram_reels");
@@ -12419,6 +12426,7 @@ const Editor = () => {
       setAutoTransitionsEnabled(true);
       setAutoSoundFxEnabled(false);
     } else {
+      presetMode = "vertical";
       setRenderMode("vertical");
       setRetentionStrategyProfile("viral");
       setRetentionTargetPlatform("tiktok");
@@ -12428,6 +12436,7 @@ const Editor = () => {
       setAutoTransitionsEnabled(true);
       setAutoSoundFxEnabled(true);
     }
+    setPendingUploadSelection((prev) => (prev ? { ...prev, mode: presetMode } : prev));
 
     if (!autoCaptionsEnabled) {
       setAutoCaptionsEnabled(true);
@@ -17516,4 +17525,3 @@ const Editor = () => {
 };
 
 export default Editor;
-
