@@ -56,6 +56,17 @@ const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "en
     })
     .join(" ")
 );
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+const readPercentParam = (params: URLSearchParams, key: string, fallback: number) => {
+  const raw = Number(params.get(key));
+  if (!Number.isFinite(raw)) return clampPercent(fallback);
+  return clampPercent(raw);
+};
+const readCountParam = (params: URLSearchParams, key: string, fallback: number) => {
+  const raw = Number(params.get(key));
+  if (!Number.isFinite(raw)) return Math.max(0, Math.round(fallback));
+  return Math.max(0, Math.round(raw));
+};
 
 const EditorAMode = () => {
   const [searchParams] = useSearchParams();
@@ -79,11 +90,71 @@ const EditorAMode = () => {
     if (fullVideoScanProgress >= 100) return "Full scan complete";
     return `Full scan ${Math.round(fullVideoScanProgress)}% complete`;
   }, [searchParams, fullVideoScanProgress]);
+  const activeJobId = useMemo(() => String(searchParams.get("jobId") || "").trim(), [searchParams]);
   const backToEditorHref = useMemo(() => {
-    const jobId = String(searchParams.get("jobId") || "").trim();
-    if (!jobId) return "/editor";
-    return `/editor?jobId=${encodeURIComponent(jobId)}`;
+    if (!activeJobId) return "/editor";
+    return `/editor?jobId=${encodeURIComponent(activeJobId)}`;
+  }, [activeJobId]);
+  const rateDecisionReady = useMemo(() => {
+    const raw = String(searchParams.get("rateDecisionReady") || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes";
   }, [searchParams]);
+  const rateOverallScore = useMemo(() => {
+    const raw = Number(searchParams.get("rateOverall"));
+    if (!Number.isFinite(raw)) return null;
+    return clampPercent(Math.round(raw));
+  }, [searchParams]);
+  const rateAverageScore = useMemo(() => readPercentParam(searchParams, "rateAverage", 79), [searchParams]);
+  const rateByPlatform = useMemo(() => ({
+    youtube: readPercentParam(searchParams, "rateYoutube", 80),
+    tiktok: readPercentParam(searchParams, "rateTiktok", 84),
+    instagramReels: readPercentParam(searchParams, "rateInstagram", 82),
+  }), [searchParams]);
+  const rateTopLabel = useMemo(() => {
+    const explicit = String(searchParams.get("rateTopLabel") || "").trim();
+    if (explicit) return explicit.slice(0, 48);
+    const rows = [
+      { label: "YouTube", score: rateByPlatform.youtube },
+      { label: "TikTok", score: rateByPlatform.tiktok },
+      { label: "IG Reels", score: rateByPlatform.instagramReels },
+    ];
+    return rows.reduce((best, row) => (row.score > best.score ? row : best), rows[0]).label;
+  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
+  const rateTopScore = useMemo(() => {
+    const raw = Number(searchParams.get("rateTopScore"));
+    if (Number.isFinite(raw)) return clampPercent(Math.round(raw));
+    return Math.max(rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels);
+  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
+  const rateSelectedCount = useMemo(() => readCountParam(searchParams, "rateSelected", 0), [searchParams]);
+  const rateSuggestionCount = useMemo(
+    () => Math.max(rateSelectedCount, readCountParam(searchParams, "rateSuggestions", 0)),
+    [rateSelectedCount, searchParams],
+  );
+  const rateUpdatedLabel = useMemo(() => {
+    const raw = String(searchParams.get("rateUpdated") || "").trim();
+    if (!raw) return "Awaiting first live update";
+    return raw.slice(0, 40);
+  }, [searchParams]);
+  const rateScoreRows = useMemo(() => ([
+    {
+      key: "youtube",
+      label: "YouTube",
+      score: rateByPlatform.youtube,
+      barClassName: "from-rose-300/85 to-red-400/85",
+    },
+    {
+      key: "tiktok",
+      label: "TikTok",
+      score: rateByPlatform.tiktok,
+      barClassName: "from-cyan-300/85 to-blue-400/85",
+    },
+    {
+      key: "instagram",
+      label: "IG Reels",
+      score: rateByPlatform.instagramReels,
+      barClassName: "from-fuchsia-300/85 to-pink-400/85",
+    },
+  ]), [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
   const energyPoints = useMemo(() => toPoints(timelineSeries, "energy"), []);
   const emotionPoints = useMemo(() => toPoints(timelineSeries, "emotion"), []);
 
@@ -147,13 +218,88 @@ const EditorAMode = () => {
             <p className="text-[11px] text-muted-foreground">All hard checks passed</p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Full Video Scan Progress</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{Math.round(fullVideoScanProgress)}%</p>
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Rate Card Winner</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{rateTopScore}</p>
+            <p className="text-[11px] text-muted-foreground">{rateTopLabel}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {rateDecisionReady ? "Locked on ready render" : "Live estimate"}
+            </p>
+          </article>
+        </motion.section>
+
+        <motion.section
+          className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-2"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.38 }}
+        >
+          <article className="relative overflow-hidden rounded-2xl border border-primary/25 bg-[linear-gradient(145deg,rgba(29,35,68,0.72),rgba(14,18,39,0.74))] p-4">
+            <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-primary/20 blur-3xl" />
+            <div className="relative">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  <Gauge className="h-3.5 w-3.5 text-primary" />
+                  Editor Agent Rate Card
+                </p>
+                <Badge className="border-primary/35 bg-primary/10 text-foreground">Moved to A-Mode</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <p className="font-display text-5xl font-bold leading-none text-foreground">
+                  {rateOverallScore ?? "--"}
+                </p>
+                <span className="pb-1 text-sm text-muted-foreground">{rateDecisionReady ? "/100" : "pending"}</span>
+              </div>
+              <p className="mt-1 text-xs text-foreground/90">
+                Top platform: {rateTopLabel} {rateDecisionReady ? `${rateTopScore}/100` : "(estimating)"}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Avg score {rateAverageScore}/100 · Updated {rateUpdatedLabel}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Suggestions selected {rateSelectedCount}/{rateSuggestionCount}
+              </p>
+              <div className="mt-3 space-y-2">
+                {rateScoreRows.map((row) => (
+                  <div key={row.key} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{row.label}</p>
+                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{row.score}</Badge>
+                    </div>
+                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted/65">
+                      <div className={`h-full rounded-full bg-gradient-to-r ${row.barClassName}`} style={{ width: `${row.score}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <Activity className="h-3.5 w-3.5 text-primary" />
+                Full Video Scan Progress
+              </p>
+              <Badge className="border-cyan-300/35 bg-cyan-400/10 text-cyan-100">
+                {fullVideoScanProgress >= 100 ? "Scan complete" : "Scan running"}
+              </Badge>
+            </div>
+            <p className="mt-3 font-display text-5xl font-bold leading-none text-foreground">{Math.round(fullVideoScanProgress)}%</p>
             <Progress
               value={fullVideoScanProgress}
-              className="mt-2 h-2 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
+              className="mt-3 h-2.5 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">{fullVideoScanLabel}</p>
+            <p className="mt-2 text-sm text-foreground/90">{fullVideoScanLabel}</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Render Link</p>
+                <p className="mt-1 text-xs text-foreground">{activeJobId ? `Job ${activeJobId.slice(0, 12)}` : "No job selected"}</p>
+              </div>
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Mode Note</p>
+                <p className="mt-1 text-xs text-foreground">Full scan and rate decisions now live on this page.</p>
+              </div>
+            </div>
           </article>
         </motion.section>
 

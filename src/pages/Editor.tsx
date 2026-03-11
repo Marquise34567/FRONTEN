@@ -22,6 +22,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
+import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
 import {
   DIRECTOR_NOTES_MAX_LENGTH,
   DIRECTOR_NOTES_REQUIRED_PLAN,
@@ -3518,6 +3519,7 @@ const Editor = () => {
   const [youtubePackagingFrameImageByKey, setYoutubePackagingFrameImageByKey] = useState<Record<string, string>>({});
   const [youtubePackagingFrameCapturing, setYoutubePackagingFrameCapturing] = useState(false);
   const [youtubePackagingFrameCaptureError, setYoutubePackagingFrameCaptureError] = useState<string | null>(null);
+  const showYouTubePackagingUi = false;
   const [realtimeBugFixStatus, setRealtimeBugFixStatus] = useState<"watching" | "fixing">("watching");
   const [realtimeBugFixLastAction, setRealtimeBugFixLastAction] = useState<string | null>(null);
   const [realtimeBugFixActionCount, setRealtimeBugFixActionCount] = useState(0);
@@ -3655,6 +3657,7 @@ const Editor = () => {
   const { data: me, refetch: refetchMe } = useMe({
     refetchInterval: meRefetchInterval,
   });
+  const canUseRealtimeBugFixAI = isControlPanelOwnerEmail(me?.user?.email);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(true);
   const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
@@ -6516,7 +6519,7 @@ const Editor = () => {
           ctx.stroke();
         }
 
-        if (isVerticalMode || autoCaptionsEnabled) {
+        if (autoCaptionsEnabled) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
@@ -9276,14 +9279,16 @@ const Editor = () => {
     youtubePackagingCaptureStartedAtRef.current = null;
   }, [youtubePackagingFrameCapturing]);
   useEffect(() => {
+    if (!canUseRealtimeBugFixAI) return;
     if (realtimeBugFixStatus !== "fixing") return;
     if (typeof window === "undefined") return;
     const timer = window.setTimeout(() => {
       setRealtimeBugFixStatus("watching");
     }, 1250);
     return () => window.clearTimeout(timer);
-  }, [realtimeBugFixStatus]);
+  }, [canUseRealtimeBugFixAI, realtimeBugFixStatus]);
   useEffect(() => {
+    if (!canUseRealtimeBugFixAI) return;
     const jobId = activeJob?.id;
     if (!jobId) return;
     const runFix = (fixKey: string, actionLabel: string, apply: () => void) => {
@@ -9333,6 +9338,7 @@ const Editor = () => {
   }, [
     activeJob,
     activeOutputUrls,
+    canUseRealtimeBugFixAI,
     realtimeBugFixStatus,
     resolvedPreviewOutputUrl,
     youtubePackagingFrameCapturing,
@@ -10363,6 +10369,53 @@ const Editor = () => {
     [platformRateUpdatedAtMs],
   );
   const dopamineRateActive = platformRateScores.overallScore !== null && platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
+  const aModePageHref = useMemo(() => {
+    const params = new URLSearchParams();
+    const hasActiveJob = Boolean(activeJob?.id);
+    const scanProgress = Math.round(totalPipelineProgress);
+
+    if (activeJob?.id) {
+      params.set("jobId", activeJob.id);
+    }
+    params.set("fullScanProgress", String(scanProgress));
+    params.set(
+      "fullScanLabel",
+      hasActiveJob
+        ? `${activeStatusLabel} · ${activeStageLabel} · ${scanProgress}%`
+        : "No active render selected",
+    );
+    params.set("rateDecisionReady", platformRateDecisionReady ? "1" : "0");
+    params.set("rateAverage", String(platformRateScores.averageScore));
+    params.set("rateYoutube", String(platformRateScores.scoreByPlatform.youtube));
+    params.set("rateTiktok", String(platformRateScores.scoreByPlatform.tiktok));
+    params.set("rateInstagram", String(platformRateScores.scoreByPlatform.instagram_reels));
+    params.set("rateSelected", String(selectedRateSuggestionIds.length));
+    params.set("rateSuggestions", String(editorRateSuggestions.length));
+    params.set("rateUpdated", platformRateUpdatedLabel);
+    if (platformRateScores.overallScore !== null) {
+      params.set("rateOverall", String(platformRateScores.overallScore));
+    }
+    if (platformRateScores.topEntry) {
+      params.set("rateTopLabel", platformRateScores.topEntry.label);
+      params.set("rateTopScore", String(platformRateScores.topEntry.score));
+    }
+    return `/editor/a-mode?${params.toString()}`;
+  }, [
+    activeJob?.id,
+    activeStageLabel,
+    activeStatusLabel,
+    editorRateSuggestions.length,
+    platformRateDecisionReady,
+    platformRateScores.averageScore,
+    platformRateScores.overallScore,
+    platformRateScores.scoreByPlatform.instagram_reels,
+    platformRateScores.scoreByPlatform.tiktok,
+    platformRateScores.scoreByPlatform.youtube,
+    platformRateScores.topEntry,
+    platformRateUpdatedLabel,
+    selectedRateSuggestionIds.length,
+    totalPipelineProgress,
+  ]);
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
     : null;
@@ -15104,51 +15157,54 @@ const Editor = () => {
                             </p>
                           </>
                         )}
-                        <div className="relative z-10 mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(145deg,rgba(15,23,42,0.78),rgba(2,6,23,0.84))] p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2.5">
-                            <div>
-                              <p className="text-[10px] uppercase tracking-[0.14em] text-primary-foreground/80">YouTube Packaging Agent</p>
-                              <p className="mt-1 text-xs text-foreground/85">
-                                {youtubePackagingPlan
-                                  ? `Dynamic title + thumbnail frame picks from ${youtubePackagingPlan.signalSummary}.`
-                                  : "Packaging ideas appear after metadata and retention signals are ready."}
-                              </p>
+                        <div
+                          className="relative z-10 mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(145deg,rgba(15,23,42,0.78),rgba(2,6,23,0.84))] p-3"
+                          hidden={!showYouTubePackagingUi}
+                        >
+                            <div className="flex flex-wrap items-start justify-between gap-2.5">
+                              <div>
+                                <p className="text-[10px] uppercase tracking-[0.14em] text-primary-foreground/80">YouTube Packaging Agent</p>
+                                <p className="mt-1 text-xs text-foreground/85">
+                                  {youtubePackagingPlan
+                                    ? `Dynamic title + thumbnail frame picks from ${youtubePackagingPlan.signalSummary}.`
+                                    : "Packaging ideas appear after metadata and retention signals are ready."}
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-8 rounded-full bg-primary px-3 text-[11px] text-primary-foreground hover:bg-primary/90"
+                                onClick={() => setYoutubePackagingPopupOpen(true)}
+                                disabled={!youtubePackagingPlan}
+                              >
+                                Open Packaging Popup
+                              </Button>
                             </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-8 rounded-full bg-primary px-3 text-[11px] text-primary-foreground hover:bg-primary/90"
-                              onClick={() => setYoutubePackagingPopupOpen(true)}
-                              disabled={!youtubePackagingPlan}
-                            >
-                              Open Packaging Popup
-                            </Button>
-                          </div>
-                          {youtubePackagingPreviewTitles.length > 0 ? (
-                            <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
-                              {youtubePackagingPreviewTitles.map((idea) => (
-                                <div
-                                  key={idea.id}
-                                  className="rounded-lg border border-border/60 bg-background/45 p-2"
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
-                                      {PACKAGING_TONE_META[idea.tone].label}
-                                    </Badge>
-                                    {idea.timestampLabel ? (
-                                      <span className="text-[10px] text-muted-foreground">{idea.timestampLabel}</span>
-                                    ) : null}
+                            {youtubePackagingPreviewTitles.length > 0 ? (
+                              <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
+                                {youtubePackagingPreviewTitles.map((idea) => (
+                                  <div
+                                    key={idea.id}
+                                    className="rounded-lg border border-border/60 bg-background/45 p-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
+                                        {PACKAGING_TONE_META[idea.tone].label}
+                                      </Badge>
+                                      {idea.timestampLabel ? (
+                                        <span className="text-[10px] text-muted-foreground">{idea.timestampLabel}</span>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-1 text-xs font-semibold text-foreground">{idea.title}</p>
                                   </div>
-                                  <p className="mt-1 text-xs font-semibold text-foreground">{idea.title}</p>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mt-2 rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
-                              No packaging suggestions yet. Finish processing to unlock title and thumbnail picks.
-                            </p>
-                          )}
-                        </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
+                                No packaging suggestions yet. Finish processing to unlock title and thumbnail picks.
+                              </p>
+                            )}
+                          </div>
                       </div>
                     </div>
                   ) : null}
@@ -15588,293 +15644,6 @@ const Editor = () => {
                       )}
                     </div>
                     <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
-                      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode Intelligence</p>
-                          <p className="text-xs text-muted-foreground">
-                            Rate prediction + full scan insights are grouped here inside mode controls.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-cyan-300/25 bg-[linear-gradient(145deg,rgba(8,47,73,0.35),rgba(15,23,42,0.62))] p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-100/90">Realtime Bug Fix AI</p>
-                          <Badge className={realtimeBugFixStatus === "fixing" ? "border-amber-300/45 bg-amber-500/12 text-amber-100" : "border-emerald-300/45 bg-emerald-500/12 text-emerald-100"}>
-                            {realtimeBugFixStatus === "fixing" ? "Fixing now" : "Watching live"}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-[11px] text-cyan-100/80">
-                          Auto-recovers preview stream dropouts and stalled thumbnail capture in real time.
-                        </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
-                            Auto fixes: {realtimeBugFixActionCount}
-                          </Badge>
-                          {realtimeBugFixLastAction ? (
-                            <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
-                              Last: {realtimeBugFixLastAction}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
-                              Last: None yet
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      {renderEditorAgentRateCard({
-                        compact: true,
-                        subtitle: liveRateCardModeSubtitle,
-                      })}
-
-                      {normalizedActiveStatus === "ready" ? (
-                        <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              Premium scan deck for energy, emotion, pacing, and re-hook windows.
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge className="border-primary/35 bg-primary/10 text-foreground">
-                              {Math.round(fullScanProgress)}%
-                            </Badge>
-                            <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                              <span>Insights</span>
-                              <Switch
-                                checked={showScanInsightsPanel}
-                                onCheckedChange={setShowScanInsightsPanel}
-                                aria-label="Toggle full scan insights card"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                        {!showScanInsightsPanel ? (
-                          <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
-                            Scan insights are hidden. Toggle Insights ON to view deep scan charts.
-                          </p>
-                        ) : (
-                          <>
-                            <Progress
-                              value={fullScanProgress}
-                              className="h-2 bg-muted/70 [&>div]:bg-primary"
-                            />
-                            <p className="text-[11px] text-muted-foreground">{fullScanProgressLabel}</p>
-
-                            <div className="rounded-lg border border-primary/20 bg-background/45 p-3">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div>
-                                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Modern Energy + Emotion Timeline</p>
-                                  <p className="mt-1 text-[11px] text-muted-foreground">
-                                    Rich timeline graph with hotspot diagnostics for premium review.
-                                  </p>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <Badge className="border-primary/35 bg-primary/10 text-foreground">Momentum {timelineMomentumScore}</Badge>
-                                  <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                                    <span>Graph</span>
-                                    <Switch
-                                      checked={showEnergyEmotionTimeline}
-                                      onCheckedChange={setShowEnergyEmotionTimeline}
-                                      aria-label="Toggle modern energy and emotion timeline graph"
-                                    />
-                                  </label>
-                                </div>
-                              </div>
-                              {!showEnergyEmotionTimeline ? (
-                                <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
-                                  Timeline graph hidden. Toggle Graph ON to inspect energy and emotion trends.
-                                </p>
-                              ) : (
-                                <>
-                                  <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Peak Energy</p>
-                                      <p className="mt-1 text-lg font-semibold text-foreground">{highestEnergyMoment?.energy ?? "--"}</p>
-                                      <p className="text-[10px] text-muted-foreground">
-                                        {highestEnergyMoment ? highestEnergyMoment.timestampLabel : "Awaiting timeline"}
-                                      </p>
-                                    </div>
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Avg Energy</p>
-                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineAverageEnergy}</p>
-                                      <p className="text-[10px] text-muted-foreground">Across {timelineEnergyMoments.length} moments</p>
-                                    </div>
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Avg Emotion</p>
-                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineAverageEmotion}</p>
-                                      <p className="text-[10px] text-muted-foreground">Facial + audio weighted</p>
-                                    </div>
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-2.5">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Hotspots</p>
-                                      <p className="mt-1 text-lg font-semibold text-foreground">{timelineHotspotMoments.length}</p>
-                                      <p className="text-[10px] text-muted-foreground">Energy &gt;= 74 moments</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-3">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Energy vs Emotion Curves</p>
-                                      <div className="mt-2 h-36 rounded-lg border border-border/50 bg-[linear-gradient(180deg,rgba(23,28,53,0.75),rgba(14,18,35,0.55))] p-2">
-                                        {energyLinePoints && emotionLinePoints ? (
-                                          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-                                            <defs>
-                                              <linearGradient id="timeline-energy-line" x1="0%" y1="0%" x2="100%" y2="0%">
-                                                <stop offset="0%" stopColor="rgba(56,189,248,0.9)" />
-                                                <stop offset="100%" stopColor="rgba(16,185,129,0.9)" />
-                                              </linearGradient>
-                                              <linearGradient id="timeline-emotion-line" x1="0%" y1="0%" x2="100%" y2="0%">
-                                                <stop offset="0%" stopColor="rgba(244,114,182,0.9)" />
-                                                <stop offset="100%" stopColor="rgba(251,146,60,0.9)" />
-                                              </linearGradient>
-                                            </defs>
-                                            <polyline
-                                              points={energyLinePoints}
-                                              fill="none"
-                                              stroke="url(#timeline-energy-line)"
-                                              strokeWidth="2.2"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                            <polyline
-                                              points={emotionLinePoints}
-                                              fill="none"
-                                              stroke="url(#timeline-emotion-line)"
-                                              strokeWidth="2"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                          </svg>
-                                        ) : (
-                                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                                            Not enough timeline points for curve rendering yet.
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="mt-2 flex flex-wrap gap-1.5">
-                                        <Badge className="border-sky-400/35 bg-sky-500/12 text-sky-100">Energy curve</Badge>
-                                        <Badge className="border-fuchsia-400/35 bg-fuchsia-500/12 text-fuchsia-100">Emotion curve</Badge>
-                                      </div>
-                                    </div>
-                                    <div className="rounded-lg border border-primary/25 bg-background/35 p-3">
-                                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Timeline Bars + Hotspots</p>
-                                      <div className="mt-2 grid grid-cols-12 gap-1.5">
-                                        {timelineEnergyMoments.map((moment, idx) => (
-                                          <Tooltip key={`energy-moment-${idx}-${moment.timestampSec}`}>
-                                            <TooltipTrigger asChild>
-                                              <button
-                                                type="button"
-                                                className="group flex h-28 flex-col justify-end"
-                                                aria-label={`${moment.timestampLabel} ${moment.emotionLabel}. Open detailed emotional analysis`}
-                                                onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
-                                                style={{ minWidth: "0" }}
-                                              >
-                                                <span
-                                                  className={`w-full rounded-t-md bg-gradient-to-t ${EMOTION_PROFILE_META[moment.emotionKey].barClassName} transition-all group-hover:brightness-110`}
-                                                  style={{ height: `${Math.max(12, moment.energy)}%` }}
-                                                />
-                                                <span className="mt-1 block truncate text-[10px] text-muted-foreground">{moment.timestampLabel}</span>
-                                              </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="max-w-xs border-border/60 bg-card text-foreground">
-                                              <p className="text-[11px] font-medium">
-                                                {moment.timestampLabel} · {moment.emotionLabel}
-                                              </p>
-                                              <p className="text-[11px] text-muted-foreground">
-                                                Energy {moment.energy} | Motion {moment.motion} | Audio {moment.audio} | Visual {moment.visual} | Facial {moment.facial}
-                                              </p>
-                                            </TooltipContent>
-                                          </Tooltip>
-                                        ))}
-                                      </div>
-                                      <div className="mt-2 grid grid-cols-1 gap-1.5">
-                                        {timelineHotspotMoments.length > 0 ? (
-                                          timelineHotspotMoments.map((moment) => (
-                                            <button
-                                              key={`timeline-hotspot-${moment.timestampSec}`}
-                                              type="button"
-                                              className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2 text-left transition hover:border-primary/35"
-                                              onClick={() => openFeedbackDeepDiveSection("emotional_parts")}
-                                            >
-                                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <p className="text-xs font-medium text-foreground">{moment.timestampLabel} · {moment.emotionLabel}</p>
-                                                <Badge className={EMOTION_PROFILE_META[moment.emotionKey].badgeClassName}>
-                                                  {moment.energy}
-                                                </Badge>
-                                              </div>
-                                              <p className="mt-1 text-[11px] text-muted-foreground">{EMOTION_PROFILE_META[moment.emotionKey].detail}</p>
-                                            </button>
-                                          ))
-                                        ) : (
-                                          <p className="rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
-                                            Hotspots will appear once high-energy windows are detected.
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap gap-1.5">
-                                    {emotionSignals.slice(0, 4).map((signal) => (
-                                      <Badge key={`emotion-signal-${signal.key}`} className={signal.badgeClassName}>
-                                        {signal.label} {Math.round(signal.sharePercent)}%
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                              <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <Badge className="border-primary/35 bg-primary/10 text-foreground">
-                                    Auto-Hook Placed: {DEFAULT_AUTO_HOOK_DURATION_SEC}s High-Energy Opener
-                                  </Badge>
-                                  <Popover>
-                                    <PopoverTrigger asChild>
-                                      <button
-                                        type="button"
-                                        className="text-[11px] text-primary underline underline-offset-4"
-                                      >
-                                        Details
-                                      </button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="border-border/60 bg-card text-foreground">
-                                      {autoHookSummaryLine}
-                                    </PopoverContent>
-                                  </Popover>
-                                </div>
-                                <p className="mt-2 text-xs text-muted-foreground">{autoHookSummaryLine}</p>
-                              </div>
-
-                              <div className="rounded-lg border border-primary/25 bg-background/45 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                  <p className="text-xs font-medium text-foreground">Auto-Cut Boring/Silent/Pauses</p>
-                                  <Switch
-                                    checked={autoCutBoringEnabled}
-                                    onCheckedChange={setAutoCutBoringEnabled}
-                                    className="data-[state=checked]:bg-primary"
-                                    aria-label="Auto-cut low engagement segments"
-                                  />
-                                </div>
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {autoCutBoringEnabled
-                                    ? `Cut ${removedFillerPercent}% low-engagement filler`
-                                    : "Auto-cut paused, low-engagement filler retained."}
-                                </p>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        </div>
-                      ) : (
-                        <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
-                          Full Video Scan Progress appears after render is ready.
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode</p>
@@ -15894,7 +15663,7 @@ const Editor = () => {
                           <Button
                             type="button"
                             className="min-h-10 w-full gap-2 sm:w-auto"
-                            onClick={() => navigate("/editor/a-mode")}
+                            onClick={() => navigate(aModePageHref)}
                           >
                             Open A-Mode Page
                           </Button>
@@ -16708,7 +16477,7 @@ const Editor = () => {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
-                    <p className="mt-1 text-xs text-foreground/85">Pick a niche to auto-apply pacing, cut density, and effect defaults.</p>
+                    <p className="mt-1 text-xs text-foreground/85">Pick a niche to auto-apply pacing, then start upload instantly in Standard mode.</p>
                   </div>
                   <Badge className="border-primary/35 bg-primary/10 text-primary">In Upload Mode</Badge>
                 </div>
@@ -16719,7 +16488,10 @@ const Editor = () => {
                       <button
                         key={preset.id}
                         type="button"
-                        onClick={() => applyYouTubeNichePreset(preset)}
+                        onClick={() => {
+                          applyYouTubeNichePreset(preset);
+                          handleSelectUploadModePrompt("standard");
+                        }}
                         className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
                           active
                             ? "border-primary/55 bg-primary/14 shadow-sm"
@@ -17261,232 +17033,239 @@ const Editor = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={youtubePackagingPopupOpen} onOpenChange={setYoutubePackagingPopupOpen}>
-        <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-cyan-300/35 bg-[radial-gradient(160%_140%_at_2%_0%,rgba(56,189,248,0.22),transparent_58%),radial-gradient(120%_140%_at_98%_0%,rgba(59,130,246,0.15),transparent_62%),linear-gradient(152deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_35px_80px_-36px_rgba(14,165,233,0.9)] backdrop-blur-xl sm:max-w-5xl sm:p-6">
-          <DialogHeader>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <Badge className="border-cyan-300/45 bg-cyan-400/12 text-cyan-100">Editor Agent Story Map</Badge>
-              <Badge className="border-sky-300/45 bg-sky-500/14 text-sky-100">Premium YouTube Packaging</Badge>
-            </div>
-            <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Scroll-stopping title + thumbnail frame pack</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              Packahgin AI runs in ruthless high-CTR mode: no generic templates, just hook-first titles and high-emotion frame picks from metadata + retention.
-            </DialogDescription>
-          </DialogHeader>
-          {youtubePackagingPlan ? (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.7),rgba(8,47,73,0.38))] p-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Detected niche</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Packahgin vibe</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.vibeLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Channel style</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.channelStyle}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Target audience</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.targetAudience}</p>
-                  </div>
-                </div>
-                <p className="mt-3 text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Video topic</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.topicLabel}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Signal blend: {youtubePackagingPlan.signalSummary}.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {youtubePackagingPlan.usedSignals.map((signal) => (
-                    <Badge key={`yt-packaging-signal-${signal}`} variant="outline" className="border-cyan-300/20 bg-slate-950/45 text-[10px] text-cyan-100/85">
-                      {signal}
-                    </Badge>
-                  ))}
-                </div>
+      <Dialog
+        open={showYouTubePackagingUi && youtubePackagingPopupOpen}
+        onOpenChange={(open) => {
+          if (showYouTubePackagingUi) {
+            setYoutubePackagingPopupOpen(open);
+          }
+        }}
+      >
+          <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-cyan-300/35 bg-[radial-gradient(160%_140%_at_2%_0%,rgba(56,189,248,0.22),transparent_58%),radial-gradient(120%_140%_at_98%_0%,rgba(59,130,246,0.15),transparent_62%),linear-gradient(152deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_35px_80px_-36px_rgba(14,165,233,0.9)] backdrop-blur-xl sm:max-w-5xl sm:p-6">
+            <DialogHeader>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <Badge className="border-cyan-300/45 bg-cyan-400/12 text-cyan-100">Editor Agent Story Map</Badge>
+                <Badge className="border-sky-300/45 bg-sky-500/14 text-sky-100">Premium YouTube Packaging</Badge>
               </div>
-
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <section className="space-y-2.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Title Ideas</p>
-                  {youtubePackagingPlan.titles.length > 0 ? (
-                    youtubePackagingPlan.titles.map((idea) => (
-                      <div key={idea.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(30,41,59,0.35))] p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
-                            {PACKAGING_TONE_META[idea.tone].label}
-                          </Badge>
-                          {idea.timestampLabel ? (
-                            <span className="text-[11px] text-muted-foreground">{idea.timestampLabel}</span>
-                          ) : null}
-                        </div>
-                        <p className="mt-2 text-sm font-semibold text-foreground">{idea.title}</p>
-                        <p className="mt-1 text-[11px] text-cyan-100/85">Hook Type: {idea.hookType}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground/90">Why CTR Killer: {idea.whyCtrKiller}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground/90">{idea.reason}</p>
-                        <div className="mt-2 flex justify-end">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-2.5 text-[11px]"
-                            onClick={() => void handleUseYouTubePackagingTitle(idea.title)}
-                          >
-                            Copy title
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
-                      No title ideas available yet.
-                    </p>
-                  )}
-                </section>
-
-                <section className="space-y-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Selected Thumbnail Frames</p>
-                    {youtubePackagingFrameCapturing ? (
-                      <Badge variant="outline" className="border-cyan-300/40 bg-cyan-500/12 text-[10px] text-cyan-100">
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Capturing previews
-                      </Badge>
-                    ) : null}
+              <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Scroll-stopping title + thumbnail frame pack</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Packahgin AI runs in ruthless high-CTR mode: no generic templates, just hook-first titles and high-emotion frame picks from metadata + retention.
+              </DialogDescription>
+            </DialogHeader>
+            {youtubePackagingPlan ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.7),rgba(8,47,73,0.38))] p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Detected niche</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Packahgin vibe</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.vibeLabel}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Channel style</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.channelStyle}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Target audience</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.targetAudience}</p>
+                    </div>
                   </div>
-                  {youtubePackagingFrameCaptureError ? (
-                    <p className="rounded-xl border border-amber-300/35 bg-amber-500/12 px-3 py-2 text-[11px] text-amber-100/95">
-                      {youtubePackagingFrameCaptureError}
-                    </p>
-                  ) : (
-                    <p className="rounded-xl border border-cyan-300/18 bg-cyan-500/8 px-3 py-2 text-[11px] text-cyan-100/90">
-                      Frames are selected from retention spikes, metadata context, and standout moments.
-                    </p>
-                  )}
-                  {youtubePackagingSelectedFrames.length > 0 ? (
-                    youtubePackagingSelectedFrames.map((frame) => {
-                      const frameImageKey = youtubePackagingFrameSourceIdentity
-                        ? toYouTubePackagingFrameKey(youtubePackagingFrameSourceIdentity, frame.id)
-                        : "";
-                      const frameImage = frameImageKey ? youtubePackagingFrameImageByKey[frameImageKey] : "";
-                      return (
-                      <div key={frame.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.74),rgba(15,23,42,0.42))] p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <Badge className={PACKAGING_TONE_META[frame.tone].badgeClassName}>
-                              {PACKAGING_TONE_META[frame.tone].label}
-                            </Badge>
-                            <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
-                              {frame.source}
-                            </Badge>
-                          </div>
-                          <span className="text-xs font-semibold text-foreground">{frame.timestampLabel}</span>
-                        </div>
-                        <div className="relative mt-2 overflow-hidden rounded-xl border border-white/15 bg-black/45">
-                          <div className="aspect-video w-full">
-                            {frameImage ? (
-                              <img
-                                src={frameImage}
-                                alt={`Thumbnail frame at ${frame.timestampLabel}`}
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_20%_18%,rgba(59,130,246,0.32),transparent_46%),linear-gradient(140deg,rgba(15,23,42,0.95),rgba(30,41,59,0.85))]">
-                                <span className="rounded-full border border-cyan-300/40 bg-slate-950/65 px-3 py-1 text-[11px] font-medium text-cyan-100">
-                                  {youtubePackagingFrameCapturing ? "Capturing frame..." : "Frame preview pending"}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/72 via-black/25 to-transparent" />
-                          <span className="pointer-events-none absolute bottom-2 right-2 rounded-full border border-white/25 bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
-                            {frame.timestampLabel}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-[11px] text-muted-foreground">{frame.reason}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <Badge variant="outline" className="border-cyan-300/35 bg-cyan-500/10 text-[10px] text-cyan-100">
-                            Text: {frame.textOverlay}
-                          </Badge>
-                          <Badge variant="outline" className="border-cyan-300/25 bg-slate-950/35 text-[10px] text-cyan-100/85">
-                            {frame.ctrTrigger}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">Enhancements: {frame.enhancements}</p>
-                        {frame.transcriptSnippet ? (
-                          <p className="mt-1 rounded-lg border border-border/50 bg-muted/25 px-2 py-1 text-[11px] text-foreground/90">
-                            "{frame.transcriptSnippet}"
-                          </p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] text-muted-foreground">Confidence {frame.confidence}%</span>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-2.5 text-[11px]"
-                              onClick={() => handleDownloadYouTubePackagingFrame(frame, frameImage)}
-                              disabled={!frameImage}
-                            >
-                              Download frame
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-2.5 text-[11px]"
-                              onClick={() => handleSeekYouTubePackagingFrame(frame.timestampSec)}
-                              disabled={!showVideo}
-                            >
-                              Jump to frame
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                      );
-                    })
-                  ) : (
-                    <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
-                      No frame picks available yet.
-                    </p>
-                  )}
-                </section>
-              </div>
-              <section className="space-y-2 rounded-xl border border-cyan-300/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(8,47,73,0.34))] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/90">
-                    Packahgin AI Structured Output
+                  <p className="mt-3 text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Video topic</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.topicLabel}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Signal blend: {youtubePackagingPlan.signalSummary}.
                   </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-2.5 text-[11px]"
-                    onClick={() => void handleCopyYouTubePackagingStructuredOutput(youtubePackagingPlan.structuredOutput)}
-                  >
-                    Copy structured output
-                  </Button>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {youtubePackagingPlan.usedSignals.map((signal) => (
+                      <Badge key={`yt-packaging-signal-${signal}`} variant="outline" className="border-cyan-300/20 bg-slate-950/45 text-[10px] text-cyan-100/85">
+                        {signal}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-                <pre className="max-h-72 overflow-auto rounded-lg border border-cyan-300/18 bg-slate-950/45 p-3 text-[11px] leading-relaxed text-cyan-100/90">
-                  {youtubePackagingPlan.structuredOutput}
-                </pre>
-              </section>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
-                Packaging data will appear after retention and metadata analysis is available.
-              </p>
-              <div className="flex justify-end">
-                <Button onClick={() => setYoutubePackagingPopupOpen(false)}>Close</Button>
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <section className="space-y-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Title Ideas</p>
+                    {youtubePackagingPlan.titles.length > 0 ? (
+                      youtubePackagingPlan.titles.map((idea) => (
+                        <div key={idea.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(30,41,59,0.35))] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
+                              {PACKAGING_TONE_META[idea.tone].label}
+                            </Badge>
+                            {idea.timestampLabel ? (
+                              <span className="text-[11px] text-muted-foreground">{idea.timestampLabel}</span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-foreground">{idea.title}</p>
+                          <p className="mt-1 text-[11px] text-cyan-100/85">Hook Type: {idea.hookType}</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground/90">Why CTR Killer: {idea.whyCtrKiller}</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground/90">{idea.reason}</p>
+                          <div className="mt-2 flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2.5 text-[11px]"
+                              onClick={() => void handleUseYouTubePackagingTitle(idea.title)}
+                            >
+                              Copy title
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                        No title ideas available yet.
+                      </p>
+                    )}
+                  </section>
+
+                  <section className="space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Selected Thumbnail Frames</p>
+                      {youtubePackagingFrameCapturing ? (
+                        <Badge variant="outline" className="border-cyan-300/40 bg-cyan-500/12 text-[10px] text-cyan-100">
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          Capturing previews
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {youtubePackagingFrameCaptureError ? (
+                      <p className="rounded-xl border border-amber-300/35 bg-amber-500/12 px-3 py-2 text-[11px] text-amber-100/95">
+                        {youtubePackagingFrameCaptureError}
+                      </p>
+                    ) : (
+                      <p className="rounded-xl border border-cyan-300/18 bg-cyan-500/8 px-3 py-2 text-[11px] text-cyan-100/90">
+                        Frames are selected from retention spikes, metadata context, and standout moments.
+                      </p>
+                    )}
+                    {youtubePackagingSelectedFrames.length > 0 ? (
+                      youtubePackagingSelectedFrames.map((frame) => {
+                        const frameImageKey = youtubePackagingFrameSourceIdentity
+                          ? toYouTubePackagingFrameKey(youtubePackagingFrameSourceIdentity, frame.id)
+                          : "";
+                        const frameImage = frameImageKey ? youtubePackagingFrameImageByKey[frameImageKey] : "";
+                        return (
+                        <div key={frame.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.74),rgba(15,23,42,0.42))] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className={PACKAGING_TONE_META[frame.tone].badgeClassName}>
+                                {PACKAGING_TONE_META[frame.tone].label}
+                              </Badge>
+                              <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
+                                {frame.source}
+                              </Badge>
+                            </div>
+                            <span className="text-xs font-semibold text-foreground">{frame.timestampLabel}</span>
+                          </div>
+                          <div className="relative mt-2 overflow-hidden rounded-xl border border-white/15 bg-black/45">
+                            <div className="aspect-video w-full">
+                              {frameImage ? (
+                                <img
+                                  src={frameImage}
+                                  alt={`Thumbnail frame at ${frame.timestampLabel}`}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_20%_18%,rgba(59,130,246,0.32),transparent_46%),linear-gradient(140deg,rgba(15,23,42,0.95),rgba(30,41,59,0.85))]">
+                                  <span className="rounded-full border border-cyan-300/40 bg-slate-950/65 px-3 py-1 text-[11px] font-medium text-cyan-100">
+                                    {youtubePackagingFrameCapturing ? "Capturing frame..." : "Frame preview pending"}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/72 via-black/25 to-transparent" />
+                            <span className="pointer-events-none absolute bottom-2 right-2 rounded-full border border-white/25 bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              {frame.timestampLabel}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-muted-foreground">{frame.reason}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <Badge variant="outline" className="border-cyan-300/35 bg-cyan-500/10 text-[10px] text-cyan-100">
+                              Text: {frame.textOverlay}
+                            </Badge>
+                            <Badge variant="outline" className="border-cyan-300/25 bg-slate-950/35 text-[10px] text-cyan-100/85">
+                              {frame.ctrTrigger}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground">Enhancements: {frame.enhancements}</p>
+                          {frame.transcriptSnippet ? (
+                            <p className="mt-1 rounded-lg border border-border/50 bg-muted/25 px-2 py-1 text-[11px] text-foreground/90">
+                              "{frame.transcriptSnippet}"
+                            </p>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[11px] text-muted-foreground">Confidence {frame.confidence}%</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 text-[11px]"
+                                onClick={() => handleDownloadYouTubePackagingFrame(frame, frameImage)}
+                                disabled={!frameImage}
+                              >
+                                Download frame
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 text-[11px]"
+                                onClick={() => handleSeekYouTubePackagingFrame(frame.timestampSec)}
+                                disabled={!showVideo}
+                              >
+                                Jump to frame
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        );
+                      })
+                    ) : (
+                      <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                        No frame picks available yet.
+                      </p>
+                    )}
+                  </section>
+                </div>
+                <section className="space-y-2 rounded-xl border border-cyan-300/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(8,47,73,0.34))] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/90">
+                      Packahgin AI Structured Output
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 px-2.5 text-[11px]"
+                      onClick={() => void handleCopyYouTubePackagingStructuredOutput(youtubePackagingPlan.structuredOutput)}
+                    >
+                      Copy structured output
+                    </Button>
+                  </div>
+                  <pre className="max-h-72 overflow-auto rounded-lg border border-cyan-300/18 bg-slate-950/45 p-3 text-[11px] leading-relaxed text-cyan-100/90">
+                    {youtubePackagingPlan.structuredOutput}
+                  </pre>
+                </section>
               </div>
-            </div>
-          )}
-        </DialogContent>
+            ) : (
+              <div className="space-y-3">
+                <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                  Packaging data will appear after retention and metadata analysis is available.
+                </p>
+                <div className="flex justify-end">
+                  <Button onClick={() => setYoutubePackagingPopupOpen(false)}>Close</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
       </Dialog>
 
       <Dialog
