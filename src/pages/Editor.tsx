@@ -1412,10 +1412,18 @@ type BingeMoment = {
   reason: string;
 };
 type PackagingMomentTone = "best" | "curious" | "funny" | "crazy";
+type PackagingHookType =
+  | "Curiosity Gap"
+  | "Emotional Rage/FOMO"
+  | "Story Tease"
+  | "Benefit + Twist"
+  | "Question/Shock";
 type YouTubePackagingTitleIdea = {
   id: string;
   title: string;
   tone: PackagingMomentTone;
+  hookType: PackagingHookType;
+  whyCtrKiller: string;
   reason: string;
   timestampSec: number | null;
   timestampLabel: string | null;
@@ -1429,13 +1437,21 @@ type YouTubePackagingFrameIdea = {
   reason: string;
   source: string;
   transcriptSnippet: string;
+  enhancements: string;
+  ctrTrigger: string;
+  textOverlay: string;
 };
 type YouTubePackagingPlan = {
   nicheLabel: string;
+  vibeLabel: string;
+  channelStyle: string;
+  targetAudience: string;
+  topicLabel: string;
   signalSummary: string;
   usedSignals: string[];
   titles: YouTubePackagingTitleIdea[];
   frames: YouTubePackagingFrameIdea[];
+  structuredOutput: string;
 };
 type PreviewStoryBeatKey = "hook" | "build_up" | "payoff" | "cliffhanger";
 type PreviewStoryBeatSegment = {
@@ -2013,6 +2029,49 @@ const PACKAGING_TONE_META: Record<PackagingMomentTone, {
 const PACKAGING_FUNNY_RE = /\b(funny|laugh|laughing|lol|lmao|joke|hilarious|comedy)\b/i;
 const PACKAGING_CRAZY_RE = /\b(crazy|insane|wild|shocking|unreal|no way|wtf|chaos)\b/i;
 const PACKAGING_CURIOUS_RE = /\b(why|how|what happened|wait|secret|reveal|mystery|unexpected|curious|watch this|dont scroll|don't scroll)\b/i;
+const PACKAGING_POWER_WORDS = [
+  "Insane",
+  "Forbidden",
+  "Exposed",
+  "Destroyed",
+  "Secret",
+  "Broke",
+  "God-Tier",
+  "Nightmare",
+  "Glow-Up",
+];
+const PACKAGING_URGENCY_GAPS = [
+  "What They Don't Tell You",
+  "Before It's Too Late",
+  "I Regret This",
+  "You Won't Believe It",
+  "Don't Blink",
+];
+const PACKAGING_BANNED_STARTERS = [
+  /^how to\b/i,
+  /^top\s*\d+\b/i,
+  /^the best\b/i,
+  /^ultimate guide\b/i,
+  /^tutorial on\b/i,
+];
+const PACKAGING_MODE_SLANG: Partial<Record<EditorModeSelection, string[]>> = {
+  gaming: ["Meta Slayer", "Fry Lobbies", "Clutch"],
+  reaction: ["Unhinged", "No Way", "Caught Live"],
+  commentary: ["Receipts", "Exposed", "Brutal Truth"],
+  vlog: ["Glow-Up", "Chaos Arc", "Main Character"],
+  sports: ["Ankle Breaker", "Game Winner", "Ice Cold"],
+  education: ["Cheat Code", "Brain Hack", "No-Fluff"],
+  podcast: ["Hot Mic", "Receipts", "Off Script"],
+};
+const PACKAGING_DEFAULT_SLANG = ["Main Character", "High-Stakes", "No-Fluff"];
+const PACKAGING_FRAME_TEXT_OVERLAYS = [
+  "BROKE THE META",
+  "SECRET EXPOSED",
+  "DON'T SCROLL",
+  "I REGRET THIS",
+  "NIGHTMARE MODE",
+  "GOD-TIER MOVE",
+];
 
 const cleanPackagingText = (value: string) =>
   String(value || "")
@@ -2021,7 +2080,137 @@ const cleanPackagingText = (value: string) =>
     .replace(/[‘’]/g, "'")
     .trim();
 
-const trimPackagingTitle = (value: string, maxLen = 58) => {
+const buildPackagingHookStyleLabel = (value: unknown) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw || raw === "auto") return "Aggressive Hype";
+  if (raw === "hype") return "Aggressive Hype";
+  if (raw === "cinematic") return "Dark Intrigue";
+  if (raw === "chill") return "Premium Luxury";
+  if (raw === "education") return "Savage Clarity";
+  return formatNicheLabel(raw);
+};
+
+const inferPackagingAudienceLabel = ({
+  targetAudience,
+  nicheLabel,
+  editorMode,
+  targetPlatform,
+}: {
+  targetAudience: unknown;
+  nicheLabel: string;
+  editorMode: EditorModeSelection;
+  targetPlatform: OutcomeAutomationPlatform;
+}) => {
+  const direct = cleanPackagingText(String(targetAudience || ""));
+  if (direct.length >= 6) return direct;
+  const modeLabel = editorMode === "auto" ? "content fans" : `${formatNicheLabel(editorMode)} viewers`;
+  const platformLabel = targetPlatform === "instagram_reels"
+    ? "IG Reels"
+    : targetPlatform === "youtube"
+      ? "YouTube"
+      : "TikTok";
+  return `${nicheLabel} ${modeLabel} on ${platformLabel}`.replace(/\s+/g, " ").trim();
+};
+
+const inferPackagingChannelStyle = ({
+  styleRaw,
+  editorMode,
+  renderMode,
+}: {
+  styleRaw: unknown;
+  editorMode: EditorModeSelection;
+  renderMode: "horizontal" | "vertical";
+}) => {
+  const direct = cleanPackagingText(String(styleRaw || ""));
+  if (direct.length >= 6) return direct;
+  const modeLabel = editorMode === "auto" ? "fast-cut edits" : `${formatNicheLabel(editorMode)} edits`;
+  const orientation = renderMode === "vertical" ? "mobile-first vertical pacing" : "cinematic long-form pacing";
+  return `${modeLabel}, ${orientation}`;
+};
+
+const sanitizePackagingTitleStarter = (value: string) => {
+  const clean = cleanPackagingText(value).replace(/[.]+$/g, "");
+  if (!clean) return "";
+  if (PACKAGING_BANNED_STARTERS.some((pattern) => pattern.test(clean))) {
+    return `Don't Scroll: ${clean.replace(/^how to\b\s*/i, "").replace(/^top\s*\d+\b\s*/i, "").replace(/^the best\b\s*/i, "").replace(/^ultimate guide\b\s*/i, "").replace(/^tutorial on\b\s*/i, "")}`.trim();
+  }
+  return clean;
+};
+
+const enforcePackagingPowerWord = (value: string, fallbackWord = "Insane") => {
+  const clean = sanitizePackagingTitleStarter(value);
+  if (!clean) return "";
+  if (PACKAGING_POWER_WORDS.some((word) => new RegExp(`\\b${word.replace("-", "\\-")}\\b`, "i").test(clean))) {
+    return clean;
+  }
+  return `${fallbackWord} ${clean}`;
+};
+
+const fitPackagingTitleLength = ({
+  value,
+  keyword,
+  minLen = 55,
+  maxLen = 70,
+}: {
+  value: string;
+  keyword: string;
+  minLen?: number;
+  maxLen?: number;
+}) => {
+  let title = cleanPackagingText(value).replace(/\s+([!?.,])/g, "$1");
+  if (!title) return "";
+  if (title.length > maxLen) {
+    const cut = title.slice(0, maxLen);
+    const lastSpace = cut.lastIndexOf(" ");
+    title = (lastSpace >= 28 ? cut.slice(0, lastSpace) : cut).replace(/[!?,.:;\- ]+$/g, "");
+  }
+  if (title.length < minLen) {
+    const fillers = [
+      `${PACKAGING_URGENCY_GAPS[0]}`,
+      `${PACKAGING_URGENCY_GAPS[1]}`,
+      `for ${keyword}`,
+    ];
+    for (const filler of fillers) {
+      if (title.length >= minLen) break;
+      const candidate = `${title} ${filler}`.replace(/\s+/g, " ").trim();
+      if (candidate.length <= maxLen) title = candidate;
+    }
+    while (title.length < minLen && (title.length + 4) <= maxLen) {
+      title = `${title} now`;
+    }
+  }
+  return title;
+};
+
+const toPackagingSearchTerms = (rawValues: unknown[]) => {
+  const terms = rawValues
+    .flatMap((entry) => (
+      Array.isArray(entry)
+        ? entry
+        : typeof entry === "string"
+          ? entry.split(/[,\n]/)
+          : []
+    ))
+    .map((entry) => cleanPackagingText(String(entry || "")))
+    .filter((entry) => entry.length > 0);
+  return Array.from(new Set(terms.map((term) => term.toLowerCase())))
+    .slice(0, 12)
+    .map((term) => formatPackagingKeyword(term));
+};
+
+const buildPackagingTextOverlay = (seed: string, index: number) => {
+  const token = cleanPackagingText(seed).replace(/[^a-z0-9\s]/gi, " ");
+  const compact = token
+    .split(/\s+/)
+    .filter((part) => part.length >= 3)
+    .slice(0, 3)
+    .join(" ")
+    .toUpperCase();
+  if (compact.length >= 4 && compact.length <= 18) return compact;
+  return PACKAGING_FRAME_TEXT_OVERLAYS[index % PACKAGING_FRAME_TEXT_OVERLAYS.length];
+};
+
+const trimPackagingTitle = (value: string, maxLen = 70) => {
   const cleaned = cleanPackagingText(value).replace(/\s+([!?.,])/g, "$1");
   if (!cleaned) return "";
   if (cleaned.length <= maxLen) return cleaned;
@@ -2032,8 +2221,8 @@ const trimPackagingTitle = (value: string, maxLen = 58) => {
 };
 
 const normalizePackagingTitle = (value: string) => {
-  const trimmed = trimPackagingTitle(value, 58);
-  if (trimmed.length < 14) return "";
+  const trimmed = trimPackagingTitle(value, 70);
+  if (trimmed.length < 28) return "";
   return trimmed;
 };
 
@@ -2137,6 +2326,46 @@ const buildPackagingTitleVariants = ({
 };
 
 const toYouTubePackagingFrameKey = (sourceIdentity: string, frameId: string) => `${sourceIdentity}:${frameId}`;
+
+const buildPackagingStructuredOutput = ({
+  vibeLabel,
+  channelStyle,
+  targetAudience,
+  topicLabel,
+  keywords,
+  titles,
+  frames,
+}: {
+  vibeLabel: string;
+  channelStyle: string;
+  targetAudience: string;
+  topicLabel: string;
+  keywords: string[];
+  titles: YouTubePackagingTitleIdea[];
+  frames: YouTubePackagingFrameIdea[];
+}) => {
+  const titleLines = titles.slice(0, 5).map((idea, index) => (
+    `  - Title ${index + 1}: ${idea.title} | Hook Type: ${idea.hookType} | Why CTR Killer: ${idea.whyCtrKiller}`
+  ));
+  const frameLines = frames.slice(0, 4).map((frame, index) => (
+    `  - Frame ${index + 1}: Timestamp ~${frame.timestampLabel} - ${frame.reason} | Enhancements: ${frame.enhancements} | CTR Trigger: ${frame.ctrTrigger}`
+  ));
+  return [
+    "{",
+    `  "Packahgin AI Vibe": "${vibeLabel}",`,
+    `  "Channel Style": "${channelStyle}",`,
+    `  "Target Audience": "${targetAudience}",`,
+    `  "Video Topic": "${topicLabel}",`,
+    `  "Keywords/Main Search Terms": ${JSON.stringify(keywords.slice(0, 8))},`,
+    '  "5 Title Variations": [',
+    ...titleLines,
+    "  ],",
+    '  "4 Thumbnail Frame Ideas": [',
+    ...frameLines,
+    "  ]",
+    "}",
+  ].join("\n");
+};
 
 const formatDurationClock = (seconds: number | null) => {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "--";
@@ -3289,6 +3518,9 @@ const Editor = () => {
   const [youtubePackagingFrameImageByKey, setYoutubePackagingFrameImageByKey] = useState<Record<string, string>>({});
   const [youtubePackagingFrameCapturing, setYoutubePackagingFrameCapturing] = useState(false);
   const [youtubePackagingFrameCaptureError, setYoutubePackagingFrameCaptureError] = useState<string | null>(null);
+  const [realtimeBugFixStatus, setRealtimeBugFixStatus] = useState<"watching" | "fixing">("watching");
+  const [realtimeBugFixLastAction, setRealtimeBugFixLastAction] = useState<string | null>(null);
+  const [realtimeBugFixActionCount, setRealtimeBugFixActionCount] = useState(0);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
@@ -3319,6 +3551,9 @@ const Editor = () => {
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
+  const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
+  const realtimeBugFixCooldownRef = useRef<Record<string, number>>({});
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
@@ -8758,119 +8993,211 @@ const Editor = () => {
       if (dedupedCandidates.length >= 8) break;
     }
 
-    const frames: YouTubePackagingFrameIdea[] = dedupedCandidates
-      .slice(0, 6)
+    const topicLabel = cleanPackagingText(
+      String(
+        metadataSummary?.topic ??
+        metadataSummary?.title ??
+        metadataSummary?.videoTitle ??
+        activeAnalysis?.title ??
+        displayName(activeJob).replace(/\.[^/.]+$/, ""),
+      ),
+    ) || "Untitled Video";
+    const keywords = toPackagingSearchTerms([
+      metadataSummary?.keywords,
+      metadataSummary?.mainKeywords,
+      metadataSummary?.searchTerms,
+      metadataSummary?.search_terms,
+      metadataSummary?.tags,
+      metadataSummary?.hashtags,
+      fullAutoProfileRaw?.seoSuggestions?.hashtags,
+      fullAutoProfileRaw?.seoSuggestions?.thumbnailIdeas,
+      hookText,
+      hookReason,
+      topicLabel,
+      nicheLabel,
+    ]);
+    const primaryKeyword = keywords[0] || extractPackagingKeyword(`${topicLabel} ${hookText} ${hookReason}`, nicheLabel);
+    const secondaryKeyword = keywords[1] || extractPackagingKeyword(`${primaryKeyword} ${nicheLabel}`, primaryKeyword);
+    const modeSlang = PACKAGING_MODE_SLANG[editorMode] ?? PACKAGING_DEFAULT_SLANG;
+    const slangToken = modeSlang[0] || PACKAGING_DEFAULT_SLANG[0];
+    const targetAudience = inferPackagingAudienceLabel({
+      targetAudience:
+        metadataSummary?.targetAudience ??
+        metadataSummary?.target_audience ??
+        activeAnalysis?.targetAudience ??
+        activeAnalysis?.target_audience,
+      nicheLabel,
+      editorMode,
+      targetPlatform: retentionTargetPlatform,
+    });
+    const channelStyle = inferPackagingChannelStyle({
+      styleRaw:
+        metadataSummary?.channelStyle ??
+        metadataSummary?.channel_style ??
+        metadataSummary?.style ??
+        activeAnalysis?.channelStyle ??
+        activeAnalysis?.channel_style,
+      editorMode,
+      renderMode: activeJob.renderMode,
+    });
+    const vibeLabel = buildPackagingHookStyleLabel(
+      fullAutoProfileRaw?.vibe ??
+      metadataSummary?.vibe ??
+      metadataSummary?.tone ??
+      activeAnalysis?.vibe ??
+      editorMode,
+    );
+
+    let frames: YouTubePackagingFrameIdea[] = dedupedCandidates
+      .slice(0, 4)
       .map((row, index) => {
         const inferredTone = inferPackagingTone(`${row.toneSeed} ${row.transcriptSnippet}`, row.toneHint);
         const confidence = clamp(Math.round(row.score * 0.72 + (row.transcriptSnippet ? 14 : 8)), 42, 98);
+        const overlaySeed = `${keywords[index] || primaryKeyword} ${row.toneSeed} ${row.transcriptSnippet}`;
+        const textOverlay = buildPackagingTextOverlay(overlaySeed, index);
+        const descriptionCore = row.transcriptSnippet
+          ? row.transcriptSnippet
+          : `${row.reason} from ${row.source.toLowerCase()}`;
         return {
           id: `frame-${index + 1}-${Math.round(row.timestampSec * 10)}`,
           timestampSec: row.timestampSec,
           timestampLabel: formatTimelineClock(row.timestampSec),
           tone: inferredTone,
           confidence,
-          reason: row.reason,
+          reason: `${descriptionCore}. Overlay text "${textOverlay}"`,
           source: row.source,
           transcriptSnippet: row.transcriptSnippet,
+          textOverlay,
+          enhancements: "Neon glow edges, high contrast, rule-of-thirds face placement, mobile-safe crop",
+          ctrTrigger: "Facial emotion + color pop + short text under 5 words",
         };
       });
+    if (frames.length === 0) {
+      frames = [
+        {
+          id: "frame-1-fallback",
+          timestampSec: Math.max(0, Math.min(8, retentionTimelineDurationSec * 0.08)),
+          timestampLabel: formatTimelineClock(Math.max(0, Math.min(8, retentionTimelineDurationSec * 0.08))),
+          tone: "curious",
+          confidence: 64,
+          reason: `High-contrast opener reaction shot. Overlay text "DON'T SCROLL"`,
+          source: "Fallback",
+          transcriptSnippet: "",
+          textOverlay: "DON'T SCROLL",
+          enhancements: "Tight face crop, bright rim light, blurred background, strong subject separation",
+          ctrTrigger: "Instant stop signal on mobile feed",
+        },
+      ];
+    }
+    if (frames.length >= 4) {
+      const wild = frames[3];
+      frames[3] = {
+        ...wild,
+        tone: "crazy",
+        textOverlay: "NIGHTMARE MODE",
+        reason: `${wild.reason}. Wild A/B variant: chaotic split-color + motion blur impact frame.`,
+        enhancements: "Split-tone red/cyan treatment, radial burst, heavy contrast, micro grain",
+        ctrTrigger: "Shock pattern interrupt for A/B testing",
+      };
+    }
 
-    const titles: YouTubePackagingTitleIdea[] = [];
-    const seenTitles = new Set<string>();
-    const pushTitle = ({
-      title,
-      tone,
-      reason,
-      timestampSec,
-      timestampLabel,
-    }: {
-      title: string;
+    const strongestFrame = frames[0];
+    const momentLabel = strongestFrame?.timestampLabel ?? "00:08";
+    const powerWordA = PACKAGING_POWER_WORDS[(primaryKeyword.length + topicLabel.length) % PACKAGING_POWER_WORDS.length];
+    const powerWordB = PACKAGING_POWER_WORDS[(secondaryKeyword.length + 3) % PACKAGING_POWER_WORDS.length];
+    const urgencyA = PACKAGING_URGENCY_GAPS[0];
+    const urgencyB = PACKAGING_URGENCY_GAPS[1];
+
+    const titleBlueprints: Array<{
+      hookType: PackagingHookType;
+      rawTitle: string;
       tone: PackagingMomentTone;
-      reason: string;
+      whyCtrKiller: string;
       timestampSec: number | null;
       timestampLabel: string | null;
-    }) => {
-      const normalized = normalizePackagingTitle(toHookStyleTitle(title) || title);
-      if (!normalized) return;
-      const dedupeKey = normalized.toLowerCase();
-      if (seenTitles.has(dedupeKey)) return;
-      seenTitles.add(dedupeKey);
-      titles.push({
-        id: `title-${titles.length + 1}`,
-        title: normalized,
-        tone,
-        reason: cleanPackagingText(reason) || "Built from retention and metadata signals.",
-        timestampSec,
-        timestampLabel,
-      });
-    };
-
-    const fullAutoSeoTitles = Array.isArray(fullAutoProfileRaw?.seoSuggestions?.titles)
-      ? fullAutoProfileRaw.seoSuggestions.titles
-      : [];
-    for (const rawTitle of fullAutoSeoTitles) {
-      if (typeof rawTitle !== "string") continue;
-      const clean = cleanPackagingText(rawTitle);
-      if (!clean) continue;
-      pushTitle({
-        title: clean,
-        tone: inferPackagingTone(clean, "curious"),
-        reason: "Seeded from Full Auto YouTube SEO suggestions.",
+    }> = [
+      {
+        hookType: "Curiosity Gap",
+        rawTitle: `${powerWordA} ${primaryKeyword}: ${urgencyA} ${urgencyB}`,
+        tone: "curious",
+        whyCtrKiller: "Opens an information gap and urgency loop in the first glance.",
+        timestampSec: strongestFrame?.timestampSec ?? null,
+        timestampLabel: strongestFrame?.timestampLabel ?? null,
+      },
+      {
+        hookType: "Emotional Rage/FOMO",
+        rawTitle: `${powerWordB} ${slangToken} - I Broke ${primaryKeyword} and Regretted It`,
+        tone: "crazy",
+        whyCtrKiller: "Pushes emotional FOMO and loss aversion with high-stakes language.",
+        timestampSec: strongestFrame?.timestampSec ?? null,
+        timestampLabel: strongestFrame?.timestampLabel ?? null,
+      },
+      {
+        hookType: "Story Tease",
+        rawTitle: `At ${momentLabel}, ${primaryKeyword} Turned Into a ${powerWordA} Nightmare`,
+        tone: "best",
+        whyCtrKiller: "Teases a specific turning point that demands a click to resolve.",
+        timestampSec: strongestFrame?.timestampSec ?? null,
+        timestampLabel: strongestFrame?.timestampLabel ?? null,
+      },
+      {
+        hookType: "Benefit + Twist",
+        rawTitle: `${secondaryKeyword} Looks Easy Until This Secret Flip Changes Everything`,
+        tone: "best",
+        whyCtrKiller: "Promises a practical upside, then adds a twist to spike curiosity.",
         timestampSec: null,
         timestampLabel: null,
-      });
-    }
+      },
+      {
+        hookType: "Question/Shock",
+        rawTitle: `${powerWordB} or Trap? Why ${primaryKeyword} Just Got Exposed`,
+        tone: "curious",
+        whyCtrKiller: "Binary shock question forces a quick mental vote and click impulse.",
+        timestampSec: strongestFrame?.timestampSec ?? null,
+        timestampLabel: strongestFrame?.timestampLabel ?? null,
+      },
+    ];
 
-    const hookKeyword = extractPackagingKeyword(`${hookText} ${hookReason}`, nicheLabel);
-    if (hookText || hookReason) {
-      pushTitle({
-        title: `Why ${hookKeyword} Hits So Hard`,
-        tone: inferPackagingTone(`${hookText} ${hookReason}`, "curious"),
-        reason: "Built from your selected hook + hook rationale.",
-        timestampSec: Number.isFinite(hookStartSec) ? hookStartSec : null,
-        timestampLabel: Number.isFinite(hookStartSec) ? formatTimelineClock(hookStartSec) : null,
+    const seenTitles = new Set<string>();
+    const titles: YouTubePackagingTitleIdea[] = titleBlueprints.map((entry, index) => {
+      let candidate = enforcePackagingPowerWord(entry.rawTitle, PACKAGING_POWER_WORDS[index % PACKAGING_POWER_WORDS.length]);
+      candidate = toHookStyleTitle(candidate) || candidate;
+      candidate = fitPackagingTitleLength({
+        value: candidate,
+        keyword: primaryKeyword,
+        minLen: 55,
+        maxLen: 70,
       });
-    }
-
-    for (const frame of frames) {
-      const keyword = extractPackagingKeyword(
-        `${frame.transcriptSnippet} ${frame.reason}`,
-        frame.tone === "best" ? nicheLabel : frame.tone,
-      );
-      const variants = buildPackagingTitleVariants({
-        tone: frame.tone,
-        keyword,
-        nicheLabel,
-        timestampLabel: frame.timestampLabel,
-      });
-      for (const variant of variants.slice(0, 2)) {
-        pushTitle({
-          title: variant,
-          tone: frame.tone,
-          reason: `Derived from ${frame.source.toLowerCase()} at ${frame.timestampLabel}.`,
-          timestampSec: frame.timestampSec,
-          timestampLabel: frame.timestampLabel,
+      candidate = normalizePackagingTitle(candidate) || trimPackagingTitle(candidate, 70);
+      if (!candidate) {
+        candidate = fitPackagingTitleLength({
+          value: `${PACKAGING_POWER_WORDS[index % PACKAGING_POWER_WORDS.length]} ${primaryKeyword} ${PACKAGING_URGENCY_GAPS[index % PACKAGING_URGENCY_GAPS.length]}`,
+          keyword: primaryKeyword,
+          minLen: 55,
+          maxLen: 70,
         });
       }
-      if (titles.length >= 8) break;
-    }
-
-    const fallbackTitles = [
-      `Don't Scroll Until You See This`,
-      `I Was Eating and Had to Replay This`,
-      `This One Moment Flips Everything`,
-      `Watch This Before You Judge It`,
-    ];
-    for (const fallback of fallbackTitles) {
-      if (titles.length >= 8) break;
-      pushTitle({
-        title: fallback,
-        tone: inferPackagingTone(fallback, "best"),
-        reason: "Fallback modern YouTube packaging angle.",
-        timestampSec: null,
-        timestampLabel: null,
-      });
-    }
+      const dedupeKey = candidate.toLowerCase();
+      if (seenTitles.has(dedupeKey)) {
+        candidate = fitPackagingTitleLength({
+          value: `${candidate} ${PACKAGING_URGENCY_GAPS[(index + 1) % PACKAGING_URGENCY_GAPS.length]}`,
+          keyword: primaryKeyword,
+          minLen: 55,
+          maxLen: 70,
+        });
+      }
+      seenTitles.add(candidate.toLowerCase());
+      return {
+        id: `title-${index + 1}`,
+        title: candidate,
+        tone: entry.tone,
+        hookType: entry.hookType,
+        whyCtrKiller: entry.whyCtrKiller,
+        reason: `${entry.hookType} tuned from retention + metadata + vibe profile.`,
+        timestampSec: entry.timestampSec,
+        timestampLabel: entry.timestampLabel,
+      };
+    }).slice(0, 5);
 
     const signalSummary = usedSignals.length > 0
       ? `${usedSignals.slice(0, 3).join(", ").toLowerCase()}${usedSignals.length > 3 ? ", and more" : ""}`
@@ -8878,10 +9205,23 @@ const Editor = () => {
 
     return {
       nicheLabel,
+      vibeLabel,
+      channelStyle,
+      targetAudience,
+      topicLabel,
       signalSummary,
       usedSignals: usedSignals.length > 0 ? usedSignals : ["Timeline analysis"],
-      titles: titles.slice(0, 8),
+      titles: titles.slice(0, 5),
       frames,
+      structuredOutput: buildPackagingStructuredOutput({
+        vibeLabel,
+        channelStyle,
+        targetAudience,
+        topicLabel,
+        keywords,
+        titles,
+        frames,
+      }),
     };
   }, [
     activeAnalysis,
@@ -8894,8 +9234,10 @@ const Editor = () => {
     hookReason,
     hookStartSec,
     hookText,
+    editorMode,
     metadataNiche,
     metadataSummary,
+    retentionTargetPlatform,
     retentionCurvePoints,
     retentionStrategyProfile,
     retentionTimelineDurationSec,
@@ -8905,22 +9247,103 @@ const Editor = () => {
     () => youtubePackagingPlan?.titles.slice(0, 3) ?? [],
     [youtubePackagingPlan],
   );
+  const youtubePackagingSelectedFrames = useMemo(
+    () => youtubePackagingPlan?.frames.slice(0, 4) ?? [],
+    [youtubePackagingPlan],
+  );
   const youtubePackagingFrameSourceUrl = useMemo(() => {
+    const currentSource = String(previewVideoRef.current?.currentSrc || previewVideoRef.current?.src || "").trim();
+    if (currentSource) return currentSource;
     const resolved = String(resolvedPreviewOutputUrl || "").trim();
     if (resolved) return resolved;
     const fallback = activeOutputUrls.find((url) => typeof url === "string" && String(url).trim().length > 0);
     return String(fallback || "").trim();
-  }, [activeOutputUrls, resolvedPreviewOutputUrl]);
+  }, [activeOutputUrls, resolvedPreviewOutputUrl, youtubePackagingPopupOpen]);
   const youtubePackagingFrameSourceIdentity = useMemo(
     () => buildPreviewUrlIdentity(youtubePackagingFrameSourceUrl),
     [youtubePackagingFrameSourceUrl],
   );
   useEffect(() => {
+    youtubePackagingFrameImageByKeyRef.current = youtubePackagingFrameImageByKey;
+  }, [youtubePackagingFrameImageByKey]);
+  useEffect(() => {
+    if (youtubePackagingFrameCapturing) {
+      if (youtubePackagingCaptureStartedAtRef.current === null) {
+        youtubePackagingCaptureStartedAtRef.current = Date.now();
+      }
+      return;
+    }
+    youtubePackagingCaptureStartedAtRef.current = null;
+  }, [youtubePackagingFrameCapturing]);
+  useEffect(() => {
+    if (realtimeBugFixStatus !== "fixing") return;
+    if (typeof window === "undefined") return;
+    const timer = window.setTimeout(() => {
+      setRealtimeBugFixStatus("watching");
+    }, 1250);
+    return () => window.clearTimeout(timer);
+  }, [realtimeBugFixStatus]);
+  useEffect(() => {
+    const jobId = activeJob?.id;
+    if (!jobId) return;
+    const runFix = (fixKey: string, actionLabel: string, apply: () => void) => {
+      const now = Date.now();
+      const cooldownKey = `${jobId}:${fixKey}`;
+      const lastRun = realtimeBugFixCooldownRef.current[cooldownKey] || 0;
+      if (now - lastRun < 9000) return false;
+      realtimeBugFixCooldownRef.current[cooldownKey] = now;
+      apply();
+      setRealtimeBugFixStatus("fixing");
+      setRealtimeBugFixLastAction(actionLabel);
+      setRealtimeBugFixActionCount((prev) => prev + 1);
+      return true;
+    };
+
+    if (
+      normalizeStatus(activeJob.status) === "ready" &&
+      !resolvedPreviewOutputUrl &&
+      activeOutputUrls.length > 0
+    ) {
+      runFix("preview_stream_recover", "Recovered missing preview stream.", () => {
+        setPreviewRefreshNonceByJob((prev) => ({
+          ...prev,
+          [jobId]: (prev[jobId] || 0) + 1,
+        }));
+      });
+      return;
+    }
+
+    if (
+      youtubePackagingPopupOpen &&
+      youtubePackagingFrameCapturing &&
+      youtubePackagingCaptureStartedAtRef.current !== null &&
+      (Date.now() - youtubePackagingCaptureStartedAtRef.current) > 12000
+    ) {
+      runFix("packaging_capture_restart", "Restarted stalled thumbnail capture.", () => {
+        setYoutubePackagingFrameCapturing(false);
+        setYoutubePackagingFrameCaptureError("Capture briefly stalled. Recovered and retrying frame extraction.");
+        setYoutubePackagingFrameImageByKey({});
+      });
+      return;
+    }
+
+    if (realtimeBugFixStatus !== "watching") {
+      setRealtimeBugFixStatus("watching");
+    }
+  }, [
+    activeJob,
+    activeOutputUrls,
+    realtimeBugFixStatus,
+    resolvedPreviewOutputUrl,
+    youtubePackagingFrameCapturing,
+    youtubePackagingPopupOpen,
+  ]);
+  useEffect(() => {
     if (!youtubePackagingPopupOpen) {
       setYoutubePackagingFrameCapturing(false);
       return;
     }
-    if (!youtubePackagingPlan || youtubePackagingPlan.frames.length === 0) {
+    if (!youtubePackagingPlan || youtubePackagingSelectedFrames.length === 0) {
       setYoutubePackagingFrameCapturing(false);
       return;
     }
@@ -8933,13 +9356,12 @@ const Editor = () => {
       return;
     }
 
-    const frameTargets = youtubePackagingPlan.frames
-      .slice(0, 6)
+    const frameTargets = youtubePackagingSelectedFrames
       .map((frame) => ({
         frame,
         key: toYouTubePackagingFrameKey(sourceIdentity, frame.id),
       }));
-    const missingTargets = frameTargets.filter((target) => !youtubePackagingFrameImageByKey[target.key]);
+    const missingTargets = frameTargets.filter((target) => !youtubePackagingFrameImageByKeyRef.current[target.key]);
     if (missingTargets.length === 0) {
       setYoutubePackagingFrameCapturing(false);
       setYoutubePackagingFrameCaptureError(null);
@@ -8948,6 +9370,7 @@ const Editor = () => {
 
     let canceled = false;
     const video = document.createElement("video");
+    let downloadedBlobUrl: string | null = null;
 
     const cleanupVideo = () => {
       try {
@@ -8957,6 +9380,10 @@ const Editor = () => {
       }
       video.removeAttribute("src");
       video.load();
+      if (downloadedBlobUrl) {
+        window.URL.revokeObjectURL(downloadedBlobUrl);
+        downloadedBlobUrl = null;
+      }
     };
 
     const waitForVideoEvent = (
@@ -8984,6 +9411,16 @@ const Editor = () => {
         reject(new Error(`${eventName}_timeout`));
       }, timeoutMs);
     });
+    const waitForDecodedFrame = () => new Promise<void>((resolve) => {
+      const videoWithFrameCallback = video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (callback: () => void) => number;
+      };
+      if (typeof videoWithFrameCallback.requestVideoFrameCallback === "function") {
+        videoWithFrameCallback.requestVideoFrameCallback(() => resolve());
+        return;
+      }
+      window.setTimeout(() => resolve(), 38);
+    });
 
     setYoutubePackagingFrameCapturing(true);
     setYoutubePackagingFrameCaptureError(null);
@@ -8993,11 +9430,25 @@ const Editor = () => {
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("frame_canvas_unavailable");
 
+      let effectiveSourceUrl = sourceUrl;
+      if (isAuthRequiredDownloadUrl(effectiveSourceUrl)) {
+        if (!accessToken) throw new Error("frame_auth_required");
+        const response = await fetch(effectiveSourceUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (!response.ok) throw new Error(`frame_auth_fetch_failed_${response.status}`);
+        const blob = await response.blob();
+        downloadedBlobUrl = window.URL.createObjectURL(blob);
+        effectiveSourceUrl = downloadedBlobUrl;
+      }
+
       video.crossOrigin = "anonymous";
       video.preload = "auto";
       video.muted = true;
       video.playsInline = true;
-      video.src = sourceUrl;
+      video.src = effectiveSourceUrl;
       video.load();
 
       if (video.readyState < 1 || video.videoWidth <= 0 || video.videoHeight <= 0) {
@@ -9008,12 +9459,14 @@ const Editor = () => {
       }
       if (canceled) return;
 
-      const width = video.videoWidth || 1280;
-      const height = video.videoHeight || 720;
+      const nativeWidth = video.videoWidth || 1280;
+      const nativeHeight = video.videoHeight || 720;
+      const scale = Math.min(1, 960 / Math.max(1, nativeWidth));
+      const width = Math.max(320, Math.round(nativeWidth * scale));
+      const height = Math.max(180, Math.round(nativeHeight * scale));
       canvas.width = width;
       canvas.height = height;
       const duration = Number.isFinite(video.duration) && video.duration > 0 ? Number(video.duration) : null;
-      const captured: Record<string, string> = {};
 
       for (const target of missingTargets) {
         if (canceled) return;
@@ -9029,19 +9482,22 @@ const Editor = () => {
           await waitForSeek;
         }
         if (canceled) return;
+        await waitForDecodedFrame();
         ctx.drawImage(video, 0, 0, width, height);
+        let dataUrl = "";
         try {
-          captured[target.key] = canvas.toDataURL("image/jpeg", 0.88);
+          dataUrl = canvas.toDataURL("image/webp", 0.74);
+          if (!dataUrl) dataUrl = canvas.toDataURL("image/jpeg", 0.82);
         } catch {
           throw new Error("frame_tainted");
         }
+        if (!dataUrl) continue;
+        setYoutubePackagingFrameImageByKey((prev) => ({
+          ...prev,
+          [target.key]: dataUrl,
+        }));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
-
-      if (canceled || Object.keys(captured).length === 0) return;
-      setYoutubePackagingFrameImageByKey((prev) => ({
-        ...prev,
-        ...captured,
-      }));
     };
 
     void captureFrames()
@@ -9051,6 +9507,12 @@ const Editor = () => {
         if (code === "frame_tainted") {
           setYoutubePackagingFrameCaptureError(
             "Frame previews are blocked by this video source. Timestamp picks are still valid.",
+          );
+          return;
+        }
+        if (code === "frame_auth_required") {
+          setYoutubePackagingFrameCaptureError(
+            "Frame previews need an authenticated stream. Keep this tab signed in and try again.",
           );
           return;
         }
@@ -9067,11 +9529,12 @@ const Editor = () => {
       cleanupVideo();
     };
   }, [
-    youtubePackagingFrameImageByKey,
+    accessToken,
     youtubePackagingFrameSourceIdentity,
     youtubePackagingFrameSourceUrl,
     youtubePackagingPlan,
     youtubePackagingPopupOpen,
+    youtubePackagingSelectedFrames,
   ]);
   const energyLinePoints = useMemo(() => {
     if (timelineEnergyMoments.length < 2) return "";
@@ -11610,7 +12073,16 @@ const Editor = () => {
     setYoutubePackagingFrameImageByKey({});
     setYoutubePackagingFrameCaptureError(null);
     setYoutubePackagingFrameCapturing(false);
+    setRealtimeBugFixLastAction(null);
+    setRealtimeBugFixStatus("watching");
+    setRealtimeBugFixActionCount(0);
   }, [activeJob?.id]);
+  useEffect(() => {
+    if (youtubePackagingPopupOpen) return;
+    setYoutubePackagingFrameCaptureError(null);
+    setYoutubePackagingFrameCapturing(false);
+    setYoutubePackagingFrameImageByKey({});
+  }, [youtubePackagingPopupOpen]);
 
   useEffect(() => {
     if (!activeJob?.id) return;
@@ -11746,6 +12218,64 @@ const Editor = () => {
       description: clean,
     });
   }, [toast]);
+  const handleCopyYouTubePackagingStructuredOutput = useCallback(async (value: string) => {
+    const clean = String(value || "").trim();
+    if (!clean) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(clean);
+        toast({
+          title: "Packahgin AI output copied",
+          description: "Paste into your publishing workflow.",
+        });
+        return;
+      }
+    } catch {
+      // Fallback below
+    }
+    toast({
+      title: "Packahgin AI output ready",
+      description: clean.slice(0, 140),
+    });
+  }, [toast]);
+  const handleDownloadYouTubePackagingFrame = useCallback((frame: YouTubePackagingFrameIdea, imageSrc: string) => {
+    const source = String(imageSrc || "").trim();
+    if (!source) {
+      toast({
+        title: "Frame not ready",
+        description: "Wait for preview capture to finish, then download.",
+      });
+      return;
+    }
+    try {
+      const fallbackName = String(activeJob?.inputPath || "thumbnail-frame")
+        .split(/[\\/]/)
+        .pop() || "thumbnail-frame";
+      const baseName = fallbackName
+        .replace(/\.[^/.]+$/, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 42) || "thumbnail-frame";
+      const timeLabel = frame.timestampLabel.replace(/[^0-9]/g, "") || String(Math.round(frame.timestampSec * 10));
+      const extension = source.startsWith("data:image/webp") ? "webp" : "jpg";
+      const link = document.createElement("a");
+      link.href = source;
+      link.download = `${baseName}-thumb-${timeLabel}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast({
+        title: "Frame downloaded",
+        description: `Saved ${frame.timestampLabel} thumbnail frame.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Could not download this frame right now.",
+      });
+    }
+  }, [activeJob?.inputPath, toast]);
   const handleSeekYouTubePackagingFrame = useCallback((timestampSec: number) => {
     if (!showVideo) return;
     const video = previewVideoRef.current;
@@ -15066,6 +15596,31 @@ const Editor = () => {
                           </p>
                         </div>
                       </div>
+                      <div className="rounded-xl border border-cyan-300/25 bg-[linear-gradient(145deg,rgba(8,47,73,0.35),rgba(15,23,42,0.62))] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-100/90">Realtime Bug Fix AI</p>
+                          <Badge className={realtimeBugFixStatus === "fixing" ? "border-amber-300/45 bg-amber-500/12 text-amber-100" : "border-emerald-300/45 bg-emerald-500/12 text-emerald-100"}>
+                            {realtimeBugFixStatus === "fixing" ? "Fixing now" : "Watching live"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-[11px] text-cyan-100/80">
+                          Auto-recovers preview stream dropouts and stalled thumbnail capture in real time.
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
+                            Auto fixes: {realtimeBugFixActionCount}
+                          </Badge>
+                          {realtimeBugFixLastAction ? (
+                            <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
+                              Last: {realtimeBugFixLastAction}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-cyan-300/35 bg-slate-950/35 text-[10px] text-cyan-100/85">
+                              Last: None yet
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
                       {renderEditorAgentRateCard({
                         compact: true,
                         subtitle: liveRateCardModeSubtitle,
@@ -16715,14 +17270,32 @@ const Editor = () => {
             </div>
             <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Scroll-stopping title + thumbnail frame pack</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              Built from retention data, metadata, and your highest-impact moments. Titles are short, hook-first, and tuned for modern YouTube CTR.
+              Packahgin AI runs in ruthless high-CTR mode: no generic templates, just hook-first titles and high-emotion frame picks from metadata + retention.
             </DialogDescription>
           </DialogHeader>
           {youtubePackagingPlan ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.7),rgba(8,47,73,0.38))] p-4">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Detected niche</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Detected niche</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Packahgin vibe</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.vibeLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Channel style</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.channelStyle}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Target audience</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.targetAudience}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Video topic</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.topicLabel}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Signal blend: {youtubePackagingPlan.signalSummary}.
                 </p>
@@ -16750,6 +17323,8 @@ const Editor = () => {
                           ) : null}
                         </div>
                         <p className="mt-2 text-sm font-semibold text-foreground">{idea.title}</p>
+                        <p className="mt-1 text-[11px] text-cyan-100/85">Hook Type: {idea.hookType}</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground/90">Why CTR Killer: {idea.whyCtrKiller}</p>
                         <p className="mt-1 text-[11px] text-muted-foreground/90">{idea.reason}</p>
                         <div className="mt-2 flex justify-end">
                           <Button
@@ -16790,8 +17365,8 @@ const Editor = () => {
                       Frames are selected from retention spikes, metadata context, and standout moments.
                     </p>
                   )}
-                  {youtubePackagingPlan.frames.length > 0 ? (
-                    youtubePackagingPlan.frames.map((frame) => {
+                  {youtubePackagingSelectedFrames.length > 0 ? (
+                    youtubePackagingSelectedFrames.map((frame) => {
                       const frameImageKey = youtubePackagingFrameSourceIdentity
                         ? toYouTubePackagingFrameKey(youtubePackagingFrameSourceIdentity, frame.id)
                         : "";
@@ -16832,6 +17407,15 @@ const Editor = () => {
                           </span>
                         </div>
                         <p className="mt-2 text-[11px] text-muted-foreground">{frame.reason}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="outline" className="border-cyan-300/35 bg-cyan-500/10 text-[10px] text-cyan-100">
+                            Text: {frame.textOverlay}
+                          </Badge>
+                          <Badge variant="outline" className="border-cyan-300/25 bg-slate-950/35 text-[10px] text-cyan-100/85">
+                            {frame.ctrTrigger}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">Enhancements: {frame.enhancements}</p>
                         {frame.transcriptSnippet ? (
                           <p className="mt-1 rounded-lg border border-border/50 bg-muted/25 px-2 py-1 text-[11px] text-foreground/90">
                             "{frame.transcriptSnippet}"
@@ -16839,16 +17423,28 @@ const Editor = () => {
                         ) : null}
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <span className="text-[11px] text-muted-foreground">Confidence {frame.confidence}%</span>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-2.5 text-[11px]"
-                            onClick={() => handleSeekYouTubePackagingFrame(frame.timestampSec)}
-                            disabled={!showVideo}
-                          >
-                            Jump to frame
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2.5 text-[11px]"
+                              onClick={() => handleDownloadYouTubePackagingFrame(frame, frameImage)}
+                              disabled={!frameImage}
+                            >
+                              Download frame
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2.5 text-[11px]"
+                              onClick={() => handleSeekYouTubePackagingFrame(frame.timestampSec)}
+                              disabled={!showVideo}
+                            >
+                              Jump to frame
+                            </Button>
+                          </div>
                         </div>
                       </div>
                       );
@@ -16860,6 +17456,25 @@ const Editor = () => {
                   )}
                 </section>
               </div>
+              <section className="space-y-2 rounded-xl border border-cyan-300/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(8,47,73,0.34))] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/90">
+                    Packahgin AI Structured Output
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-2.5 text-[11px]"
+                    onClick={() => void handleCopyYouTubePackagingStructuredOutput(youtubePackagingPlan.structuredOutput)}
+                  >
+                    Copy structured output
+                  </Button>
+                </div>
+                <pre className="max-h-72 overflow-auto rounded-lg border border-cyan-300/18 bg-slate-950/45 p-3 text-[11px] leading-relaxed text-cyan-100/90">
+                  {youtubePackagingPlan.structuredOutput}
+                </pre>
+              </section>
             </div>
           ) : (
             <div className="space-y-3">
