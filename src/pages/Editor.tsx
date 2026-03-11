@@ -15057,13 +15057,22 @@ const Editor = () => {
                         </p>
                       )}
                     </div>
-                    {renderEditorAgentRateCard({
-                      compact: true,
-                      subtitle: liveRateCardModeSubtitle,
-                    })}
+                    <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
+                      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode Intelligence</p>
+                          <p className="text-xs text-muted-foreground">
+                            Rate prediction + full scan insights are grouped here inside mode controls.
+                          </p>
+                        </div>
+                      </div>
+                      {renderEditorAgentRateCard({
+                        compact: true,
+                        subtitle: liveRateCardModeSubtitle,
+                      })}
 
-                    {normalizedActiveStatus === "ready" && (
-                      <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
+                      {normalizedActiveStatus === "ready" ? (
+                        <div className="space-y-3 rounded-xl border border-primary/20 bg-[linear-gradient(145deg,rgba(25,22,50,0.72),rgba(16,20,42,0.7))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)] sm:p-4">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Full Video Scan Progress</p>
@@ -15302,8 +15311,13 @@ const Editor = () => {
                             </div>
                           </>
                         )}
-                      </div>
-                    )}
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                          Full Video Scan Progress appears after render is ready.
+                        </p>
+                      )}
+                    </div>
 
                     <div className="mode-stats-shell space-y-3 rounded-xl border p-3 sm:p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
