@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, BarChart3, BrainCircuit, Gauge, ScanFace, Sparkles, Target, Wand2 } from "lucide-react";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 
 const timelineSeries = [
   { stamp: "0:00", energy: 84, emotion: 69, retention: 91 },
@@ -57,6 +58,7 @@ const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "en
 );
 
 const EditorAMode = () => {
+  const [searchParams] = useSearchParams();
   const avgRetention = useMemo(() => (
     Math.round(timelineSeries.reduce((sum, row) => sum + row.retention, 0) / timelineSeries.length)
   ), []);
@@ -66,6 +68,22 @@ const EditorAMode = () => {
   const peakEnergyPoint = useMemo(() => (
     timelineSeries.reduce((best, current) => (current.energy > best.energy ? current : best), timelineSeries[0])
   ), []);
+  const fullVideoScanProgress = useMemo(() => {
+    const raw = Number(searchParams.get("fullScanProgress"));
+    if (Number.isFinite(raw)) return Math.max(0, Math.min(100, raw));
+    return 100;
+  }, [searchParams]);
+  const fullVideoScanLabel = useMemo(() => {
+    const raw = String(searchParams.get("fullScanLabel") || "").trim();
+    if (raw) return raw.slice(0, 120);
+    if (fullVideoScanProgress >= 100) return "Full scan complete";
+    return `Full scan ${Math.round(fullVideoScanProgress)}% complete`;
+  }, [searchParams, fullVideoScanProgress]);
+  const backToEditorHref = useMemo(() => {
+    const jobId = String(searchParams.get("jobId") || "").trim();
+    if (!jobId) return "/editor";
+    return `/editor?jobId=${encodeURIComponent(jobId)}`;
+  }, [searchParams]);
   const energyPoints = useMemo(() => toPoints(timelineSeries, "energy"), []);
   const emotionPoints = useMemo(() => toPoints(timelineSeries, "emotion"), []);
 
@@ -80,7 +98,7 @@ const EditorAMode = () => {
           transition={{ duration: 0.35 }}
         >
           <Link
-            to="/editor"
+            to={backToEditorHref}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -103,7 +121,7 @@ const EditorAMode = () => {
         </motion.header>
 
         <motion.section
-          className="mx-auto mt-6 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          className="mx-auto mt-6 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-5"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4 }}
@@ -127,6 +145,15 @@ const EditorAMode = () => {
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Quality gate</p>
             <p className="mt-1 text-2xl font-semibold text-emerald-200">7/7</p>
             <p className="text-[11px] text-muted-foreground">All hard checks passed</p>
+          </article>
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Full Video Scan Progress</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{Math.round(fullVideoScanProgress)}%</p>
+            <Progress
+              value={fullVideoScanProgress}
+              className="mt-2 h-2 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">{fullVideoScanLabel}</p>
           </article>
         </motion.section>
 
@@ -298,7 +325,7 @@ const EditorAMode = () => {
 
         <div className="mx-auto mt-6 flex max-w-6xl justify-end">
           <Button asChild>
-            <Link to="/editor">Return to Editor</Link>
+            <Link to={backToEditorHref}>Return to Editor</Link>
           </Button>
         </div>
       </main>
