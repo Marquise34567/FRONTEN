@@ -2012,7 +2012,7 @@ const PACKAGING_TONE_META: Record<PackagingMomentTone, {
 
 const PACKAGING_FUNNY_RE = /\b(funny|laugh|laughing|lol|lmao|joke|hilarious|comedy)\b/i;
 const PACKAGING_CRAZY_RE = /\b(crazy|insane|wild|shocking|unreal|no way|wtf|chaos)\b/i;
-const PACKAGING_CURIOUS_RE = /\b(why|how|what happened|wait|secret|reveal|mystery|unexpected|curious)\b/i;
+const PACKAGING_CURIOUS_RE = /\b(why|how|what happened|wait|secret|reveal|mystery|unexpected|curious|watch this|dont scroll|don't scroll)\b/i;
 
 const cleanPackagingText = (value: string) =>
   String(value || "")
@@ -2035,6 +2035,16 @@ const normalizePackagingTitle = (value: string) => {
   const trimmed = trimPackagingTitle(value, 58);
   if (trimmed.length < 14) return "";
   return trimmed;
+};
+
+const toHookStyleTitle = (value: string) => {
+  const clean = cleanPackagingText(value).replace(/[.]+$/g, "");
+  if (!clean) return "";
+  if (/[!?]$/.test(clean)) return clean;
+  if (/^(don't scroll|dont scroll|watch this|you won't|i was|this)\b/i.test(clean)) return clean;
+  if (/^(why|how|what|wait)\b/i.test(clean)) return `${clean}?`;
+  if (clean.length <= 44) return `Wait... ${clean}`;
+  return clean;
 };
 
 const toPackagingTokenList = (value: string) => (
@@ -2100,31 +2110,33 @@ const buildPackagingTitleVariants = ({
   const baseKeyword = keyword || (nicheLabel !== "Unknown" ? nicheLabel : "This Moment");
   if (tone === "crazy") {
     return [
-      `${baseKeyword} Got Wild Fast`,
-      `This ${baseKeyword} Escalated Quickly`,
-      timestampLabel ? `${baseKeyword} at ${timestampLabel} Is Unreal` : `${baseKeyword} Is Unreal`,
+      `${baseKeyword} Escalated Way Too Fast`,
+      `Don't Scroll, This ${baseKeyword} Gets Wild`,
+      timestampLabel ? `Wait for ${timestampLabel}... This Turns Insane` : `Wait... This Turns Insane`,
     ];
   }
   if (tone === "funny") {
     return [
-      `${baseKeyword} Had Me Crying`,
-      `${baseKeyword} Is Too Funny`,
+      `I Was Eating and Had to Rewind This`,
+      `${baseKeyword} Had Me Laughing Mid-Bite`,
       timestampLabel ? `I Lost It at ${timestampLabel}` : `I Couldn't Keep a Straight Face`,
     ];
   }
   if (tone === "curious") {
     return [
-      `Why ${baseKeyword} Works So Well`,
-      `Wait for ${baseKeyword}`,
-      timestampLabel ? `${baseKeyword} at ${timestampLabel} Changes Everything` : `${baseKeyword} Changes Everything`,
+      `Wait... Why Did ${baseKeyword} Happen?`,
+      `${baseKeyword} Looks Normal Then This Happens`,
+      timestampLabel ? `Watch ${timestampLabel} Before You Judge` : `You Won't Guess What Happens Next`,
     ];
   }
   return [
-    `${baseKeyword} Was the Turning Point`,
-    `This ${baseKeyword} Changed the Whole Video`,
-    `The Best Part Was ${baseKeyword}`,
+    `Don't Scroll, This ${baseKeyword} Flips Fast`,
+    `I Replayed This ${baseKeyword} 5 Times`,
+    `This One ${baseKeyword} Changes Everything`,
   ];
 };
+
+const toYouTubePackagingFrameKey = (sourceIdentity: string, frameId: string) => `${sourceIdentity}:${frameId}`;
 
 const formatDurationClock = (seconds: number | null) => {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "--";
@@ -3274,6 +3286,9 @@ const Editor = () => {
   const [storyMapAgentPromptOpen, setStoryMapAgentPromptOpen] = useState(false);
   const [storyMapAgentSuggestionIdByJob, setStoryMapAgentSuggestionIdByJob] = useState<Record<string, string>>({});
   const [youtubePackagingPopupOpen, setYoutubePackagingPopupOpen] = useState(false);
+  const [youtubePackagingFrameImageByKey, setYoutubePackagingFrameImageByKey] = useState<Record<string, string>>({});
+  const [youtubePackagingFrameCapturing, setYoutubePackagingFrameCapturing] = useState(false);
+  const [youtubePackagingFrameCaptureError, setYoutubePackagingFrameCaptureError] = useState<string | null>(null);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
@@ -8775,7 +8790,7 @@ const Editor = () => {
       timestampSec: number | null;
       timestampLabel: string | null;
     }) => {
-      const normalized = normalizePackagingTitle(title);
+      const normalized = normalizePackagingTitle(toHookStyleTitle(title) || title);
       if (!normalized) return;
       const dedupeKey = normalized.toLowerCase();
       if (seenTitles.has(dedupeKey)) return;
@@ -8841,10 +8856,10 @@ const Editor = () => {
     }
 
     const fallbackTitles = [
-      `This Moment Changed the Whole Video`,
-      `Watch This Before You Scroll`,
-      `The Part Everyone Replays`,
-      `This Escalates Fast`,
+      `Don't Scroll Until You See This`,
+      `I Was Eating and Had to Replay This`,
+      `This One Moment Flips Everything`,
+      `Watch This Before You Judge It`,
     ];
     for (const fallback of fallbackTitles) {
       if (titles.length >= 8) break;
@@ -8890,6 +8905,174 @@ const Editor = () => {
     () => youtubePackagingPlan?.titles.slice(0, 3) ?? [],
     [youtubePackagingPlan],
   );
+  const youtubePackagingFrameSourceUrl = useMemo(() => {
+    const resolved = String(resolvedPreviewOutputUrl || "").trim();
+    if (resolved) return resolved;
+    const fallback = activeOutputUrls.find((url) => typeof url === "string" && String(url).trim().length > 0);
+    return String(fallback || "").trim();
+  }, [activeOutputUrls, resolvedPreviewOutputUrl]);
+  const youtubePackagingFrameSourceIdentity = useMemo(
+    () => buildPreviewUrlIdentity(youtubePackagingFrameSourceUrl),
+    [youtubePackagingFrameSourceUrl],
+  );
+  useEffect(() => {
+    if (!youtubePackagingPopupOpen) {
+      setYoutubePackagingFrameCapturing(false);
+      return;
+    }
+    if (!youtubePackagingPlan || youtubePackagingPlan.frames.length === 0) {
+      setYoutubePackagingFrameCapturing(false);
+      return;
+    }
+
+    const sourceUrl = String(youtubePackagingFrameSourceUrl || "").trim();
+    const sourceIdentity = youtubePackagingFrameSourceIdentity || buildPreviewUrlIdentity(sourceUrl);
+    if (!sourceUrl || !sourceIdentity) {
+      setYoutubePackagingFrameCapturing(false);
+      setYoutubePackagingFrameCaptureError("Preview video is still loading. Frame snapshots will appear once it is ready.");
+      return;
+    }
+
+    const frameTargets = youtubePackagingPlan.frames
+      .slice(0, 6)
+      .map((frame) => ({
+        frame,
+        key: toYouTubePackagingFrameKey(sourceIdentity, frame.id),
+      }));
+    const missingTargets = frameTargets.filter((target) => !youtubePackagingFrameImageByKey[target.key]);
+    if (missingTargets.length === 0) {
+      setYoutubePackagingFrameCapturing(false);
+      setYoutubePackagingFrameCaptureError(null);
+      return;
+    }
+
+    let canceled = false;
+    const video = document.createElement("video");
+
+    const cleanupVideo = () => {
+      try {
+        video.pause();
+      } catch {
+        // no-op
+      }
+      video.removeAttribute("src");
+      video.load();
+    };
+
+    const waitForVideoEvent = (
+      eventName: "loadedmetadata" | "loadeddata" | "seeked",
+      timeoutMs = 7000,
+    ) => new Promise<void>((resolve, reject) => {
+      let timeoutId: number | null = null;
+      const handleSuccess = () => {
+        cleanupListeners();
+        resolve();
+      };
+      const handleError = () => {
+        cleanupListeners();
+        reject(new Error(`${eventName}_error`));
+      };
+      const cleanupListeners = () => {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
+        video.removeEventListener(eventName, handleSuccess);
+        video.removeEventListener("error", handleError);
+      };
+      video.addEventListener(eventName, handleSuccess, { once: true });
+      video.addEventListener("error", handleError, { once: true });
+      timeoutId = window.setTimeout(() => {
+        cleanupListeners();
+        reject(new Error(`${eventName}_timeout`));
+      }, timeoutMs);
+    });
+
+    setYoutubePackagingFrameCapturing(true);
+    setYoutubePackagingFrameCaptureError(null);
+
+    const captureFrames = async () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("frame_canvas_unavailable");
+
+      video.crossOrigin = "anonymous";
+      video.preload = "auto";
+      video.muted = true;
+      video.playsInline = true;
+      video.src = sourceUrl;
+      video.load();
+
+      if (video.readyState < 1 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+        await waitForVideoEvent("loadedmetadata");
+      }
+      if (video.readyState < 2) {
+        await waitForVideoEvent("loadeddata");
+      }
+      if (canceled) return;
+
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      canvas.width = width;
+      canvas.height = height;
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? Number(video.duration) : null;
+      const captured: Record<string, string> = {};
+
+      for (const target of missingTargets) {
+        if (canceled) return;
+        const maxSeek = duration === null ? Math.max(0, target.frame.timestampSec) : Math.max(0, duration - 0.05);
+        const seekTarget = clamp(target.frame.timestampSec, 0, maxSeek);
+        if (Math.abs((video.currentTime || 0) - seekTarget) > 0.03) {
+          const waitForSeek = waitForVideoEvent("seeked", 5000);
+          try {
+            video.currentTime = seekTarget;
+          } catch {
+            throw new Error("seek_failed");
+          }
+          await waitForSeek;
+        }
+        if (canceled) return;
+        ctx.drawImage(video, 0, 0, width, height);
+        try {
+          captured[target.key] = canvas.toDataURL("image/jpeg", 0.88);
+        } catch {
+          throw new Error("frame_tainted");
+        }
+      }
+
+      if (canceled || Object.keys(captured).length === 0) return;
+      setYoutubePackagingFrameImageByKey((prev) => ({
+        ...prev,
+        ...captured,
+      }));
+    };
+
+    void captureFrames()
+      .catch((error) => {
+        if (canceled) return;
+        const code = error instanceof Error ? error.message : "frame_capture_failed";
+        if (code === "frame_tainted") {
+          setYoutubePackagingFrameCaptureError(
+            "Frame previews are blocked by this video source. Timestamp picks are still valid.",
+          );
+          return;
+        }
+        setYoutubePackagingFrameCaptureError("Could not generate thumbnail previews right now. Try reopening this popup.");
+      })
+      .finally(() => {
+        if (canceled) return;
+        setYoutubePackagingFrameCapturing(false);
+        cleanupVideo();
+      });
+
+    return () => {
+      canceled = true;
+      cleanupVideo();
+    };
+  }, [
+    youtubePackagingFrameImageByKey,
+    youtubePackagingFrameSourceIdentity,
+    youtubePackagingFrameSourceUrl,
+    youtubePackagingPlan,
+    youtubePackagingPopupOpen,
+  ]);
   const energyLinePoints = useMemo(() => {
     if (timelineEnergyMoments.length < 2) return "";
     return timelineEnergyMoments
@@ -11424,6 +11607,9 @@ const Editor = () => {
   }, [activeJob?.id]);
   useEffect(() => {
     setYoutubePackagingPopupOpen(false);
+    setYoutubePackagingFrameImageByKey({});
+    setYoutubePackagingFrameCaptureError(null);
+    setYoutubePackagingFrameCapturing(false);
   }, [activeJob?.id]);
 
   useEffect(() => {
@@ -16507,40 +16693,40 @@ const Editor = () => {
       </Dialog>
 
       <Dialog open={youtubePackagingPopupOpen} onOpenChange={setYoutubePackagingPopupOpen}>
-        <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-primary/35 bg-[radial-gradient(150%_150%_at_0%_0%,rgba(59,130,246,0.16),transparent_58%),linear-gradient(150deg,rgba(15,23,42,0.95),rgba(2,6,23,0.95))] p-4 shadow-[0_30px_72px_-34px_rgba(37,99,235,0.82)] backdrop-blur-xl sm:max-w-4xl sm:p-6">
+        <DialogContent className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-cyan-300/35 bg-[radial-gradient(160%_140%_at_2%_0%,rgba(56,189,248,0.22),transparent_58%),radial-gradient(120%_140%_at_98%_0%,rgba(59,130,246,0.15),transparent_62%),linear-gradient(152deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_35px_80px_-36px_rgba(14,165,233,0.9)] backdrop-blur-xl sm:max-w-5xl sm:p-6">
           <DialogHeader>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <Badge className="border-primary/45 bg-primary/15 text-primary-foreground">Editor Agent Story Map</Badge>
-              <Badge className="border-sky-400/45 bg-sky-500/12 text-sky-100">YouTube Packaging</Badge>
+              <Badge className="border-cyan-300/45 bg-cyan-400/12 text-cyan-100">Editor Agent Story Map</Badge>
+              <Badge className="border-sky-300/45 bg-sky-500/14 text-sky-100">Premium YouTube Packaging</Badge>
             </div>
-            <DialogTitle className="text-xl font-display text-foreground">Scroll-stopping title + thumbnail frame pack</DialogTitle>
+            <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Scroll-stopping title + thumbnail frame pack</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              Built from retention data, metadata, and best moments. Titles stay short and direct with modern YouTube vibes.
+              Built from retention data, metadata, and your highest-impact moments. Titles are short, hook-first, and tuned for modern YouTube CTR.
             </DialogDescription>
           </DialogHeader>
           {youtubePackagingPlan ? (
             <div className="space-y-4">
-              <div className="rounded-xl border border-border/60 bg-background/40 p-3">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Detected niche</p>
+              <div className="rounded-2xl border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.7),rgba(8,47,73,0.38))] p-4">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">Detected niche</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Signal blend: {youtubePackagingPlan.signalSummary}.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {youtubePackagingPlan.usedSignals.map((signal) => (
-                    <Badge key={`yt-packaging-signal-${signal}`} variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
+                    <Badge key={`yt-packaging-signal-${signal}`} variant="outline" className="border-cyan-300/20 bg-slate-950/45 text-[10px] text-cyan-100/85">
                       {signal}
                     </Badge>
                   ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <section className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Title Ideas</p>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Title Ideas</p>
                   {youtubePackagingPlan.titles.length > 0 ? (
                     youtubePackagingPlan.titles.map((idea) => (
-                      <div key={idea.id} className="rounded-xl border border-border/60 bg-background/45 p-3">
+                      <div key={idea.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.72),rgba(30,41,59,0.35))] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
                             {PACKAGING_TONE_META[idea.tone].label}
@@ -16550,7 +16736,7 @@ const Editor = () => {
                           ) : null}
                         </div>
                         <p className="mt-2 text-sm font-semibold text-foreground">{idea.title}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground">{idea.reason}</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground/90">{idea.reason}</p>
                         <div className="mt-2 flex justify-end">
                           <Button
                             type="button"
@@ -16571,11 +16757,33 @@ const Editor = () => {
                   )}
                 </section>
 
-                <section className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Selected Thumbnail Frames</p>
+                <section className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/80">Selected Thumbnail Frames</p>
+                    {youtubePackagingFrameCapturing ? (
+                      <Badge variant="outline" className="border-cyan-300/40 bg-cyan-500/12 text-[10px] text-cyan-100">
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Capturing previews
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {youtubePackagingFrameCaptureError ? (
+                    <p className="rounded-xl border border-amber-300/35 bg-amber-500/12 px-3 py-2 text-[11px] text-amber-100/95">
+                      {youtubePackagingFrameCaptureError}
+                    </p>
+                  ) : (
+                    <p className="rounded-xl border border-cyan-300/18 bg-cyan-500/8 px-3 py-2 text-[11px] text-cyan-100/90">
+                      Frames are selected from retention spikes, metadata context, and standout moments.
+                    </p>
+                  )}
                   {youtubePackagingPlan.frames.length > 0 ? (
-                    youtubePackagingPlan.frames.map((frame) => (
-                      <div key={frame.id} className="rounded-xl border border-border/60 bg-background/45 p-3">
+                    youtubePackagingPlan.frames.map((frame) => {
+                      const frameImageKey = youtubePackagingFrameSourceIdentity
+                        ? toYouTubePackagingFrameKey(youtubePackagingFrameSourceIdentity, frame.id)
+                        : "";
+                      const frameImage = frameImageKey ? youtubePackagingFrameImageByKey[frameImageKey] : "";
+                      return (
+                      <div key={frame.id} className="rounded-xl border border-white/12 bg-[linear-gradient(145deg,rgba(15,23,42,0.74),rgba(15,23,42,0.42))] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <Badge className={PACKAGING_TONE_META[frame.tone].badgeClassName}>
@@ -16586,6 +16794,28 @@ const Editor = () => {
                             </Badge>
                           </div>
                           <span className="text-xs font-semibold text-foreground">{frame.timestampLabel}</span>
+                        </div>
+                        <div className="relative mt-2 overflow-hidden rounded-xl border border-white/15 bg-black/45">
+                          <div className="aspect-video w-full">
+                            {frameImage ? (
+                              <img
+                                src={frameImage}
+                                alt={`Thumbnail frame at ${frame.timestampLabel}`}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_20%_18%,rgba(59,130,246,0.32),transparent_46%),linear-gradient(140deg,rgba(15,23,42,0.95),rgba(30,41,59,0.85))]">
+                                <span className="rounded-full border border-cyan-300/40 bg-slate-950/65 px-3 py-1 text-[11px] font-medium text-cyan-100">
+                                  {youtubePackagingFrameCapturing ? "Capturing frame..." : "Frame preview pending"}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/72 via-black/25 to-transparent" />
+                          <span className="pointer-events-none absolute bottom-2 right-2 rounded-full border border-white/25 bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            {frame.timestampLabel}
+                          </span>
                         </div>
                         <p className="mt-2 text-[11px] text-muted-foreground">{frame.reason}</p>
                         {frame.transcriptSnippet ? (
@@ -16607,7 +16837,8 @@ const Editor = () => {
                           </Button>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
                       No frame picks available yet.
