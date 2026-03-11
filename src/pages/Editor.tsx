@@ -1411,6 +1411,32 @@ type BingeMoment = {
   score: number;
   reason: string;
 };
+type PackagingMomentTone = "best" | "curious" | "funny" | "crazy";
+type YouTubePackagingTitleIdea = {
+  id: string;
+  title: string;
+  tone: PackagingMomentTone;
+  reason: string;
+  timestampSec: number | null;
+  timestampLabel: string | null;
+};
+type YouTubePackagingFrameIdea = {
+  id: string;
+  timestampSec: number;
+  timestampLabel: string;
+  tone: PackagingMomentTone;
+  confidence: number;
+  reason: string;
+  source: string;
+  transcriptSnippet: string;
+};
+type YouTubePackagingPlan = {
+  nicheLabel: string;
+  signalSummary: string;
+  usedSignals: string[];
+  titles: YouTubePackagingTitleIdea[];
+  frames: YouTubePackagingFrameIdea[];
+};
 type PreviewStoryBeatKey = "hook" | "build_up" | "payoff" | "cliffhanger";
 type PreviewStoryBeatSegment = {
   key: PreviewStoryBeatKey;
@@ -1953,6 +1979,151 @@ const formatTimelineClock = (seconds: number) => {
   const mins = Math.floor(safe / 60);
   const secs = Math.floor(safe % 60);
   return `${mins}:${String(secs).padStart(2, "0")}`;
+};
+
+const PACKAGING_STOPWORDS = new Set([
+  "the", "and", "for", "that", "with", "this", "from", "into", "your", "you", "are", "was", "were",
+  "have", "has", "had", "just", "they", "them", "then", "than", "what", "when", "where", "while",
+  "why", "how", "about", "after", "before", "because", "over", "under", "will", "would", "could",
+  "should", "im", "ive", "its", "our", "out", "get", "got", "too", "very", "really", "more", "less",
+]);
+
+const PACKAGING_TONE_META: Record<PackagingMomentTone, {
+  label: string;
+  badgeClassName: string;
+}> = {
+  best: {
+    label: "Best Moment",
+    badgeClassName: "border-primary/40 bg-primary/12 text-primary-foreground",
+  },
+  curious: {
+    label: "Curious",
+    badgeClassName: "border-sky-400/45 bg-sky-500/12 text-sky-100",
+  },
+  funny: {
+    label: "Funny",
+    badgeClassName: "border-amber-400/45 bg-amber-500/12 text-amber-100",
+  },
+  crazy: {
+    label: "Crazy",
+    badgeClassName: "border-rose-400/45 bg-rose-500/14 text-rose-100",
+  },
+};
+
+const PACKAGING_FUNNY_RE = /\b(funny|laugh|laughing|lol|lmao|joke|hilarious|comedy)\b/i;
+const PACKAGING_CRAZY_RE = /\b(crazy|insane|wild|shocking|unreal|no way|wtf|chaos)\b/i;
+const PACKAGING_CURIOUS_RE = /\b(why|how|what happened|wait|secret|reveal|mystery|unexpected|curious)\b/i;
+
+const cleanPackagingText = (value: string) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .trim();
+
+const trimPackagingTitle = (value: string, maxLen = 58) => {
+  const cleaned = cleanPackagingText(value).replace(/\s+([!?.,])/g, "$1");
+  if (!cleaned) return "";
+  if (cleaned.length <= maxLen) return cleaned;
+  const cut = cleaned.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  const resolved = lastSpace >= 18 ? cut.slice(0, lastSpace) : cut;
+  return resolved.replace(/[!?,.:;\- ]+$/g, "");
+};
+
+const normalizePackagingTitle = (value: string) => {
+  const trimmed = trimPackagingTitle(value, 58);
+  if (trimmed.length < 14) return "";
+  return trimmed;
+};
+
+const toPackagingTokenList = (value: string) => (
+  cleanPackagingText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !PACKAGING_STOPWORDS.has(token))
+);
+
+const formatPackagingKeyword = (value: string) => (
+  value
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+);
+
+const inferPackagingTone = (value: string, fallback: PackagingMomentTone = "best"): PackagingMomentTone => {
+  const sample = cleanPackagingText(value);
+  if (!sample) return fallback;
+  if (PACKAGING_FUNNY_RE.test(sample)) return "funny";
+  if (PACKAGING_CRAZY_RE.test(sample)) return "crazy";
+  if (PACKAGING_CURIOUS_RE.test(sample)) return "curious";
+  return fallback;
+};
+
+const extractTranscriptSnippetNear = (cues: EditorTranscriptCue[], timestampSec: number, windowSec = 6) => {
+  if (!Array.isArray(cues) || cues.length === 0 || !Number.isFinite(timestampSec)) return "";
+  const nearby = cues
+    .filter((cue) => Math.abs(((cue.start + cue.end) / 2) - timestampSec) <= windowSec)
+    .slice(0, 3);
+  if (nearby.length > 0) {
+    return cleanPackagingText(nearby.map((cue) => cue.text).join(" ")).slice(0, 160);
+  }
+  const nearest = cues.reduce<EditorTranscriptCue | null>((closest, cue) => {
+    if (!closest) return cue;
+    const cueDist = Math.abs(((cue.start + cue.end) / 2) - timestampSec);
+    const bestDist = Math.abs(((closest.start + closest.end) / 2) - timestampSec);
+    return cueDist < bestDist ? cue : closest;
+  }, null);
+  return nearest ? cleanPackagingText(nearest.text).slice(0, 140) : "";
+};
+
+const extractPackagingKeyword = (value: string, fallback: string) => {
+  const tokens = toPackagingTokenList(value);
+  if (tokens.length === 0) return formatPackagingKeyword(fallback || "This Moment");
+  const keyword = tokens.slice(0, 3).join(" ");
+  return formatPackagingKeyword(keyword);
+};
+
+const buildPackagingTitleVariants = ({
+  tone,
+  keyword,
+  nicheLabel,
+  timestampLabel,
+}: {
+  tone: PackagingMomentTone;
+  keyword: string;
+  nicheLabel: string;
+  timestampLabel: string | null;
+}) => {
+  const baseKeyword = keyword || (nicheLabel !== "Unknown" ? nicheLabel : "This Moment");
+  if (tone === "crazy") {
+    return [
+      `${baseKeyword} Got Wild Fast`,
+      `This ${baseKeyword} Escalated Quickly`,
+      timestampLabel ? `${baseKeyword} at ${timestampLabel} Is Unreal` : `${baseKeyword} Is Unreal`,
+    ];
+  }
+  if (tone === "funny") {
+    return [
+      `${baseKeyword} Had Me Crying`,
+      `${baseKeyword} Is Too Funny`,
+      timestampLabel ? `I Lost It at ${timestampLabel}` : `I Couldn't Keep a Straight Face`,
+    ];
+  }
+  if (tone === "curious") {
+    return [
+      `Why ${baseKeyword} Works So Well`,
+      `Wait for ${baseKeyword}`,
+      timestampLabel ? `${baseKeyword} at ${timestampLabel} Changes Everything` : `${baseKeyword} Changes Everything`,
+    ];
+  }
+  return [
+    `${baseKeyword} Was the Turning Point`,
+    `This ${baseKeyword} Changed the Whole Video`,
+    `The Best Part Was ${baseKeyword}`,
+  ];
 };
 
 const formatDurationClock = (seconds: number | null) => {
@@ -3100,6 +3271,9 @@ const Editor = () => {
   const [autoCutBoringEnabled, setAutoCutBoringEnabled] = useState(true);
   const [bingeModeEnabled, setBingeModeEnabled] = useState(true);
   const [achievementPopup, setAchievementPopup] = useState<AchievementSignal | null>(null);
+  const [storyMapAgentPromptOpen, setStoryMapAgentPromptOpen] = useState(false);
+  const [storyMapAgentSuggestionIdByJob, setStoryMapAgentSuggestionIdByJob] = useState<Record<string, string>>({});
+  const [youtubePackagingPopupOpen, setYoutubePackagingPopupOpen] = useState(false);
   const [applyingHookJobId, setApplyingHookJobId] = useState<string | null>(null);
   const [hookSelectorOpen, setHookSelectorOpen] = useState(false);
   const [editorGuideOpen, setEditorGuideOpen] = useState(false);
@@ -8416,6 +8590,306 @@ const Editor = () => {
     }
     return deduped.sort((a, b) => a.timestampSec - b.timestampSec);
   }, [bestRetentionSegments, timelineEnergyMoments]);
+  const youtubePackagingPlan = useMemo<YouTubePackagingPlan | null>(() => {
+    if (!activeJob) return null;
+
+    const usedSignals: string[] = [];
+    if (retentionCurvePoints.length > 0) usedSignals.push("Retention curve");
+    if (metadataSummary) usedSignals.push("Metadata summary");
+    if (emotionTimelineHighlights.length > 0) usedSignals.push("Emotion map");
+    if (bingeWorthyMoments.length > 0) usedSignals.push("Best moments");
+    if (activeTranscriptCues.length > 0) usedSignals.push("Transcript context");
+
+    const rawNiche = String(
+      metadataNiche?.niche ??
+      metadataNiche?.name ??
+      metadataSummary?.niche ??
+      activeAnalysis?.niche_profile?.niche ??
+      activeAnalysis?.nicheProfile?.niche ??
+      retentionStrategyProfile,
+    ).trim();
+    const nicheLabel = formatNicheLabel(rawNiche || retentionStrategyProfile);
+
+    const candidateRows: Array<{
+      timestampSec: number;
+      score: number;
+      reason: string;
+      source: string;
+      toneSeed: string;
+      toneHint: PackagingMomentTone;
+      transcriptSnippet: string;
+    }> = [];
+
+    const addCandidate = ({
+      timestampSec,
+      score,
+      reason,
+      source,
+      toneSeed,
+      toneHint,
+    }: {
+      timestampSec: number;
+      score: number;
+      reason: string;
+      source: string;
+      toneSeed: string;
+      toneHint: PackagingMomentTone;
+    }) => {
+      if (!Number.isFinite(timestampSec)) return;
+      const boundedSec = clamp(timestampSec, 0, Math.max(0, retentionTimelineDurationSec));
+      const transcriptSnippet = extractTranscriptSnippetNear(activeTranscriptCues, boundedSec);
+      candidateRows.push({
+        timestampSec: boundedSec,
+        score: clamp(Math.round(score), 30, 100),
+        reason: cleanPackagingText(reason) || "Strong retention moment.",
+        source,
+        toneSeed: cleanPackagingText(toneSeed),
+        toneHint,
+        transcriptSnippet,
+      });
+    };
+
+    for (const moment of bingeWorthyMoments) {
+      addCandidate({
+        timestampSec: moment.timestampSec,
+        score: moment.score,
+        reason: moment.reason,
+        source: "Binge moment",
+        toneSeed: `${moment.reason} ${moment.timestampLabel}`,
+        toneHint: inferPackagingTone(moment.reason, "best"),
+      });
+    }
+
+    for (const highlight of emotionTimelineHighlights) {
+      addCandidate({
+        timestampSec: highlight.timestampSec,
+        score: highlight.strength,
+        reason: highlight.reason,
+        source: "Emotion highlight",
+        toneSeed: `${highlight.emotionLabel} ${highlight.reason}`,
+        toneHint: highlight.emotionKey === "curiosity"
+          ? "curious"
+          : highlight.emotionKey === "excitement"
+            ? "crazy"
+            : "best",
+      });
+    }
+
+    for (const segment of bestRetentionSegments) {
+      addCandidate({
+        timestampSec: segment.midpointSec,
+        score: segment.predicted,
+        reason: segment.reason,
+        source: "Retention best-part",
+        toneSeed: `${segment.reason} ${segment.categoryLabel}`,
+        toneHint: "best",
+      });
+    }
+
+    const retentionPotentialRecord =
+      toObjectRecord(activeAnalysis?.retentionPotential) ??
+      toObjectRecord(activeAnalysis?.retention_potential);
+    const retentionPotentialBestMoments = Array.isArray(retentionPotentialRecord?.bestMoments)
+      ? retentionPotentialRecord.bestMoments
+      : Array.isArray(retentionPotentialRecord?.best_moments)
+        ? retentionPotentialRecord.best_moments
+        : [];
+    for (const row of retentionPotentialBestMoments) {
+      const record = toObjectRecord(row);
+      if (!record) continue;
+      const timestampSec = firstFiniteNumber(
+        record.timestampSeconds,
+        record.timestampSec,
+        record.atSec,
+        record.timeSec,
+        record.timestamp,
+      );
+      if (timestampSec === null) continue;
+      const score = firstFiniteNumber(
+        record.watchedPercent,
+        record.predicted,
+        record.score,
+        record.value,
+      ) ?? 72;
+      const reason = String(record.note ?? record.label ?? record.reason ?? "Strong hold window.").trim();
+      addCandidate({
+        timestampSec,
+        score,
+        reason,
+        source: "Retention best-moment",
+        toneSeed: reason,
+        toneHint: inferPackagingTone(reason, "best"),
+      });
+    }
+
+    for (const clip of verticalClipPredictions.slice(0, 4)) {
+      const midpointSec = Number(((clip.start + clip.end) / 2).toFixed(2));
+      addCandidate({
+        timestampSec: midpointSec,
+        score: clip.predictedCompletion,
+        reason: clip.reason || `Clip ${clip.clip} shows strong completion potential.`,
+        source: "Metadata clip",
+        toneSeed: clip.reason || "",
+        toneHint: inferPackagingTone(clip.reason || "", "curious"),
+      });
+    }
+
+    const sortedCandidates = candidateRows.sort((a, b) => b.score - a.score);
+    const dedupedCandidates: typeof sortedCandidates = [];
+    for (const row of sortedCandidates) {
+      const nearDuplicate = dedupedCandidates.some((existing) => Math.abs(existing.timestampSec - row.timestampSec) < 6);
+      if (nearDuplicate) continue;
+      dedupedCandidates.push(row);
+      if (dedupedCandidates.length >= 8) break;
+    }
+
+    const frames: YouTubePackagingFrameIdea[] = dedupedCandidates
+      .slice(0, 6)
+      .map((row, index) => {
+        const inferredTone = inferPackagingTone(`${row.toneSeed} ${row.transcriptSnippet}`, row.toneHint);
+        const confidence = clamp(Math.round(row.score * 0.72 + (row.transcriptSnippet ? 14 : 8)), 42, 98);
+        return {
+          id: `frame-${index + 1}-${Math.round(row.timestampSec * 10)}`,
+          timestampSec: row.timestampSec,
+          timestampLabel: formatTimelineClock(row.timestampSec),
+          tone: inferredTone,
+          confidence,
+          reason: row.reason,
+          source: row.source,
+          transcriptSnippet: row.transcriptSnippet,
+        };
+      });
+
+    const titles: YouTubePackagingTitleIdea[] = [];
+    const seenTitles = new Set<string>();
+    const pushTitle = ({
+      title,
+      tone,
+      reason,
+      timestampSec,
+      timestampLabel,
+    }: {
+      title: string;
+      tone: PackagingMomentTone;
+      reason: string;
+      timestampSec: number | null;
+      timestampLabel: string | null;
+    }) => {
+      const normalized = normalizePackagingTitle(title);
+      if (!normalized) return;
+      const dedupeKey = normalized.toLowerCase();
+      if (seenTitles.has(dedupeKey)) return;
+      seenTitles.add(dedupeKey);
+      titles.push({
+        id: `title-${titles.length + 1}`,
+        title: normalized,
+        tone,
+        reason: cleanPackagingText(reason) || "Built from retention and metadata signals.",
+        timestampSec,
+        timestampLabel,
+      });
+    };
+
+    const fullAutoSeoTitles = Array.isArray(fullAutoProfileRaw?.seoSuggestions?.titles)
+      ? fullAutoProfileRaw.seoSuggestions.titles
+      : [];
+    for (const rawTitle of fullAutoSeoTitles) {
+      if (typeof rawTitle !== "string") continue;
+      const clean = cleanPackagingText(rawTitle);
+      if (!clean) continue;
+      pushTitle({
+        title: clean,
+        tone: inferPackagingTone(clean, "curious"),
+        reason: "Seeded from Full Auto YouTube SEO suggestions.",
+        timestampSec: null,
+        timestampLabel: null,
+      });
+    }
+
+    const hookKeyword = extractPackagingKeyword(`${hookText} ${hookReason}`, nicheLabel);
+    if (hookText || hookReason) {
+      pushTitle({
+        title: `Why ${hookKeyword} Hits So Hard`,
+        tone: inferPackagingTone(`${hookText} ${hookReason}`, "curious"),
+        reason: "Built from your selected hook + hook rationale.",
+        timestampSec: Number.isFinite(hookStartSec) ? hookStartSec : null,
+        timestampLabel: Number.isFinite(hookStartSec) ? formatTimelineClock(hookStartSec) : null,
+      });
+    }
+
+    for (const frame of frames) {
+      const keyword = extractPackagingKeyword(
+        `${frame.transcriptSnippet} ${frame.reason}`,
+        frame.tone === "best" ? nicheLabel : frame.tone,
+      );
+      const variants = buildPackagingTitleVariants({
+        tone: frame.tone,
+        keyword,
+        nicheLabel,
+        timestampLabel: frame.timestampLabel,
+      });
+      for (const variant of variants.slice(0, 2)) {
+        pushTitle({
+          title: variant,
+          tone: frame.tone,
+          reason: `Derived from ${frame.source.toLowerCase()} at ${frame.timestampLabel}.`,
+          timestampSec: frame.timestampSec,
+          timestampLabel: frame.timestampLabel,
+        });
+      }
+      if (titles.length >= 8) break;
+    }
+
+    const fallbackTitles = [
+      `This Moment Changed the Whole Video`,
+      `Watch This Before You Scroll`,
+      `The Part Everyone Replays`,
+      `This Escalates Fast`,
+    ];
+    for (const fallback of fallbackTitles) {
+      if (titles.length >= 8) break;
+      pushTitle({
+        title: fallback,
+        tone: inferPackagingTone(fallback, "best"),
+        reason: "Fallback modern YouTube packaging angle.",
+        timestampSec: null,
+        timestampLabel: null,
+      });
+    }
+
+    const signalSummary = usedSignals.length > 0
+      ? `${usedSignals.slice(0, 3).join(", ").toLowerCase()}${usedSignals.length > 3 ? ", and more" : ""}`
+      : "basic timeline signals";
+
+    return {
+      nicheLabel,
+      signalSummary,
+      usedSignals: usedSignals.length > 0 ? usedSignals : ["Timeline analysis"],
+      titles: titles.slice(0, 8),
+      frames,
+    };
+  }, [
+    activeAnalysis,
+    activeJob,
+    activeTranscriptCues,
+    bestRetentionSegments,
+    bingeWorthyMoments,
+    emotionTimelineHighlights,
+    fullAutoProfileRaw,
+    hookReason,
+    hookStartSec,
+    hookText,
+    metadataNiche,
+    metadataSummary,
+    retentionCurvePoints,
+    retentionStrategyProfile,
+    retentionTimelineDurationSec,
+    verticalClipPredictions,
+  ]);
+  const youtubePackagingPreviewTitles = useMemo(
+    () => youtubePackagingPlan?.titles.slice(0, 3) ?? [],
+    [youtubePackagingPlan],
+  );
   const energyLinePoints = useMemo(() => {
     if (timelineEnergyMoments.length < 2) return "";
     return timelineEnergyMoments
@@ -9110,6 +9584,34 @@ const Editor = () => {
     }
     return lift;
   }, [editorRateSuggestions, selectedRateSuggestionIdSet]);
+  const activeStoryMapAgentSuggestion = useMemo(() => {
+    if (!activeJob?.id || editorRateSuggestions.length === 0) return null;
+    const selectedId = storyMapAgentSuggestionIdByJob[activeJob.id];
+    if (selectedId) {
+      const selected = editorRateSuggestions.find((suggestion) => suggestion.id === selectedId);
+      if (selected) return selected;
+    }
+    return editorRateSuggestions.find((suggestion) => !selectedRateSuggestionIdSet.has(suggestion.id)) || editorRateSuggestions[0] || null;
+  }, [activeJob?.id, editorRateSuggestions, selectedRateSuggestionIdSet, storyMapAgentSuggestionIdByJob]);
+  const storyMapAgentPromptMetrics = useMemo(() => {
+    if (!activeStoryMapAgentSuggestion) return null;
+    const platformLiftValues = (["youtube", "tiktok", "instagram_reels"] as RetentionTargetPlatform[])
+      .map((platform) => Number(activeStoryMapAgentSuggestion.predictedLift[platform] || 0));
+    const targetPlatformLift = Number(activeStoryMapAgentSuggestion.predictedLift[retentionTargetPlatform] || 0);
+    const strongestPlatformLift = Math.max(0, ...platformLiftValues);
+    const baseRetentionLift = Math.max(1, targetPlatformLift || strongestPlatformLift || 1);
+    const retentionLift = clamp(Math.round(baseRetentionLift), 1, 24);
+    const watchtimeLift = clamp(Math.round(retentionLift * 1.45), 2, 30);
+    const qualityLift = clamp(Math.round(retentionLift * 1.2 + 1), 2, 26);
+    return {
+      retentionLift,
+      watchtimeLift,
+      qualityLift,
+    };
+  }, [activeStoryMapAgentSuggestion, retentionTargetPlatform]);
+  const activeStoryMapAgentSuggestionAdded = Boolean(
+    activeStoryMapAgentSuggestion && selectedRateSuggestionIdSet.has(activeStoryMapAgentSuggestion.id),
+  );
   const platformRateDecisionReady = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
   const platformRateScores = useMemo(() => {
     const scoreSignalBase = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 62;
@@ -9531,30 +10033,28 @@ const Editor = () => {
     }
 
     const patchPayload: Record<string, unknown> = {};
-    const applyMaxCuts = (nextValue: number) => {
-      const nextCuts = clamp(nextValue, MAX_CUTS_MIN, MAX_CUTS_MAX);
-      setMaxCutsRequested(nextCuts);
+    const applyMaxCutsDelta = (delta: number) => {
+      const nextCuts = clamp(maxCutsRequested + delta, MAX_CUTS_MIN, MAX_CUTS_MAX);
+      setMaxCutsRequested((prev) => clamp(prev + delta, MAX_CUTS_MIN, MAX_CUTS_MAX));
       patchPayload.maxCuts = nextCuts;
       return nextCuts;
     };
-
-    setPreviewTipAppliedIdsByJob((prev) => ({
-      ...prev,
-      [jobId]: [...(prev[jobId] || []), tip.id],
-    }));
+    let actionHandled = false;
 
     if (tip.action === "raise_retention_goal") {
+      actionHandled = true;
       menuTouchedRef.current.strategy = true;
       setAModeEnabled(true);
       setBingeModeEnabled(true);
       setAutoCutBoringEnabled(true);
       setAutoTransitionsEnabled(true);
       setRetentionStrategyProfile("viral");
-      applyMaxCuts(maxCutsRequested + 3);
+      applyMaxCutsDelta(3);
       patchPayload.onlyCuts = false;
       patchPayload.transitions = true;
       patchPayload.retentionStrategyProfile = "viral";
     } else if (tip.action === "tighten_hook") {
+      actionHandled = true;
       menuTouchedRef.current.strategy = true;
       setRetentionStrategyProfile("viral");
       setAutoTransitionsEnabled(true);
@@ -9567,8 +10067,9 @@ const Editor = () => {
       patchPayload.retentionStrategyProfile = "viral";
       patchPayload.transitions = true;
     } else if (tip.action === "skip_segment") {
+      actionHandled = true;
       setAutoCutBoringEnabled(true);
-      applyMaxCuts(maxCutsRequested + 1);
+      applyMaxCutsDelta(1);
       patchPayload.onlyCuts = false;
       if (
         typeof tip.segmentId === "string" &&
@@ -9589,9 +10090,10 @@ const Editor = () => {
         setTimelineSegmentActionByKey((prev) => ({ ...prev, [actionKey]: "remove" }));
       }
     } else if (tip.action === "increase_pacing") {
+      actionHandled = true;
       setBingeModeEnabled(true);
       setAutoTransitionsEnabled(true);
-      applyMaxCuts(maxCutsRequested + 2);
+      applyMaxCutsDelta(2);
       patchPayload.onlyCuts = false;
       patchPayload.transitions = true;
       setPreviewTipPlaybackRateByJob((prev) => ({
@@ -9599,14 +10101,16 @@ const Editor = () => {
         [jobId]: Math.max(1.06, prev[jobId] || 1),
       }));
     } else if (tip.action === "stronger_filler_pass") {
+      actionHandled = true;
       setAutoCutBoringEnabled(true);
-      applyMaxCuts(maxCutsRequested + 2);
+      applyMaxCutsDelta(2);
       patchPayload.onlyCuts = false;
       setPreviewTipPlaybackRateByJob((prev) => ({
         ...prev,
         [jobId]: Math.max(1.03, prev[jobId] || 1),
       }));
     } else if (tip.action === "steady_upgrade") {
+      actionHandled = true;
       setSmartZoomEnabled(true);
       setAutoTransitionsEnabled(true);
       patchPayload.smartZoom = true;
@@ -9616,11 +10120,19 @@ const Editor = () => {
         [jobId]: Math.max(1.02, prev[jobId] || 1),
       }));
     } else if (tip.action === "hook_polish") {
+      actionHandled = true;
       menuTouchedRef.current.strategy = true;
       setRetentionStrategyProfile("balanced");
       setAutoTransitionsEnabled(true);
       patchPayload.retentionStrategyProfile = "balanced";
       patchPayload.transitions = true;
+    }
+    if (!actionHandled) {
+      toast({
+        title: "Tip not applied",
+        description: "This quick fix is unavailable right now. Try another suggestion.",
+      });
+      return;
     }
 
     setPlatformRateRealtimeTick((prev) => prev + 1);
@@ -9648,6 +10160,14 @@ const Editor = () => {
     } else if (Object.keys(patchPayload).length > 0) {
       toastDescription = "Applied to preview controls. Download uses the current preview output as shown.";
     }
+    setPreviewTipAppliedIdsByJob((prev) => {
+      const existing = prev[jobId] || [];
+      if (existing.includes(tip.id)) return prev;
+      return {
+        ...prev,
+        [jobId]: [...existing, tip.id],
+      };
+    });
 
     trackEditorEvent("preview_tip_applied", {
       category: "interaction",
@@ -9986,6 +10506,20 @@ const Editor = () => {
     };
     setAchievementPopup(nextSignal);
   }, [activeJob?.id, activeJob?.status, achievementSignals]);
+  useEffect(() => {
+    if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
+    if (!activeStoryMapAgentSuggestion) return;
+    if (typeof window === "undefined") return;
+    const key = `story_map_agent_prompt_shown_${activeJob.id}`;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "true");
+    setStoryMapAgentSuggestionIdByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: activeStoryMapAgentSuggestion.id,
+    }));
+    setStoryMapAgentPromptOpen(true);
+    setExportOpen(false);
+  }, [activeJob?.id, activeJob?.status, activeStoryMapAgentSuggestion]);
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -10888,6 +11422,9 @@ const Editor = () => {
   useEffect(() => {
     setFocusedDropOffEventId(null);
   }, [activeJob?.id]);
+  useEffect(() => {
+    setYoutubePackagingPopupOpen(false);
+  }, [activeJob?.id]);
 
   useEffect(() => {
     if (!activeJob?.id) return;
@@ -10973,6 +11510,73 @@ const Editor = () => {
     rateSuggestionSelectionsByJob,
     toast,
   ]);
+  const handleCloseStoryMapAgentPrompt = useCallback(() => {
+    setStoryMapAgentPromptOpen(false);
+    setExportOpen(true);
+  }, []);
+  const handleTryAnotherStoryMapSuggestion = useCallback(() => {
+    if (!activeJob?.id || editorRateSuggestions.length <= 1) return;
+    const currentId = activeStoryMapAgentSuggestion?.id;
+    const currentIndex = editorRateSuggestions.findIndex((suggestion) => suggestion.id === currentId);
+    const nextIndex = currentIndex >= 0
+      ? (currentIndex + 1) % editorRateSuggestions.length
+      : 0;
+    const nextSuggestion = editorRateSuggestions[nextIndex];
+    if (!nextSuggestion) return;
+    setStoryMapAgentSuggestionIdByJob((prev) => ({
+      ...prev,
+      [activeJob.id]: nextSuggestion.id,
+    }));
+  }, [activeJob?.id, activeStoryMapAgentSuggestion?.id, editorRateSuggestions]);
+  const handleApplyStoryMapAgentSuggestion = useCallback(() => {
+    if (!activeStoryMapAgentSuggestion) return;
+    if (!activeStoryMapAgentSuggestionAdded) {
+      handleApplyEditorRateSuggestion(activeStoryMapAgentSuggestion);
+    }
+    setStoryMapAgentPromptOpen(false);
+    setExportOpen(true);
+  }, [
+    activeStoryMapAgentSuggestion,
+    activeStoryMapAgentSuggestionAdded,
+    handleApplyEditorRateSuggestion,
+  ]);
+  const handleUseYouTubePackagingTitle = useCallback(async (title: string) => {
+    const clean = cleanPackagingText(title);
+    if (!clean) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(clean);
+        toast({
+          title: "Title copied",
+          description: "Paste it into your YouTube title field.",
+        });
+        return;
+      }
+    } catch {
+      // Fallback below
+    }
+    toast({
+      title: "Title ready",
+      description: clean,
+    });
+  }, [toast]);
+  const handleSeekYouTubePackagingFrame = useCallback((timestampSec: number) => {
+    if (!showVideo) return;
+    const video = previewVideoRef.current;
+    const maxDuration = Number.isFinite(video?.duration || NaN) && Number(video?.duration || 0) > 0
+      ? Number(video?.duration)
+      : previewStoryBeatTimelineDurationSec;
+    const target = clamp(timestampSec, 0, Math.max(0, maxDuration - 0.05));
+    if (video) {
+      try {
+        video.currentTime = target;
+        void video.play().catch(() => {});
+      } catch {
+        // no-op: browsers can reject seeks while metadata updates
+      }
+    }
+    setPreviewCurrentTimeSec(target);
+  }, [previewStoryBeatTimelineDurationSec, showVideo]);
 
   const applyYouTubeNichePreset = (preset: YouTubeNichePreset) => {
     menuTouchedRef.current.strategy = true;
@@ -12872,77 +13476,6 @@ const Editor = () => {
             ) : null}
 
             <section className="min-w-0 space-y-6">
-              <div className="glass-card border border-primary/25 bg-[linear-gradient(135deg,rgba(15,23,42,0.72),rgba(2,132,199,0.14))] p-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Upload Format</p>
-                      <p className="text-xs text-muted-foreground">
-                        Vertical mode auto-crops to 9:16. If webcam strip is enabled, layout space is reserved automatically.
-                      </p>
-                      <p className="mt-1 text-[11px] text-primary/90">{recommendedUploadFormatLabel}</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline" className="border-primary/45 bg-primary/10 text-primary">
-                        {isVerticalMode ? "Vertical selected" : "Horizontal selected"}
-                      </Badge>
-                      <Badge variant="outline" className="border-border/60 bg-background/35 text-muted-foreground">
-                        {recommendedUploadFormat === "vertical" ? "Vertical recommended" : "Horizontal recommended"}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <button
-                      type="button"
-                      className={uploadFormatCardClass(!isVerticalMode)}
-                      onClick={() => selectUploadFormatMode("horizontal")}
-                      aria-pressed={!isVerticalMode}
-                      aria-label="Select horizontal 16:9 format"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
-                          <p className="text-xs text-muted-foreground">Best for long-form YouTube and standard widescreen exports.</p>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {!isVerticalMode ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
-                          <Monitor className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">YouTube long-form</span>
-                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">Podcasts</span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={uploadFormatCardClass(isVerticalMode)}
-                      onClick={() => selectUploadFormatMode("vertical")}
-                      aria-pressed={isVerticalMode}
-                      aria-label="Select vertical 9:16 format"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
-                          <p className="text-xs text-muted-foreground">
-                            Shorts-first flow with auto crop, premium captions, and optional webcam strip spacing.
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {isVerticalMode ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
-                          <Smartphone className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">TikTok</span>
-                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">IG Reels</span>
-                        <span className="rounded-full border border-border/60 bg-background/45 px-2 py-0.5 text-muted-foreground">Shorts</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
               <div
                 ref={uploadDropZoneRef}
                 className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
@@ -13690,14 +14223,14 @@ const Editor = () => {
                           animate={{ opacity: 1, y: [0, -2, 0], scale: [1, 1.01, 1] }}
                           exit={{ opacity: 0, y: -10, scale: 0.98 }}
                           transition={{ duration: 0.34, ease: "easeOut" }}
-                          className="pointer-events-auto absolute left-2 right-2 top-2 z-20"
+                          className="pointer-events-auto absolute left-2 top-2 z-20 w-[min(84vw,17.5rem)] sm:w-72"
                         >
                           {(() => {
                             const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
                             return (
                               <button
                                 type="button"
-                                className={`w-full rounded-xl border p-2.5 text-left shadow-[0_16px_38px_-24px_rgba(2,6,23,0.9)] backdrop-blur-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
+                                className={`w-full rounded-xl border p-2 text-left shadow-[0_16px_38px_-24px_rgba(2,6,23,0.9)] backdrop-blur-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
                                   activePreviewTipAlreadyApplied
                                     ? "ring-1 ring-emerald-300/45"
                                     : "hover:border-primary/45"
@@ -13711,8 +14244,8 @@ const Editor = () => {
                                   </span>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[10px] uppercase tracking-[0.14em] text-foreground/75">{toneMeta.label}</p>
-                                    <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
-                                    <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
+                                    <p className="text-[11px] font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
+                                    <p className="mt-1 text-[10px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                     <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
                                       {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply live"}
                                     </p>
@@ -13727,18 +14260,26 @@ const Editor = () => {
                   </div>
                   {activeJob ? (
                     <div className="border-t border-border/55 bg-background/35 p-3">
-                      <div className="rounded-xl border border-primary/25 bg-[linear-gradient(145deg,rgba(28,24,52,0.72),rgba(14,20,46,0.64))] p-3 shadow-[0_20px_34px_-28px_hsl(var(--primary)/0.9)]">
+                      <div className="relative overflow-hidden rounded-2xl border border-primary/35 bg-[radial-gradient(150%_130%_at_0%_0%,rgba(56,189,248,0.2),transparent_52%),radial-gradient(130%_120%_at_100%_0%,rgba(147,197,253,0.16),transparent_48%),linear-gradient(150deg,rgba(16,20,44,0.86),rgba(8,12,26,0.92))] p-3 shadow-[0_26px_48px_-32px_rgba(14,116,144,0.78)]">
+                        <div className="pointer-events-none absolute inset-0" aria-hidden>
+                          <span className="absolute -left-8 top-[-3.5rem] h-28 w-28 rounded-full bg-cyan-300/20 blur-3xl" />
+                          <span className="absolute right-[-2.75rem] top-[-2.5rem] h-24 w-24 rounded-full bg-primary/18 blur-3xl" />
+                        </div>
                         <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Editor Agent Story Map</p>
+                          <div className="relative z-10">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/35 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-200 shadow-[0_0_8px_rgba(103,232,249,0.95)]" />
+                              Agent Live
+                            </div>
+                            <p className="mt-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Editor Agent Story Map</p>
                             <p className="mt-1 text-[11px] text-foreground/80">
                               {isVerticalMode
                                 ? "Vertical flow map for TikTok + IG Reels pacing and payoff timing."
                                 : "Long-form story map with short-form breakout pacing markers."}
                             </p>
                           </div>
-                          <div className="flex flex-wrap items-center justify-end gap-1.5">
-                            <Badge className="border-primary/35 bg-primary/10 text-primary">
+                          <div className="relative z-10 flex flex-wrap items-center justify-end gap-1.5">
+                            <Badge className="border-cyan-300/35 bg-cyan-400/10 text-cyan-100">
                               Momentum {previewStoryMapMomentumScore}
                             </Badge>
                             {previewStoryBeatActive ? (
@@ -13761,21 +14302,24 @@ const Editor = () => {
                           </div>
                         </div>
                         {!showStoryMapPanel ? (
-                          <p className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                          <p className="mt-3 rounded-xl border border-dashed border-border/60 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
                             Story map is hidden. Toggle Map ON to inspect beat pacing.
                           </p>
                         ) : (
                           <>
                             <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
                               {previewStoryBeatStats.map((segment) => (
-                                <div key={`story-map-metric-${segment.key}`} className="rounded-lg border border-primary/20 bg-background/35 p-2">
+                                <div
+                                  key={`story-map-metric-${segment.key}`}
+                                  className="rounded-xl border border-cyan-300/18 bg-[linear-gradient(150deg,rgba(30,41,59,0.66),rgba(15,23,42,0.42))] p-2.5 shadow-[0_14px_26px_-24px_rgba(56,189,248,0.6)]"
+                                >
                                   <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{segment.shortLabel}</p>
                                   <p className="mt-1 text-sm font-semibold text-foreground">{formatTimelineClock(segment.durationSec)}</p>
                                   <p className="text-[10px] text-muted-foreground">{segment.coveragePct}% of timeline</p>
                                 </div>
                               ))}
                             </div>
-                            <div className="relative mt-3 h-3 overflow-hidden rounded-full border border-border/55 bg-muted/55">
+                            <div className="relative mt-3 h-3.5 overflow-hidden rounded-full border border-cyan-300/22 bg-slate-900/65">
                               {previewStoryBeatSegments.map((segment) => {
                                 const total = Math.max(1, previewStoryBeatSegments[previewStoryBeatSegments.length - 1]?.endSec || 1);
                                 const left = clamp((segment.startSec / total) * 100, 0, 100);
@@ -13844,6 +14388,51 @@ const Editor = () => {
                             </p>
                           </>
                         )}
+                        <div className="relative z-10 mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(145deg,rgba(15,23,42,0.78),rgba(2,6,23,0.84))] p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2.5">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-[0.14em] text-primary-foreground/80">YouTube Packaging Agent</p>
+                              <p className="mt-1 text-xs text-foreground/85">
+                                {youtubePackagingPlan
+                                  ? `Dynamic title + thumbnail frame picks from ${youtubePackagingPlan.signalSummary}.`
+                                  : "Packaging ideas appear after metadata and retention signals are ready."}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-8 rounded-full bg-primary px-3 text-[11px] text-primary-foreground hover:bg-primary/90"
+                              onClick={() => setYoutubePackagingPopupOpen(true)}
+                              disabled={!youtubePackagingPlan}
+                            >
+                              Open Packaging Popup
+                            </Button>
+                          </div>
+                          {youtubePackagingPreviewTitles.length > 0 ? (
+                            <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
+                              {youtubePackagingPreviewTitles.map((idea) => (
+                                <div
+                                  key={idea.id}
+                                  className="rounded-lg border border-border/60 bg-background/45 p-2"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
+                                      {PACKAGING_TONE_META[idea.tone].label}
+                                    </Badge>
+                                    {idea.timestampLabel ? (
+                                      <span className="text-[10px] text-muted-foreground">{idea.timestampLabel}</span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-1 text-xs font-semibold text-foreground">{idea.title}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-2 rounded-lg border border-dashed border-border/60 bg-background/35 px-3 py-2 text-[11px] text-muted-foreground">
+                              No packaging suggestions yet. Finish processing to unlock title and thumbnail picks.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -13856,7 +14445,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: -14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-auto absolute left-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
+                      className="pointer-events-auto absolute left-2 top-1/2 z-20 hidden w-44 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(activePreviewImprovementTip.tone);
@@ -13900,7 +14489,7 @@ const Editor = () => {
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 14, scale: 0.98 }}
                       transition={{ duration: 0.24, ease: "easeOut" }}
-                      className="pointer-events-auto absolute right-2 top-1/2 z-20 hidden w-52 -translate-y-1/2 2xl:block"
+                      className="pointer-events-auto absolute right-2 top-1/2 z-20 hidden w-44 -translate-y-1/2 2xl:block"
                     >
                       {(() => {
                         const toneMeta = resolvePreviewImprovementToneMeta(sidePreviewImprovementTip.tone);
@@ -15834,6 +16423,209 @@ const Editor = () => {
               Open Export
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={storyMapAgentPromptOpen}
+        onOpenChange={(open) => {
+          if (!open) handleCloseStoryMapAgentPrompt();
+        }}
+      >
+        <DialogContent className="max-w-[calc(100vw-1rem)] border border-cyan-300/35 bg-[radial-gradient(140%_170%_at_0%_0%,rgba(56,189,248,0.2),transparent_58%),linear-gradient(152deg,rgba(15,23,42,0.94),rgba(2,6,23,0.95))] p-4 shadow-[0_30px_72px_-34px_rgba(14,116,144,0.9)] backdrop-blur-xl sm:max-w-2xl sm:p-6">
+          <DialogHeader>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <Badge className="border-cyan-300/35 bg-cyan-400/12 text-cyan-100">Editor Agent Story Map</Badge>
+              <Badge className="border-primary/40 bg-primary/12 text-primary">Live Upgrade</Badge>
+            </div>
+            <DialogTitle className="text-xl font-display text-foreground">Want me to apply this in real time?</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              The agent reviewed your finished render and found a high-impact change to improve quality, watchtime, and retention.
+            </DialogDescription>
+          </DialogHeader>
+          {activeStoryMapAgentSuggestion ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-cyan-300/30 bg-[linear-gradient(145deg,rgba(8,47,73,0.35),rgba(15,23,42,0.62))] p-3">
+                <p className="text-xs font-semibold text-foreground">{activeStoryMapAgentSuggestion.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{activeStoryMapAgentSuggestion.detail}</p>
+                <p className="mt-2 text-[11px] text-cyan-100/90">
+                  Target profile: {activeTargetPlatformLabel} · Applies directly to live editor settings.
+                </p>
+              </div>
+              {storyMapAgentPromptMetrics ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="rounded-xl border border-border/60 bg-background/45 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Video quality</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">+{storyMapAgentPromptMetrics.qualityLift}%</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background/45 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Watchtime</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">+{storyMapAgentPromptMetrics.watchtimeLift}%</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background/45 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Retention</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">+{storyMapAgentPromptMetrics.retentionLift}%</p>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Button variant="ghost" className="w-full sm:w-auto" onClick={handleCloseStoryMapAgentPrompt}>
+                  Not now
+                </Button>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={handleTryAnotherStoryMapSuggestion}
+                    disabled={!activeJob?.id || editorRateSuggestions.length <= 1}
+                  >
+                    Try another fix
+                  </Button>
+                  <Button
+                    className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                    onClick={handleApplyStoryMapAgentSuggestion}
+                    disabled={activeStoryMapAgentSuggestionAdded}
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    {activeStoryMapAgentSuggestionAdded ? "Already Applied" : "Apply in Real Time"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                No additional live fixes are available right now.
+              </p>
+              <div className="flex justify-end">
+                <Button onClick={handleCloseStoryMapAgentPrompt}>Continue</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={youtubePackagingPopupOpen} onOpenChange={setYoutubePackagingPopupOpen}>
+        <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-primary/35 bg-[radial-gradient(150%_150%_at_0%_0%,rgba(59,130,246,0.16),transparent_58%),linear-gradient(150deg,rgba(15,23,42,0.95),rgba(2,6,23,0.95))] p-4 shadow-[0_30px_72px_-34px_rgba(37,99,235,0.82)] backdrop-blur-xl sm:max-w-4xl sm:p-6">
+          <DialogHeader>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <Badge className="border-primary/45 bg-primary/15 text-primary-foreground">Editor Agent Story Map</Badge>
+              <Badge className="border-sky-400/45 bg-sky-500/12 text-sky-100">YouTube Packaging</Badge>
+            </div>
+            <DialogTitle className="text-xl font-display text-foreground">Scroll-stopping title + thumbnail frame pack</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Built from retention data, metadata, and best moments. Titles stay short and direct with modern YouTube vibes.
+            </DialogDescription>
+          </DialogHeader>
+          {youtubePackagingPlan ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Detected niche</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{youtubePackagingPlan.nicheLabel}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Signal blend: {youtubePackagingPlan.signalSummary}.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {youtubePackagingPlan.usedSignals.map((signal) => (
+                    <Badge key={`yt-packaging-signal-${signal}`} variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
+                      {signal}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <section className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Title Ideas</p>
+                  {youtubePackagingPlan.titles.length > 0 ? (
+                    youtubePackagingPlan.titles.map((idea) => (
+                      <div key={idea.id} className="rounded-xl border border-border/60 bg-background/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Badge className={PACKAGING_TONE_META[idea.tone].badgeClassName}>
+                            {PACKAGING_TONE_META[idea.tone].label}
+                          </Badge>
+                          {idea.timestampLabel ? (
+                            <span className="text-[11px] text-muted-foreground">{idea.timestampLabel}</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-foreground">{idea.title}</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">{idea.reason}</p>
+                        <div className="mt-2 flex justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2.5 text-[11px]"
+                            onClick={() => void handleUseYouTubePackagingTitle(idea.title)}
+                          >
+                            Copy title
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                      No title ideas available yet.
+                    </p>
+                  )}
+                </section>
+
+                <section className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Selected Thumbnail Frames</p>
+                  {youtubePackagingPlan.frames.length > 0 ? (
+                    youtubePackagingPlan.frames.map((frame) => (
+                      <div key={frame.id} className="rounded-xl border border-border/60 bg-background/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Badge className={PACKAGING_TONE_META[frame.tone].badgeClassName}>
+                              {PACKAGING_TONE_META[frame.tone].label}
+                            </Badge>
+                            <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
+                              {frame.source}
+                            </Badge>
+                          </div>
+                          <span className="text-xs font-semibold text-foreground">{frame.timestampLabel}</span>
+                        </div>
+                        <p className="mt-2 text-[11px] text-muted-foreground">{frame.reason}</p>
+                        {frame.transcriptSnippet ? (
+                          <p className="mt-1 rounded-lg border border-border/50 bg-muted/25 px-2 py-1 text-[11px] text-foreground/90">
+                            "{frame.transcriptSnippet}"
+                          </p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] text-muted-foreground">Confidence {frame.confidence}%</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2.5 text-[11px]"
+                            onClick={() => handleSeekYouTubePackagingFrame(frame.timestampSec)}
+                            disabled={!showVideo}
+                          >
+                            Jump to frame
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                      No frame picks available yet.
+                    </p>
+                  )}
+                </section>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-dashed border-border/60 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                Packaging data will appear after retention and metadata analysis is available.
+              </p>
+              <div className="flex justify-end">
+                <Button onClick={() => setYoutubePackagingPopupOpen(false)}>Close</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
