@@ -303,7 +303,7 @@ const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 50;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 9;
-const VERTICAL_CLIP_DURATION_CHOICES = [8, 10] as const;
+const VERTICAL_CLIP_DURATION_CHOICES = [30, 45, 60] as const;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
 const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
 const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
@@ -772,7 +772,7 @@ const VERTICAL_SHORT_FORM_MODE_PRESETS: Array<{
   {
     id: "hook_storm",
     label: "Hook Storm",
-    description: "Most aggressive hook-first ranking for short-form retention spikes.",
+    description: "Fastest moment-first ranking with denser pacing for high-energy shorts.",
     profile: "viral",
     platform: "tiktok",
     editorMode: "reaction",
@@ -782,7 +782,7 @@ const VERTICAL_SHORT_FORM_MODE_PRESETS: Array<{
   {
     id: "best_moments",
     label: "Best Moments",
-    description: "Balanced highlight extraction with broad audience-safe pacing.",
+    description: "Moment-based extraction that avoids full-video cuts and keeps clear context.",
     profile: "balanced",
     platform: "instagram_reels",
     editorMode: "auto",
@@ -3619,7 +3619,7 @@ const Editor = () => {
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
-  const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("hook_storm");
+  const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("best_moments");
   const [verticalCaptionTextByVariant, setVerticalCaptionTextByVariant] = useState<Record<VerticalVariantCaptionKey, string>>({
     instagram: "",
     youtube: "",
@@ -6455,12 +6455,18 @@ const Editor = () => {
       youtube: { x: 0.5, y: 0.84 },
       tiktok: { x: 0.5, y: 0.84 },
     });
-    setVerticalSelectionMode("hook_storm");
+    setVerticalSelectionMode("best_moments");
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
   }, [isVerticalMode]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    setVerticalMomentOptionIndexBySlot({});
+    verticalMomentSelectionTouchedRef.current = false;
+  }, [isVerticalMode, verticalSelectionMode]);
 
   useEffect(() => {
     if (!isVerticalMode) return;
@@ -7421,9 +7427,9 @@ const Editor = () => {
         if (requestedMode === "vertical") {
           const verticalCaptionTextForJob = resolvedVerticalCaptionText;
           const verticalClipDurationForJob = clamp(
-            Number(verticalClipDurationSecondsRef.current || 10),
-            8,
-            10,
+            Number(verticalClipDurationSecondsRef.current || VERTICAL_CLIP_DURATION_CHOICES[0]),
+            30,
+            60,
           );
           const allVerticalMomentRanges = Array.isArray(verticalVariantMomentsRef.current)
             ? verticalVariantMomentsRef.current
@@ -8033,7 +8039,7 @@ const Editor = () => {
     liveTranscriptSegments,
   ]);
   const activeTranscriptCues = liveEditedTranscriptCues.length > 0 ? liveEditedTranscriptCues : liveSourceTranscriptCues;
-  const verticalMomentDurationSeconds = clamp(Math.round(verticalClipDurationSeconds), 8, 10);
+  const verticalMomentDurationSeconds = clamp(Math.round(verticalClipDurationSeconds), 30, 60);
   const verticalMomentSourceDurationSec = firstFiniteNumber(
     activeJob?.inputDurationSeconds,
     activeAnalysis?.source_duration_seconds,
@@ -8071,14 +8077,69 @@ const Editor = () => {
     verticalMomentDurationSeconds,
     verticalMomentSourceDurationSec,
   ]);
+  const verticalModeOrderedMomentIndices = useMemo<number[]>(() => {
+    if (verticalTranscriptMomentOptions.length === 0) return [];
+    const durationForPosition = Number.isFinite(verticalMomentSourceDurationSec)
+      ? Math.max(1, Number(verticalMomentSourceDurationSec))
+      : null;
+    const scoreRows = verticalTranscriptMomentOptions.map((option, index) => {
+      const text = String(option.text || "").toLowerCase();
+      const hookSignal = /(wait|watch|stop|crazy|secret|why|how|before|first|look)/.test(text) ? 1 : 0;
+      const payoffSignal = /(because|then|next|finally|result|after|learned|prove)/.test(text) ? 1 : 0;
+      const loopSignal = /(\?$|again|one more|rewatch|loop|watch this)/.test(text) ? 1 : 0;
+      const punctuationSignal = /[!?]/.test(text) ? 1 : 0;
+      const normalizedPosition = durationForPosition
+        ? clamp(option.start / durationForPosition, 0, 1)
+        : clamp(index / Math.max(1, verticalTranscriptMomentOptions.length - 1), 0, 1);
+      const centerScore = 1 - Math.abs(0.5 - normalizedPosition);
+      const endingScore = normalizedPosition;
+      return {
+        index,
+        score:
+          verticalSelectionMode === "story_arc"
+            ? 0
+            : verticalSelectionMode === "hook_storm"
+              ? hookSignal * 1.6 + punctuationSignal * 0.7 + centerScore * 0.3 - normalizedPosition * 0.25
+              : verticalSelectionMode === "loop_builder"
+                ? loopSignal * 1.6 + payoffSignal * 0.8 + endingScore * 0.75 + punctuationSignal * 0.3
+                : hookSignal * 0.95 + payoffSignal * 0.95 + punctuationSignal * 0.45 + centerScore * 0.4,
+        normalizedPosition,
+      };
+    });
+    if (verticalSelectionMode === "story_arc") {
+      return scoreRows
+        .slice()
+        .sort((left, right) => left.normalizedPosition - right.normalizedPosition || left.index - right.index)
+        .map((row) => row.index);
+    }
+    return scoreRows
+      .slice()
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .map((row) => row.index);
+  }, [
+    verticalMomentSourceDurationSec,
+    verticalSelectionMode,
+    verticalTranscriptMomentOptions,
+  ]);
   const verticalDefaultMomentIndexBySlot = useMemo<number[]>(() => {
     if (verticalTranscriptMomentOptions.length === 0) return [];
+    const orderedIndices = verticalModeOrderedMomentIndices.length > 0
+      ? verticalModeOrderedMomentIndices
+      : verticalTranscriptMomentOptions.map((_, index) => index);
     return Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, slotIndex) => {
       const ratio = (slotIndex + 0.5) / VERTICAL_VARIANT_TOTAL_CLIPS;
-      const target = Math.floor(ratio * verticalTranscriptMomentOptions.length);
-      return clamp(target, 0, Math.max(0, verticalTranscriptMomentOptions.length - 1));
+      const target = clamp(
+        Math.floor(ratio * orderedIndices.length),
+        0,
+        Math.max(0, orderedIndices.length - 1),
+      );
+      return clamp(
+        Number(orderedIndices[target] ?? orderedIndices[orderedIndices.length - 1] ?? 0),
+        0,
+        Math.max(0, verticalTranscriptMomentOptions.length - 1),
+      );
     });
-  }, [verticalTranscriptMomentOptions]);
+  }, [verticalModeOrderedMomentIndices, verticalTranscriptMomentOptions]);
   const verticalVariantMoments = useMemo<VerticalVariantMoment[]>(() => {
     if (verticalTranscriptMomentOptions.length === 0) return [];
     return VERTICAL_VARIANT_CARD_META.flatMap((variant, variantIndex) =>
@@ -13159,7 +13220,7 @@ const Editor = () => {
     } else {
       presetMode = "vertical";
       setRenderMode("vertical");
-      setVerticalSelectionMode("hook_storm");
+      setVerticalSelectionMode("best_moments");
       setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
       setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
       setRetentionStrategyProfile("viral");
