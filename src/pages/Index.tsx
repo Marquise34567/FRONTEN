@@ -1,9 +1,8 @@
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import { Progress } from "@/components/ui/progress";
-import { lazy, Suspense } from "react";
+import PricingCards from "@/components/PricingCards";
 import GlowBackdrop from "@/components/GlowBackdrop";
-const PricingCards = lazy(() => import("@/components/PricingCards"));
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -1725,7 +1724,7 @@ const Index = () => {
                         controls
                         muted
                         playsInline
-                        preload="metadata"
+                        preload="auto"
                         className="h-36 w-full object-cover"
                       />
                     ) : (
@@ -1867,16 +1866,14 @@ const Index = () => {
           <motion.section
             className="mt-16 w-full"
             initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.2 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
             <div className="mx-auto max-w-5xl">
               <motion.div
                 className="mx-auto mb-8 max-w-3xl text-center"
                 initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.35 }}
+                animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45 }}
               >
                 <div className="pill-badge mb-4">
@@ -1897,9 +1894,7 @@ const Index = () => {
                     key={item.label}
                     className="glass-card-hover relative overflow-hidden p-4 text-left"
                     initial={{ opacity: 0, y: 14 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    animate={shouldReduceMotion ? undefined : { y: [0, -7, 0] }}
-                    viewport={{ once: true, amount: 0.3 }}
+                    animate={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -7, 0] }}
                     transition={{
                       delay: index * 0.07,
                       duration: shouldReduceMotion ? 0.4 : 3.2 + index * 0.2,
@@ -1933,9 +1928,7 @@ const Index = () => {
                     key={item.title}
                     className="glass-card relative overflow-hidden p-5 text-left"
                     initial={{ opacity: 0, y: 14 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    animate={shouldReduceMotion ? undefined : { y: [0, -8, 0] }}
-                    viewport={{ once: true, amount: 0.3 }}
+                    animate={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -8, 0] }}
                     transition={{
                       delay: index * 0.08,
                       duration: shouldReduceMotion ? 0.45 : 3.4 + index * 0.25,
@@ -1967,15 +1960,13 @@ const Index = () => {
           <motion.section
             className="mt-24 w-full"
             initial={{ opacity: 0, y: 28 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.2 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
             <motion.div
               className="mx-auto mb-10 max-w-3xl text-center"
               initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
               <div className="pill-badge mb-4">
@@ -1996,9 +1987,7 @@ const Index = () => {
                   key={item.title}
                   className="glass-card-hover p-4"
                   initial={{ opacity: 0, y: 14 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  animate={shouldReduceMotion ? undefined : { y: [0, -6, 0] }}
-                  viewport={{ once: true, amount: 0.35 }}
+                  animate={shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -6, 0] }}
                   transition={{ delay: index * 0.08, duration: 0.45, repeat: Infinity, ease: "easeInOut", delayChildren: index * 0.05 }}
                 >
                   <div className="mb-3 flex items-center gap-2">
@@ -2013,24 +2002,21 @@ const Index = () => {
               ))}
             </div>
 
-            <Suspense fallback={<div className="min-h-[140px]" />}>
-              <PricingCards
-                isAuthenticated={false}
-                loading={false}
-                onCheckout={() => undefined}
-                onPortal={() => undefined}
-                actionTier={null}
-                actionKind={null}
-                billingInterval="monthly"
-                founderSlotsRemaining={0}
-              />
-            </Suspense>
+            <PricingCards
+              isAuthenticated={false}
+              loading={false}
+              onCheckout={() => undefined}
+              onPortal={() => undefined}
+              actionTier={null}
+              actionKind={null}
+              billingInterval="monthly"
+              founderSlotsRemaining={0}
+            />
 
             <motion.div
               className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
               initial={{ opacity: 0, y: 14 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.5 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45 }}
             >
               <Link to="/pricing" className="w-full sm:w-auto">
