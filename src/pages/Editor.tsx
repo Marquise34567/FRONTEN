@@ -3545,7 +3545,6 @@ const Editor = () => {
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
-  const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
@@ -6351,7 +6350,6 @@ const Editor = () => {
       return;
     }
     verticalAutoRenderRequestedRef.current = true;
-    setIsVerticalBuilderHidden(false);
     setPendingVerticalFile(file);
     setSkipManualWebcamCrop(false);
     setWebcamCrop(null);
@@ -6886,19 +6884,6 @@ const Editor = () => {
       },
     });
     if (!ok) return false;
-    setIsVerticalBuilderHidden(true);
-    setPendingVerticalFile(null);
-    setWebcamCrop(null);
-    setWebcamCropWasAdjusted(false);
-    setSourceVideoMeta(null);
-    setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
-    setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-    setBottomFitMode("cover");
-    setCropInteraction(null);
-    setVerticalPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
     return true;
   }, [
     buildDefaultWebcamCrop,
@@ -7515,6 +7500,26 @@ const Editor = () => {
     [activeOutputUrls],
   );
   const activeJobReadyForDownload = Boolean(activeJob && normalizedActiveStatus === "ready");
+  const isActiveVerticalJob = Boolean(activeJob && activeJob.renderMode === "vertical");
+  const activeVerticalJobReadyForDownload = Boolean(isActiveVerticalJob && activeJobReadyForDownload);
+  const activeVerticalJobProcessing = Boolean(
+    isActiveVerticalJob && activeJob && !isTerminalStatus(activeJob.status),
+  );
+  const hasVerticalVariantWorkspace = Boolean(
+    verticalPreviewUrl ||
+    pendingVerticalFile ||
+    uploadingJobId ||
+    activeVerticalJobProcessing ||
+    activeVerticalJobReadyForDownload ||
+    (isActiveVerticalJob && activeOutputUrls.length > 0),
+  );
+  const verticalVariantStatusLabel = activeVerticalJobProcessing || uploadingJobId
+    ? "Rendering..."
+    : activeVerticalJobReadyForDownload
+      ? "Ready"
+      : verticalSelectionReady
+        ? "Ready to render"
+        : "Preparing...";
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
@@ -10877,7 +10882,7 @@ const Editor = () => {
     previewRetryCountByJobRef.current[jobId] = 0;
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   useEffect(() => {
-    if (!isVerticalMode || !activeJob?.id || !activeJobReadyForDownload) {
+    if (!isVerticalMode || !activeJob?.id || !activeVerticalJobReadyForDownload) {
       setResolvedVerticalVariantOutputUrls([]);
       return () => {};
     }
@@ -10937,7 +10942,7 @@ const Editor = () => {
   }, [
     accessToken,
     activeJob?.id,
-    activeJobReadyForDownload,
+    activeVerticalJobReadyForDownload,
     activeOutputUrls,
     activePreviewCacheKey,
     activeVerticalOutputUrlIdentity,
@@ -14636,7 +14641,7 @@ const Editor = () => {
                 </div>
               </div>
 
-              {isVerticalMode && !isVerticalBuilderHidden && (
+              {isVerticalMode && (
                 <div className="glass-card vertical-opus-shell p-5 space-y-5">
                   <div className="space-y-3">
                     <div className="vertical-opus-hero rounded-2xl border border-primary/40 p-4">
@@ -14731,33 +14736,35 @@ const Editor = () => {
                     </div>
                   </div>
 
-                  {!verticalPreviewUrl && (
+                  {!hasVerticalVariantWorkspace && (
                     <p className="vertical-mode-note text-xs text-muted-foreground">
                       Upload a file to auto-run webcam-ready variants for Instagram Reels, YouTube Shorts, and TikTok.
                     </p>
                   )}
 
-                  {verticalPreviewUrl && (
+                  {hasVerticalVariantWorkspace && (
                     <div className="space-y-4">
-                      <video
-                        ref={verticalCompositionVideoRef}
-                        src={verticalPreviewUrl}
-                        preload="metadata"
-                        muted
-                        playsInline
-                        onLoadedMetadata={handleVerticalSourceMetadata}
-                        className="hidden"
-                      />
+                      {verticalPreviewUrl ? (
+                        <video
+                          ref={verticalCompositionVideoRef}
+                          src={verticalPreviewUrl}
+                          preload="metadata"
+                          muted
+                          playsInline
+                          onLoadedMetadata={handleVerticalSourceMetadata}
+                          className="hidden"
+                        />
+                      ) : null}
                       <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="text-xs font-medium text-foreground">Auto Webcam Variants</p>
                             <p className="text-[11px] text-muted-foreground">
-                              Preview is skipped on upload. We auto-create 3 webcam-ready short-form variants.
+                              Keep editing in place while we process, review, and export all 3 webcam-ready variants.
                             </p>
                           </div>
                           <Badge variant="secondary" className="text-[10px]">
-                            {uploadingJobId ? "Rendering..." : verticalSelectionReady ? "Starting..." : "Preparing..."}
+                            {verticalVariantStatusLabel}
                           </Badge>
                         </div>
                       </div>
@@ -14771,11 +14778,11 @@ const Editor = () => {
                           const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.defaultCaption;
                           const clipIndex = variant.rank - 1;
                           const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
-                          const clipReady = Boolean(activeJobReadyForDownload && clipUrl);
-                          const clipProcessing = Boolean(activeJob && !isTerminalStatus(activeJob.status));
+                          const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
+                          const clipProcessing = activeVerticalJobProcessing || Boolean(uploadingJobId);
                           const scoreValue = clipReady ? variant.baseScore : Math.max(90, variant.baseScore - 2);
-                          const durationLabel = clipReady ? "Rendered clip" : variant.duration;
-                          const canDownload = clipReady;
+                          const durationLabel = clipReady ? "Rendered clip" : clipProcessing ? "Rendering..." : variant.duration;
+                          const canDownload = activeVerticalJobReadyForDownload;
                           return (
                             <article key={variant.key} className={`vertical-variant-preview-card ${variant.accentClass}`}>
                               <p className="vertical-variant-preview-title">#{variant.rank} {variant.title}</p>
@@ -14818,9 +14825,9 @@ const Editor = () => {
                                       type="button"
                                       className="vertical-variant-preview-button"
                                       onClick={startVerticalRender}
-                                      disabled={!!uploadingJobId || !verticalSelectionReady || clipReady}
+                                      disabled={!!uploadingJobId || !verticalSelectionReady}
                                     >
-                                      {clipReady ? "Ready" : uploadingJobId ? "Rendering..." : "Render"}
+                                      {clipReady ? "Render Again" : uploadingJobId ? "Rendering..." : "Render"}
                                     </button>
                                   </div>
                                   <label className="vertical-variant-preview-caption-editor">
