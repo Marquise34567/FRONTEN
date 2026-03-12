@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2 } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -211,6 +211,11 @@ const normalizeVerticalCaptionTextForJob = (value: string) =>
     .replace(/\r\n?/g, "\n")
     .trim()
     .slice(0, 1800);
+const splitVerticalCaptionLines = (value: string) =>
+  normalizeVerticalCaptionTextForJob(value)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
 const normalizeCaptionHexColor = (value: string, fallback: string) => {
   const compact = String(value || "").trim().replace(/^#/, "").toUpperCase();
@@ -298,7 +303,7 @@ const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 50;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 9;
-const VERTICAL_CLIP_DURATION_CHOICES = [30, 60] as const;
+const VERTICAL_CLIP_DURATION_CHOICES = [8, 10] as const;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
 const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
 const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
@@ -338,6 +343,7 @@ type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
 type VerticalVoicePresetOptionId = "none" | "deep" | "helium" | "radio" | "robot";
+type VerticalPacingPresetOptionId = "normal" | "fast" | "slow";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
 type BackendEditorModeSelection = EditorModeSelection | "ultra" | "retention-king";
 type PipelinePowerMode = "standard" | "ultra" | "retention_king";
@@ -433,7 +439,7 @@ const VERTICAL_VARIANT_CARD_META: Array<{
     icon: Music2,
     baseScore: 97,
     duration: "00:00 00:29",
-    defaultCaption: "WAIT FOR THE TURN.",
+    defaultCaption: "POV: THE PLOT FLIPS IN 2 SECONDS.",
     summary:
       "Pattern interrupts are denser and captions are stronger, optimized for thumb-stop behavior and quick momentum swings.",
     transcript:
@@ -445,6 +451,96 @@ const getVerticalVariantSlotKey = (variant: VerticalVariantCaptionKey, versionIn
   `${variant}:${versionIndex + 1}`;
 const getVerticalVariantClipIndex = (variantIndex: number, versionIndex: number) =>
   (variantIndex * VERTICAL_VARIANT_VERSION_COUNT) + versionIndex;
+const MODERN_2026_TIKTOK_DEFAULT_CAPTIONS = [
+  "POV: THE FIRST 2 SECONDS CHANGE EVERYTHING.",
+  "NO SKIP. THE PAYOFF HITS FAST.",
+  "LOWKEY THE CRAZIEST TURN TODAY.",
+];
+const MODERN_2026_TIKTOK_OPENERS = [
+  "POV:",
+  "NO SKIP:",
+  "REAL TALK:",
+  "WATCH THIS:",
+  "LOWKEY:",
+];
+const MODERN_2026_TIKTOK_TURNS = [
+  "the hook lands and flips instantly",
+  "this angle breaks the pattern in 2 seconds",
+  "the switch-up makes people rewatch",
+  "the payoff hits before the scroll can recover",
+  "the energy spike keeps retention locked",
+];
+const MODERN_2026_TIKTOK_CTA_LINES = [
+  "Comment PART 2 if you want the next version.",
+  "Drop a remix caption and I'll pin the best one.",
+  "Save this for your next post template.",
+  "Reply with your take before this trends out.",
+  "Tag a creator who needs this hook formula.",
+];
+const MODERN_2026_TIKTOK_TAGS = [
+  "#tiktok2026 #viralhook",
+  "#creatortips #retention",
+  "#fyp #editing",
+  "#shortform #watchtime",
+  "#contentstrategy #growth",
+];
+
+const hashCaptionSeed = (value: string) => {
+  const text = String(value || "");
+  let hash = 0;
+  for (let idx = 0; idx < text.length; idx += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(idx);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickCaptionEntry = (pool: string[], seed: number, offset = 0) => {
+  if (!Array.isArray(pool) || pool.length === 0) return "";
+  return pool[(seed + offset) % pool.length];
+};
+
+const sanitizeCaptionPromptTopic = (prompt: string, fallbackTopic: string) => {
+  const compact = String(prompt || "").replace(/\s+/g, " ").trim();
+  if (!compact) return fallbackTopic;
+  const stripped = compact
+    .replace(/^(please\s+)?(give|make|write|create)\s+/i, "")
+    .replace(/\b(this|the|a|an)\s+clip\b/gi, "")
+    .replace(/\bcaption\b/gi, "")
+    .replace(/[.?!]+$/g, "")
+    .trim();
+  return stripped || fallbackTopic;
+};
+
+const buildModernTikTok2026Caption = ({
+  prompt,
+  variantKey,
+  versionIndex,
+}: {
+  prompt: string;
+  variantKey: VerticalVariantCaptionKey;
+  versionIndex: number;
+}) => {
+  const fallbackTopic = `${VERTICAL_VARIANT_CAPTION_LABELS[variantKey]} version ${versionIndex + 1}`;
+  const topic = sanitizeCaptionPromptTopic(prompt, fallbackTopic);
+  const seed = hashCaptionSeed(`${variantKey}|${versionIndex}|${topic}|${Date.now()}`);
+  const opener = pickCaptionEntry(MODERN_2026_TIKTOK_OPENERS, seed, 1);
+  const turn = pickCaptionEntry(MODERN_2026_TIKTOK_TURNS, seed, 3);
+  const callToAction = pickCaptionEntry(MODERN_2026_TIKTOK_CTA_LINES, seed, 5);
+  const tags = pickCaptionEntry(MODERN_2026_TIKTOK_TAGS, seed, 7);
+  return normalizeVerticalCaptionTextForJob(
+    `${opener} ${topic}. ${turn}.\n${callToAction} ${tags}`,
+  ).toUpperCase();
+};
+
+const getDefaultVerticalClipCaption = (
+  variantKey: VerticalVariantCaptionKey,
+  versionIndex: number,
+  fallbackCaption: string,
+) => {
+  if (variantKey !== "tiktok") return fallbackCaption;
+  return MODERN_2026_TIKTOK_DEFAULT_CAPTIONS[versionIndex] || MODERN_2026_TIKTOK_DEFAULT_CAPTIONS[0];
+};
 
 type PreviewImprovementTip = {
   id: string;
@@ -742,10 +838,15 @@ const VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS: Array<{ id: VerticalCaptionDynamicM
 ];
 const VERTICAL_VOICE_PRESET_OPTIONS: Array<{ id: VerticalVoicePresetOptionId; label: string }> = [
   { id: "none", label: "Original Voice" },
-  { id: "deep", label: "Deep" },
-  { id: "helium", label: "Helium" },
+  { id: "deep", label: "Low Pitch" },
+  { id: "helium", label: "High Pitch" },
   { id: "radio", label: "Radio" },
   { id: "robot", label: "Robot" },
+];
+const VERTICAL_PACING_PRESET_OPTIONS: Array<{ id: VerticalPacingPresetOptionId; label: string }> = [
+  { id: "normal", label: "Normal Pace" },
+  { id: "fast", label: "Faster Pace" },
+  { id: "slow", label: "Slower Pace" },
 ];
 const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   id: VerticalCaptionPresetOptionId;
@@ -3487,6 +3588,7 @@ const Editor = () => {
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
+  const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -3528,6 +3630,9 @@ const Editor = () => {
     youtube: "",
     tiktok: "",
   });
+  const [verticalClipCaptionTextBySlot, setVerticalClipCaptionTextBySlot] = useState<Record<string, string>>({});
+  const [verticalClipCaptionPromptBySlot, setVerticalClipCaptionPromptBySlot] = useState<Record<string, string>>({});
+  const [verticalClipCaptionGenerateSelectedBySlot, setVerticalClipCaptionGenerateSelectedBySlot] = useState<Record<string, boolean>>({});
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
@@ -3545,6 +3650,7 @@ const Editor = () => {
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].dynamicMode,
   );
   const [verticalVoicePreset, setVerticalVoicePreset] = useState<VerticalVoicePresetOptionId>("none");
+  const [verticalPacingPreset, setVerticalPacingPreset] = useState<VerticalPacingPresetOptionId>("normal");
   const [verticalCaptionFontSize, setVerticalCaptionFontSize] = useState<number>(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
   const [verticalCaptionShadowStrength, setVerticalCaptionShadowStrength] = useState<number>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].shadowStrength,
@@ -3627,15 +3733,17 @@ const Editor = () => {
     mode: CAPTIONS_PIPELINE_ENABLED ? "runtime" : "disabled",
     reason: CAPTIONS_PIPELINE_ENABLED ? null : "Captions are disabled in the editor pipeline.",
   });
-  const resolvedVerticalCaptionText = useMemo(() => {
-    const lines = VERTICAL_VARIANT_CAPTION_KEYS.flatMap((key) =>
-      normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")
-        .split(/\n+/)
-        .map((line) => line.trim())
-        .filter(Boolean),
-    );
-    return normalizeVerticalCaptionTextForJob(lines.join("\n"));
-  }, [verticalCaptionTextByVariant]);
+  const verticalCaptionCustomPhrases = useMemo(() => {
+    const allLines = [
+      ...VERTICAL_VARIANT_CAPTION_KEYS.flatMap((key) => splitVerticalCaptionLines(verticalCaptionTextByVariant[key] || "")),
+      ...Object.values(verticalClipCaptionTextBySlot).flatMap((value) => splitVerticalCaptionLines(value)),
+    ];
+    return Array.from(new Set(allLines));
+  }, [verticalCaptionTextByVariant, verticalClipCaptionTextBySlot]);
+  const resolvedVerticalCaptionText = useMemo(
+    () => normalizeVerticalCaptionTextForJob(verticalCaptionCustomPhrases.join("\n")),
+    [verticalCaptionCustomPhrases],
+  );
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showSavedAnimation, setShowSavedAnimation] = useState(false);
   const prevSavingSubtitleRef = useRef<boolean>(savingSubtitleStyle);
@@ -5904,7 +6012,7 @@ const Editor = () => {
             autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
-            customPhrases: VERTICAL_VARIANT_CAPTION_KEYS.map((key) => normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")).filter(Boolean),
+            customPhrases: verticalCaptionCustomPhrases,
             fontId: verticalCaptionFontId,
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
             outlineColor: normalizeCaptionHexColor(
@@ -5916,6 +6024,7 @@ const Editor = () => {
             animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
             dynamicMode: verticalCaptionDynamicMode,
             voicePreset: verticalVoicePreset,
+            pacingPreset: verticalPacingPreset,
             highlightWords: verticalCaptionHighlightWords,
             autoEmphasis: verticalCaptionAutoEmphasis,
             autoEmoji: verticalCaptionAutoEmoji,
@@ -6004,6 +6113,7 @@ const Editor = () => {
                 : verticalVariantMoments,
               verticalCaptionText: verticalCaptionTextForJob,
               verticalVariantCaptions: verticalCaptionTextByVariant,
+              verticalVariantClipCaptions: verticalClipCaptionTextBySlot,
               verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions,
               verticalCaptions: verticalCaptionsPayload,
             }
@@ -7219,7 +7329,7 @@ const Editor = () => {
   );
 
   const handleRedoRender = useCallback(
-    async (job: JobDetail) => {
+    async (job: JobDetail, options?: { clipIndex?: number }) => {
       if (!accessToken || !job?.id) return;
       void ensureNotificationPermission("export_start");
       setReprocessingJobId(job.id);
@@ -7309,15 +7419,38 @@ const Editor = () => {
               }
             : {}),
         };
+        const targetedClipIndexRaw = Number(options?.clipIndex);
+        const targetedClipIndex = Number.isFinite(targetedClipIndexRaw)
+          ? Math.max(0, Math.round(targetedClipIndexRaw))
+          : null;
         if (requestedMode === "vertical") {
           const verticalCaptionTextForJob = resolvedVerticalCaptionText;
-          const verticalClipDurationForJob = verticalClipDurationSecondsRef.current;
-          const verticalMomentRangesForJob = verticalVariantMomentsRef.current;
-          payload.verticalClipCount = Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS);
+          const verticalClipDurationForJob = clamp(
+            Number(verticalClipDurationSecondsRef.current || 10),
+            8,
+            10,
+          );
+          const allVerticalMomentRanges = Array.isArray(verticalVariantMomentsRef.current)
+            ? verticalVariantMomentsRef.current
+            : [];
+          const hasTargetedClip =
+            targetedClipIndex !== null &&
+            targetedClipIndex >= 0 &&
+            targetedClipIndex < allVerticalMomentRanges.length;
+          const verticalMomentRangesForJob = hasTargetedClip
+            ? [allVerticalMomentRanges[targetedClipIndex]]
+            : allVerticalMomentRanges;
+          payload.verticalClipCount = hasTargetedClip
+            ? 1
+            : Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS);
           payload.verticalClipDurationSeconds = verticalClipDurationForJob;
           payload.verticalVariantMoments = verticalMomentRangesForJob;
+          if (hasTargetedClip) {
+            payload.verticalRerenderClipIndex = targetedClipIndex + 1;
+          }
           payload.verticalCaptionText = verticalCaptionTextForJob;
           payload.verticalVariantCaptions = verticalCaptionTextByVariant;
+          payload.verticalVariantClipCaptions = verticalClipCaptionTextBySlot;
           payload.verticalVariantCaptionPositions = {
             instagram: {
               x: clampCaptionPosition(verticalVariantCaptionPositions.instagram.x),
@@ -7337,7 +7470,7 @@ const Editor = () => {
             autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
-            customPhrases: VERTICAL_VARIANT_CAPTION_KEYS.map((key) => normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")).filter(Boolean),
+            customPhrases: verticalCaptionCustomPhrases,
             fontId: verticalCaptionFontId,
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
             outlineColor: normalizeCaptionHexColor(
@@ -7349,6 +7482,7 @@ const Editor = () => {
             animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
             dynamicMode: verticalCaptionDynamicMode,
             voicePreset: verticalVoicePreset,
+            pacingPreset: verticalPacingPreset,
             highlightWords: verticalCaptionHighlightWords,
             autoEmphasis: verticalCaptionAutoEmphasis,
             autoEmoji: verticalCaptionAutoEmoji,
@@ -7411,7 +7545,10 @@ const Editor = () => {
         } else {
           toast({
             title: "Re-render queued",
-            description: "Your job was added back to the queue.",
+            description:
+              targetedClipIndex !== null
+                ? `Clip ${targetedClipIndex + 1} is being re-rendered.`
+                : "Your job was added back to the queue.",
           });
         }
       } catch (err: any) {
@@ -7495,6 +7632,7 @@ const Editor = () => {
       verticalCaptionAutoEmoji,
       verticalCaptionRemoveFillers,
       verticalVoicePreset,
+      verticalPacingPreset,
       verticalCaptionFontSize,
       verticalCaptionFontId,
       verticalCaptionOutlineColor,
@@ -7505,7 +7643,9 @@ const Editor = () => {
       verticalVariantCaptionPositions,
       verticalCaptionPreset,
       resolvedVerticalCaptionText,
+      verticalCaptionCustomPhrases,
       verticalCaptionTextByVariant,
+      verticalClipCaptionTextBySlot,
       verticalClipCount,
       ensureNotificationPermission,
       toast,
@@ -7570,6 +7710,50 @@ const Editor = () => {
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
       return false;
+    }
+  };
+
+  const handleOpenOutputFolder = async (clipIndex = 0) => {
+    if (!accessToken || !activeJob) return false;
+    setOpeningFileExplorer(true);
+    try {
+      const clipParam = clipIndex + 1;
+      const result = await apiFetch<{
+        ok?: boolean;
+        selectedPath?: string | null;
+        directoryPath?: string | null;
+      }>(`/api/jobs/${activeJob.id}/open-output-folder`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ clip: clipParam }),
+      });
+      const selectedPath = String(result?.selectedPath || "").trim();
+      const directoryPath = String(result?.directoryPath || "").trim();
+      toast({
+        title: "Opened in File Explorer",
+        description: selectedPath || directoryPath || "Output folder opened.",
+      });
+      return true;
+    } catch (err: any) {
+      let description = err?.message || "Could not open output folder.";
+      if (err instanceof ApiError) {
+        if (err.code === "not_ready") {
+          description = "Render must be completed before opening output files.";
+        } else if (err.code === "local_output_not_found") {
+          description = "Local output files were not found on this machine.";
+        } else if (err.code === "explorer_not_supported") {
+          description = "Opening File Explorer is not supported on this system.";
+        } else if (err.code === "explorer_binary_missing") {
+          description = "System file explorer command is unavailable.";
+        }
+      }
+      toast({
+        title: "Open folder failed",
+        description,
+      });
+      return false;
+    } finally {
+      setOpeningFileExplorer(false);
     }
   };
 
@@ -7854,7 +8038,7 @@ const Editor = () => {
     liveTranscriptSegments,
   ]);
   const activeTranscriptCues = liveEditedTranscriptCues.length > 0 ? liveEditedTranscriptCues : liveSourceTranscriptCues;
-  const verticalMomentDurationSeconds = verticalClipDurationSeconds >= 45 ? 60 : 30;
+  const verticalMomentDurationSeconds = clamp(Math.round(verticalClipDurationSeconds), 8, 10);
   const verticalMomentSourceDurationSec = firstFiniteNumber(
     activeJob?.inputDurationSeconds,
     activeAnalysis?.source_duration_seconds,
@@ -11189,6 +11373,50 @@ const Editor = () => {
       }),
     [activeOutputUrls, resolvedPreviewOutputUrl, resolvedVerticalVariantOutputUrls],
   );
+  const generateModernCaptionForSlot = useCallback((variantKey: VerticalVariantCaptionKey, versionIndex: number) => {
+    const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
+    const prompt = String(verticalClipCaptionPromptBySlot[slotKey] || "").trim();
+    const generatedCaption = buildModernTikTok2026Caption({
+      prompt,
+      variantKey,
+      versionIndex,
+    });
+    setVerticalClipCaptionTextBySlot((prev) => ({
+      ...prev,
+      [slotKey]: generatedCaption,
+    }));
+  }, [verticalClipCaptionPromptBySlot]);
+  const generateModernCaptionsForSelectedVariant = useCallback((variantKey: VerticalVariantCaptionKey) => {
+    const selectedVersionIndexes = Array.from({ length: VERTICAL_VARIANT_VERSION_COUNT }, (_, versionIndex) => versionIndex)
+      .filter((versionIndex) => {
+        const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
+        return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+      });
+    if (selectedVersionIndexes.length === 0) {
+      toast({
+        title: "No clips selected",
+        description: "Check at least one clip under this variant to batch-generate captions.",
+      });
+      return;
+    }
+    const generatedBySlot: Record<string, string> = {};
+    for (const versionIndex of selectedVersionIndexes) {
+      const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
+      generatedBySlot[slotKey] = buildModernTikTok2026Caption({
+        prompt: String(verticalClipCaptionPromptBySlot[slotKey] || "").trim(),
+        variantKey,
+        versionIndex,
+      });
+    }
+    setVerticalClipCaptionTextBySlot((prev) => ({
+      ...prev,
+      ...generatedBySlot,
+    }));
+    toast({
+      title: "Captions generated",
+      description: `${selectedVersionIndexes.length} clip caption${selectedVersionIndexes.length > 1 ? "s" : ""} updated.`,
+    });
+  }, [verticalClipCaptionGenerateSelectedBySlot, verticalClipCaptionPromptBySlot, toast]);
   const showVideo = Boolean(activeJobReadyForDownload && resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
   const previewTranscriptCaptionsEnabled = showVideo && activeTranscriptCues.length > 0;
@@ -14974,8 +15202,38 @@ const Editor = () => {
                           />
                         </label>
                       </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                          <span className="text-[11px] text-muted-foreground">Voice tone</span>
+                          <select
+                            value={verticalVoicePreset}
+                            onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
+                            className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
+                          >
+                            {VERTICAL_VOICE_PRESET_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                          <span className="text-[11px] text-muted-foreground">Pacing</span>
+                          <select
+                            value={verticalPacingPreset}
+                            onChange={(event) => setVerticalPacingPreset(event.target.value as VerticalPacingPresetOptionId)}
+                            className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
+                          >
+                            {VERTICAL_PACING_PRESET_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Webcam top layout is locked on, and each variant card below has its own caption text box.
+                        Webcam top layout is locked on, and each variant card below has its own caption text box. Voice + pacing apply to vertical exports.
                       </p>
                     </div>
                   </div>
@@ -15019,7 +15277,7 @@ const Editor = () => {
                           const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
                             verticalCaptionTextByVariant[variantKey] || "",
                           );
-                          const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.defaultCaption;
+                          const variantPreviewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || "";
                           const clipProcessing = activeVerticalJobProcessing || Boolean(uploadingJobId);
                           const clipScoreBoost = clipProcessing ? 0 : 1;
                           const scoreValue = Math.max(90, variant.baseScore - clipScoreBoost);
@@ -15036,6 +15294,21 @@ const Editor = () => {
                                       const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
                                       const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
                                       const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
+                                      const clipCaptionRaw = String(verticalClipCaptionTextBySlot[slotKey] || "");
+                                      const clipCaptionPrompt = String(verticalClipCaptionPromptBySlot[slotKey] || "");
+                                      const clipCaptionSelectedForGeneration = Boolean(
+                                        verticalClipCaptionGenerateSelectedBySlot[slotKey],
+                                      );
+                                      const normalizedClipCaption = normalizeVerticalCaptionTextForJob(clipCaptionRaw);
+                                      const defaultClipCaption = getDefaultVerticalClipCaption(
+                                        variantKey,
+                                        versionIndex,
+                                        variant.defaultCaption,
+                                      );
+                                      const clipPreviewCaption =
+                                        normalizedClipCaption.split(/\n+/).find(Boolean) ||
+                                        variantPreviewCaption ||
+                                        defaultClipCaption;
                                       const requestedMomentIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
                                       const fallbackMomentIndex = Number(verticalDefaultMomentIndexBySlot[clipIndex] ?? 0);
                                       const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
@@ -15074,7 +15347,7 @@ const Editor = () => {
                                               </div>
                                             )}
                                             <span className="vertical-variant-preview-time">{durationLabel}</span>
-                                            <p className="vertical-variant-preview-caption">{previewCaption}</p>
+                                            <p className="vertical-variant-preview-caption">{clipPreviewCaption}</p>
                                           </div>
                                           <div className="vertical-variant-preview-actions">
                                             <button
@@ -15088,10 +15361,25 @@ const Editor = () => {
                                             <button
                                               type="button"
                                               className="vertical-variant-preview-button"
-                                              onClick={startVerticalRender}
-                                              disabled={!!uploadingJobId || !verticalSelectionReady}
+                                              onClick={() => {
+                                                if (clipReady && activeJob) {
+                                                  void handleRedoRender(activeJob, { clipIndex });
+                                                  return;
+                                                }
+                                                void startVerticalRender();
+                                              }}
+                                              disabled={
+                                                !!uploadingJobId ||
+                                                (clipReady
+                                                  ? (!activeJob || reprocessingJobId === activeJob.id)
+                                                  : !verticalSelectionReady)
+                                              }
                                             >
-                                              {clipReady ? "Render Again" : uploadingJobId ? "Rendering..." : "Render"}
+                                              {clipReady
+                                                ? (reprocessingJobId === activeJob?.id ? "Re-rendering..." : "Render Again")
+                                                : uploadingJobId
+                                                  ? "Rendering..."
+                                                  : "Render"}
                                             </button>
                                           </div>
                                           <label className="vertical-variant-preview-caption-editor">
@@ -15131,9 +15419,76 @@ const Editor = () => {
                                               <span className="vertical-variant-subversion-moment-text">{resolvedMoment.text}</span>
                                             ) : null}
                                           </label>
+                                          <label className="vertical-variant-preview-caption-editor">
+                                            <span className="vertical-variant-preview-caption-label">
+                                              Clip caption (manual default)
+                                            </span>
+                                            <Textarea
+                                              value={clipCaptionRaw}
+                                              onChange={(event) =>
+                                                setVerticalClipCaptionTextBySlot((prev) => ({
+                                                  ...prev,
+                                                  [slotKey]: event.target.value,
+                                                }))
+                                              }
+                                              placeholder={`Type caption for version ${versionIndex + 1} or generate one below`}
+                                              className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[64px] resize-y border-border/60 bg-muted/20 text-xs"
+                                            />
+                                          </label>
+                                          <label className="vertical-variant-preview-caption-editor">
+                                            <span className="vertical-variant-preview-caption-label">
+                                              Caption generator prompt
+                                            </span>
+                                            <input
+                                              type="text"
+                                              value={clipCaptionPrompt}
+                                              onChange={(event) =>
+                                                setVerticalClipCaptionPromptBySlot((prev) => ({
+                                                  ...prev,
+                                                  [slotKey]: event.target.value,
+                                                }))
+                                              }
+                                              placeholder="Give this clip a crazy caption"
+                                              className="vertical-variant-caption-prompt-input"
+                                            />
+                                          </label>
+                                          <div className="vertical-variant-caption-generate-row">
+                                            <label className="vertical-variant-caption-generate-toggle">
+                                              <input
+                                                type="checkbox"
+                                                checked={clipCaptionSelectedForGeneration}
+                                                onChange={(event) =>
+                                                  setVerticalClipCaptionGenerateSelectedBySlot((prev) => ({
+                                                    ...prev,
+                                                    [slotKey]: event.target.checked,
+                                                  }))
+                                                }
+                                              />
+                                              <span>Include in Generate selected</span>
+                                            </label>
+                                            <button
+                                              type="button"
+                                              className="vertical-variant-preview-button"
+                                              onClick={() => generateModernCaptionForSlot(variantKey, versionIndex)}
+                                            >
+                                              Generate 2026 caption
+                                            </button>
+                                          </div>
                                         </div>
                                       );
                                     })}
+                                  </div>
+                                  <div className="vertical-variant-caption-batch-row">
+                                    <button
+                                      type="button"
+                                      className="vertical-variant-preview-button"
+                                      onClick={() => generateModernCaptionsForSelectedVariant(variantKey)}
+                                    >
+                                      Generate selected clips
+                                    </button>
+                                    <span className="vertical-variant-caption-batch-hint">
+                                      Manual typing is still default. Use checkboxes only for clips you want auto-generated.
+                                    </span>
                                   </div>
                                   <label className="vertical-variant-preview-caption-editor">
                                     <span className="vertical-variant-preview-caption-label">
@@ -17785,6 +18140,23 @@ const Editor = () => {
                       </div>
                     );
                   })}
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={openingFileExplorer || normalizeStatus(activeJob.status) !== "ready"}
+                    onClick={() => void handleOpenOutputFolder(0)}
+                  >
+                    {openingFileExplorer ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FolderOpen className="h-4 w-4" />
+                    )}
+                    Open in File Explorer
+                  </Button>
                 </div>
               </div>
             )}
