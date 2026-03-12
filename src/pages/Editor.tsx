@@ -382,6 +382,61 @@ const VERTICAL_VARIANT_CAPTION_PLACEHOLDERS: Record<VerticalVariantCaptionKey, s
   youtube: "YouTube Shorts caption...",
   tiktok: "TikTok caption...",
 };
+const VERTICAL_VARIANT_CARD_META: Array<{
+  key: VerticalVariantCaptionKey;
+  accentClass: "is-instagram" | "is-youtube" | "is-tiktok";
+  rank: number;
+  title: string;
+  icon: typeof Instagram;
+  baseScore: number;
+  duration: string;
+  defaultCaption: string;
+  summary: string;
+  transcript: string;
+}> = [
+  {
+    key: "instagram",
+    accentClass: "is-instagram",
+    rank: 1,
+    title: "IG Reels - Embracing Fear Hook",
+    icon: Instagram,
+    baseScore: 98,
+    duration: "00:00 00:34",
+    defaultCaption: "IT'S NORMAL TO FEEL FEAR.",
+    summary:
+      "The hook sentence is reflective and relatable, and the pacing holds attention with clean rhythm from the first second.",
+    transcript:
+      "It's normal to feel fear. It's not that fear disappears, it's that you move forward despite it and let the mission carry you.",
+  },
+  {
+    key: "youtube",
+    accentClass: "is-youtube",
+    rank: 2,
+    title: "YouTube Shorts - Day in the Life Cut",
+    icon: Youtube,
+    baseScore: 95,
+    duration: "00:00 00:52",
+    defaultCaption: "BUILD. SHIP. REPEAT.",
+    summary:
+      "Shorts-first structure adds context before payoff, keeping replay value while preserving narrative clarity for YouTube audiences.",
+    transcript:
+      "A full day moves from engineering reviews to execution sprints, then back to decision mode. Every beat drives the next one.",
+  },
+  {
+    key: "tiktok",
+    accentClass: "is-tiktok",
+    rank: 3,
+    title: "TikTok - Punchy Interrupt Pass",
+    icon: Music2,
+    baseScore: 97,
+    duration: "00:00 00:29",
+    defaultCaption: "WAIT FOR THE TURN.",
+    summary:
+      "Pattern interrupts are denser and captions are stronger, optimized for thumb-stop behavior and quick momentum swings.",
+    transcript:
+      "You expect one direction, then the clip flips into the payoff quickly. Fast beats and tight captions keep eyes locked in.",
+  },
+];
 
 type PreviewImprovementTip = {
   id: string;
@@ -3642,6 +3697,7 @@ const Editor = () => {
   const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
   const realtimeBugFixCooldownRef = useRef<Record<string, number>>({});
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
+  const [resolvedVerticalVariantOutputUrls, setResolvedVerticalVariantOutputUrls] = useState<string[]>([]);
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
   const [previewTipAppliedIdsByJob, setPreviewTipAppliedIdsByJob] = useState<Record<string, string[]>>({});
@@ -7451,6 +7507,13 @@ const Editor = () => {
     }
     return [];
   }, [activeJob, activePreviewCacheKey]);
+  const activeVerticalOutputUrlIdentity = useMemo(
+    () =>
+      VERTICAL_VARIANT_CARD_META
+        .map((_, idx) => buildPreviewUrlIdentity(activeOutputUrls[idx] || ""))
+        .join("|"),
+    [activeOutputUrls],
+  );
   const activeJobReadyForDownload = Boolean(activeJob && normalizedActiveStatus === "ready");
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
@@ -10813,6 +10876,87 @@ const Editor = () => {
     if (!resolvedPreviewOutputUrl) return;
     previewRetryCountByJobRef.current[jobId] = 0;
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
+  useEffect(() => {
+    if (!isVerticalMode || !activeJob?.id || !activeJobReadyForDownload) {
+      setResolvedVerticalVariantOutputUrls([]);
+      return () => {};
+    }
+    let canceled = false;
+    const blobUrls: string[] = [];
+
+    const resolveClipPreviewUrl = async (clipIndex: number) => {
+      const existingClipUrl = String(activeOutputUrls[clipIndex] || "").trim();
+      const fallbackPreviewUrl = clipIndex === 0 ? String(resolvedPreviewOutputUrl || "").trim() : "";
+      let resolvedSourceUrl = existingClipUrl || fallbackPreviewUrl;
+
+      if (!resolvedSourceUrl && accessToken) {
+        try {
+          const refreshed = await apiFetch<{ url?: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipIndex + 1}`, {
+            method: "GET",
+            token: accessToken,
+          });
+          resolvedSourceUrl = appendVideoCacheBust(String(refreshed?.url || ""), activePreviewCacheKey);
+        } catch {
+          resolvedSourceUrl = "";
+        }
+      }
+
+      resolvedSourceUrl = String(resolvedSourceUrl || "").trim();
+      if (!resolvedSourceUrl) return "";
+      if (!isAuthRequiredDownloadUrl(resolvedSourceUrl)) return resolvedSourceUrl;
+      if (!accessToken) return "";
+
+      try {
+        const response = await fetch(resolvedSourceUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (!response.ok) return "";
+        const blob = await response.blob();
+        if (canceled) return "";
+        const blobUrl = window.URL.createObjectURL(blob);
+        blobUrls.push(blobUrl);
+        return blobUrl;
+      } catch {
+        return "";
+      }
+    };
+
+    void Promise.all(VERTICAL_VARIANT_CARD_META.map((_, idx) => resolveClipPreviewUrl(idx))).then((urls) => {
+      if (canceled) return;
+      setResolvedVerticalVariantOutputUrls(urls);
+    });
+
+    return () => {
+      canceled = true;
+      for (const url of blobUrls) {
+        window.URL.revokeObjectURL(url);
+      }
+    };
+  }, [
+    accessToken,
+    activeJob?.id,
+    activeJobReadyForDownload,
+    activeOutputUrls,
+    activePreviewCacheKey,
+    activeVerticalOutputUrlIdentity,
+    isVerticalMode,
+    resolvedPreviewOutputUrl,
+  ]);
+  const verticalVariantPreviewUrls = useMemo(
+    () =>
+      VERTICAL_VARIANT_CARD_META.map((_, idx) => {
+        const resolvedUrl = String(resolvedVerticalVariantOutputUrls[idx] || "").trim();
+        if (resolvedUrl) return resolvedUrl;
+        if (idx === 0) {
+          const resolvedPreview = String(resolvedPreviewOutputUrl || "").trim();
+          if (resolvedPreview) return resolvedPreview;
+        }
+        return String(activeOutputUrls[idx] || "").trim();
+      }),
+    [activeOutputUrls, resolvedPreviewOutputUrl, resolvedVerticalVariantOutputUrls],
+  );
   const showVideo = Boolean(activeJobReadyForDownload && resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
   const previewTranscriptCaptionsEnabled = showVideo && activeTranscriptCues.length > 0;
@@ -14618,71 +14762,66 @@ const Editor = () => {
                         </div>
                       </div>
                       <div className="vertical-variant-preview-list">
-                        {[
-                          {
-                            key: "instagram",
-                            accentClass: "is-instagram",
-                            rank: 1,
-                            title: "IG Reels - Embracing Fear Hook",
-                            icon: Instagram,
-                            score: 98,
-                            duration: "00:00 00:34",
-                            caption: "IT'S NORMAL TO FEEL FEAR.",
-                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.instagram,
-                            summary:
-                              "The hook sentence is reflective and relatable, and the pacing holds attention with clean rhythm from the first second.",
-                            transcript:
-                              "It's normal to feel fear. It's not that fear disappears, it's that you move forward despite it and let the mission carry you.",
-                          },
-                          {
-                            key: "youtube",
-                            accentClass: "is-youtube",
-                            rank: 2,
-                            title: "YouTube Shorts - Day in the Life Cut",
-                            icon: Youtube,
-                            score: 95,
-                            duration: "00:00 00:52",
-                            caption: "BUILD. SHIP. REPEAT.",
-                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.youtube,
-                            summary:
-                              "Shorts-first structure adds context before payoff, keeping replay value while preserving narrative clarity for YouTube audiences.",
-                            transcript:
-                              "A full day moves from engineering reviews to execution sprints, then back to decision mode. Every beat drives the next one.",
-                          },
-                          {
-                            key: "tiktok",
-                            accentClass: "is-tiktok",
-                            rank: 3,
-                            title: "TikTok - Punchy Interrupt Pass",
-                            icon: Music2,
-                            score: 97,
-                            duration: "00:00 00:29",
-                            caption: "WAIT FOR THE TURN.",
-                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.tiktok,
-                            summary:
-                              "Pattern interrupts are denser and captions are stronger, optimized for thumb-stop behavior and quick momentum swings.",
-                            transcript:
-                              "You expect one direction, then the clip flips into the payoff quickly. Fast beats and tight captions keep eyes locked in.",
-                          },
-                        ].map((variant) => {
+                        {VERTICAL_VARIANT_CARD_META.map((variant) => {
                           const Icon = variant.icon;
-                          const variantKey = variant.key as VerticalVariantCaptionKey;
+                          const variantKey = variant.key;
                           const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
                             verticalCaptionTextByVariant[variantKey] || "",
                           );
-                          const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.caption;
+                          const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.defaultCaption;
+                          const clipIndex = variant.rank - 1;
+                          const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
+                          const clipReady = Boolean(activeJobReadyForDownload && clipUrl);
+                          const clipProcessing = Boolean(activeJob && !isTerminalStatus(activeJob.status));
+                          const scoreValue = clipReady ? variant.baseScore : Math.max(90, variant.baseScore - 2);
+                          const durationLabel = clipReady ? "Rendered clip" : variant.duration;
+                          const canDownload = clipReady;
                           return (
                             <article key={variant.key} className={`vertical-variant-preview-card ${variant.accentClass}`}>
                               <p className="vertical-variant-preview-title">#{variant.rank} {variant.title}</p>
                               <div className="vertical-variant-preview-content">
                                 <div className="vertical-variant-preview-media-wrap">
                                   <div className="vertical-variant-preview-media">
-                                    <span className="vertical-variant-preview-time">{variant.duration}</span>
+                                    {clipReady ? (
+                                      <video
+                                        src={clipUrl}
+                                        preload="metadata"
+                                        controls
+                                        playsInline
+                                        className="vertical-variant-preview-video"
+                                      />
+                                    ) : (
+                                      <div className="vertical-variant-preview-empty" aria-live="polite">
+                                        {clipProcessing ? (
+                                          <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
+                                        ) : (
+                                          <Play className="h-4 w-4 text-muted-foreground" aria-hidden />
+                                        )}
+                                        <p className="vertical-variant-preview-empty-text">
+                                          {clipProcessing ? "Rendering variant..." : "Render to preview this variant"}
+                                        </p>
+                                      </div>
+                                    )}
+                                    <span className="vertical-variant-preview-time">{durationLabel}</span>
                                     <p className="vertical-variant-preview-caption">{previewCaption}</p>
                                   </div>
                                   <div className="vertical-variant-preview-actions">
-                                    <button type="button" className="vertical-variant-preview-button is-primary">Download</button>
-                                    <button type="button" className="vertical-variant-preview-button">Edit</button>
+                                    <button
+                                      type="button"
+                                      className="vertical-variant-preview-button is-primary"
+                                      disabled={!canDownload}
+                                      onClick={() => void handleDownload(clipIndex)}
+                                    >
+                                      Download
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="vertical-variant-preview-button"
+                                      onClick={startVerticalRender}
+                                      disabled={!!uploadingJobId || !verticalSelectionReady || clipReady}
+                                    >
+                                      {clipReady ? "Ready" : uploadingJobId ? "Rendering..." : "Render"}
+                                    </button>
                                   </div>
                                   <label className="vertical-variant-preview-caption-editor">
                                     <span className="vertical-variant-preview-caption-label">
@@ -14696,7 +14835,7 @@ const Editor = () => {
                                           [variantKey]: event.target.value,
                                         }))
                                       }
-                                      placeholder={variant.placeholder}
+                                      placeholder={VERTICAL_VARIANT_CAPTION_PLACEHOLDERS[variantKey]}
                                       className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[82px] resize-y border-border/60 bg-muted/20 text-xs"
                                     />
                                   </label>
@@ -14706,7 +14845,7 @@ const Editor = () => {
                                     <p className="vertical-variant-preview-summary-text">{variant.summary}</p>
                                     <div className="vertical-variant-preview-score">
                                       <Icon className="h-3.5 w-3.5" aria-hidden />
-                                      <strong className="vertical-variant-preview-score-value">{variant.score}</strong>
+                                      <strong className="vertical-variant-preview-score-value">{scoreValue}</strong>
                                       <span className="vertical-variant-preview-score-label">Score</span>
                                     </div>
                                   </div>
@@ -14739,6 +14878,7 @@ const Editor = () => {
                 </div>
               )}
 
+              {!isVerticalMode && (
               <div className="relative">
                 <div className="glass-card overflow-hidden">
                   <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
@@ -15129,6 +15269,7 @@ const Editor = () => {
                   ) : null}
                 </AnimatePresence>
               </div>
+              )}
 
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
