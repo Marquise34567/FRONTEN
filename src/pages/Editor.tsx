@@ -6290,12 +6290,12 @@ const Editor = () => {
   }, [autoCaptionsEnabled, captionCapability.available, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
-    const w = Math.round(clamp(sourceWidth * 0.42, MIN_WEBCAM_CROP_SIZE_PX, sourceWidth));
-    const h = Math.round(sourceHeight * 0.4);
-    const marginX = Math.round(sourceWidth * 0.03);
-    const marginY = Math.round(sourceHeight * 0.04);
-    const x = Math.round(clamp(sourceWidth - w - marginX, 0, Math.max(0, sourceWidth - w)));
-    const y = Math.round(clamp(marginY, 0, Math.max(0, sourceHeight - h)));
+    const w = Math.round(clamp(sourceWidth * 0.28, MIN_WEBCAM_CROP_SIZE_PX, sourceWidth));
+    const h = Math.round(clamp(sourceHeight * 0.34, MIN_WEBCAM_CROP_SIZE_PX, sourceHeight));
+    const marginX = Math.round(sourceWidth * 0.02);
+    const marginY = Math.round(sourceHeight * 0.02);
+    const x = Math.round(clamp(marginX, 0, Math.max(0, sourceWidth - w)));
+    const y = Math.round(clamp(sourceHeight - h - marginY, 0, Math.max(0, sourceHeight - h)));
     return {
       x,
       y,
