@@ -12,12 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -73,6 +72,7 @@ const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
+const SHORTS_AUTO_VERTICAL_ONLY = false;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
@@ -318,6 +318,7 @@ type VerticalFitMode = "cover" | "contain";
 type RetentionStrategyProfile = "safe" | "balanced" | "viral";
 type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
+type VerticalVariantCaptionKey = "instagram" | "youtube" | "tiktok";
 type VerticalSelectionMode = "best_moments" | "story_arc" | "hook_storm" | "loop_builder";
 type VerticalCaptionPresetOptionId =
   | "basic_clean"
@@ -369,6 +370,19 @@ type PreviewTipSkipRange = {
   startSec: number;
   endSec: number;
 };
+
+const VERTICAL_VARIANT_CAPTION_KEYS: VerticalVariantCaptionKey[] = ["instagram", "youtube", "tiktok"];
+const VERTICAL_VARIANT_CAPTION_LABELS: Record<VerticalVariantCaptionKey, string> = {
+  instagram: "IG Reels",
+  youtube: "YouTube Shorts",
+  tiktok: "TikTok",
+};
+const VERTICAL_VARIANT_CAPTION_PLACEHOLDERS: Record<VerticalVariantCaptionKey, string> = {
+  instagram: "IG hook caption...",
+  youtube: "YouTube Shorts caption...",
+  tiktok: "TikTok caption...",
+};
+
 type PreviewImprovementTip = {
   id: string;
   title: string;
@@ -3429,10 +3443,14 @@ const Editor = () => {
     flashTitle: true,
   });
   const modeParam = searchParams.get("mode");
-  const isVerticalMode = modeParam === "vertical";
+  const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
   const [verticalClipCount, setVerticalClipCount] = useState(3);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("hook_storm");
-  const [verticalCaptionText, setVerticalCaptionText] = useState("");
+  const [verticalCaptionTextByVariant, setVerticalCaptionTextByVariant] = useState<Record<VerticalVariantCaptionKey, string>>({
+    instagram: "",
+    youtube: "",
+    tiktok: "",
+  });
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
@@ -3474,7 +3492,7 @@ const Editor = () => {
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
-  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(true);
+  const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
@@ -3506,6 +3524,7 @@ const Editor = () => {
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
+  const [webcamCropWasAdjusted, setWebcamCropWasAdjusted] = useState(false);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
   const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
@@ -3524,6 +3543,15 @@ const Editor = () => {
     mode: CAPTIONS_PIPELINE_ENABLED ? "runtime" : "disabled",
     reason: CAPTIONS_PIPELINE_ENABLED ? null : "Captions are disabled in the editor pipeline.",
   });
+  const resolvedVerticalCaptionText = useMemo(() => {
+    const lines = VERTICAL_VARIANT_CAPTION_KEYS.flatMap((key) =>
+      normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+    return normalizeVerticalCaptionTextForJob(lines.join("\n"));
+  }, [verticalCaptionTextByVariant]);
   const [savingSubtitleStyle, setSavingSubtitleStyle] = useState(false);
   const [showSavedAnimation, setShowSavedAnimation] = useState(false);
   const prevSavingSubtitleRef = useRef<boolean>(savingSubtitleStyle);
@@ -3607,6 +3635,7 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalAutoRenderRequestedRef = useRef(false);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
@@ -5769,8 +5798,8 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
-    const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (requestedMode === "vertical" ? true : autoCaptionsEnabled);
+    const verticalCaptionTextForJob = resolvedVerticalCaptionText;
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
@@ -5784,6 +5813,7 @@ const Editor = () => {
             autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
+            customPhrases: VERTICAL_VARIANT_CAPTION_KEYS.map((key) => normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")).filter(Boolean),
             fontId: verticalCaptionFontId,
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
             outlineColor: normalizeCaptionHexColor(
@@ -5864,6 +5894,7 @@ const Editor = () => {
               verticalClipCount: renderOptions?.verticalClipCount,
               verticalMode: renderOptions?.verticalMode ?? null,
               verticalCaptionText: verticalCaptionTextForJob,
+              verticalVariantCaptions: verticalCaptionTextByVariant,
               verticalCaptions: verticalCaptionsPayload,
             }
           : {
@@ -6178,9 +6209,11 @@ const Editor = () => {
 
   useEffect(() => {
     if (isVerticalMode) return;
+    verticalAutoRenderRequestedRef.current = false;
     setSkipManualWebcamCrop(true);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
+    setWebcamCropWasAdjusted(false);
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
@@ -6195,13 +6228,23 @@ const Editor = () => {
     });
   }, [isVerticalMode]);
 
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    if (!CAPTIONS_PIPELINE_ENABLED || !captionCapability.available) return;
+    if (!autoCaptionsEnabled) setAutoCaptionsEnabled(true);
+  }, [autoCaptionsEnabled, captionCapability.available, isVerticalMode]);
+
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
-    const y = Math.round(sourceHeight * 0.05);
+    const w = Math.round(clamp(sourceWidth * 0.42, MIN_WEBCAM_CROP_SIZE_PX, sourceWidth));
     const h = Math.round(sourceHeight * 0.4);
+    const marginX = Math.round(sourceWidth * 0.03);
+    const marginY = Math.round(sourceHeight * 0.04);
+    const x = Math.round(clamp(sourceWidth - w - marginX, 0, Math.max(0, sourceWidth - w)));
+    const y = Math.round(clamp(marginY, 0, Math.max(0, sourceHeight - h)));
     return {
-      x: 0,
+      x,
       y,
-      w: sourceWidth,
+      w,
       h: clamp(h, MIN_WEBCAM_CROP_SIZE_PX, sourceHeight - y),
     };
   }, []);
@@ -6236,11 +6279,12 @@ const Editor = () => {
   }, []);
 
   const setRenderMode = useCallback((mode: "horizontal" | "vertical") => {
-    if (mode === "vertical" && modeParam !== "vertical") {
-      setSkipManualWebcamCrop(true);
+    const resolvedMode: "horizontal" | "vertical" = SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : mode;
+    if (resolvedMode === "vertical" && modeParam !== "vertical") {
+      setSkipManualWebcamCrop(false);
     }
     const next = new URLSearchParams(searchParams);
-    if (mode === "vertical") next.set("mode", "vertical");
+    if (resolvedMode === "vertical") next.set("mode", "vertical");
     else next.delete("mode");
     setSearchParams(next, { replace: false });
   }, [modeParam, searchParams, setSearchParams]);
@@ -6250,10 +6294,12 @@ const Editor = () => {
       toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
       return;
     }
+    verticalAutoRenderRequestedRef.current = true;
     setIsVerticalBuilderHidden(false);
     setPendingVerticalFile(file);
-    setSkipManualWebcamCrop(true);
+    setSkipManualWebcamCrop(false);
     setWebcamCrop(null);
+    setWebcamCropWasAdjusted(false);
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
@@ -6268,7 +6314,7 @@ const Editor = () => {
   };
 
   const handleVerticalSourceMetadata = useCallback(() => {
-    const video = verticalSourceVideoRef.current;
+    const video = verticalCompositionVideoRef.current ?? verticalSourceVideoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return;
     const nextSource = { width: video.videoWidth, height: video.videoHeight };
     setSourceVideoMeta(nextSource);
@@ -6296,6 +6342,7 @@ const Editor = () => {
     if (!webcamCrop) return;
     event.preventDefault();
     event.stopPropagation();
+    setWebcamCropWasAdjusted(true);
     setCropInteraction({
       handle,
       startClientX: event.clientX,
@@ -6463,7 +6510,7 @@ const Editor = () => {
       VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "0F172A",
     );
     const captionFontFamily = VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId] ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
-    const captionRawText = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+    const captionRawText = resolvedVerticalCaptionText;
     const captionBaseText = captionRawText || "Auto captions preview";
     const captionNoFillers = verticalCaptionRemoveFillers ? removePreviewFillers(captionBaseText) : captionBaseText;
     const captionAutoEmoji = verticalCaptionAutoEmoji ? inferPreviewEmoji(captionNoFillers) : "";
@@ -6748,42 +6795,45 @@ const Editor = () => {
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     verticalCaptionPreset,
-    verticalCaptionText,
+    resolvedVerticalCaptionText,
     isVerticalMode,
   ]);
 
-  const startVerticalRender = async () => {
+  const startVerticalRender = useCallback(async () => {
+    verticalAutoRenderRequestedRef.current = false;
     if (!pendingVerticalFile) {
       toast({ title: "Choose a file", description: "Upload an MP4, M4V, or MKV before rendering." });
-      return;
+      return false;
     }
     if (!sourceVideoMeta) {
-      toast({ title: "Preparing preview", description: "Wait for video metadata to load, then try again." });
-      return;
+      toast({ title: "Preparing video", description: "Wait for video metadata to load, then try again." });
+      return false;
     }
+    const fixedWebcamCrop = buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount: Math.max(3, verticalClipCount || 3),
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
-        layout: "auto",
+        layout: "stacked",
         selectionMode: verticalSelectionMode,
         source: sourceVideoMeta,
-        webcamCrop: null,
+        webcamCrop: fixedWebcamCrop,
         webcamPlacement: {
           heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
         },
         topHeightPx,
-        bottomFit: AUTO_VERTICAL_SINGLE_FIT_MODE,
+        bottomFit: "cover",
         webcamFit: "cover",
         paddingPx: 0,
       },
     });
-    if (!ok) return;
+    if (!ok) return false;
     setIsVerticalBuilderHidden(true);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
+    setWebcamCropWasAdjusted(false);
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
@@ -6793,7 +6843,26 @@ const Editor = () => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-  };
+    return true;
+  }, [
+    buildDefaultWebcamCrop,
+    handleFile,
+    pendingVerticalFile,
+    sourceVideoMeta,
+    toast,
+    topHeightPx,
+    verticalClipCount,
+    verticalSelectionMode,
+    webcamTopHeightPct,
+  ]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    if (!verticalAutoRenderRequestedRef.current) return;
+    if (!pendingVerticalFile || !sourceVideoMeta) return;
+    if (uploadingJobId) return;
+    void startVerticalRender();
+  }, [isVerticalMode, pendingVerticalFile, sourceVideoMeta, startVerticalRender, uploadingJobId]);
 
   const handlePickFile = useCallback(() => {
     trackEditorEvent("new_project_clicked", {
@@ -6827,7 +6896,8 @@ const Editor = () => {
         description: "Using the first selected file.",
       });
     }
-    if (selectionMode === "vertical") {
+    const resolvedMode: "horizontal" | "vertical" = SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : selectionMode;
+    if (resolvedMode === "vertical") {
       prepareVerticalFile(file);
       return;
     }
@@ -6838,7 +6908,7 @@ const Editor = () => {
     setPendingUploadSelection({
       file,
       fileCount,
-      mode: isVerticalMode ? "vertical" : "horizontal",
+      mode: SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (isVerticalMode ? "vertical" : "horizontal"),
     });
     setUploadRenderSettingsOpen(false);
     setUploadModeExtrasOpen(false);
@@ -7039,7 +7109,7 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (requestedMode === "vertical" ? true : autoCaptionsEnabled);
         const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -7105,13 +7175,15 @@ const Editor = () => {
             : {}),
         };
         if (requestedMode === "vertical") {
-          const verticalCaptionTextForJob = normalizeVerticalCaptionTextForJob(verticalCaptionText);
+          const verticalCaptionTextForJob = resolvedVerticalCaptionText;
           payload.verticalCaptionText = verticalCaptionTextForJob;
+          payload.verticalVariantCaptions = verticalCaptionTextByVariant;
           payload.verticalCaptions = {
             enabled: captionsEnabledForJob,
             autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
             preset: verticalCaptionPreset,
             text: verticalCaptionTextForJob,
+            customPhrases: VERTICAL_VARIANT_CAPTION_KEYS.map((key) => normalizeVerticalCaptionTextForJob(verticalCaptionTextByVariant[key] || "")).filter(Boolean),
             fontId: verticalCaptionFontId,
             fontSize: Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX)),
             outlineColor: normalizeCaptionHexColor(
@@ -7276,7 +7348,8 @@ const Editor = () => {
       verticalCaptionPositionX,
       verticalCaptionPositionY,
       verticalCaptionPreset,
-      verticalCaptionText,
+      resolvedVerticalCaptionText,
+      verticalCaptionTextByVariant,
       ensureNotificationPermission,
       toast,
     ],
@@ -11867,12 +11940,18 @@ const Editor = () => {
     ? "full_auto_youtube"
     : pipelinePowerMode;
   const recommendedUploadFormat: "horizontal" | "vertical" =
-    retentionTargetPlatform === "youtube" ? "horizontal" : "vertical";
+    SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (retentionTargetPlatform === "youtube" ? "horizontal" : "vertical");
   const recommendedUploadFormatLabel = recommendedUploadFormat === "vertical"
-    ? "Recommended now: Vertical 9:16 for TikTok + IG Reels."
+    ? (
+      SHORTS_AUTO_VERTICAL_ONLY
+        ? "Auto-convert enabled: all uploads render as Vertical 9:16 Shorts."
+        : "Recommended now: Vertical 9:16 for TikTok + IG Reels."
+    )
     : "Recommended now: Horizontal 16:9 for YouTube long-form.";
   const pendingUploadMode: "horizontal" | "vertical" =
-    pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal");
+    SHORTS_AUTO_VERTICAL_ONLY
+      ? "vertical"
+      : (pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal"));
   const activeAdvancedLearningModeLabels = useMemo(() => {
     const labels: string[] = [];
     if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
@@ -12564,19 +12643,20 @@ const Editor = () => {
     mode: "horizontal" | "vertical",
     source: "upload_zone" | "upload_mode_modal" = "upload_zone",
   ) => {
+    const resolvedMode: "horizontal" | "vertical" = SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : mode;
     trackEditorEvent("upload_format_selected", {
       retentionProfile: retentionStrategyProfile,
       targetPlatform: retentionTargetPlatform,
       captionStyle: activeSubtitlePreset,
       metadata: {
-        mode,
+        mode: resolvedMode,
         source,
       },
     });
-    if (mode === "vertical") {
-      setSkipManualWebcamCrop(true);
+    if (resolvedMode === "vertical") {
+      setSkipManualWebcamCrop(false);
     }
-    setRenderMode(mode);
+    setRenderMode(resolvedMode);
   }, [
     activeSubtitlePreset,
     retentionStrategyProfile,
@@ -12586,8 +12666,9 @@ const Editor = () => {
   ]);
 
   const selectPendingUploadFormatMode = useCallback((mode: "horizontal" | "vertical") => {
-    selectUploadFormatMode(mode, "upload_mode_modal");
-    setPendingUploadSelection((prev) => (prev ? { ...prev, mode } : prev));
+    const resolvedMode: "horizontal" | "vertical" = SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : mode;
+    selectUploadFormatMode(resolvedMode, "upload_mode_modal");
+    setPendingUploadSelection((prev) => (prev ? { ...prev, mode: resolvedMode } : prev));
   }, [selectUploadFormatMode]);
 
   const toggleAutoCaptions = useCallback(() => {
@@ -12625,54 +12706,68 @@ const Editor = () => {
     if (section === "format") {
       return (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <button
-              type="button"
-              className={sectionPillClass(!isVerticalMode)}
-              onClick={() => {
-                trackEditorEvent("render_mode_selected", {
-                  retentionProfile: retentionStrategyProfile,
-                  targetPlatform: retentionTargetPlatform,
-                  captionStyle: activeSubtitlePreset,
-                  metadata: { mode: "horizontal" },
-                });
-                setRenderMode("horizontal");
-              }}
-              aria-pressed={!isVerticalMode}
-              aria-label="Switch render format to horizontal 16:9"
-            >
-              <div className="flex items-center justify-between gap-2">
+          {SHORTS_AUTO_VERTICAL_ONLY ? (
+            <div className="rounded-xl border border-primary/45 bg-primary/10 px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-foreground">Horizontal 16:9</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">Long-form YouTube and widescreen exports.</p>
+                  <p className="text-xs font-semibold text-foreground">Vertical 9:16 (Auto)</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    All uploads auto-convert to Shorts format.
+                  </p>
                 </div>
-                <Monitor className="h-5 w-5 shrink-0" aria-hidden />
+                <Smartphone className="h-5 w-5 shrink-0 text-primary" aria-hidden />
               </div>
-            </button>
-            <button
-              type="button"
-              className={sectionPillClass(isVerticalMode)}
-              onClick={() => {
-                trackEditorEvent("render_mode_selected", {
-                  retentionProfile: retentionStrategyProfile,
-                  targetPlatform: retentionTargetPlatform,
-                  captionStyle: activeSubtitlePreset,
-                  metadata: { mode: "vertical" },
-                });
-                setRenderMode("vertical");
-              }}
-              aria-pressed={isVerticalMode}
-              aria-label="Switch render format to vertical 9:16"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-semibold text-foreground">Vertical 9:16</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">Short-form framing with auto crop.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <button
+                type="button"
+                className={sectionPillClass(!isVerticalMode)}
+                onClick={() => {
+                  trackEditorEvent("render_mode_selected", {
+                    retentionProfile: retentionStrategyProfile,
+                    targetPlatform: retentionTargetPlatform,
+                    captionStyle: activeSubtitlePreset,
+                    metadata: { mode: "horizontal" },
+                  });
+                  setRenderMode("horizontal");
+                }}
+                aria-pressed={!isVerticalMode}
+                aria-label="Switch render format to horizontal 16:9"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Horizontal 16:9</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Long-form YouTube and widescreen exports.</p>
+                  </div>
+                  <Monitor className="h-5 w-5 shrink-0" aria-hidden />
                 </div>
-                <Smartphone className="h-5 w-5 shrink-0" aria-hidden />
-              </div>
-            </button>
-          </div>
+              </button>
+              <button
+                type="button"
+                className={sectionPillClass(isVerticalMode)}
+                onClick={() => {
+                  trackEditorEvent("render_mode_selected", {
+                    retentionProfile: retentionStrategyProfile,
+                    targetPlatform: retentionTargetPlatform,
+                    captionStyle: activeSubtitlePreset,
+                    metadata: { mode: "vertical" },
+                  });
+                  setRenderMode("vertical");
+                }}
+                aria-pressed={isVerticalMode}
+                aria-label="Switch render format to vertical 9:16"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Vertical 9:16</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Short-form framing with auto crop.</p>
+                  </div>
+                  <Smartphone className="h-5 w-5 shrink-0" aria-hidden />
+                </div>
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {PLATFORM_OPTIONS.map((platform) => (
               <Tooltip key={platform.value}>
@@ -14368,7 +14463,7 @@ const Editor = () => {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {isVerticalMode
-                      ? "Auto-crops to 9:16 by default. Turn on Webcam Strip to reserve top-panel space automatically."
+                      ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
                       : "MP4, M4V, or MKV up to 2GB"}
                   </p>
                   {performanceConstrained && (
@@ -14411,7 +14506,7 @@ const Editor = () => {
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">3 Variations</Badge>
                           <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">9:16 Auto Frame</Badge>
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Auto Webcam Top</Badge>
+                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Auto Webcam Toggle</Badge>
                         </div>
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -14454,7 +14549,9 @@ const Editor = () => {
                           Output locked to 3 dynamic clips
                         </span>
                         <span className="rounded-full border border-border/55 bg-background/45 px-2 py-1 text-[10px] text-muted-foreground">
-                          Webcam layout is auto-detected and placed at top when found
+                          {skipManualWebcamCrop
+                            ? "Webcam top layout is optional and currently off"
+                            : "Webcam top layout is on"}
                         </span>
                       </div>
                     </div>
@@ -14463,390 +14560,169 @@ const Editor = () => {
                   <div className="grid gap-3">
                     <div className="vertical-mode-panel space-y-2 rounded-xl border border-border/40 bg-card/45 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-foreground">TikTok Caption Text (optional)</p>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="h-8 text-[11px]">
-                              Style
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            align="end"
-                            className="w-[min(94vw,460px)] max-h-[70vh] overflow-y-auto border border-border/60 bg-card/95 p-3"
-                          >
-                            <div className="space-y-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-xs font-medium text-foreground">Vertical Caption Style</p>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-[11px]"
-                                  onClick={() => applyPlatformVerticalCaptionPreset(retentionTargetPlatform)}
-                                >
-                                  Match {activeTargetPlatformLabel} look
-                                </Button>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                {(["tiktok", "instagram_reels", "youtube"] as RetentionTargetPlatform[]).map((platform) => {
-                                  const mappedPreset = PLATFORM_VERTICAL_CAPTION_PRESET[platform];
-                                  const platformLabel =
-                                    platform === "tiktok" ? "TikTok" : platform === "instagram_reels" ? "IG Reels" : "YouTube Shorts";
-                                  return (
-                                    <button
-                                      key={platform}
-                                      type="button"
-                                      className={verticalModeChipClass(verticalCaptionPreset === mappedPreset)}
-                                      onClick={() => applyPlatformVerticalCaptionPreset(platform)}
-                                    >
-                                      {platformLabel}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Style</span>
-                                  <select
-                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                                    value={verticalCaptionPreset}
-                                    onChange={(event) => applyVerticalCaptionPreset(event.target.value as VerticalCaptionPresetOptionId)}
-                                  >
-                                    {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => (
-                                      <option key={option.id} value={option.id} className="bg-background text-foreground">
-                                        {option.platformHint ? `${option.label} (${option.platformHint})` : option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Font</span>
-                                  <select
-                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                                    value={verticalCaptionFontId}
-                                    onChange={(event) => setVerticalCaptionFontId(event.target.value as VerticalCaptionFontOptionId)}
-                                  >
-                                    {VERTICAL_CAPTION_FONT_OPTIONS.map((fontOption) => (
-                                      <option key={fontOption.id} value={fontOption.id} className="bg-background text-foreground">
-                                        {fontOption.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Animation</span>
-                                  <select
-                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                                    value={verticalCaptionAnimation}
-                                    onChange={(event) => setVerticalCaptionAnimation(event.target.value as VerticalCaptionAnimationOptionId)}
-                                  >
-                                    {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
-                                      <option key={animationOption.id} value={animationOption.id} className="bg-background text-foreground">
-                                        {animationOption.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Dynamic captions</span>
-                                  <select
-                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                                    value={verticalCaptionDynamicMode}
-                                    onChange={(event) => setVerticalCaptionDynamicMode(event.target.value as VerticalCaptionDynamicModeOptionId)}
-                                  >
-                                    {VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS.map((modeOption) => (
-                                      <option key={modeOption.id} value={modeOption.id} className="bg-background text-foreground">
-                                        {modeOption.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Voice changer</span>
-                                  <select
-                                    className="w-full rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-xs text-foreground"
-                                    value={verticalVoicePreset}
-                                    onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
-                                  >
-                                    {VERTICAL_VOICE_PRESET_OPTIONS.map((voiceOption) => (
-                                      <option key={voiceOption.id} value={voiceOption.id} className="bg-background text-foreground">
-                                        {voiceOption.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    Animation speed ({verticalCaptionAnimationSpeed.toFixed(2)}x)
-                                  </span>
-                                  <Slider
-                                    min={VERTICAL_CAPTION_ANIMATION_SPEED_MIN}
-                                    max={VERTICAL_CAPTION_ANIMATION_SPEED_MAX}
-                                    step={0.02}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionAnimationSpeed]}
-                                    onValueChange={(values) =>
-                                      setVerticalCaptionAnimationSpeed(
-                                        clampVerticalCaptionAnimationSpeed(
-                                          values?.[0] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].animationSpeed,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">Outline color</span>
-                                  <input
-                                    type="color"
-                                    className="h-9 w-full rounded-lg border border-border/50 bg-muted/20 p-1"
-                                    value={`#${normalizeCaptionHexColor(
-                                      verticalCaptionOutlineColor,
-                                      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                                    )}`}
-                                    onChange={(event) =>
-                                      setVerticalCaptionOutlineColor(
-                                        normalizeCaptionHexColor(
-                                          event.target.value,
-                                          VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <label className="space-y-1 sm:col-span-2">
-                                  <span className="text-[11px] text-muted-foreground">Outline width ({verticalCaptionOutlineWidth}px)</span>
-                                  <Slider
-                                    min={0}
-                                    max={24}
-                                    step={1}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionOutlineWidth]}
-                                    onValueChange={(values) => setVerticalCaptionOutlineWidth(clamp(Math.round(values?.[0] ?? 0), 0, 24))}
-                                  />
-                                </label>
-                                <label className="space-y-1 sm:col-span-2">
-                                  <span className="text-[11px] text-muted-foreground">Caption size ({Math.round(verticalCaptionFontSize)}px)</span>
-                                  <Slider
-                                    min={VERTICAL_CAPTION_FONT_SIZE_MIN}
-                                    max={VERTICAL_CAPTION_FONT_SIZE_MAX}
-                                    step={1}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionFontSize]}
-                                    onValueChange={(values) =>
-                                      setVerticalCaptionFontSize(
-                                        Math.round(
-                                          clamp(
-                                            values?.[0] ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT,
-                                            VERTICAL_CAPTION_FONT_SIZE_MIN,
-                                            VERTICAL_CAPTION_FONT_SIZE_MAX,
-                                          ),
-                                        ),
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <label className="space-y-1 sm:col-span-2">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    Drop shadow ({Math.round(verticalCaptionShadowStrength)}%)
-                                  </span>
-                                  <Slider
-                                    min={VERTICAL_CAPTION_SHADOW_MIN}
-                                    max={VERTICAL_CAPTION_SHADOW_MAX}
-                                    step={1}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionShadowStrength]}
-                                    onValueChange={(values) =>
-                                      setVerticalCaptionShadowStrength(
-                                        Math.round(
-                                          clamp(
-                                            values?.[0] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].shadowStrength,
-                                            VERTICAL_CAPTION_SHADOW_MIN,
-                                            VERTICAL_CAPTION_SHADOW_MAX,
-                                          ),
-                                        ),
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <div className="sm:col-span-2 grid grid-cols-1 gap-2">
-                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                                    <span className="text-[11px] text-muted-foreground">Word highlight (karaoke)</span>
-                                    <Switch
-                                      checked={verticalCaptionHighlightWords}
-                                      onCheckedChange={(checked) => setVerticalCaptionHighlightWords(Boolean(checked))}
-                                    />
-                                  </label>
-                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                                    <span className="text-[11px] text-muted-foreground">Auto keyword emphasis</span>
-                                    <Switch
-                                      checked={verticalCaptionAutoEmphasis}
-                                      onCheckedChange={(checked) => setVerticalCaptionAutoEmphasis(Boolean(checked))}
-                                    />
-                                  </label>
-                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                                    <span className="text-[11px] text-muted-foreground">Auto emoji hooks</span>
-                                    <Switch
-                                      checked={verticalCaptionAutoEmoji}
-                                      onCheckedChange={(checked) => setVerticalCaptionAutoEmoji(Boolean(checked))}
-                                    />
-                                  </label>
-                                  <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                                    <span className="text-[11px] text-muted-foreground">Remove filler words</span>
-                                    <Switch
-                                      checked={verticalCaptionRemoveFillers}
-                                      onCheckedChange={(checked) => setVerticalCaptionRemoveFillers(Boolean(checked))}
-                                    />
-                                  </label>
-                                </div>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    Position X ({Math.round(verticalCaptionPositionX * 100)}%)
-                                  </span>
-                                  <Slider
-                                    min={VERTICAL_CAPTION_POSITION_MIN}
-                                    max={VERTICAL_CAPTION_POSITION_MAX}
-                                    step={0.01}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionPositionX]}
-                                    onValueChange={(values) => setVerticalCaptionPositionX(clampCaptionPosition(values?.[0] ?? 0.5))}
-                                  />
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    Position Y ({Math.round(verticalCaptionPositionY * 100)}%)
-                                  </span>
-                                  <Slider
-                                    min={VERTICAL_CAPTION_POSITION_MIN}
-                                    max={VERTICAL_CAPTION_POSITION_MAX}
-                                    step={0.01}
-                                    className="editor-settings-slider"
-                                    value={[verticalCaptionPositionY]}
-                                    onValueChange={(values) => setVerticalCaptionPositionY(clampCaptionPosition(values?.[0] ?? 0.84))}
-                                  />
-                                </label>
-                                <div className="sm:col-span-2 flex items-center justify-end">
-                                  <Button type="button" size="sm" variant="outline" onClick={resetVerticalCaptionPlacement}>
-                                    Reset caption placement
-                                  </Button>
-                                </div>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground">
-                                Drag captions in the live preview or fine-tune with sliders. Style, size, shadow, and position apply to vertical captions.
-                              </p>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
+                        <p className="text-xs font-medium text-foreground">Caption + Webcam Controls</p>
+                        <Badge variant="outline" className="border-primary/45 bg-primary/12 text-[10px] text-primary">
+                          Captions Locked On
+                        </Badge>
                       </div>
-                      <Textarea
-                        value={verticalCaptionText}
-                        onChange={(event) => setVerticalCaptionText(event.target.value)}
-                        placeholder={"WTF 😂\nNo way this happened\nRun it back 🔁"}
-                        className="vertical-mode-textarea min-h-[92px] resize-y border-border/60 bg-muted/20 text-sm"
-                      />
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                          <span className="text-[11px] text-muted-foreground">Webcam top layout (locked)</span>
+                          <Switch
+                            checked
+                            disabled
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                          <span className="text-[11px] text-muted-foreground">Captions (locked on)</span>
+                          <Switch
+                            checked
+                            disabled
+                          />
+                        </label>
+                      </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Your text is split into short phrases and synced to hook/peak moments. Leave blank to auto-generate per clip.
+                        Webcam top layout is locked on, and each variant card below has its own caption text box.
                       </p>
                     </div>
                   </div>
 
                   {!verticalPreviewUrl && (
                     <p className="vertical-mode-note text-xs text-muted-foreground">
-                      Upload a file to start auto layout preview and generate three ranked vertical variations.
+                      Upload a file to auto-run webcam-ready variants for Instagram Reels, YouTube Shorts, and TikTok.
                     </p>
                   )}
 
                   {verticalPreviewUrl && (
                     <div className="space-y-4">
-                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
-                        <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3 space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-xs font-medium text-foreground">Source Preview</p>
-                              <p className="text-[11px] text-muted-foreground">
-                                Auto layout detects webcam-like framing and pins it to the top strip. If none is detected, output stays full-frame 9:16.
-                              </p>
-                            </div>
-                            <Badge variant="secondary" className="text-[10px]">
-                              Auto Layout
-                            </Badge>
-                          </div>
-                          <div
-                            ref={sourcePreviewRef}
-                            className="vertical-mode-source-preview relative overflow-hidden rounded-xl border border-border/40 bg-black/80"
-                            style={sourceVideoMeta ? { aspectRatio: `${sourceVideoMeta.width} / ${sourceVideoMeta.height}` } : { aspectRatio: "16 / 9" }}
-                          >
-                            <video
-                              ref={verticalSourceVideoRef}
-                              src={verticalPreviewUrl}
-                              preload={previewPreload}
-                              controls
-                              onLoadedMetadata={handleVerticalSourceMetadata}
-                              className="h-full w-full object-contain"
-                            />
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {sourceVideoMeta ? (
-                              <Badge variant="outline" className="text-[10px]">
-                                Source {Math.round(sourceVideoMeta.width)} x {Math.round(sourceVideoMeta.height)}
-                              </Badge>
-                            ) : null}
-                            <Badge variant="outline" className="text-[10px]">
-                              Output {DEFAULT_VERTICAL_OUTPUT.width} x {DEFAULT_VERTICAL_OUTPUT.height}
-                            </Badge>
-                            <Badge variant="outline" className="text-[10px]">
-                              Clips 3
-                            </Badge>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/50 p-3 space-y-3">
-                            <video
-                              ref={verticalCompositionVideoRef}
-                              src={verticalPreviewUrl}
-                              preload="metadata"
-                              muted
-                              loop
-                              playsInline
-                              className="hidden"
-                            />
-                            <p className="text-xs font-medium text-foreground">Live 9:16 Composition Preview</p>
-                            <div className="mx-auto w-full max-w-[300px]">
-                              <div className="relative w-full" style={{ aspectRatio: "9 / 16" }}>
-                                <canvas
-                                  ref={verticalCompositionCanvasRef}
-                                  className={`h-full w-full rounded-lg border border-border/50 bg-black touch-none select-none ${
-                                    verticalCaptionDragState ? "cursor-grabbing" : "cursor-grab"
-                                  }`}
-                                  onPointerDown={beginVerticalCaptionDrag}
-                                />
-                                <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-border/50" />
-                              </div>
-                            </div>
+                      <video
+                        ref={verticalCompositionVideoRef}
+                        src={verticalPreviewUrl}
+                        preload="metadata"
+                        muted
+                        playsInline
+                        onLoadedMetadata={handleVerticalSourceMetadata}
+                        className="hidden"
+                      />
+                      <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-medium text-foreground">Auto Webcam Variants</p>
                             <p className="text-[11px] text-muted-foreground">
-                              Drag captions in the preview for final placement. Caption style and animation are applied per variation.
+                              Preview is skipped on upload. We auto-create 3 webcam-ready short-form variants.
                             </p>
                           </div>
-                          <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/40 p-3 space-y-2">
-                            <p className="text-xs font-medium text-foreground">Mode Snapshot</p>
-                            <div className="grid grid-cols-1 gap-2 text-[11px] text-muted-foreground">
-                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
-                                Selection mode: <span className="font-medium text-foreground">{activeVerticalShortFormPreset.label}</span>
-                              </div>
-                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
-                                Caption style: <span className="font-medium text-foreground">{VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === verticalCaptionPreset)?.label || "TikTok Headline"}</span>
-                              </div>
-                              <div className="rounded-lg border border-border/50 bg-background/35 px-2.5 py-2">
-                                Creative variant: <span className="font-medium text-foreground">{CREATIVE_VARIANT_OPTIONS.find((option) => option.value === creativeVariant)?.label || "Balanced"}</span>
-                              </div>
-                            </div>
-                          </div>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {uploadingJobId ? "Rendering..." : verticalSelectionReady ? "Starting..." : "Preparing..."}
+                          </Badge>
                         </div>
+                      </div>
+                      <div className="vertical-variant-preview-list">
+                        {[
+                          {
+                            key: "instagram",
+                            accentClass: "is-instagram",
+                            rank: 1,
+                            title: "IG Reels - Embracing Fear Hook",
+                            icon: Instagram,
+                            score: 98,
+                            duration: "00:00 00:34",
+                            caption: "IT'S NORMAL TO FEEL FEAR.",
+                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.instagram,
+                            summary:
+                              "The hook sentence is reflective and relatable, and the pacing holds attention with clean rhythm from the first second.",
+                            transcript:
+                              "It's normal to feel fear. It's not that fear disappears, it's that you move forward despite it and let the mission carry you.",
+                          },
+                          {
+                            key: "youtube",
+                            accentClass: "is-youtube",
+                            rank: 2,
+                            title: "YouTube Shorts - Day in the Life Cut",
+                            icon: Youtube,
+                            score: 95,
+                            duration: "00:00 00:52",
+                            caption: "BUILD. SHIP. REPEAT.",
+                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.youtube,
+                            summary:
+                              "Shorts-first structure adds context before payoff, keeping replay value while preserving narrative clarity for YouTube audiences.",
+                            transcript:
+                              "A full day moves from engineering reviews to execution sprints, then back to decision mode. Every beat drives the next one.",
+                          },
+                          {
+                            key: "tiktok",
+                            accentClass: "is-tiktok",
+                            rank: 3,
+                            title: "TikTok - Punchy Interrupt Pass",
+                            icon: Music2,
+                            score: 97,
+                            duration: "00:00 00:29",
+                            caption: "WAIT FOR THE TURN.",
+                            placeholder: VERTICAL_VARIANT_CAPTION_PLACEHOLDERS.tiktok,
+                            summary:
+                              "Pattern interrupts are denser and captions are stronger, optimized for thumb-stop behavior and quick momentum swings.",
+                            transcript:
+                              "You expect one direction, then the clip flips into the payoff quickly. Fast beats and tight captions keep eyes locked in.",
+                          },
+                        ].map((variant) => {
+                          const Icon = variant.icon;
+                          const variantKey = variant.key as VerticalVariantCaptionKey;
+                          const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
+                            verticalCaptionTextByVariant[variantKey] || "",
+                          );
+                          const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.caption;
+                          return (
+                            <article key={variant.key} className={`vertical-variant-preview-card ${variant.accentClass}`}>
+                              <p className="vertical-variant-preview-title">#{variant.rank} {variant.title}</p>
+                              <div className="vertical-variant-preview-content">
+                                <div className="vertical-variant-preview-media-wrap">
+                                  <div className="vertical-variant-preview-media">
+                                    <span className="vertical-variant-preview-time">{variant.duration}</span>
+                                    <p className="vertical-variant-preview-caption">{previewCaption}</p>
+                                  </div>
+                                  <div className="vertical-variant-preview-actions">
+                                    <button type="button" className="vertical-variant-preview-button is-primary">Download</button>
+                                    <button type="button" className="vertical-variant-preview-button">Edit</button>
+                                  </div>
+                                  <label className="vertical-variant-preview-caption-editor">
+                                    <span className="vertical-variant-preview-caption-label">
+                                      {VERTICAL_VARIANT_CAPTION_LABELS[variantKey]} caption
+                                    </span>
+                                    <Textarea
+                                      value={verticalCaptionTextByVariant[variantKey] || ""}
+                                      onChange={(event) =>
+                                        setVerticalCaptionTextByVariant((prev) => ({
+                                          ...prev,
+                                          [variantKey]: event.target.value,
+                                        }))
+                                      }
+                                      placeholder={variant.placeholder}
+                                      className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[82px] resize-y border-border/60 bg-muted/20 text-xs"
+                                    />
+                                  </label>
+                                </div>
+                                <div className="vertical-variant-preview-analysis">
+                                  <div className="vertical-variant-preview-summary">
+                                    <p className="vertical-variant-preview-summary-text">{variant.summary}</p>
+                                    <div className="vertical-variant-preview-score">
+                                      <Icon className="h-3.5 w-3.5" aria-hidden />
+                                      <strong className="vertical-variant-preview-score-value">{variant.score}</strong>
+                                      <span className="vertical-variant-preview-score-label">Score</span>
+                                    </div>
+                                  </div>
+                                  <p className="vertical-variant-preview-transcript">{variant.transcript}</p>
+                                </div>
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="vertical-mode-note text-xs text-muted-foreground">
-                          Export produces 3 dynamic short-form variations with modern TikTok-style caption treatment and auto webcam-top placement when detected.
+                          {uploadingJobId
+                            ? "Auto webcam variants are now being rendered."
+                            : "Auto start runs as soon as source metadata is ready."}
                         </p>
                         <Button
                           type="button"
@@ -14855,7 +14731,7 @@ const Editor = () => {
                           onClick={startVerticalRender}
                         >
                           <ScissorsSquare className="w-4 h-4" />
-                          Create 3 Dynamic Variations
+                          Start Variants Now
                         </Button>
                       </div>
                     </div>
@@ -16155,44 +16031,61 @@ const Editor = () => {
                   {pendingUploadMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"}
                 </Badge>
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  className={uploadFormatCardClass(pendingUploadMode === "horizontal", true)}
-                  onClick={() => selectPendingUploadFormatMode("horizontal")}
-                  aria-pressed={pendingUploadMode === "horizontal"}
-                  aria-label="Select horizontal format for this upload"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
-                      <p className="text-xs text-muted-foreground">Long-form YouTube and widescreen delivery.</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {pendingUploadMode === "horizontal" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
-                      <Monitor className="h-5 w-5 text-primary" />
+              {SHORTS_AUTO_VERTICAL_ONLY ? (
+                <div className="mt-3">
+                  <div className={uploadFormatCardClass(true, true)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
+                        <p className="text-xs text-muted-foreground">Auto-converted Shorts output for every upload.</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4 text-primary" />
+                        <Smartphone className="h-5 w-5 text-primary" />
+                      </div>
                     </div>
                   </div>
-                </button>
-                <button
-                  type="button"
-                  className={uploadFormatCardClass(pendingUploadMode === "vertical", true)}
-                  onClick={() => selectPendingUploadFormatMode("vertical")}
-                  aria-pressed={pendingUploadMode === "vertical"}
-                  aria-label="Select vertical format for this upload"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
-                      <p className="text-xs text-muted-foreground">Short-form framing with automatic crop behavior.</p>
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    className={uploadFormatCardClass(pendingUploadMode === "horizontal", true)}
+                    onClick={() => selectPendingUploadFormatMode("horizontal")}
+                    aria-pressed={pendingUploadMode === "horizontal"}
+                    aria-label="Select horizontal format for this upload"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Horizontal 16:9</p>
+                        <p className="text-xs text-muted-foreground">Long-form YouTube and widescreen delivery.</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {pendingUploadMode === "horizontal" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                        <Monitor className="h-5 w-5 text-primary" />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {pendingUploadMode === "vertical" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
-                      <Smartphone className="h-5 w-5 text-primary" />
+                  </button>
+                  <button
+                    type="button"
+                    className={uploadFormatCardClass(pendingUploadMode === "vertical", true)}
+                    onClick={() => selectPendingUploadFormatMode("vertical")}
+                    aria-pressed={pendingUploadMode === "vertical"}
+                    aria-label="Select vertical format for this upload"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Vertical 9:16</p>
+                        <p className="text-xs text-muted-foreground">Short-form framing with automatic crop behavior.</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {pendingUploadMode === "vertical" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                        <Smartphone className="h-5 w-5 text-primary" />
+                      </div>
                     </div>
-                  </div>
-                </button>
-              </div>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
