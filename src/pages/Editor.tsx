@@ -6863,7 +6863,10 @@ const Editor = () => {
       toast({ title: "Preparing video", description: "Wait for video metadata to load, then try again." });
       return false;
     }
-    const fixedWebcamCrop = buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
+    const fixedWebcamCrop = normalizeWebcamCrop(
+      effectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
+      sourceVideoMeta,
+    );
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount: Math.max(3, verticalClipCount || 3),
@@ -6895,6 +6898,9 @@ const Editor = () => {
     verticalClipCount,
     verticalSelectionMode,
     webcamTopHeightPct,
+    effectiveWebcamCrop,
+    webcamCrop,
+    normalizeWebcamCrop,
   ]);
 
   useEffect(() => {
