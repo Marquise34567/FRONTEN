@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Mail, Rocket, Send, Sparkles, Wand2 } from "lucide-react"
+import { AlertTriangle, Mail, Power, Rocket, Send, Sparkles, Wand2 } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,6 +34,26 @@ type SelfImproveResponse = {
   complaintTags: Array<{ tag: string; count: number }>
   suggestions: Array<{ priority: number; title: string; expectedImpact: string; difficulty: string }>
   generatedAt: string
+}
+
+type CancelAllJobsResponse = {
+  ok: boolean
+  reason: string
+  candidates: number
+  canceled: number
+  skipped: number
+  failed: number
+  running: number
+  killedCount: number
+  truncatedByLimit: boolean
+}
+
+type RestartServerResponse = {
+  ok: boolean
+  requested: boolean
+  executed: boolean
+  requestedAt: string
+  message: string
 }
 
 const formatShortTime = (iso?: string) => {
@@ -73,6 +93,7 @@ const ControlPanelOps = () => {
   const [grantSubscriptionPlanTier, setGrantSubscriptionPlanTier] = useState("starter")
   const [grantSubscriptionDurationDays, setGrantSubscriptionDurationDays] = useState("30")
   const [grantSubscriptionReason, setGrantSubscriptionReason] = useState("manual_control_panel_grant")
+  const [emergencyReason, setEmergencyReason] = useState("production_admin_emergency")
 
   const canLoad = Boolean(accessToken)
   const weeklyReportsQuery = useQuery({
@@ -272,6 +293,54 @@ const ControlPanelOps = () => {
       },
       `Granted ${grantSubscriptionPlanTier} for ${durationDays} day(s).`
     )
+  }
+
+  const handleCancelAllJobs = async () => {
+    if (!accessToken) return
+    const confirmed = window.confirm("Cancel ALL active jobs in production queue?")
+    if (!confirmed) return
+    setActionLoading(true)
+    setActionError(null)
+    setActionSuccess(null)
+    try {
+      const result = await apiFetch<CancelAllJobsResponse>("/api/admin/jobs/cancel-all", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          reason: emergencyReason || undefined
+        })
+      })
+      setActionSuccess(
+        `Canceled ${result.canceled}/${result.candidates} active jobs (running ${result.running}, killed ffmpeg ${result.killedCount}).`
+      )
+    } catch (error: any) {
+      setActionError(error?.message || "Bulk cancel failed.")
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleRestartServer = async () => {
+    if (!accessToken) return
+    const confirmed = window.confirm("Restart backend server now?")
+    if (!confirmed) return
+    setActionLoading(true)
+    setActionError(null)
+    setActionSuccess(null)
+    try {
+      const result = await apiFetch<RestartServerResponse>("/api/admin/server/restart", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({
+          reason: emergencyReason || undefined
+        })
+      })
+      setActionSuccess(result.message || "Restart request submitted.")
+    } catch (error: any) {
+      setActionError(error?.message || "Server restart request failed.")
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const weeklyProviderConfigured = Boolean(weeklyReportsQuery.data?.provider.configured)
@@ -566,6 +635,43 @@ const ControlPanelOps = () => {
                   className="h-9 rounded-md border border-border/60 px-2 text-xs sm:col-span-3"
                 >
                   Generate Internal Test User
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-rose-400/35">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm text-rose-100">
+                <AlertTriangle className="h-4 w-4 text-rose-300" />
+                Emergency Queue Controls
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground">
+                Production-only actions: cancel all active jobs and trigger backend restart.
+              </p>
+              <input
+                value={emergencyReason}
+                onChange={(e) => setEmergencyReason(e.target.value)}
+                placeholder="Action reason"
+                className="h-9 w-full rounded-md border border-border/60 bg-card/50 px-2 text-xs"
+              />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  disabled={actionLoading}
+                  onClick={handleCancelAllJobs}
+                  className="h-9 rounded-md border border-rose-500/45 bg-rose-500/15 px-2 text-rose-100 disabled:opacity-60"
+                >
+                  Cancel All Jobs
+                </button>
+                <button
+                  disabled={actionLoading}
+                  onClick={handleRestartServer}
+                  className="h-9 rounded-md border border-amber-500/45 bg-amber-500/15 px-2 text-amber-100 disabled:opacity-60"
+                >
+                  <Power className="mr-1 inline h-3.5 w-3.5" />
+                  Restart Server
                 </button>
               </div>
             </CardContent>
