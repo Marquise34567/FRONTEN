@@ -2583,6 +2583,38 @@ html[data-performance='constrained'] .trial-takeover-active * {
       linear-gradient(180deg, hsl(221 24% 82% / 0.2), hsl(222 24% 24% / 0.88) 35%, hsl(227 39% 10% / 0.98));
   }
 
+  .vertical-variant-preview-video {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: hsl(0 0% 0%);
+  }
+
+  .vertical-variant-preview-empty {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.85rem;
+    color: hsl(var(--foreground) / 0.82);
+    text-align: center;
+  }
+
+  .vertical-variant-preview-empty-text {
+    margin: 0;
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
   .vertical-variant-preview-media::after {
     content: "";
     position: absolute;
