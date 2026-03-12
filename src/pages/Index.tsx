@@ -1610,7 +1610,7 @@ const Index = () => {
                 </AnimatePresence>
               </motion.div>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                <Link to="/editor?autopick=1&mode=vertical" className="w-full sm:w-auto">
+                <Link to="/shorts-mode-demo" className="w-full sm:w-auto">
                   <Button
                     size="lg"
                     className="group w-full gap-2 rounded-full bg-primary px-7 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto"

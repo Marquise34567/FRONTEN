@@ -18,6 +18,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
 const Editor = lazy(() => import("./pages/Editor"));
 const EditorAMode = lazy(() => import("./pages/EditorAMode"));
+const ShortsModeDemo = lazy(() => import("./pages/ShortsModeDemo"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -328,6 +329,14 @@ const App = () => {
                 element={
                   <RouteSuspense>
                     <HowEditorWorks />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/shorts-mode-demo"
+                element={
+                  <RouteSuspense>
+                    <ShortsModeDemo />
                   </RouteSuspense>
                 }
               />
