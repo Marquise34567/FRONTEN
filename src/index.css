@@ -2572,6 +2572,29 @@ html[data-performance='constrained'] .trial-takeover-active * {
     gap: 0.55rem;
   }
 
+  .vertical-variant-subversion-list {
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .vertical-variant-subversion-card {
+    border-radius: 0.85rem;
+    border: 1px solid hsl(var(--foreground) / 0.11);
+    background: linear-gradient(170deg, hsl(224 26% 14% / 0.94), hsl(224 28% 11% / 0.95));
+    padding: 0.55rem;
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .vertical-variant-subversion-heading {
+    margin: 0;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: hsl(var(--foreground) / 0.78);
+  }
+
   .vertical-variant-preview-media {
     position: relative;
     min-height: 218px;
@@ -2581,6 +2604,10 @@ html[data-performance='constrained'] .trial-takeover-active * {
     background:
       radial-gradient(110% 110% at 55% -10%, hsl(var(--variant-accent) / 0.32), transparent 56%),
       linear-gradient(180deg, hsl(221 24% 82% / 0.2), hsl(222 24% 24% / 0.88) 35%, hsl(227 39% 10% / 0.98));
+  }
+
+  .vertical-variant-subversion-media {
+    min-height: 250px;
   }
 
   .vertical-variant-preview-video {
@@ -2682,6 +2709,23 @@ html[data-performance='constrained'] .trial-takeover-active * {
     line-height: 1.35;
   }
 
+  .vertical-variant-subversion-select {
+    width: 100%;
+    border-radius: 0.6rem;
+    border: 1px solid hsl(var(--border) / 0.58);
+    background: hsl(var(--background) / 0.35);
+    color: hsl(var(--foreground) / 0.9);
+    font-size: 0.68rem;
+    line-height: 1.3;
+    padding: 0.44rem 0.5rem;
+  }
+
+  .vertical-variant-subversion-moment-text {
+    font-size: 0.62rem;
+    line-height: 1.35;
+    color: hsl(var(--muted-foreground));
+  }
+
   .vertical-variant-preview-button {
     border: 1px solid hsl(var(--foreground) / 0.12);
     border-radius: 0.65rem;
@@ -2774,6 +2818,23 @@ html[data-performance='constrained'] .trial-takeover-active * {
     padding: 0.72rem;
     max-height: 110px;
     overflow: hidden;
+  }
+
+  .vertical-variant-caption-position-grid {
+    display: grid;
+    gap: 0.38rem;
+  }
+
+  .vertical-variant-caption-position-row {
+    display: grid;
+    align-items: center;
+    gap: 0.4rem;
+    grid-template-columns: 3.2rem minmax(0, 1fr);
+  }
+
+  .vertical-variant-caption-position-row input[type="range"] {
+    width: 100%;
+    accent-color: hsl(var(--variant-accent));
   }
 
   @media (max-width: 860px) {

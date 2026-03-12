@@ -294,8 +294,11 @@ const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 12;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
-const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 40;
+const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 50;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
+const VERTICAL_VARIANT_VERSION_COUNT = 3;
+const VERTICAL_VARIANT_TOTAL_CLIPS = 9;
+const VERTICAL_CLIP_DURATION_CHOICES = [30, 60] as const;
 const MIN_WEBCAM_CROP_SIZE_PX = 48;
 const RETENTION_FEEDBACK_INTERVAL_MS = 15000;
 const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
@@ -437,6 +440,11 @@ const VERTICAL_VARIANT_CARD_META: Array<{
       "You expect one direction, then the clip flips into the payoff quickly. Fast beats and tight captions keep eyes locked in.",
   },
 ];
+
+const getVerticalVariantSlotKey = (variant: VerticalVariantCaptionKey, versionIndex: number) =>
+  `${variant}:${versionIndex + 1}`;
+const getVerticalVariantClipIndex = (variantIndex: number, versionIndex: number) =>
+  (variantIndex * VERTICAL_VARIANT_VERSION_COUNT) + versionIndex;
 
 type PreviewImprovementTip = {
   id: string;
@@ -1445,6 +1453,19 @@ type EditorTranscriptCue = {
   end: number;
   text: string;
   confidence?: number | null;
+};
+type VerticalTranscriptMomentOption = {
+  index: number;
+  start: number;
+  end: number;
+  label: string;
+  text: string;
+};
+type VerticalVariantMoment = {
+  variant: VerticalVariantCaptionKey;
+  version: number;
+  start: number;
+  end: number;
 };
 type EditorTranscriptSegment = {
   start: number;
@@ -3499,7 +3520,8 @@ const Editor = () => {
   });
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
-  const [verticalClipCount, setVerticalClipCount] = useState(3);
+  const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
+  const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("hook_storm");
   const [verticalCaptionTextByVariant, setVerticalCaptionTextByVariant] = useState<Record<VerticalVariantCaptionKey, string>>({
     instagram: "",
@@ -3544,6 +3566,14 @@ const Editor = () => {
   );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
+  const [verticalVariantCaptionPositions, setVerticalVariantCaptionPositions] = useState<
+    Record<VerticalVariantCaptionKey, { x: number; y: number }>
+  >({
+    instagram: { x: 0.5, y: 0.84 },
+    youtube: { x: 0.5, y: 0.84 },
+    tiktok: { x: 0.5, y: 0.84 },
+  });
+  const [verticalMomentOptionIndexBySlot, setVerticalMomentOptionIndexBySlot] = useState<Record<string, number>>({});
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
@@ -3690,6 +3720,10 @@ const Editor = () => {
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const verticalAutoRenderRequestedRef = useRef(false);
+  const verticalMomentSelectionTouchedRef = useRef(false);
+  const verticalMomentAutoRenderTimeoutRef = useRef<number | null>(null);
+  const verticalVariantMomentsRef = useRef<VerticalVariantMoment[]>([]);
+  const verticalClipDurationSecondsRef = useRef<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
@@ -5803,6 +5837,8 @@ const Editor = () => {
     renderOptions?: {
       mode?: "horizontal" | "vertical";
       verticalClipCount?: number;
+      verticalClipDurationSeconds?: number;
+      verticalVariantMoments?: VerticalVariantMoment[] | null;
       verticalMode?: VerticalModePayload | null;
       uploadModeOverride?: {
         pipelinePowerMode?: PipelinePowerMode;
@@ -5887,6 +5923,20 @@ const Editor = () => {
             shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
+            variantPositions: {
+              instagram: {
+                x: clampCaptionPosition(verticalVariantCaptionPositions.instagram.x),
+                y: clampCaptionPosition(verticalVariantCaptionPositions.instagram.y),
+              },
+              youtube: {
+                x: clampCaptionPosition(verticalVariantCaptionPositions.youtube.x),
+                y: clampCaptionPosition(verticalVariantCaptionPositions.youtube.y),
+              },
+              tiktok: {
+                x: clampCaptionPosition(verticalVariantCaptionPositions.tiktok.x),
+                y: clampCaptionPosition(verticalVariantCaptionPositions.tiktok.y),
+              },
+            },
           }
         : null;
     const fullAutoYoutubePayload = resolvedFullAutoYoutubeEnabled
@@ -5947,9 +5997,14 @@ const Editor = () => {
               ...(directorNotesForJob ? { editorInstructionPrompt: directorNotesForJob } : {}),
               ...(fullAutoYoutubePayload ? { fullAutoYoutube: fullAutoYoutubePayload } : {}),
               verticalClipCount: renderOptions?.verticalClipCount,
+              verticalClipDurationSeconds: renderOptions?.verticalClipDurationSeconds ?? verticalClipDurationSeconds,
               verticalMode: renderOptions?.verticalMode ?? null,
+              verticalVariantMoments: Array.isArray(renderOptions?.verticalVariantMoments)
+                ? renderOptions?.verticalVariantMoments
+                : verticalVariantMoments,
               verticalCaptionText: verticalCaptionTextForJob,
               verticalVariantCaptions: verticalCaptionTextByVariant,
+              verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions,
               verticalCaptions: verticalCaptionsPayload,
             }
           : {
@@ -6197,6 +6252,13 @@ const Editor = () => {
             encoding: { videoPreset, videoCrf, audioBitrateKbps },
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
+            ...(requestedMode === "vertical" ? { verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions } : {}),
+            ...(requestedMode === "vertical" ? { verticalClipDurationSeconds: renderOptions?.verticalClipDurationSeconds ?? verticalClipDurationSeconds } : {}),
+            ...(requestedMode === "vertical" ? {
+              verticalVariantMoments: Array.isArray(renderOptions?.verticalVariantMoments)
+                ? renderOptions?.verticalVariantMoments
+                : verticalVariantMoments,
+            } : {}),
           }),
           token: accessToken,
         })
@@ -6265,6 +6327,11 @@ const Editor = () => {
   useEffect(() => {
     if (isVerticalMode) return;
     verticalAutoRenderRequestedRef.current = false;
+    verticalMomentSelectionTouchedRef.current = false;
+    if (verticalMomentAutoRenderTimeoutRef.current !== null) {
+      window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
+      verticalMomentAutoRenderTimeoutRef.current = null;
+    }
     setSkipManualWebcamCrop(true);
     setPendingVerticalFile(null);
     setWebcamCrop(null);
@@ -6275,7 +6342,14 @@ const Editor = () => {
     setBottomFitMode("cover");
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
-    setVerticalClipCount(3);
+    setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
+    setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
+    setVerticalMomentOptionIndexBySlot({});
+    setVerticalVariantCaptionPositions({
+      instagram: { x: 0.5, y: 0.84 },
+      youtube: { x: 0.5, y: 0.84 },
+      tiktok: { x: 0.5, y: 0.84 },
+    });
     setVerticalSelectionMode("hook_storm");
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -6350,6 +6424,11 @@ const Editor = () => {
       return;
     }
     verticalAutoRenderRequestedRef.current = true;
+    verticalMomentSelectionTouchedRef.current = false;
+    if (verticalMomentAutoRenderTimeoutRef.current !== null) {
+      window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
+      verticalMomentAutoRenderTimeoutRef.current = null;
+    }
     setPendingVerticalFile(file);
     setSkipManualWebcamCrop(false);
     setWebcamCrop(null);
@@ -6360,7 +6439,14 @@ const Editor = () => {
     setBottomFitMode("cover");
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
-    setVerticalClipCount(3);
+    setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
+    setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
+    setVerticalMomentOptionIndexBySlot({});
+    setVerticalVariantCaptionPositions({
+      instagram: { x: 0.5, y: 0.84 },
+      youtube: { x: 0.5, y: 0.84 },
+      tiktok: { x: 0.5, y: 0.84 },
+    });
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -6869,7 +6955,9 @@ const Editor = () => {
     );
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
-      verticalClipCount: Math.max(3, verticalClipCount || 3),
+      verticalClipCount: Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS),
+      verticalClipDurationSeconds: verticalClipDurationSecondsRef.current,
+      verticalVariantMoments: verticalVariantMomentsRef.current,
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
@@ -7223,8 +7311,27 @@ const Editor = () => {
         };
         if (requestedMode === "vertical") {
           const verticalCaptionTextForJob = resolvedVerticalCaptionText;
+          const verticalClipDurationForJob = verticalClipDurationSecondsRef.current;
+          const verticalMomentRangesForJob = verticalVariantMomentsRef.current;
+          payload.verticalClipCount = Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS);
+          payload.verticalClipDurationSeconds = verticalClipDurationForJob;
+          payload.verticalVariantMoments = verticalMomentRangesForJob;
           payload.verticalCaptionText = verticalCaptionTextForJob;
           payload.verticalVariantCaptions = verticalCaptionTextByVariant;
+          payload.verticalVariantCaptionPositions = {
+            instagram: {
+              x: clampCaptionPosition(verticalVariantCaptionPositions.instagram.x),
+              y: clampCaptionPosition(verticalVariantCaptionPositions.instagram.y),
+            },
+            youtube: {
+              x: clampCaptionPosition(verticalVariantCaptionPositions.youtube.x),
+              y: clampCaptionPosition(verticalVariantCaptionPositions.youtube.y),
+            },
+            tiktok: {
+              x: clampCaptionPosition(verticalVariantCaptionPositions.tiktok.x),
+              y: clampCaptionPosition(verticalVariantCaptionPositions.tiktok.y),
+            },
+          };
           payload.verticalCaptions = {
             enabled: captionsEnabledForJob,
             autoGenerate: captionsEnabledForJob && verticalCaptionTextForJob.length === 0,
@@ -7249,6 +7356,7 @@ const Editor = () => {
             shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
+            variantPositions: payload.verticalVariantCaptionPositions,
           };
         }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
@@ -7394,9 +7502,11 @@ const Editor = () => {
       verticalCaptionShadowStrength,
       verticalCaptionPositionX,
       verticalCaptionPositionY,
+      verticalVariantCaptionPositions,
       verticalCaptionPreset,
       resolvedVerticalCaptionText,
       verticalCaptionTextByVariant,
+      verticalClipCount,
       ensureNotificationPermission,
       toast,
     ],
@@ -7500,8 +7610,7 @@ const Editor = () => {
   }, [activeJob, activePreviewCacheKey]);
   const activeVerticalOutputUrlIdentity = useMemo(
     () =>
-      VERTICAL_VARIANT_CARD_META
-        .map((_, idx) => buildPreviewUrlIdentity(activeOutputUrls[idx] || ""))
+      Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, idx) => buildPreviewUrlIdentity(activeOutputUrls[idx] || ""))
         .join("|"),
     [activeOutputUrls],
   );
@@ -7745,6 +7854,118 @@ const Editor = () => {
     liveTranscriptSegments,
   ]);
   const activeTranscriptCues = liveEditedTranscriptCues.length > 0 ? liveEditedTranscriptCues : liveSourceTranscriptCues;
+  const verticalMomentDurationSeconds = verticalClipDurationSeconds >= 45 ? 60 : 30;
+  const verticalMomentSourceDurationSec = firstFiniteNumber(
+    activeJob?.inputDurationSeconds,
+    activeAnalysis?.source_duration_seconds,
+    activeAnalysis?.sourceDurationSeconds,
+    activeAnalysis?.durationSec,
+    activeAnalysis?.duration_seconds,
+    activeAnalysis?.duration,
+  );
+  const verticalTranscriptMomentOptions = useMemo<VerticalTranscriptMomentOption[]>(() => {
+    if (!isVerticalMode || activeTranscriptCues.length === 0) return [];
+    return activeTranscriptCues
+      .map((cue, index) => {
+        const start = Number(cue.start);
+        if (!Number.isFinite(start) || start < 0) return null;
+        const rawEnd = start + verticalMomentDurationSeconds;
+        const cappedEnd = verticalMomentSourceDurationSec !== null && Number.isFinite(verticalMomentSourceDurationSec)
+          ? Math.min(rawEnd, Math.max(start + 0.2, verticalMomentSourceDurationSec))
+          : rawEnd;
+        const end = Math.max(start + 0.2, cappedEnd);
+        const text = String(cue.text || "").replace(/\s+/g, " ").trim();
+        if (!text) return null;
+        const compactText = text.length > 96 ? `${text.slice(0, 93).trim()}...` : text;
+        return {
+          index,
+          start: Number(start.toFixed(3)),
+          end: Number(end.toFixed(3)),
+          label: `${formatTimelineClock(start)}-${formatTimelineClock(end)}`,
+          text: compactText,
+        };
+      })
+      .filter((option): option is VerticalTranscriptMomentOption => Boolean(option));
+  }, [
+    activeTranscriptCues,
+    isVerticalMode,
+    verticalMomentDurationSeconds,
+    verticalMomentSourceDurationSec,
+  ]);
+  const verticalDefaultMomentIndexBySlot = useMemo<number[]>(() => {
+    if (verticalTranscriptMomentOptions.length === 0) return [];
+    return Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, slotIndex) => {
+      const ratio = (slotIndex + 0.5) / VERTICAL_VARIANT_TOTAL_CLIPS;
+      const target = Math.floor(ratio * verticalTranscriptMomentOptions.length);
+      return clamp(target, 0, Math.max(0, verticalTranscriptMomentOptions.length - 1));
+    });
+  }, [verticalTranscriptMomentOptions]);
+  const verticalVariantMoments = useMemo<VerticalVariantMoment[]>(() => {
+    if (verticalTranscriptMomentOptions.length === 0) return [];
+    return VERTICAL_VARIANT_CARD_META.flatMap((variant, variantIndex) =>
+      Array.from({ length: VERTICAL_VARIANT_VERSION_COUNT }, (_, versionIndex) => {
+        const slotIndex = variantIndex * VERTICAL_VARIANT_VERSION_COUNT + versionIndex;
+        const slotKey = getVerticalVariantSlotKey(variant.key, versionIndex);
+        const requestedIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
+        const fallbackIndex = Number(verticalDefaultMomentIndexBySlot[slotIndex] ?? 0);
+        const resolvedIndex = Number.isFinite(requestedIndex) && requestedIndex >= 0
+          ? clamp(Math.round(requestedIndex), 0, verticalTranscriptMomentOptions.length - 1)
+          : clamp(Math.round(fallbackIndex), 0, verticalTranscriptMomentOptions.length - 1);
+        const option = verticalTranscriptMomentOptions[resolvedIndex];
+        return {
+          variant: variant.key,
+          version: versionIndex + 1,
+          start: Number(option.start.toFixed(3)),
+          end: Number(option.end.toFixed(3)),
+        };
+      }),
+    );
+  }, [
+    verticalDefaultMomentIndexBySlot,
+    verticalMomentOptionIndexBySlot,
+    verticalTranscriptMomentOptions,
+  ]);
+  const verticalVariantMomentSignature = useMemo(
+    () =>
+      JSON.stringify({
+        duration: verticalMomentDurationSeconds,
+        moments: verticalVariantMoments,
+      }),
+    [verticalMomentDurationSeconds, verticalVariantMoments],
+  );
+  useEffect(() => {
+    verticalVariantMomentsRef.current = verticalVariantMoments;
+  }, [verticalVariantMoments]);
+  useEffect(() => {
+    verticalClipDurationSecondsRef.current = verticalMomentDurationSeconds;
+  }, [verticalMomentDurationSeconds]);
+  useEffect(() => {
+    if (!isVerticalMode || !verticalSelectionReady || !!uploadingJobId) return;
+    if (!verticalMomentSelectionTouchedRef.current) return;
+    if (verticalVariantMoments.length === 0) return;
+    if (verticalMomentAutoRenderTimeoutRef.current !== null) {
+      window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
+    }
+    verticalMomentAutoRenderTimeoutRef.current = window.setTimeout(() => {
+      verticalMomentAutoRenderTimeoutRef.current = null;
+      if (uploadingJobId) return;
+      verticalMomentSelectionTouchedRef.current = false;
+      void startVerticalRender();
+    }, 900);
+    return () => {
+      if (verticalMomentAutoRenderTimeoutRef.current !== null) {
+        window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
+        verticalMomentAutoRenderTimeoutRef.current = null;
+      }
+    };
+  }, [
+    isVerticalMode,
+    startVerticalRender,
+    uploadingJobId,
+    verticalSelectionReady,
+    verticalVariantMomentSignature,
+    verticalVariantMoments.length,
+  ]);
   const activeTranscriptTimelineMode: "edited" | "source" | null = liveEditedTranscriptCues.length > 0
     ? "edited"
     : liveSourceTranscriptCues.length > 0
@@ -10934,7 +11155,7 @@ const Editor = () => {
       }
     };
 
-    void Promise.all(VERTICAL_VARIANT_CARD_META.map((_, idx) => resolveClipPreviewUrl(idx))).then((urls) => {
+    void Promise.all(Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, idx) => resolveClipPreviewUrl(idx))).then((urls) => {
       if (canceled) return;
       setResolvedVerticalVariantOutputUrls(urls);
     });
@@ -10957,7 +11178,7 @@ const Editor = () => {
   ]);
   const verticalVariantPreviewUrls = useMemo(
     () =>
-      VERTICAL_VARIANT_CARD_META.map((_, idx) => {
+      Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, idx) => {
         const resolvedUrl = String(resolvedVerticalVariantOutputUrls[idx] || "").trim();
         if (resolvedUrl) return resolvedUrl;
         if (idx === 0) {
@@ -12716,7 +12937,8 @@ const Editor = () => {
       presetMode = "vertical";
       setRenderMode("vertical");
       setVerticalSelectionMode("hook_storm");
-      setVerticalClipCount(3);
+      setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
+      setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
       setRetentionStrategyProfile("viral");
       setRetentionTargetPlatform("tiktok");
       setEditorMode("reaction");
@@ -12772,7 +12994,8 @@ const Editor = () => {
     menuTouchedRef.current.targetPlatform = true;
     menuTouchedRef.current.editorMode = true;
     setVerticalSelectionMode(preset.id);
-    setVerticalClipCount(3);
+    setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
+    setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setRetentionStrategyProfile(preset.profile);
     setRetentionTargetPlatform(preset.platform);
     setEditorMode(preset.editorMode);
@@ -14672,7 +14895,7 @@ const Editor = () => {
                           <span className="font-semibold text-foreground">2.</span> Pick short-form mode preset.
                         </div>
                         <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">3.</span> Export 3 ranked clips.
+                          <span className="font-semibold text-foreground">3.</span> Export 9 ranked clips (3 per variant).
                         </div>
                       </div>
                     </div>
@@ -14700,8 +14923,23 @@ const Editor = () => {
                         ))}
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
+                          <button
+                            key={`vertical-duration-${durationChoice}`}
+                            type="button"
+                            className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
+                            onClick={() => {
+                              setVerticalClipDurationSeconds(durationChoice);
+                              verticalMomentSelectionTouchedRef.current = true;
+                            }}
+                          >
+                            {durationChoice}s
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-1 text-[10px] text-primary">
-                          Output locked to 3 dynamic clips
+                          9 clips total (3 per variant)
                         </span>
                         <span className="rounded-full border border-border/55 bg-background/45 px-2 py-1 text-[10px] text-muted-foreground">
                           {skipManualWebcamCrop
@@ -14766,7 +15004,7 @@ const Editor = () => {
                           <div>
                             <p className="text-xs font-medium text-foreground">Auto Webcam Variants</p>
                             <p className="text-[11px] text-muted-foreground">
-                              Keep editing in place while we process, review, and export all 3 webcam-ready variants.
+                              Keep editing in place while we process, review, and export 3 versions for each platform variant.
                             </p>
                           </div>
                           <Badge variant="secondary" className="text-[10px]">
@@ -14775,66 +15013,127 @@ const Editor = () => {
                         </div>
                       </div>
                       <div className="vertical-variant-preview-list">
-                        {VERTICAL_VARIANT_CARD_META.map((variant) => {
+                        {VERTICAL_VARIANT_CARD_META.map((variant, variantIndex) => {
                           const Icon = variant.icon;
                           const variantKey = variant.key;
                           const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
                             verticalCaptionTextByVariant[variantKey] || "",
                           );
                           const previewCaption = normalizedVariantCaption.split(/\n+/).find(Boolean) || variant.defaultCaption;
-                          const clipIndex = variant.rank - 1;
-                          const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
-                          const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
                           const clipProcessing = activeVerticalJobProcessing || Boolean(uploadingJobId);
-                          const scoreValue = clipReady ? variant.baseScore : Math.max(90, variant.baseScore - 2);
-                          const durationLabel = clipReady ? "Rendered clip" : clipProcessing ? "Rendering..." : variant.duration;
+                          const clipScoreBoost = clipProcessing ? 0 : 1;
+                          const scoreValue = Math.max(90, variant.baseScore - clipScoreBoost);
                           const canDownload = activeVerticalJobReadyForDownload;
+                          const variantCaptionPosition = verticalVariantCaptionPositions[variantKey] || { x: 0.5, y: 0.84 };
                           return (
                             <article key={variant.key} className={`vertical-variant-preview-card ${variant.accentClass}`}>
                               <p className="vertical-variant-preview-title">#{variant.rank} {variant.title}</p>
                               <div className="vertical-variant-preview-content">
                                 <div className="vertical-variant-preview-media-wrap">
-                                  <div className="vertical-variant-preview-media">
-                                    {clipReady ? (
-                                      <video
-                                        src={clipUrl}
-                                        preload="metadata"
-                                        controls
-                                        playsInline
-                                        className="vertical-variant-preview-video"
-                                      />
-                                    ) : (
-                                      <div className="vertical-variant-preview-empty" aria-live="polite">
-                                        {clipProcessing ? (
-                                          <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
-                                        ) : (
-                                          <Play className="h-4 w-4 text-muted-foreground" aria-hidden />
-                                        )}
-                                        <p className="vertical-variant-preview-empty-text">
-                                          {clipProcessing ? "Rendering variant..." : "Render to preview this variant"}
-                                        </p>
-                                      </div>
-                                    )}
-                                    <span className="vertical-variant-preview-time">{durationLabel}</span>
-                                    <p className="vertical-variant-preview-caption">{previewCaption}</p>
-                                  </div>
-                                  <div className="vertical-variant-preview-actions">
-                                    <button
-                                      type="button"
-                                      className="vertical-variant-preview-button is-primary"
-                                      disabled={!canDownload}
-                                      onClick={() => void handleDownload(clipIndex)}
-                                    >
-                                      Download
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="vertical-variant-preview-button"
-                                      onClick={startVerticalRender}
-                                      disabled={!!uploadingJobId || !verticalSelectionReady}
-                                    >
-                                      {clipReady ? "Render Again" : uploadingJobId ? "Rendering..." : "Render"}
-                                    </button>
+                                  <div className="vertical-variant-subversion-list">
+                                    {Array.from({ length: VERTICAL_VARIANT_VERSION_COUNT }).map((_, versionIndex) => {
+                                      const clipIndex = getVerticalVariantClipIndex(variantIndex, versionIndex);
+                                      const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
+                                      const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
+                                      const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
+                                      const requestedMomentIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
+                                      const fallbackMomentIndex = Number(verticalDefaultMomentIndexBySlot[clipIndex] ?? 0);
+                                      const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
+                                        ? clamp(Math.round(requestedMomentIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1))
+                                        : clamp(Math.round(fallbackMomentIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1));
+                                      const resolvedMoment = verticalTranscriptMomentOptions[resolvedMomentIndex];
+                                      const durationLabel = clipReady
+                                        ? `${verticalMomentDurationSeconds}s rendered`
+                                        : clipProcessing
+                                          ? "Rendering..."
+                                          : `${verticalMomentDurationSeconds}s target`;
+                                      return (
+                                        <div key={`${variant.key}-version-${versionIndex + 1}`} className="vertical-variant-subversion-card">
+                                          <p className="vertical-variant-subversion-heading">
+                                            Version {versionIndex + 1}
+                                          </p>
+                                          <div className="vertical-variant-preview-media vertical-variant-subversion-media">
+                                            {clipReady ? (
+                                              <video
+                                                src={clipUrl}
+                                                preload="metadata"
+                                                controls
+                                                playsInline
+                                                className="vertical-variant-preview-video"
+                                              />
+                                            ) : (
+                                              <div className="vertical-variant-preview-empty" aria-live="polite">
+                                                {clipProcessing ? (
+                                                  <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
+                                                ) : (
+                                                  <Play className="h-4 w-4 text-muted-foreground" aria-hidden />
+                                                )}
+                                                <p className="vertical-variant-preview-empty-text">
+                                                  {clipProcessing ? "Rendering variant..." : "Render to preview this version"}
+                                                </p>
+                                              </div>
+                                            )}
+                                            <span className="vertical-variant-preview-time">{durationLabel}</span>
+                                            <p className="vertical-variant-preview-caption">{previewCaption}</p>
+                                          </div>
+                                          <div className="vertical-variant-preview-actions">
+                                            <button
+                                              type="button"
+                                              className="vertical-variant-preview-button is-primary"
+                                              disabled={!canDownload}
+                                              onClick={() => void handleDownload(clipIndex)}
+                                            >
+                                              Download
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="vertical-variant-preview-button"
+                                              onClick={startVerticalRender}
+                                              disabled={!!uploadingJobId || !verticalSelectionReady}
+                                            >
+                                              {clipReady ? "Render Again" : uploadingJobId ? "Rendering..." : "Render"}
+                                            </button>
+                                          </div>
+                                          <label className="vertical-variant-preview-caption-editor">
+                                            <span className="vertical-variant-preview-caption-label">
+                                              Transcript moment
+                                            </span>
+                                            <select
+                                              value={String(Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0 ? requestedMomentIndex : -1)}
+                                              onChange={(event) => {
+                                                const nextIndex = Number(event.target.value);
+                                                verticalMomentSelectionTouchedRef.current = true;
+                                                setVerticalMomentOptionIndexBySlot((prev) => {
+                                                  if (!Number.isFinite(nextIndex) || nextIndex < 0) {
+                                                    const { [slotKey]: _removed, ...rest } = prev;
+                                                    return rest;
+                                                  }
+                                                  return {
+                                                    ...prev,
+                                                    [slotKey]: clamp(Math.round(nextIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1)),
+                                                  };
+                                                });
+                                              }}
+                                              className="vertical-variant-subversion-select"
+                                            >
+                                              <option value="-1">
+                                                {resolvedMoment
+                                                  ? `Auto (${resolvedMoment.label})`
+                                                  : "Auto (wait for transcript)"}
+                                              </option>
+                                              {verticalTranscriptMomentOptions.map((option) => (
+                                                <option key={`${slotKey}-moment-${option.index}`} value={option.index}>
+                                                  {option.label} - {option.text}
+                                                </option>
+                                              ))}
+                                            </select>
+                                            {resolvedMoment ? (
+                                              <span className="vertical-variant-subversion-moment-text">{resolvedMoment.text}</span>
+                                            ) : null}
+                                          </label>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                   <label className="vertical-variant-preview-caption-editor">
                                     <span className="vertical-variant-preview-caption-label">
@@ -14852,6 +15151,48 @@ const Editor = () => {
                                       className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[82px] resize-y border-border/60 bg-muted/20 text-xs"
                                     />
                                   </label>
+                                  <div className="vertical-variant-caption-position-grid">
+                                    <label className="vertical-variant-caption-position-row">
+                                      <span className="vertical-variant-preview-caption-label">Caption X</span>
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={variantCaptionPosition.x}
+                                        onChange={(event) => {
+                                          const nextX = clampCaptionPosition(Number(event.target.value));
+                                          setVerticalVariantCaptionPositions((prev) => ({
+                                            ...prev,
+                                            [variantKey]: {
+                                              ...prev[variantKey],
+                                              x: nextX,
+                                            },
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                    <label className="vertical-variant-caption-position-row">
+                                      <span className="vertical-variant-preview-caption-label">Caption Y</span>
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={variantCaptionPosition.y}
+                                        onChange={(event) => {
+                                          const nextY = clampCaptionPosition(Number(event.target.value));
+                                          setVerticalVariantCaptionPositions((prev) => ({
+                                            ...prev,
+                                            [variantKey]: {
+                                              ...prev[variantKey],
+                                              y: nextY,
+                                            },
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
                                 </div>
                                 <div className="vertical-variant-preview-analysis">
                                   <div className="vertical-variant-preview-summary">
