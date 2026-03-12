@@ -386,11 +386,6 @@ const VERTICAL_VARIANT_CAPTION_LABELS: Record<VerticalVariantCaptionKey, string>
   youtube: "YouTube Shorts",
   tiktok: "TikTok",
 };
-const VERTICAL_VARIANT_CAPTION_PLACEHOLDERS: Record<VerticalVariantCaptionKey, string> = {
-  instagram: "IG hook caption...",
-  youtube: "YouTube Shorts caption...",
-  tiktok: "TikTok caption...",
-};
 const VERTICAL_VARIANT_CARD_META: Array<{
   key: VerticalVariantCaptionKey;
   accentClass: "is-instagram" | "is-youtube" | "is-tiktok";
@@ -15282,7 +15277,6 @@ const Editor = () => {
                           const clipScoreBoost = clipProcessing ? 0 : 1;
                           const scoreValue = Math.max(90, variant.baseScore - clipScoreBoost);
                           const canDownload = activeVerticalJobReadyForDownload;
-                          const variantCaptionPosition = verticalVariantCaptionPositions[variantKey] || { x: 0.5, y: 0.84 };
                           return (
                             <article key={variant.key} className={`vertical-variant-preview-card ${variant.accentClass}`}>
                               <p className="vertical-variant-preview-title">#{variant.rank} {variant.title}</p>
@@ -15489,64 +15483,6 @@ const Editor = () => {
                                     <span className="vertical-variant-caption-batch-hint">
                                       Manual typing is still default. Use checkboxes only for clips you want auto-generated.
                                     </span>
-                                  </div>
-                                  <label className="vertical-variant-preview-caption-editor">
-                                    <span className="vertical-variant-preview-caption-label">
-                                      {VERTICAL_VARIANT_CAPTION_LABELS[variantKey]} caption
-                                    </span>
-                                    <Textarea
-                                      value={verticalCaptionTextByVariant[variantKey] || ""}
-                                      onChange={(event) =>
-                                        setVerticalCaptionTextByVariant((prev) => ({
-                                          ...prev,
-                                          [variantKey]: event.target.value,
-                                        }))
-                                      }
-                                      placeholder={VERTICAL_VARIANT_CAPTION_PLACEHOLDERS[variantKey]}
-                                      className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[82px] resize-y border-border/60 bg-muted/20 text-xs"
-                                    />
-                                  </label>
-                                  <div className="vertical-variant-caption-position-grid">
-                                    <label className="vertical-variant-caption-position-row">
-                                      <span className="vertical-variant-preview-caption-label">Caption X</span>
-                                      <input
-                                        type="range"
-                                        min={0}
-                                        max={1}
-                                        step={0.01}
-                                        value={variantCaptionPosition.x}
-                                        onChange={(event) => {
-                                          const nextX = clampCaptionPosition(Number(event.target.value));
-                                          setVerticalVariantCaptionPositions((prev) => ({
-                                            ...prev,
-                                            [variantKey]: {
-                                              ...prev[variantKey],
-                                              x: nextX,
-                                            },
-                                          }));
-                                        }}
-                                      />
-                                    </label>
-                                    <label className="vertical-variant-caption-position-row">
-                                      <span className="vertical-variant-preview-caption-label">Caption Y</span>
-                                      <input
-                                        type="range"
-                                        min={0}
-                                        max={1}
-                                        step={0.01}
-                                        value={variantCaptionPosition.y}
-                                        onChange={(event) => {
-                                          const nextY = clampCaptionPosition(Number(event.target.value));
-                                          setVerticalVariantCaptionPositions((prev) => ({
-                                            ...prev,
-                                            [variantKey]: {
-                                              ...prev[variantKey],
-                                              y: nextY,
-                                            },
-                                          }));
-                                        }}
-                                      />
-                                    </label>
                                   </div>
                                 </div>
                                 <div className="vertical-variant-preview-analysis">

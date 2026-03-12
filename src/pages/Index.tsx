@@ -1609,6 +1609,30 @@ const Index = () => {
                   ) : null}
                 </AnimatePresence>
               </motion.div>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <Link to="/editor?autopick=1&mode=vertical" className="w-full sm:w-auto">
+                  <Button
+                    size="lg"
+                    className="group w-full gap-2 rounded-full bg-primary px-7 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto"
+                  >
+                    <SquarePlay className="h-4 w-4" />
+                    Shorts Mode
+                  </Button>
+                </Link>
+                <Link to="/pricing" className="w-full sm:w-auto">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="group w-full gap-2 rounded-full border-amber-300/80 bg-amber-200/90 px-6 text-slate-950 hover:bg-amber-200 sm:w-auto"
+                  >
+                    <Flame className="h-4 w-4" />
+                    Premium
+                  </Button>
+                </Link>
+              </div>
+              <p className="w-full text-center text-[11px] text-muted-foreground sm:text-left">
+                Built for Twitch streamers, TikTok creators, and YouTube channels.
+              </p>
               {/* Upload CTA removed per request */}
             </motion.div>
           </motion.div>
