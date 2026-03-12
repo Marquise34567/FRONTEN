@@ -141,7 +141,10 @@ const Settings = () => {
 
   useEffect(() => {
     if (settingsQuery.data?.settings) {
-      setEditorSettings(settingsQuery.data.settings);
+      setEditorSettings({
+        ...settingsQuery.data.settings,
+        onlyCuts: false,
+      });
     }
     if (settingsQuery.data?.dailyEngagement) {
       setDailyEngagement(settingsQuery.data.dailyEngagement);
@@ -231,7 +234,7 @@ const Settings = () => {
     onlyCuts: false,
   };
   const resolvedSettings = editorSettings ?? defaultSettings;
-  const onlyCutsEnabled = resolvedSettings.onlyCuts;
+  const onlyCutsEnabled = false;
   const captionCapability = settingsQuery.data?.capabilities?.captions;
 
   const mergeSettings = (updates: Partial<EditorSettings>) => {
@@ -251,12 +254,19 @@ const Settings = () => {
     }
     try {
       setSavingSettings(true);
+      const payload = {
+        ...editorSettings,
+        onlyCuts: false,
+      };
       const result = await apiFetch<SettingsResponse>("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify(editorSettings),
+        body: JSON.stringify(payload),
         token: accessToken,
       });
-      setEditorSettings(result.settings);
+      setEditorSettings({
+        ...result.settings,
+        onlyCuts: false,
+      });
       toast({ title: "Settings saved", description: "Your editor preferences have been updated." });
     } catch (err: any) {
       if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED") {
@@ -650,27 +660,6 @@ const Settings = () => {
 
             {!settingsQuery.isLoading && (
               <div className="space-y-6">
-                <div className="glass-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="text-sm font-medium text-foreground">Only Cuts Mode</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Remove boring sections only. No hook move, pacing, zoom, transitions, jump cuts, or effects.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={resolvedSettings.onlyCuts}
-                      onCheckedChange={(checked) => {
-                        mergeSettings({ onlyCuts: checked });
-                      }}
-                    />
-                  </div>
-                  {onlyCutsEnabled && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Other enhancements are ignored while Only Cuts is enabled.
-                    </p>
-                  )}
-                </div>
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div>

@@ -3696,7 +3696,6 @@ const Editor = () => {
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
-  const [onlyHookAndCut, setOnlyHookAndCut] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
@@ -6094,7 +6093,6 @@ const Editor = () => {
               retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
-              onlyHookAndCut,
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
@@ -6138,7 +6136,6 @@ const Editor = () => {
               retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
               retentionTargetPlatform,
               platformProfile: retentionTargetPlatform,
-              onlyHookAndCut,
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
@@ -6349,7 +6346,6 @@ const Editor = () => {
           method: 'POST',
           body: JSON.stringify({
             key: create.inputPath,
-            onlyHookAndCut,
             retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
             retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
             retentionTargetPlatform,
@@ -7393,7 +7389,6 @@ const Editor = () => {
           retentionStrategyProfile: autoModeV3Defaults.strategyProfile,
           retentionTargetPlatform,
           platformProfile: retentionTargetPlatform,
-          onlyHookAndCut,
           maxCuts: autoModeV3Defaults.maxCuts,
           editorMode: editorModeForJob,
           creativeVariant,
@@ -7625,7 +7620,6 @@ const Editor = () => {
       longFormPreset,
       longFormAggression,
       longFormClarityVsSpeed,
-      onlyHookAndCut,
       pipelinePowerMode,
       promptDirectorNotesUpgrade,
       qualityByJob,
@@ -12783,7 +12777,6 @@ const Editor = () => {
     const vibe = fullAutoResolvedVibe;
     const targetMaxCuts = target === "shorts" ? 12 : (vibe === "education" ? 6 : 8);
 
-    setOnlyHookAndCut(false);
     setDefaultHookSelectionMode("auto");
     setSelectedYouTubeNichePresetId(null);
     setAutoCaptionsEnabled(true);
@@ -13181,7 +13174,6 @@ const Editor = () => {
     setLongFormAggression(Math.round(clamp(preset.longFormAggression, 0, 100)));
     setLongFormClarityVsSpeed(Math.round(clamp(preset.longFormClarityVsSpeed, 0, 100)));
     setTangentKiller(preset.tangentKiller);
-    setOnlyHookAndCut(false);
     setDefaultHookSelectionMode("auto");
     setSmartZoomEnabled(preset.smartZoom);
     setAutoTransitionsEnabled(preset.transitions);
@@ -14520,18 +14512,6 @@ const Editor = () => {
                     ) : null}
                   </div>
                   <div className="editor-premium-toolbar-grid">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={topToolbarToggleClass(onlyHookAndCut)}
-                      onClick={() => setOnlyHookAndCut((prev) => !prev)}
-                      aria-pressed={onlyHookAndCut}
-                      aria-label={onlyHookAndCut ? t("editor.onlyHookCut.disable") : t("editor.onlyHookCut.enable")}
-                      title={onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}
-                    >
-                      <Scissors className="h-4 w-4" />
-                      <span>{onlyHookAndCut ? t("editor.onlyHookCut.on") : t("editor.onlyHookCut.off")}</span>
-                    </Button>
                     <Button
                       type="button"
                       variant="outline"
