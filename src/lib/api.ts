@@ -42,9 +42,31 @@ const isControlPanelPath = (path: string) =>
 let authExpiredNotifiedAt = 0;
 let authBlockedUntilFreshToken = false;
 let lastSeenAccessToken: string | null = null;
+const RETRYABLE_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const DEFAULT_API_TIMEOUT_MS = 20000;
+const DEFAULT_API_RETRY_DELAY_MS = 450;
+const DEFAULT_IDEMPOTENT_RETRIES = 1;
 
 const isPublicApiPath = (path: string) =>
   PUBLIC_API_EXACT.has(path) || PUBLIC_API_PREFIXES.some((prefix) => path.startsWith(prefix));
+
+type ApiFetchOptions = RequestInit & {
+  token?: string;
+  timeoutMs?: number;
+  retries?: number;
+  retryDelayMs?: number;
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableNetworkError = (error: unknown) => {
+  if (error instanceof TypeError) return true;
+  if (error instanceof DOMException) {
+    return error.name === "AbortError" || error.name === "TimeoutError";
+  }
+  return false;
+};
 
 export class ApiError extends Error {
   status: number;
@@ -98,11 +120,33 @@ const refreshAccessToken = async () => {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string } = {},
+  options: ApiFetchOptions = {},
 ): Promise<T> {
   // Allow empty API_URL so requests can be relative (proxied by Vite in dev).
-  const base = API_URL || "";
-  let { token, headers, cache, ...rest } = options;
+  const preferredBase = API_URL || "";
+  const runtimeOriginBase = typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.host}`
+    : "";
+  const apiBaseCandidates = (() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const add = (candidate: string) => {
+      const normalized = String(candidate || "").trim().replace(/\/$/, "");
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      out.push(normalized);
+    };
+    add(preferredBase);
+    add(runtimeOriginBase);
+    if (!out.length) out.push("");
+    return out;
+  })();
+  const buildRequestUrl = (baseCandidate: string) => {
+    const normalizedPath = String(path || "");
+    if (/^https?:\/\//i.test(normalizedPath)) return normalizedPath;
+    return `${baseCandidate}${normalizedPath}`;
+  };
+  let { token, headers, cache, timeoutMs, retries, retryDelayMs, signal, ...rest } = options;
   // If no token provided, try to fetch from Supabase session
   if (!token) {
     token = (await getSessionAccessToken()) ?? undefined;
@@ -125,11 +169,32 @@ export async function apiFetch<T>(
       throw new ApiError("Not authenticated", 401, "unauthorized");
     }
   }
-  const url = `${base}${path}`;
   const resolvedCache = cache ?? (isPublicPath ? "default" : "no-store");
   const controlPanelPassword = isControlPanelPath(path) ? getControlPanelPassword() : "";
+  const requestMethod = String(rest.method || "GET").toUpperCase();
+  const canRetryMethod = RETRYABLE_HTTP_METHODS.has(requestMethod);
+  const maxRetries = Number.isFinite(Number(retries))
+    ? Math.max(0, Math.min(3, Number(retries)))
+    : canRetryMethod
+      ? DEFAULT_IDEMPOTENT_RETRIES
+      : 0;
+  const resolvedTimeoutMs = Number.isFinite(Number(timeoutMs))
+    ? Math.max(2000, Number(timeoutMs))
+    : DEFAULT_API_TIMEOUT_MS;
+  const resolvedRetryDelayMs = Number.isFinite(Number(retryDelayMs))
+    ? Math.max(150, Number(retryDelayMs))
+    : DEFAULT_API_RETRY_DELAY_MS;
+  const retryDelayForAttempt = (attempt: number) =>
+    Math.min(4000, Math.round(resolvedRetryDelayMs * Math.pow(2, attempt)));
 
-  const performRequest = async (resolvedToken?: string, isRetry = false): Promise<T> => {
+  const performRequest = async (
+    resolvedToken?: string,
+    isRetry = false,
+    attempt = 0,
+    baseIndex = 0,
+  ): Promise<T> => {
+    const activeBase = apiBaseCandidates[Math.max(0, Math.min(apiBaseCandidates.length - 1, baseIndex))] || "";
+    const url = buildRequestUrl(activeBase);
     const requestHeaders = new Headers(headers || {});
     if (!requestHeaders.has("Content-Type")) {
       requestHeaders.set("Content-Type", "application/json");
@@ -140,13 +205,56 @@ export async function apiFetch<T>(
     if (resolvedToken) {
       requestHeaders.set("Authorization", `Bearer ${resolvedToken}`);
     }
-    const res = await fetch(url, {
-      ...rest,
-      cache: resolvedCache,
-      headers: requestHeaders,
-      // Include credentials (cookies) for cookie-based auth flows in local dev
-      credentials: "include",
-    });
+    const controller = new AbortController();
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let releaseSignalForwarder: (() => void) | null = null;
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        const forwardAbort = () => controller.abort();
+        signal.addEventListener("abort", forwardAbort, { once: true });
+        releaseSignalForwarder = () => signal.removeEventListener("abort", forwardAbort);
+      }
+    }
+    if (resolvedTimeoutMs > 0) {
+      timeoutHandle = setTimeout(() => controller.abort(), resolvedTimeoutMs);
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...rest,
+        cache: resolvedCache,
+        headers: requestHeaders,
+        signal: controller.signal,
+        // Include credentials (cookies) for cookie-based auth flows in local dev
+        credentials: "include",
+      });
+    } catch (error) {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (releaseSignalForwarder) releaseSignalForwarder();
+      const canFailoverBase =
+        baseIndex + 1 < apiBaseCandidates.length &&
+        !signal?.aborted &&
+        isRetryableNetworkError(error);
+      if (canFailoverBase) {
+        return performRequest(resolvedToken, isRetry, attempt, baseIndex + 1);
+      }
+      const canRetry =
+        attempt < maxRetries &&
+        canRetryMethod &&
+        !signal?.aborted &&
+        isRetryableNetworkError(error);
+      if (canRetry) {
+        await wait(retryDelayForAttempt(attempt));
+        return performRequest(resolvedToken, isRetry, attempt + 1, baseIndex);
+      }
+      throw error;
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (releaseSignalForwarder) releaseSignalForwarder();
+    }
 
     const text = await res.text().catch(() => "");
     let data: any = {};
@@ -163,10 +271,18 @@ export async function apiFetch<T>(
       if (res.status === 401 && !isPublicPath && !passwordFailure) {
         if (!isRetry) {
           const refreshed = await refreshAccessToken();
-          if (refreshed) return performRequest(refreshed, true);
+          if (refreshed) return performRequest(refreshed, true, attempt, baseIndex);
         }
         authBlockedUntilFreshToken = true;
         emitAuthExpired();
+      }
+      const canRetryHttpError =
+        attempt < maxRetries &&
+        canRetryMethod &&
+        RETRYABLE_HTTP_STATUSES.has(res.status);
+      if (canRetryHttpError) {
+        await wait(retryDelayForAttempt(attempt));
+        return performRequest(resolvedToken, isRetry, attempt + 1, baseIndex);
       }
       throw new ApiError(message, res.status, data?.error, data);
     }
@@ -174,5 +290,5 @@ export async function apiFetch<T>(
     return data as T;
   };
 
-  return performRequest(token, false);
+  return performRequest(token, false, 0, 0);
 }
