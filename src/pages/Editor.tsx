@@ -227,8 +227,12 @@ const splitVerticalCaptionLines = (value: string) =>
 const normalizeCaptionHexColor = (value: string, fallback: string) => {
   const compact = String(value || "").trim().replace(/^#/, "").toUpperCase();
   if (/^[0-9A-F]{6}$/.test(compact)) return compact;
-  return fallback;
+  const fallbackCompact = String(fallback || "").trim().replace(/^#/, "").toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(fallbackCompact)) return fallbackCompact;
+  return "FFFFFF";
 };
+const normalizeCaptionCssColor = (value: string, fallback: string) =>
+  `#${normalizeCaptionHexColor(value, fallback)}`;
 
 const PREVIEW_FILLER_TOKENS = new Set(["um", "uh", "like", "basically", "literally", "actually", "honestly", "seriously"]);
 const PREVIEW_EMOJI_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
@@ -4204,6 +4208,18 @@ const Editor = () => {
   const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState<string>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
   );
+  const [verticalCaptionTextColor, setVerticalCaptionTextColor] = useState<string>(
+    normalizeCaptionCssColor(
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE].textColor,
+      "FFFFFF",
+    ),
+  );
+  const [verticalCaptionHighlightColor, setVerticalCaptionHighlightColor] = useState<string>(
+    normalizeCaptionCssColor(
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE].highlightColor,
+      "FDE047",
+    ),
+  );
   const [verticalCaptionOutlineWidth, setVerticalCaptionOutlineWidth] = useState<number>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineWidth,
   );
@@ -4756,11 +4772,14 @@ const Editor = () => {
 
   const applyVerticalCaptionPreset = useCallback((presetId: VerticalCaptionPresetOptionId) => {
     const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[presetId] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const palette = VERTICAL_CAPTION_PREVIEW_PALETTE[presetId] ?? VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
     setVerticalCaptionPreset(presetId);
     setVerticalCaptionFontId(defaults.fontId);
     setVerticalCaptionFontVariantId(DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[defaults.fontId]);
     setVerticalCaptionLookId(`${presetId}_pop`);
     setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionTextColor(normalizeCaptionCssColor(palette.textColor, "FFFFFF"));
+    setVerticalCaptionHighlightColor(normalizeCaptionCssColor(palette.highlightColor, "FDE047"));
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
     setVerticalCaptionAnimation(defaults.animation);
     setVerticalCaptionDynamicMode(defaults.dynamicMode);
@@ -4783,12 +4802,15 @@ const Editor = () => {
     const look = VERTICAL_CAPTION_LOOK_OPTIONS.find((entry) => entry.id === lookId);
     if (!look) return;
     const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[look.preset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const palette = VERTICAL_CAPTION_PREVIEW_PALETTE[look.preset] ?? VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
     const variant = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[look.fontVariantId];
     setVerticalCaptionLookId(look.id);
     setVerticalCaptionPreset(look.preset);
     setVerticalCaptionFontVariantId(look.fontVariantId);
     setVerticalCaptionFontId(variant?.renderFontId ?? defaults.fontId);
     setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionTextColor(normalizeCaptionCssColor(palette.textColor, "FFFFFF"));
+    setVerticalCaptionHighlightColor(normalizeCaptionCssColor(palette.highlightColor, "FDE047"));
     setVerticalCaptionOutlineWidth(look.outlineWidth);
     setVerticalCaptionAnimation(look.animation);
     setVerticalCaptionDynamicMode(look.dynamicMode);
@@ -6614,6 +6636,9 @@ const Editor = () => {
     const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
     const verticalCaptionTextForJob = resolvedVerticalCaptionText;
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
+    const verticalCaptionPaletteForJob =
+      VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
     const subtitlesPayload = {
       enabled: captionsEnabledForJob,
       preset: subtitlePresetForJob,
@@ -6632,6 +6657,14 @@ const Editor = () => {
             outlineColor: normalizeCaptionHexColor(
               verticalCaptionOutlineColor,
               VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            textColor: normalizeCaptionHexColor(
+              verticalCaptionTextColor,
+              verticalCaptionPaletteForJob.textColor,
+            ),
+            highlightColor: normalizeCaptionHexColor(
+              verticalCaptionHighlightColor,
+              verticalCaptionPaletteForJob.highlightColor,
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
@@ -7427,6 +7460,11 @@ const Editor = () => {
     const captionPalette =
       VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
       VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const captionTextColor = normalizeCaptionCssColor(verticalCaptionTextColor, captionPalette.textColor);
+    const captionHighlightColor = normalizeCaptionCssColor(
+      verticalCaptionHighlightColor,
+      captionPalette.highlightColor,
+    );
     const captionOutlineColor = normalizeCaptionHexColor(
       verticalCaptionOutlineColor,
       VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "0F172A",
@@ -7475,12 +7513,23 @@ const Editor = () => {
     const timingMoment = verticalTranscriptMomentOptions[resolvedTimingMomentIndex] ?? null;
     const timingCueStartSec = firstFiniteNumber(timingCue?.start, timingMoment?.start);
     const timingCueEndSec = firstFiniteNumber(timingCue?.end, timingMoment?.end);
-    const clipTimingStartSec = captionPreviewClipIndex >= 0
+    const previewDurationSec = toFiniteNumber(video.duration);
+    const clipTimingStartRawSec = captionPreviewClipIndex >= 0
       ? firstFiniteNumber(timingMoment?.start, timingCue?.start)
       : null;
-    const clipTimingEndSec = captionPreviewClipIndex >= 0
+    const clipTimingEndRawSec = captionPreviewClipIndex >= 0
       ? firstFiniteNumber(timingMoment?.end, timingCue?.end)
       : null;
+    const clipTimingStartSec = clipTimingStartRawSec === null
+      ? null
+      : previewDurationSec !== null && previewDurationSec > 0
+        ? clamp(clipTimingStartRawSec, 0, Math.max(0, previewDurationSec - 0.05))
+        : Math.max(0, clipTimingStartRawSec);
+    const clipTimingEndSec = clipTimingEndRawSec === null
+      ? null
+      : previewDurationSec !== null && previewDurationSec > 0
+        ? clamp(clipTimingEndRawSec, 0, previewDurationSec)
+        : Math.max(0, clipTimingEndRawSec);
     const clipTimingDurationSec = clipTimingStartSec !== null && clipTimingEndSec !== null
       ? Math.max(0, clipTimingEndSec - clipTimingStartSec)
       : null;
@@ -7657,29 +7706,47 @@ const Editor = () => {
     })();
     const overlayPalette = selectedCaptionOverlayTone === "white"
       ? {
-          textColor: "#0B0D12",
-          highlightColor: "#1D4ED8",
           boxColor: "rgba(255, 255, 255, 0.94)",
           borderColor: "rgba(15, 23, 42, 0.82)",
           glowColor: "rgba(255, 255, 255, 0.42)",
         }
       : selectedCaptionOverlayTone === "black"
         ? {
-            textColor: "#F8FAFC",
-            highlightColor: "#FDE047",
             boxColor: "rgba(0, 0, 0, 0.82)",
             borderColor: "rgba(255, 255, 255, 0.65)",
             glowColor: "rgba(0, 0, 0, 0.62)",
           }
         : null;
-    const effectiveCaptionPalette = overlayPalette ?? captionPalette;
+    const effectiveCaptionPalette = {
+      ...captionPalette,
+      ...(overlayPalette ?? {}),
+      textColor: captionTextColor,
+      highlightColor: captionHighlightColor,
+    };
 
+    const safeDrawImage = (
+      sx: number,
+      sy: number,
+      sw: number,
+      sh: number,
+      dx: number,
+      dy: number,
+      dw: number,
+      dh: number,
+    ) => {
+      try {
+        ctx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const drawVideoRegion = (
       src: WebcamCrop,
       dst: { x: number; y: number; w: number; h: number },
       fit: VerticalFitMode,
     ) => {
-      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return;
+      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
       const srcAspect = src.w / src.h;
       const dstAspect = dst.w / dst.h;
       if (fit === "contain") {
@@ -7696,8 +7763,7 @@ const Editor = () => {
         }
         ctx.fillStyle = "#050505";
         ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
-        ctx.drawImage(video, src.x, src.y, src.w, src.h, drawX, drawY, drawWidth, drawHeight);
-        return;
+        return safeDrawImage(src.x, src.y, src.w, src.h, drawX, drawY, drawWidth, drawHeight);
       }
       let sx = src.x;
       let sy = src.y;
@@ -7712,7 +7778,18 @@ const Editor = () => {
         sy += (sh - trimmed) / 2;
         sh = trimmed;
       }
-      ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
+      const overscanRatio = fit === "cover" ? 0.002 : 0;
+      if (overscanRatio > 0) {
+        const insetX = sw * overscanRatio;
+        const insetY = sh * overscanRatio;
+        if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
+          sx += insetX;
+          sy += insetY;
+          sw -= insetX * 2;
+          sh -= insetY * 2;
+        }
+      }
+      return safeDrawImage(sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
     };
     const fontPx = Math.round(
       clamp(
@@ -7829,36 +7906,59 @@ const Editor = () => {
 
     let raf = 0;
     const render = () => {
-      if (video.readyState >= 2) {
+      try {
+        if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+          verticalCaptionHitboxRef.current = null;
+          return;
+        }
         if (Math.abs((video.playbackRate || 1) - 1) > 0.01) {
           video.playbackRate = 1;
           video.defaultPlaybackRate = 1;
         }
+        let canDrawFrame = false;
+        try {
+          ctx.drawImage(video, 0, 0, 1, 1, 0, 0, 1, 1);
+          canDrawFrame = true;
+        } catch {
+          canDrawFrame = false;
+        }
+        if (!canDrawFrame) {
+          verticalCaptionHitboxRef.current = null;
+          return;
+        }
         ctx.fillStyle = "#040404";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        let drewVideoFrame = false;
         if (singleLayout) {
-          drawVideoRegion(
+          drewVideoFrame = drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
             singleLayoutFit,
           );
         } else {
-          drawVideoRegion(
+          const drewTop = drawVideoRegion(
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
           );
-          drawVideoRegion(
+          const drewBottom = drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
             effectiveVerticalBottomFitMode,
           );
-          ctx.strokeStyle = "rgba(255,255,255,0.35)";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(0, topHeight + 0.5);
-          ctx.lineTo(canvasWidth, topHeight + 0.5);
-          ctx.stroke();
+          drewVideoFrame = drewTop || drewBottom;
+          if (drewTop && drewBottom) {
+            ctx.strokeStyle = "rgba(255,255,255,0.35)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, topHeight + 0.5);
+            ctx.lineTo(canvasWidth, topHeight + 0.5);
+            ctx.stroke();
+          }
+        }
+        if (!drewVideoFrame) {
+          verticalCaptionHitboxRef.current = null;
+          return;
         }
 
         const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
@@ -8049,8 +8149,11 @@ const Editor = () => {
         } else {
           verticalCaptionHitboxRef.current = null;
         }
+      } catch {
+        verticalCaptionHitboxRef.current = null;
+      } finally {
+        raf = window.requestAnimationFrame(render);
       }
-      raf = window.requestAnimationFrame(render);
     };
     const alignPlaybackToClipRange = () => {
       if (renderedClipPreviewActive || !clipTimingRangeValid || clipTimingStartSec === null) return;
@@ -8096,6 +8199,8 @@ const Editor = () => {
     verticalCaptionFontSize,
     verticalCaptionFontId,
     verticalCaptionFontVariantId,
+    verticalCaptionTextColor,
+    verticalCaptionHighlightColor,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
     verticalCaptionShadowStrength,
@@ -8533,6 +8638,9 @@ const Editor = () => {
           : null;
         if (requestedMode === "vertical") {
           const verticalCaptionTextForJob = resolvedVerticalCaptionText;
+          const verticalCaptionPaletteForJob =
+            VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+            VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
           const verticalClipDurationForJob = clamp(
             Number(verticalClipDurationSecondsRef.current || VERTICAL_CLIP_DURATION_CHOICES[0]),
             30,
@@ -8585,6 +8693,14 @@ const Editor = () => {
             outlineColor: normalizeCaptionHexColor(
               verticalCaptionOutlineColor,
               VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+            ),
+            textColor: normalizeCaptionHexColor(
+              verticalCaptionTextColor,
+              verticalCaptionPaletteForJob.textColor,
+            ),
+            highlightColor: normalizeCaptionHexColor(
+              verticalCaptionHighlightColor,
+              verticalCaptionPaletteForJob.highlightColor,
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
             animation: verticalCaptionAnimation,
@@ -8744,6 +8860,8 @@ const Editor = () => {
       verticalPacingPreset,
       verticalCaptionFontSize,
       verticalCaptionFontId,
+      verticalCaptionTextColor,
+      verticalCaptionHighlightColor,
       verticalCaptionOutlineColor,
       verticalCaptionOutlineWidth,
       verticalCaptionShadowStrength,
@@ -19523,7 +19641,7 @@ const Editor = () => {
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <Badge className="border-primary/45 bg-primary/15 text-primary-foreground">Caption Studio</Badge>
                   <Badge className="border-emerald-300/35 bg-emerald-500/12 text-emerald-100">
-                    {VERTICAL_CAPTION_LOOK_OPTIONS.length}+ styles · {VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.length}+ fonts
+                    {VERTICAL_CAPTION_LOOK_OPTIONS.length}+ styles · clip-linked captions
                   </Badge>
                 </div>
                 <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Customize Captions</DialogTitle>
@@ -19575,52 +19693,6 @@ const Editor = () => {
                                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{look.description}</p>
                                 <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-primary/80">
                                   {presetMeta?.label || "Style"}
-                                </p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-border/55 bg-background/30 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-foreground">Font Library</p>
-                          <Badge variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
-                            {VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.length} options
-                          </Badge>
-                        </div>
-                        <input
-                          value={captionFontSearch}
-                          onChange={(event) => setCaptionFontSearch(event.target.value)}
-                          placeholder="Search font looks"
-                          className="mt-3 h-9 w-full rounded-lg border border-border/60 bg-background/55 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        />
-                        <div className="mt-3 grid max-h-[220px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-                          {filteredVerticalCaptionFontVariants.map((variant) => {
-                            const active = verticalCaptionFontVariantId === variant.id;
-                            return (
-                              <button
-                                key={variant.id}
-                                type="button"
-                                className={`rounded-xl border px-3 py-2 text-left transition-all ${
-                                  active
-                                    ? "border-primary/65 bg-primary/16 text-foreground"
-                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
-                                }`}
-                                onClick={() => applyVerticalCaptionFontVariant(variant.id)}
-                              >
-                                <p
-                                  className="text-sm"
-                                  style={{
-                                    fontFamily: variant.previewFamily,
-                                    fontWeight: variant.fontWeight,
-                                    textTransform: variant.textTransform,
-                                  }}
-                                >
-                                  {variant.label}
-                                </p>
-                                <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                                  Render-safe {variant.renderFontId.replace("_", " ")}
                                 </p>
                               </button>
                             );
@@ -19794,6 +19866,66 @@ const Editor = () => {
                             Center Black
                           </Button>
                         </div>
+                        <div className="mt-3 rounded-xl border border-border/60 bg-background/45 p-2.5">
+                          <p className="text-xs font-semibold text-foreground">Caption Colors</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Tune base text, highlighted word color, and outline color for this caption style.
+                          </p>
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                              Text
+                              <input
+                                type="color"
+                                value={normalizeCaptionCssColor(verticalCaptionTextColor, "FFFFFF")}
+                                onChange={(event) =>
+                                  setVerticalCaptionTextColor(normalizeCaptionCssColor(event.target.value, "FFFFFF"))
+                                }
+                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
+                                aria-label="Caption text color"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                              Highlight
+                              <input
+                                type="color"
+                                value={normalizeCaptionCssColor(verticalCaptionHighlightColor, "FDE047")}
+                                onChange={(event) =>
+                                  setVerticalCaptionHighlightColor(normalizeCaptionCssColor(event.target.value, "FDE047"))
+                                }
+                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
+                                aria-label="Caption highlight color"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                              Outline
+                              <input
+                                type="color"
+                                value={normalizeCaptionCssColor(
+                                  verticalCaptionOutlineColor,
+                                  VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                )}
+                                onChange={(event) =>
+                                  setVerticalCaptionOutlineColor(
+                                    normalizeCaptionHexColor(
+                                      event.target.value,
+                                      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
+                                    ),
+                                  )
+                                }
+                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
+                                aria-label="Caption outline color"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          className="mt-3 min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
+                          onClick={() => void startVerticalRender()}
+                          disabled={!pendingVerticalFile || !sourceVideoMeta || Boolean(uploadingJobId)}
+                        >
+                          {uploadingJobId ? "Rendering..." : "Save Captions To Render"}
+                        </Button>
                       </div>
                       {captionPreviewSourceUrl ? (
                         <video
