@@ -72,7 +72,7 @@ const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
-const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "contain" as const;
+const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
@@ -300,9 +300,12 @@ const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 12;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
-const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 44;
+const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 30;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
-const DEFAULT_WEBCAM_TOP_TRIM_RATIO = 0.12;
+const DEFAULT_WEBCAM_CROP_WIDTH_RATIO = 0.28;
+const DEFAULT_WEBCAM_CROP_HEIGHT_RATIO = 0.34;
+const DEFAULT_WEBCAM_CROP_INSET_X_RATIO = 0.02;
+const DEFAULT_WEBCAM_CROP_INSET_Y_RATIO = 0.02;
 const DEFAULT_VERTICAL_CAPTION_POSITION_Y = Number((1300 / DEFAULT_VERTICAL_OUTPUT.height).toFixed(4));
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 8;
@@ -1433,6 +1436,7 @@ type VerticalModePayload = {
   layout?: VerticalLayoutMode;
   selectionMode?: VerticalSelectionMode;
   webcamCrop?: WebcamCrop | null;
+  autoWebcamCrop?: boolean;
   webcamPlacement?: { heightPct: number };
   topHeightPx?: number | null;
   bottomFit?: VerticalFitMode;
@@ -3548,13 +3552,6 @@ const normalizeSubtitleStyleFromSettings = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : "basic_clean";
 };
 
-const resolveStoredAutoDownloadEnabled = () => {
-  if (typeof window === "undefined") return true;
-  const local = window.localStorage.getItem("autoDownloadEnabled");
-  if (local === null) return true;
-  return local === "true";
-};
-
 type CaptionCapability = {
   available: boolean;
   provider?: string | null;
@@ -3955,8 +3952,6 @@ const Editor = () => {
     refetchInterval: meRefetchInterval,
   });
   const canUseRealtimeBugFixAI = isControlPanelOwnerEmail(me?.user?.email);
-  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(true);
-  const [autoDownloadModal, setAutoDownloadModal] = useState<{ open: boolean; url?: string; fileName?: string; jobId?: string }>({ open: false });
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
@@ -5407,19 +5402,9 @@ const Editor = () => {
   ]);
 
   useEffect(() => {
-    const localAutoDownloadEnabled = resolveStoredAutoDownloadEnabled();
-    if (!accessToken) {
-      setAutoDownloadEnabled(localAutoDownloadEnabled);
-      return;
-    }
+    if (!accessToken) return;
     apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
       .then((d) => {
-        const autoDownloadFromSettings = d?.settings?.autoDownload;
-        setAutoDownloadEnabled(
-          typeof autoDownloadFromSettings === "boolean"
-            ? autoDownloadFromSettings
-            : localAutoDownloadEnabled,
-        );
         setAutoCaptionsEnabled(false);
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
@@ -5433,7 +5418,6 @@ const Editor = () => {
         }
       })
       .catch(async (err) => {
-        setAutoDownloadEnabled(localAutoDownloadEnabled);
         if (err instanceof ApiError && err.status === 401) {
           setAuthError(true);
           try { await signOut() } catch (e) {}
@@ -5553,7 +5537,7 @@ const Editor = () => {
     if (!prev || prev.status !== normalized) {
       statusStartRef.current[id] = { status: normalized, startedAt: Date.now(), startProgress: progress };
     }
-  }, [activeJob?.id, activeJob?.status]);
+  }, [activeJob?.id, activeJob?.status, activeJob?.renderMode]);
 
   useEffect(() => {
     if (!activeJob?.id) return;
@@ -5808,56 +5792,28 @@ const Editor = () => {
               editorUrl,
             });
 
-            const downloadedKey = `auto_downloaded_${id}`;
-            if (!autoDownloadEnabled) return;
-            if (typeof window !== 'undefined' && window.localStorage.getItem(downloadedKey)) return;
-
-            if (!url && accessToken) {
-              try {
-                const out = await apiFetch<{ url: string }>(`/api/jobs/${id}/download-url`, { method: "POST", token: accessToken });
-                url = out.url;
-              } catch (error) {
-                return;
-              }
-            }
-            if (!url) return;
-
-            try {
-              await triggerFileDownload(url as string, fileName);
-              const telemetryJob: JobDetail = {
-                ...(summaryJob as any),
-                id,
-                status: "ready",
-                createdAt: summaryJob?.createdAt || new Date().toISOString(),
-                analysis: (summaryJob as any)?.analysis ?? null,
-              };
-              submitDownloadFeedback(telemetryJob, 0, "frontend_auto_download");
-              if (typeof window !== "undefined") {
-                try {
-                  window.localStorage.setItem(downloadedKey, 'true');
-                } catch (e) {}
-              }
-            } catch (e) {
-              // show modal fallback
-              setAutoDownloadModal({ open: true, url, fileName, jobId: id });
-            }
           } catch (e) {
             // ignore
           }
         })();
       }
     }
-  }, [jobs, refetchMe, autoDownloadEnabled, accessToken, notifyExportComplete, submitDownloadFeedback, triggerFileDownload]);
+  }, [jobs, refetchMe, accessToken, notifyExportComplete]);
 
   useEffect(() => {
     if (!activeJob) return;
     if (normalizeStatus(activeJob.status) !== "ready") return;
+    if (activeJob.renderMode === "vertical") {
+      setExportFeedbackOpen(false);
+      setExportOpen(false);
+      return;
+    }
     const key = `export_popup_shown_${activeJob.id}`;
     if (typeof window === "undefined") return;
     if (window.localStorage.getItem(key)) return;
     window.localStorage.setItem(key, "true");
     setExportOpen(true);
-  }, [activeJob?.id, activeJob?.status]);
+  }, [activeJob?.id, activeJob?.status, activeJob?.renderMode]);
 
   useEffect(() => {
     setShowAdvancedDebug(false);
@@ -6492,16 +6448,23 @@ const Editor = () => {
   }, [autoCaptionsEnabled, captionCapability.available, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
-    const topTrimPx = Math.round(clamp(
-      sourceHeight * DEFAULT_WEBCAM_TOP_TRIM_RATIO,
-      0,
-      Math.max(0, sourceHeight - MIN_WEBCAM_CROP_SIZE_PX),
+    const cropWidth = Math.round(clamp(
+      sourceWidth * DEFAULT_WEBCAM_CROP_WIDTH_RATIO,
+      MIN_WEBCAM_CROP_SIZE_PX,
+      sourceWidth,
     ));
+    const cropHeight = Math.round(clamp(
+      sourceHeight * DEFAULT_WEBCAM_CROP_HEIGHT_RATIO,
+      MIN_WEBCAM_CROP_SIZE_PX,
+      sourceHeight,
+    ));
+    const insetX = sourceWidth * DEFAULT_WEBCAM_CROP_INSET_X_RATIO;
+    const insetY = sourceHeight * DEFAULT_WEBCAM_CROP_INSET_Y_RATIO;
     return {
-      x: 0,
-      y: topTrimPx,
-      w: Math.max(MIN_WEBCAM_CROP_SIZE_PX, Math.round(sourceWidth)),
-      h: Math.max(MIN_WEBCAM_CROP_SIZE_PX, Math.round(sourceHeight - topTrimPx)),
+      x: Math.round(clamp(insetX, 0, Math.max(0, sourceWidth - cropWidth))),
+      y: Math.round(clamp(sourceHeight - cropHeight - insetY, 0, Math.max(0, sourceHeight - cropHeight))),
+      w: cropWidth,
+      h: cropHeight,
     };
   }, []);
 
@@ -7076,10 +7039,15 @@ const Editor = () => {
       toast({ title: "Preparing video", description: "Wait for video metadata to load, then try again." });
       return false;
     }
-    const fixedWebcamCrop = normalizeWebcamCrop(
-      effectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
-      sourceVideoMeta,
-    );
+    const resolvedVerticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
+    const hasCustomWebcamCrop = webcamCropWasAdjusted || webcamPaddingPx > 0;
+    const useAutoWebcamCrop = !skipManualWebcamCrop && !hasCustomWebcamCrop;
+    const fixedWebcamCrop = useAutoWebcamCrop
+      ? null
+      : normalizeWebcamCrop(
+          effectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
+          sourceVideoMeta,
+        );
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount: Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS),
@@ -7088,10 +7056,11 @@ const Editor = () => {
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
-        layout: "stacked",
+        layout: resolvedVerticalLayout,
         selectionMode: verticalSelectionMode,
         source: sourceVideoMeta,
         webcamCrop: fixedWebcamCrop,
+        autoWebcamCrop: useAutoWebcamCrop,
         webcamPlacement: {
           heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
         },
@@ -7114,9 +7083,12 @@ const Editor = () => {
     verticalClipCount,
     verticalSelectionMode,
     webcamTopHeightPct,
+    webcamPaddingPx,
+    webcamCropWasAdjusted,
     effectiveWebcamCrop,
     webcamCrop,
     normalizeWebcamCrop,
+    skipManualWebcamCrop,
   ]);
 
   useEffect(() => {
@@ -15162,40 +15134,31 @@ const Editor = () => {
               {isVerticalMode && (
                 <div className="glass-card vertical-opus-shell p-5 space-y-5">
                   <div className="space-y-3">
-                    <div className="vertical-opus-hero rounded-2xl border border-primary/40 p-4">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Repurpose Studio</p>
-                          <p className="vertical-mode-subtitle text-xs text-muted-foreground">
-                            Opus-style short-form workflow: one upload, eight ranked clips in one gallery card.
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">8 Ranked Clips</Badge>
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">9:16 Auto Frame</Badge>
-                          <Badge variant="outline" className="border-primary/45 bg-primary/12 text-primary">Auto Webcam Toggle</Badge>
-                        </div>
+                    <div className="vertical-opus-hero rounded-2xl border border-border/60 p-4">
+                      <div className="space-y-1.5">
+                        <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Clip Workspace</p>
+                        <p className="vertical-mode-subtitle text-xs text-muted-foreground">
+                          Upload once, choose a style, and review 8 clip options in one place.
+                        </p>
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">1.</span> Upload source once.
+                          Upload your source video.
                         </div>
                         <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">2.</span> Pick short-form mode preset.
+                          Pick clip style and length.
                         </div>
                         <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground">3.</span> Export 8 ranked clips and download only what you want.
+                          Render, review, and download what you need.
                         </div>
                       </div>
                     </div>
                     <div className="vertical-opus-card rounded-2xl border border-border/50 bg-card/45 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-foreground">Short-form Modes</p>
-                        <Badge variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
-                          Active: {activeVerticalShortFormPreset.label}
-                        </Badge>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-foreground">Clip style</p>
+                        <p className="text-[11px] text-muted-foreground">Current: {activeVerticalShortFormPreset.label}</p>
                       </div>
-                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                         {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
                           <button
                             key={preset.id}
@@ -15211,58 +15174,35 @@ const Editor = () => {
                           </button>
                         ))}
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
-                          <button
-                            key={`vertical-duration-${durationChoice}`}
-                            type="button"
-                            className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
-                            onClick={() => {
-                              setVerticalClipDurationSeconds(durationChoice);
-                              verticalMomentSelectionTouchedRef.current = true;
-                            }}
-                          >
-                            {durationChoice}s
-                          </button>
-                        ))}
+                      <div className="mt-3 space-y-1">
+                        <p className="text-[11px] text-muted-foreground">Clip length</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
+                            <button
+                              key={`vertical-duration-${durationChoice}`}
+                              type="button"
+                              className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
+                              onClick={() => {
+                                setVerticalClipDurationSeconds(durationChoice);
+                                verticalMomentSelectionTouchedRef.current = true;
+                              }}
+                            >
+                              {durationChoice}s
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-1 text-[10px] text-primary">
-                          8 clips total in one gallery card
-                        </span>
-                        <span className="rounded-full border border-border/55 bg-background/45 px-2 py-1 text-[10px] text-muted-foreground">
-                          {skipManualWebcamCrop
-                            ? "Webcam top layout is optional and currently off"
-                            : "Webcam top layout is on"}
-                        </span>
-                      </div>
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        {skipManualWebcamCrop
+                          ? "Auto Webcam is off. Clips render without the webcam top strip."
+                          : "Auto Webcam is on. Clips render with the webcam top strip."}
+                      </p>
                     </div>
                   </div>
 
                   <div className="grid gap-3">
                     <div className="vertical-mode-panel space-y-2 rounded-xl border border-border/40 bg-card/45 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-foreground">Caption + Webcam Controls</p>
-                        <Badge variant="outline" className="border-primary/45 bg-primary/12 text-[10px] text-primary">
-                          Captions Locked On
-                        </Badge>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                          <span className="text-[11px] text-muted-foreground">Webcam top layout (locked)</span>
-                          <Switch
-                            checked
-                            disabled
-                          />
-                        </label>
-                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                          <span className="text-[11px] text-muted-foreground">Captions (locked on)</span>
-                          <Switch
-                            checked
-                            disabled
-                          />
-                        </label>
-                      </div>
+                      <p className="text-xs font-medium text-foreground">Extra tuning (optional)</p>
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
                           <span className="text-[11px] text-muted-foreground">Voice tone</span>
@@ -15294,14 +15234,14 @@ const Editor = () => {
                         </label>
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Webcam top layout is locked on, and each clip below has its own caption text box. Voice + pacing apply to vertical exports.
+                        Captions stay on in vertical mode. Voice and pacing apply to all vertical clips.
                       </p>
                     </div>
                   </div>
 
                   {!hasVerticalVariantWorkspace && (
                     <p className="vertical-mode-note text-xs text-muted-foreground">
-                      Upload a file to auto-run a webcam-ready ranked clip gallery for Instagram Reels, YouTube Shorts, and TikTok.
+                      Upload a video to start your vertical clip gallery.
                     </p>
                   )}
 
@@ -15321,9 +15261,9 @@ const Editor = () => {
                       <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <p className="text-xs font-medium text-foreground">Auto Webcam Clip Gallery</p>
+                            <p className="text-xs font-medium text-foreground">Clip Gallery</p>
                             <p className="text-[11px] text-muted-foreground">
-                              Keep editing in place while we process, review, and export 8 ranked clips in one gallery.
+                              Review 8 clip options in one place before downloading.
                             </p>
                           </div>
                           <Badge variant="secondary" className="text-[10px]">
@@ -15340,7 +15280,7 @@ const Editor = () => {
                           const canDownload = activeVerticalJobReadyForDownload;
                           return (
                             <article key="vertical-gallery-card" className="vertical-variant-preview-card is-instagram">
-                              <p className="vertical-variant-preview-title">Ranked Clip Gallery - 8 Picks</p>
+                              <p className="vertical-variant-preview-title">Clip Gallery (8 options)</p>
                               <div className="vertical-variant-preview-content">
                                 <div className="vertical-variant-preview-media-wrap">
                                   <div className="vertical-variant-subversion-list">
@@ -15514,7 +15454,7 @@ const Editor = () => {
                                                   [slotKey]: event.target.value,
                                                 }))
                                               }
-                                              placeholder="Give this clip a crazy caption"
+                                              placeholder="Describe the caption tone for this clip"
                                               className="vertical-variant-caption-prompt-input"
                                             />
                                           </label>
@@ -15537,7 +15477,7 @@ const Editor = () => {
                                               className="vertical-variant-preview-button"
                                               onClick={() => generateModernCaptionForClip(clipIndex)}
                                             >
-                                              Generate 2026 caption
+                                              Generate caption
                                             </button>
                                           </div>
                                         </div>
@@ -15560,7 +15500,7 @@ const Editor = () => {
                                 <div className="vertical-variant-preview-analysis">
                                   <div className="vertical-variant-preview-summary">
                                     <p className="vertical-variant-preview-summary-text">
-                                      Ranked from strongest hook to backup cuts so you can review all clips in one place and download only the winners.
+                                      Clips are ordered by estimated retention so you can quickly choose the best ones.
                                     </p>
                                     <div className="vertical-variant-preview-score">
                                       <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -15569,7 +15509,7 @@ const Editor = () => {
                                     </div>
                                   </div>
                                   <p className="vertical-variant-preview-transcript">
-                                    Mixes Instagram, YouTube Shorts, and TikTok pacing in one queue. Use checkboxes only for clips you want AI caption generation on.
+                                    Platform variants are mixed in one queue. Use checkboxes only for clips you want caption generation on.
                                   </p>
                                 </div>
                               </div>
@@ -15591,7 +15531,7 @@ const Editor = () => {
                           onClick={startVerticalRender}
                         >
                           <ScissorsSquare className="w-4 h-4" />
-                          Start Clip Gallery Now
+                          Render Clip Gallery
                         </Button>
                       </div>
                     </div>
@@ -18017,14 +17957,19 @@ const Editor = () => {
       </Dialog>
 
       <Dialog
-        open={exportOpen}
+        open={exportOpen && activeJob?.renderMode !== "vertical"}
         onOpenChange={(open) => {
+          if (activeJob?.renderMode === "vertical") {
+            setExportOpen(false);
+            setExportFeedbackOpen(false);
+            return;
+          }
           if (open) {
             setExportOpen(true);
           }
         }}
       >
-        {exportOpen ? (
+        {exportOpen && activeJob?.renderMode !== "vertical" ? (
         <DialogContent
           className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
@@ -18239,44 +18184,6 @@ const Editor = () => {
           </div>
         </DialogContent>
         ) : null}
-      </Dialog>
-      <Dialog open={autoDownloadModal.open} onOpenChange={(open) => setAutoDownloadModal({ open })}>
-        <DialogContent className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-display">Tap to download</DialogTitle>
-            <p className="text-sm text-muted-foreground">Your render finished — tap the button below to download.</p>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="text-sm text-muted-foreground">If the download doesn't start automatically, press the button below.</div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setAutoDownloadModal({ open: false })}>Cancel</Button>
-              <Button
-                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
-                onClick={async () => {
-                  try {
-                    const url = autoDownloadModal.url;
-                    const fileName = autoDownloadModal.fileName;
-                    if (!url) return;
-                    await triggerFileDownload(url, fileName);
-                    if (autoDownloadModal.jobId) {
-                      const modalJob =
-                        activeJob && activeJob.id === autoDownloadModal.jobId
-                          ? activeJob
-                          : ({ id: autoDownloadModal.jobId, status: "ready", analysis: null } as JobDetail);
-                      submitDownloadFeedback(modalJob, 0, "frontend_modal_download");
-                      window.localStorage.setItem(`auto_downloaded_${autoDownloadModal.jobId}`, 'true');
-                    }
-                  } catch (e) {
-                    // ignore
-                  }
-                  setAutoDownloadModal({ open: false });
-                }}
-              >
-                <Download className="w-4 h-4" /> Download
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
       </Dialog>
     </GlowBackdrop></Suspense>
   );
