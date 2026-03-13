@@ -7745,10 +7745,16 @@ const Editor = () => {
       src: WebcamCrop,
       dst: { x: number; y: number; w: number; h: number },
       fit: VerticalFitMode,
+      options?: {
+        sourceInsetRatio?: number;
+        destBleedPx?: number;
+      },
     ) => {
       if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
       const srcAspect = src.w / src.h;
       const dstAspect = dst.w / dst.h;
+      const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
+      const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
       if (fit === "contain") {
         let drawWidth = dst.w;
         let drawHeight = dst.h;
@@ -7763,7 +7769,16 @@ const Editor = () => {
         }
         ctx.fillStyle = "#050505";
         ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
-        return safeDrawImage(src.x, src.y, src.w, src.h, drawX, drawY, drawWidth, drawHeight);
+        return safeDrawImage(
+          src.x,
+          src.y,
+          src.w,
+          src.h,
+          drawX - destBleedPx,
+          drawY - destBleedPx,
+          drawWidth + destBleedPx * 2,
+          drawHeight + destBleedPx * 2,
+        );
       }
       let sx = src.x;
       let sy = src.y;
@@ -7778,7 +7793,7 @@ const Editor = () => {
         sy += (sh - trimmed) / 2;
         sh = trimmed;
       }
-      const overscanRatio = fit === "cover" ? 0.002 : 0;
+      const overscanRatio = fit === "cover" ? Math.max(0.004, sourceInsetRatio) : sourceInsetRatio;
       if (overscanRatio > 0) {
         const insetX = sw * overscanRatio;
         const insetY = sh * overscanRatio;
@@ -7789,7 +7804,16 @@ const Editor = () => {
           sh -= insetY * 2;
         }
       }
-      return safeDrawImage(sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
+      return safeDrawImage(
+        sx,
+        sy,
+        sw,
+        sh,
+        dst.x - destBleedPx,
+        dst.y - destBleedPx,
+        dst.w + destBleedPx * 2,
+        dst.h + destBleedPx * 2,
+      );
     };
     const fontPx = Math.round(
       clamp(
@@ -7934,17 +7958,20 @@ const Editor = () => {
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
             singleLayoutFit,
+            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
           );
         } else {
           const drewTop = drawVideoRegion(
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
+            { sourceInsetRatio: 0.012, destBleedPx: 1.5 },
           );
           const drewBottom = drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
             effectiveVerticalBottomFitMode,
+            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
           );
           drewVideoFrame = drewTop || drewBottom;
           if (drewTop && drewBottom) {
