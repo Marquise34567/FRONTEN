@@ -7423,6 +7423,20 @@ const Editor = () => {
       sourceVideoMeta,
     );
   }, [normalizeWebcamCrop, sourceVideoMeta, webcamCrop, webcamPaddingMax, webcamPaddingPx]);
+  const correctedEffectiveWebcamCrop = useMemo(() => {
+    if (!effectiveWebcamCrop || !sourceVideoMeta) return effectiveWebcamCrop;
+    if (verticalWebcamPlacement !== "top") return effectiveWebcamCrop;
+    const topSafeThreshold = sourceVideoMeta.height * 0.42;
+    if (effectiveWebcamCrop.y <= topSafeThreshold) return effectiveWebcamCrop;
+    const fallbackTopCrop = buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
+    return normalizeWebcamCrop(fallbackTopCrop, sourceVideoMeta);
+  }, [
+    buildDefaultWebcamCrop,
+    effectiveWebcamCrop,
+    normalizeWebcamCrop,
+    sourceVideoMeta,
+    verticalWebcamPlacement,
+  ]);
 
   const webcamCropStyle = useMemo(() => {
     if (!webcamCrop || !sourceVideoMeta) return null;
@@ -7457,8 +7471,8 @@ const Editor = () => {
       selectedRenderedClipPreviewUrl &&
       selectedRenderedClipPreviewUrl === previewSourceUrl,
     );
-    const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !effectiveWebcamCrop;
-    if (!singleLayout && !effectiveWebcamCrop) return;
+    const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !correctedEffectiveWebcamCrop;
+    if (!singleLayout && !correctedEffectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const canvasWidth = 540;
@@ -7978,7 +7992,7 @@ const Editor = () => {
           );
         } else {
           const drewTop = drawVideoRegion(
-            effectiveWebcamCrop,
+            correctedEffectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
             { sourceInsetXRatio: 0.018, sourceInsetYRatio: 0.01, destBleedPx: 2 },
@@ -8232,7 +8246,7 @@ const Editor = () => {
     resolvedPreviewOutputUrl,
     resolvedVerticalVariantOutputUrls,
     sourceVideoMeta,
-    effectiveWebcamCrop,
+    correctedEffectiveWebcamCrop,
     effectiveVerticalBottomFitMode,
     topHeightPx,
     skipManualWebcamCrop,
@@ -8302,7 +8316,7 @@ const Editor = () => {
     const fixedWebcamCrop = useAutoWebcamCrop
       ? null
       : normalizeWebcamCrop(
-          effectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
+          correctedEffectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
           sourceVideoMeta,
         );
     const ok = await handleFile(pendingVerticalFile, {
@@ -8347,7 +8361,7 @@ const Editor = () => {
     webcamTopHeightPct,
     webcamPaddingPx,
     webcamCropWasAdjusted,
-    effectiveWebcamCrop,
+    correctedEffectiveWebcamCrop,
     webcamCrop,
     normalizeWebcamCrop,
     selectedVerticalUploadPresetId,
