@@ -71,6 +71,7 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
+const VERTICAL_CAPTIONS_TEMP_DISABLED = true;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
@@ -3727,6 +3728,7 @@ const Editor = () => {
   const [hideJobsPanel, setHideJobsPanel] = useState(true);
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
+  const [captionSettingsDialogOpen, setCaptionSettingsDialogOpen] = useState(false);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [webcamCropWasAdjusted, setWebcamCropWasAdjusted] = useState(false);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
@@ -3843,6 +3845,7 @@ const Editor = () => {
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const verticalAutoRenderRequestedRef = useRef(false);
   const verticalMomentSelectionTouchedRef = useRef(false);
+  const verticalMomentSelectionTouchedClipIndexRef = useRef<number | null>(null);
   const verticalMomentAutoRenderTimeoutRef = useRef<number | null>(null);
   const verticalVariantMomentsRef = useRef<VerticalVariantMoment[]>([]);
   const verticalClipDurationSecondsRef = useRef<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
@@ -5970,7 +5973,11 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (requestedMode === "vertical" ? true : autoCaptionsEnabled);
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
+      requestedMode === "vertical"
+        ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
+        : autoCaptionsEnabled
+    );
     const verticalCaptionTextForJob = resolvedVerticalCaptionText;
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const subtitlesPayload = {
@@ -6433,6 +6440,7 @@ const Editor = () => {
     if (isVerticalMode) return;
     verticalAutoRenderRequestedRef.current = false;
     verticalMomentSelectionTouchedRef.current = false;
+    verticalMomentSelectionTouchedClipIndexRef.current = null;
     if (verticalMomentAutoRenderTimeoutRef.current !== null) {
       window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
       verticalMomentAutoRenderTimeoutRef.current = null;
@@ -6466,13 +6474,14 @@ const Editor = () => {
     if (!isVerticalMode) return;
     setVerticalMomentOptionIndexBySlot({});
     verticalMomentSelectionTouchedRef.current = false;
+    verticalMomentSelectionTouchedClipIndexRef.current = null;
   }, [isVerticalMode, verticalSelectionMode]);
 
   useEffect(() => {
     if (!isVerticalMode) return;
-    if (!CAPTIONS_PIPELINE_ENABLED || !captionCapability.available) return;
-    if (!autoCaptionsEnabled) setAutoCaptionsEnabled(true);
-  }, [autoCaptionsEnabled, captionCapability.available, isVerticalMode]);
+    if (!autoCaptionsEnabled) return;
+    setAutoCaptionsEnabled(false);
+  }, [autoCaptionsEnabled, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const cropWidth = Math.round(clamp(
@@ -6542,6 +6551,7 @@ const Editor = () => {
     }
     verticalAutoRenderRequestedRef.current = true;
     verticalMomentSelectionTouchedRef.current = false;
+    verticalMomentSelectionTouchedClipIndexRef.current = null;
     if (verticalMomentAutoRenderTimeoutRef.current !== null) {
       window.clearTimeout(verticalMomentAutoRenderTimeoutRef.current);
       verticalMomentAutoRenderTimeoutRef.current = null;
@@ -7058,6 +7068,7 @@ const Editor = () => {
 
   const startVerticalRender = useCallback(async () => {
     verticalAutoRenderRequestedRef.current = false;
+    verticalMomentSelectionTouchedClipIndexRef.current = null;
     if (!pendingVerticalFile) {
       toast({ title: "Choose a file", description: "Upload an MP4, M4V, or MKV before rendering." });
       return false;
@@ -7380,7 +7391,11 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (requestedMode === "vertical" ? true : autoCaptionsEnabled);
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
+          requestedMode === "vertical"
+            ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
+            : autoCaptionsEnabled
+        );
         const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -8212,7 +8227,22 @@ const Editor = () => {
     verticalMomentAutoRenderTimeoutRef.current = window.setTimeout(() => {
       verticalMomentAutoRenderTimeoutRef.current = null;
       if (uploadingJobId) return;
+      const targetedClipIndexRaw = verticalMomentSelectionTouchedClipIndexRef.current;
+      const targetedClipIndex = Number.isFinite(targetedClipIndexRaw)
+        ? Math.max(0, Math.round(Number(targetedClipIndexRaw)))
+        : null;
       verticalMomentSelectionTouchedRef.current = false;
+      verticalMomentSelectionTouchedClipIndexRef.current = null;
+      if (
+        targetedClipIndex !== null &&
+        activeJob &&
+        activeJob.renderMode === "vertical" &&
+        normalizeStatus(activeJob.status) === "ready"
+      ) {
+        void handleRedoRender(activeJob, { clipIndex: targetedClipIndex });
+        return;
+      }
+      if (targetedClipIndex !== null) return;
       void startVerticalRender();
     }, 900);
     return () => {
@@ -8222,6 +8252,8 @@ const Editor = () => {
       }
     };
   }, [
+    activeJob,
+    handleRedoRender,
     isVerticalMode,
     startVerticalRender,
     uploadingJobId,
@@ -13380,6 +13412,7 @@ const Editor = () => {
 
   const openCaptionSettings = useCallback(() => {
     setEditorSettingsSection("captions");
+    setCaptionSettingsDialogOpen(true);
     if (typeof document === "undefined") return;
     window.setTimeout(() => {
       const node = document.querySelector("[data-editor-step='fine-tune']");
@@ -15221,6 +15254,7 @@ const Editor = () => {
                               onClick={() => {
                                 setVerticalClipDurationSeconds(durationChoice);
                                 verticalMomentSelectionTouchedRef.current = true;
+                                verticalMomentSelectionTouchedClipIndexRef.current = null;
                               }}
                             >
                               {durationChoice}s
@@ -15269,9 +15303,20 @@ const Editor = () => {
                           </select>
                         </label>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Captions stay on in vertical mode. Voice and pacing apply to all vertical clips.
-                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-[11px] text-muted-foreground">
+                          Captions stay on in vertical mode. Voice and pacing apply to all vertical clips.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 rounded-full border-border/60 bg-background/70 px-3 text-[11px] text-foreground"
+                          onClick={openCaptionSettings}
+                        >
+                          Customize Captions
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
@@ -15404,7 +15449,7 @@ const Editor = () => {
                                               type="button"
                                               className="vertical-variant-preview-button"
                                               onClick={() => {
-                                                if (clipReady && activeJob) {
+                                                if (activeJob && activeJob.renderMode === "vertical") {
                                                   void handleRedoRender(activeJob, { clipIndex });
                                                   return;
                                                 }
@@ -15412,8 +15457,8 @@ const Editor = () => {
                                               }}
                                               disabled={
                                                 !!uploadingJobId ||
-                                                (clipReady
-                                                  ? (!activeJob || reprocessingJobId === activeJob.id)
+                                                ((activeJob && activeJob.renderMode === "vertical")
+                                                  ? reprocessingJobId === activeJob.id
                                                   : !verticalSelectionReady)
                                               }
                                             >
@@ -15433,6 +15478,7 @@ const Editor = () => {
                                               onChange={(event) => {
                                                 const nextIndex = Number(event.target.value);
                                                 verticalMomentSelectionTouchedRef.current = true;
+                                                verticalMomentSelectionTouchedClipIndexRef.current = clipIndex;
                                                 setVerticalMomentOptionIndexBySlot((prev) => {
                                                   if (!Number.isFinite(nextIndex) || nextIndex < 0) {
                                                     const { [slotKey]: _removed, ...rest } = prev;
@@ -17512,6 +17558,20 @@ const Editor = () => {
             </div>
           </div>
         </DialogContent>
+        ) : null}
+      </Dialog>
+
+      <Dialog open={captionSettingsDialogOpen} onOpenChange={setCaptionSettingsDialogOpen}>
+        {captionSettingsDialogOpen ? (
+          <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-display">Customize Captions</DialogTitle>
+              <DialogDescription>
+                Tune caption style, animation, and save your settings without leaving the preview.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-3">{renderSettingsSection("captions")}</div>
+          </DialogContent>
         ) : null}
       </Dialog>
 
