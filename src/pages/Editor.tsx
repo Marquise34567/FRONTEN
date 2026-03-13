@@ -300,8 +300,9 @@ const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 12;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
-const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 50;
+const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 44;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
+const DEFAULT_WEBCAM_TOP_TRIM_RATIO = 0.12;
 const DEFAULT_VERTICAL_CAPTION_POSITION_Y = Number((1300 / DEFAULT_VERTICAL_OUTPUT.height).toFixed(4));
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 8;
@@ -6491,17 +6492,16 @@ const Editor = () => {
   }, [autoCaptionsEnabled, captionCapability.available, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
-    const w = Math.round(clamp(sourceWidth * 0.28, MIN_WEBCAM_CROP_SIZE_PX, sourceWidth));
-    const h = Math.round(clamp(sourceHeight * 0.34, MIN_WEBCAM_CROP_SIZE_PX, sourceHeight));
-    const marginX = Math.round(sourceWidth * 0.02);
-    const marginY = Math.round(sourceHeight * 0.02);
-    const x = Math.round(clamp(marginX, 0, Math.max(0, sourceWidth - w)));
-    const y = Math.round(clamp(sourceHeight - h - marginY, 0, Math.max(0, sourceHeight - h)));
+    const topTrimPx = Math.round(clamp(
+      sourceHeight * DEFAULT_WEBCAM_TOP_TRIM_RATIO,
+      0,
+      Math.max(0, sourceHeight - MIN_WEBCAM_CROP_SIZE_PX),
+    ));
     return {
-      x,
-      y,
-      w,
-      h: clamp(h, MIN_WEBCAM_CROP_SIZE_PX, sourceHeight - y),
+      x: 0,
+      y: topTrimPx,
+      w: Math.max(MIN_WEBCAM_CROP_SIZE_PX, Math.round(sourceWidth)),
+      h: Math.max(MIN_WEBCAM_CROP_SIZE_PX, Math.round(sourceHeight - topTrimPx)),
     };
   }, []);
 
@@ -18283,3 +18283,4 @@ const Editor = () => {
 };
 
 export default Editor;
+
