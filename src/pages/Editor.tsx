@@ -7464,18 +7464,14 @@ const Editor = () => {
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
     if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
+    const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
+    const editableSourcePreviewActive = sourcePreviewUrl.length > 0 && previewSourceUrl === sourcePreviewUrl;
     const resolvedPreviewClipIndex = captionPreviewClipIndex >= 0
       ? clamp(Math.round(captionPreviewClipIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
       : activeVerticalClipEditorIndex >= 0
         ? clamp(Math.round(activeVerticalClipEditorIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
         : 0;
-    const selectedRenderedClipPreviewUrl = resolvedPreviewClipIndex >= 0
-      ? String(verticalVariantPreviewUrls[resolvedPreviewClipIndex] || "").trim()
-      : "";
-    const renderedClipPreviewActive = Boolean(
-      selectedRenderedClipPreviewUrl &&
-      selectedRenderedClipPreviewUrl === previewSourceUrl,
-    );
+    const renderedClipPreviewActive = !editableSourcePreviewActive;
     const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !correctedEffectiveWebcamCrop;
     if (!singleLayout && !correctedEffectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
@@ -8027,8 +8023,6 @@ const Editor = () => {
           return;
         }
 
-        const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
-        const editableSourcePreviewActive = sourcePreviewUrl.length > 0 && previewSourceUrl === sourcePreviewUrl;
         if (autoCaptionsEnabled && editableSourcePreviewActive) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
