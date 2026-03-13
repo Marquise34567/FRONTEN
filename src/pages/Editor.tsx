@@ -1253,64 +1253,74 @@ const pickVerticalCaptionFontVariantId = (renderFontId: VerticalCaptionFontOptio
 };
 const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
   VerticalCaptionPresetOptionId,
-  { textColor: string; boxColor: string; borderColor: string; glowColor: string }
+  { textColor: string; highlightColor: string; boxColor: string; borderColor: string; glowColor: string }
 > = {
   basic_clean: {
     textColor: "#F8FAFC",
+    highlightColor: "#FDE047",
     boxColor: "rgba(2, 6, 23, 0.5)",
     borderColor: "rgba(255, 255, 255, 0.36)",
     glowColor: "rgba(15, 23, 42, 0.5)",
   },
   mrbeast_animated: {
     textColor: "#FFFFFF",
+    highlightColor: "#FACC15",
     boxColor: "rgba(161, 98, 7, 0.32)",
     borderColor: "rgba(251, 191, 36, 0.8)",
     glowColor: "rgba(251, 191, 36, 0.44)",
   },
   neon_glow: {
     textColor: "#67E8F9",
+    highlightColor: "#F472B6",
     boxColor: "rgba(17, 24, 39, 0.64)",
     borderColor: "rgba(34, 211, 238, 0.72)",
     glowColor: "rgba(34, 211, 238, 0.46)",
   },
   bold_clean_box: {
     textColor: "#0B0D12",
+    highlightColor: "#1D4ED8",
     boxColor: "rgba(255, 255, 255, 0.96)",
     borderColor: "rgba(15, 23, 42, 0.78)",
     glowColor: "rgba(15, 23, 42, 0.18)",
   },
   rage_mode: {
     textColor: "#FFFF00",
+    highlightColor: "#FFFFFF",
     boxColor: "rgba(0, 0, 0, 0)",
     borderColor: "rgba(0, 0, 0, 0.96)",
     glowColor: "rgba(0, 0, 0, 0.48)",
   },
   ice_pop: {
     textColor: "#E0F2FE",
+    highlightColor: "#FEF08A",
     boxColor: "rgba(12, 74, 110, 0.56)",
     borderColor: "rgba(125, 211, 252, 0.75)",
     glowColor: "rgba(56, 189, 248, 0.5)",
   },
   retro_wave: {
     textColor: "#F5D0FE",
+    highlightColor: "#67E8F9",
     boxColor: "rgba(88, 28, 135, 0.55)",
     borderColor: "rgba(244, 114, 182, 0.72)",
     glowColor: "rgba(236, 72, 153, 0.5)",
   },
   glitch_pop: {
     textColor: "#E5E7EB",
+    highlightColor: "#FDE047",
     boxColor: "rgba(15, 23, 42, 0.74)",
     borderColor: "rgba(148, 163, 184, 0.72)",
     glowColor: "rgba(129, 140, 248, 0.44)",
   },
   cinema_punch: {
     textColor: "#FFFBEB",
+    highlightColor: "#FBBF24",
     boxColor: "rgba(120, 53, 15, 0.56)",
     borderColor: "rgba(253, 230, 138, 0.78)",
     glowColor: "rgba(251, 191, 36, 0.4)",
   },
   shadow_strike: {
     textColor: "#FFFFFF",
+    highlightColor: "#FDE047",
     boxColor: "rgba(0, 0, 0, 0)",
     borderColor: "rgba(255, 255, 255, 0.9)",
     glowColor: "rgba(0, 0, 0, 0.86)",
@@ -7648,6 +7658,7 @@ const Editor = () => {
     const overlayPalette = selectedCaptionOverlayTone === "white"
       ? {
           textColor: "#0B0D12",
+          highlightColor: "#1D4ED8",
           boxColor: "rgba(255, 255, 255, 0.94)",
           borderColor: "rgba(15, 23, 42, 0.82)",
           glowColor: "rgba(255, 255, 255, 0.42)",
@@ -7655,6 +7666,7 @@ const Editor = () => {
       : selectedCaptionOverlayTone === "black"
         ? {
             textColor: "#F8FAFC",
+            highlightColor: "#FDE047",
             boxColor: "rgba(0, 0, 0, 0.82)",
             borderColor: "rgba(255, 255, 255, 0.65)",
             glowColor: "rgba(0, 0, 0, 0.62)",
@@ -8011,7 +8023,7 @@ const Editor = () => {
                   ctx.strokeText(entry.display, cursorX, y);
                 }
                 ctx.fillStyle = isHighlighted || isEmphasis
-                  ? effectiveCaptionPalette.borderColor
+                  ? effectiveCaptionPalette.highlightColor
                   : effectiveCaptionPalette.textColor;
                 ctx.fillText(entry.display, cursorX, y);
                 if (verticalCaptionAnimation === "glitch") {
@@ -13032,6 +13044,25 @@ const Editor = () => {
     const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
       ? clamp(Math.round(requestedMomentIndex), 0, upperBound)
       : clamp(Math.round(fallbackMomentIndex), 0, upperBound);
+    const resolvedMoment = (
+      resolvedMomentIndex >= 0 && resolvedMomentIndex < transcriptOptionCount
+        ? verticalTranscriptMomentOptions[resolvedMomentIndex]
+        : null
+    );
+    if (resolvedMoment) {
+      const cuesInMomentWindow = activeTranscriptCues
+        .filter((cue) => cue.end > resolvedMoment.start + 0.005 && cue.start < resolvedMoment.end - 0.005)
+        .map((cue) => normalizeVerticalCaptionTextForJob(String(cue.text || "")))
+        .filter(Boolean);
+      if (cuesInMomentWindow.length > 0) {
+        const mergedWindowText = normalizeVerticalCaptionTextForJob(cuesInMomentWindow.join(" "));
+        if (mergedWindowText) return mergedWindowText;
+      }
+      const sourceMomentText = normalizeVerticalCaptionTextForJob(
+        String(resolvedMoment.sourceText || resolvedMoment.text || ""),
+      );
+      if (sourceMomentText) return sourceMomentText;
+    }
     const cueText = normalizeVerticalCaptionTextForJob(String(activeTranscriptCues[resolvedMomentIndex]?.text || ""));
     if (cueText) return cueText;
     const fallbackMomentText = normalizeVerticalCaptionTextForJob(
