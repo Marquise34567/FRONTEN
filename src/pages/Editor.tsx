@@ -371,6 +371,7 @@ type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type VerticalVariantCaptionKey = "instagram" | "youtube" | "tiktok";
 type VerticalSelectionMode = "best_moments" | "story_arc" | "hook_storm" | "loop_builder";
+type VerticalPulseCategory = "Limbic" | "Adrenaline" | "Dopamine" | "Retentive";
 type VerticalZoomProfileId = "none" | "smooth" | "punch" | "kinetic";
 type VerticalWebcamPlacementOption = "top" | "bottom";
 type VerticalUploadPresetId =
@@ -2010,6 +2011,12 @@ type VerticalTranscriptMomentOption = {
   end: number;
   label: string;
   text: string;
+  sourceText: string;
+  pulseCategory: VerticalPulseCategory;
+  vibeLabel: string;
+  context: string;
+  reasoning: string;
+  impactScore: number;
 };
 type VerticalVariantMoment = {
   variant: VerticalVariantCaptionKey;
@@ -2804,6 +2811,22 @@ const PACKAGING_TONE_META: Record<PackagingMomentTone, {
 const PACKAGING_FUNNY_RE = /\b(funny|laugh|laughing|lol|lmao|joke|hilarious|comedy)\b/i;
 const PACKAGING_CRAZY_RE = /\b(crazy|insane|wild|shocking|unreal|no way|wtf|chaos)\b/i;
 const PACKAGING_CURIOUS_RE = /\b(why|how|what happened|wait|secret|reveal|mystery|unexpected|curious|watch this|dont scroll|don't scroll)\b/i;
+const VERTICAL_DYNAMIC_HOOK_RE = /\b(wait|watch|stop|secret|truth|exposed|reveal(?:ed|ing)?|before|first|look|listen|imagine|never|nobody|how|why|what happened|don't|dont)\b/i;
+const VERTICAL_DYNAMIC_PAYOFF_RE = /\b(because|then|next|finally|result|after|learned|proved?|so that|which means|that's why|therefore)\b/i;
+const VERTICAL_DYNAMIC_LOOP_RE = /\b(again|one more|rewatch|loop|watch this|did you catch|run it back|part\s*2|part two)\b/i;
+const VERTICAL_DYNAMIC_EMOTION_RE = /\b(shock(?:ed|ing)?|angry|mad|furious|sad|cry(?:ing)?|tears?|excited|fear|afraid|panic|love|hate|regret|embarrass(?:ed|ing)?|frustrat(?:ed|ing)?|wow|omg|insane|wild|unbelievable|crazy|pain|hurt|devastat(?:ed|ing)?|thrill(?:ed|ing)?|surpris(?:e|ed|ing))\b/i;
+const VERTICAL_DYNAMIC_ACTION_RE = /\b(run(?:ning)?|jump(?:ing)?|fight(?:ing)?|chase|crash(?:ed|ing)?|hit|slam(?:med|ming)?|scream(?:ed|ing)?|shout(?:ed|ing)?|fast|quick|rapid|crazy stunt|explode(?:d|ing)?|wild move)\b/i;
+const VERTICAL_DYNAMIC_HUMOR_RE = /\b(laugh(?:ing)?|funny|joke|lol|lmao|rofl|fail(?:ed|ing)?|awkward|weird|meme|cringe|oops|stupid|ironic|absurd|wtf)\b/i;
+const VERTICAL_DYNAMIC_QUESTION_RE = /(\?|^(why|how|what|when|who)\b)/i;
+const VERTICAL_DYNAMIC_STAKES_RE = /\b(must|need|never|always|worst|best|risk|danger|fired|banned|lost|lose|win|million|thousand|deadline|urgent|immediately|now|today|tonight)\b/i;
+const VERTICAL_DYNAMIC_CONFLICT_RE = /\b(but|however|instead|yet|although|except|versus|vs|until|unless)\b/i;
+const VERTICAL_DYNAMIC_SURPRISE_RE = /\b(suddenly|out of nowhere|plot twist|unexpected|didn't expect|didnt expect|no way|what)\b/i;
+const VERTICAL_DYNAMIC_FILLER_RE = /\b(um|uh|like|you know|i mean|kinda|kind of|sort of|basically|literally)\b/i;
+const countPatternMatches = (value: string, pattern: RegExp) => {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const matches = value.match(new RegExp(pattern.source, flags));
+  return matches ? matches.length : 0;
+};
 const PACKAGING_POWER_WORDS = [
   "Insane",
   "Forbidden",
@@ -9112,6 +9135,84 @@ const Editor = () => {
     activeAnalysis?.duration_seconds,
     activeAnalysis?.duration,
   );
+  const verticalAnalysisHighlightKeywords = useMemo(() => {
+    const rawPools = [
+      activeAnalysis?.highlights,
+      activeAnalysis?.highlight_moments,
+      activeAnalysis?.highlightMoments,
+      activeAnalysis?.emotional_highlights,
+      activeAnalysis?.emotionalHighlights,
+      activeAnalysis?.best_moments,
+      activeAnalysis?.bestMoments,
+    ];
+    const lines: string[] = [];
+    for (const pool of rawPools) {
+      if (Array.isArray(pool)) {
+        for (const entry of pool) {
+          if (typeof entry === "string") {
+            lines.push(entry);
+            continue;
+          }
+          if (entry && typeof entry === "object") {
+            const asAny = entry as Record<string, unknown>;
+            const maybeText = [asAny.text, asAny.label, asAny.reason, asAny.summary]
+              .find((value) => typeof value === "string");
+            if (typeof maybeText === "string") lines.push(maybeText);
+          }
+        }
+      } else if (typeof pool === "string") {
+        lines.push(pool);
+      }
+    }
+    if (hookText) lines.push(hookText);
+    if (hookReason) lines.push(hookReason);
+    const tokenCounts = new Map<string, number>();
+    for (const line of lines) {
+      for (const token of toPackagingTokenList(line)) {
+        if (token.length < 4) continue;
+        tokenCounts.set(token, (tokenCounts.get(token) ?? 0) + 1);
+      }
+    }
+    return Array.from(tokenCounts.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, 22)
+      .map(([token]) => token);
+  }, [activeAnalysis, hookReason, hookText]);
+  const verticalAnalysisEmotionalAnchorSeconds = useMemo(() => {
+    const anchorPools = [
+      activeAnalysis?.emotional_beat_anchors,
+      activeAnalysis?.emotionalBeatAnchors,
+      activeAnalysis?.pipelineSteps?.PACING?.meta?.emotionalBeatAnchors,
+      activeAnalysis?.pipelineSteps?.RETENTION_SCORE?.meta?.emotionalBeatAnchors,
+      activeAnalysis?.retention?.emotionalBeatAnchors,
+    ];
+    const maxDuration = Number.isFinite(verticalMomentSourceDurationSec)
+      ? Math.max(0.2, Number(verticalMomentSourceDurationSec))
+      : Number.POSITIVE_INFINITY;
+    const values: number[] = [];
+    for (const pool of anchorPools) {
+      if (!Array.isArray(pool)) continue;
+      for (const entry of pool) {
+        const resolved = typeof entry === "number"
+          ? entry
+          : typeof entry === "string"
+            ? Number(entry)
+            : entry && typeof entry === "object"
+              ? firstFiniteNumber(
+                  (entry as Record<string, unknown>).timeSec,
+                  (entry as Record<string, unknown>).timestampSec,
+                  (entry as Record<string, unknown>).start,
+                  (entry as Record<string, unknown>).time,
+                )
+              : null;
+        if (!Number.isFinite(resolved)) continue;
+        const bounded = clamp(Number(resolved), 0, maxDuration);
+        values.push(Number(bounded.toFixed(3)));
+      }
+    }
+    return Array.from(new Set(values))
+      .sort((left, right) => left - right);
+  }, [activeAnalysis, verticalMomentSourceDurationSec]);
   const verticalTranscriptMomentOptions = useMemo<VerticalTranscriptMomentOption[]>(() => {
     if (!isVerticalMode || activeTranscriptCues.length === 0) return [];
     return activeTranscriptCues
@@ -9125,13 +9226,136 @@ const Editor = () => {
         const end = Math.max(start + 0.2, cappedEnd);
         const text = String(cue.text || "").replace(/\s+/g, " ").trim();
         if (!text) return null;
-        const compactText = text.length > 96 ? `${text.slice(0, 93).trim()}...` : text;
+        const snippetTokens: string[] = [];
+        for (let cueIndex = index; cueIndex < activeTranscriptCues.length; cueIndex += 1) {
+          const nextCue = activeTranscriptCues[cueIndex];
+          const nextStart = Number(nextCue.start);
+          if (!Number.isFinite(nextStart)) continue;
+          if (nextStart > start + 8 && snippetTokens.length >= 10) break;
+          const cueTokens = String(nextCue.text || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .split(" ")
+            .filter(Boolean);
+          if (cueTokens.length === 0) continue;
+          snippetTokens.push(...cueTokens);
+          if (snippetTokens.length >= 26) break;
+        }
+        const snippetText = (snippetTokens.length > 0 ? snippetTokens.slice(0, 26).join(" ") : text).trim();
+        const snippetLower = snippetText.toLowerCase();
+        const tokenCount = snippetLower.split(/[^a-z0-9']+/).filter(Boolean).length;
+        const prevCueText = String(activeTranscriptCues[index - 1]?.text || "").replace(/\s+/g, " ").trim();
+        const nextCueText = String(activeTranscriptCues[index + 1]?.text || "").replace(/\s+/g, " ").trim();
+        const neighborhoodText = `${prevCueText} ${nextCueText}`.replace(/\s+/g, " ").trim().toLowerCase();
+        const emotionalHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_EMOTION_RE);
+        const actionHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_ACTION_RE);
+        const humorHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_HUMOR_RE);
+        const stakesHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_STAKES_RE);
+        const conflictHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_CONFLICT_RE);
+        const hookHits = Math.max(
+          countPatternMatches(snippetLower, VERTICAL_DYNAMIC_HOOK_RE),
+          countPatternMatches(snippetText, VERTICAL_DYNAMIC_QUESTION_RE),
+        );
+        const punctuationHits = countPatternMatches(snippetText, /[!?]/);
+        const uppercaseHits = countPatternMatches(snippetText, /\b[A-Z]{3,}\b/);
+        const currentIntensity =
+          emotionalHits * 1.25 +
+          actionHits * 1.2 +
+          humorHits * 1.1 +
+          hookHits * 1.05 +
+          punctuationHits * 0.45 +
+          uppercaseHits * 0.35 +
+          stakesHits * 0.45;
+        const baselineIntensity = neighborhoodText
+          ? (
+              countPatternMatches(neighborhoodText, VERTICAL_DYNAMIC_EMOTION_RE) * 0.65 +
+              countPatternMatches(neighborhoodText, VERTICAL_DYNAMIC_ACTION_RE) * 0.6 +
+              countPatternMatches(neighborhoodText, VERTICAL_DYNAMIC_HUMOR_RE) * 0.55 +
+              countPatternMatches(neighborhoodText, VERTICAL_DYNAMIC_HOOK_RE) * 0.5
+            )
+          : 0;
+        const energyShiftSignal = clamp((currentIntensity - baselineIntensity + 1.4) / 3.8, 0, 1);
+        const limbicScore = (
+          emotionalHits * 1.55 +
+          stakesHits * 0.8 +
+          conflictHits * 0.5 +
+          energyShiftSignal * 1.2 +
+          punctuationHits * 0.2
+        );
+        const adrenalineScore = (
+          actionHits * 1.75 +
+          punctuationHits * 0.7 +
+          uppercaseHits * 0.6 +
+          energyShiftSignal * 1.1 +
+          countPatternMatches(snippetLower, /\b(fast|quick|rapid|now|immediately|suddenly)\b/) * 0.45
+        );
+        const dopamineScore = (
+          humorHits * 1.8 +
+          countPatternMatches(snippetLower, /\b(awkward|weird|fail|oops|wtf|absurd|meme|cringe|stupid)\b/) * 0.85 +
+          energyShiftSignal * 0.8 +
+          punctuationHits * 0.25
+        );
+        const retentiveScore = (
+          hookHits * 1.8 +
+          countPatternMatches(snippetLower, VERTICAL_DYNAMIC_SURPRISE_RE) * 0.8 +
+          countPatternMatches(snippetLower, VERTICAL_DYNAMIC_PAYOFF_RE) * 0.6 +
+          (/\?$/.test(snippetText.trim()) ? 0.6 : 0) +
+          energyShiftSignal * 0.65
+        );
+        const categoryRows: Array<{ category: VerticalPulseCategory; score: number }> = [
+          { category: "Limbic", score: limbicScore },
+          { category: "Adrenaline", score: adrenalineScore },
+          { category: "Dopamine", score: dopamineScore },
+          { category: "Retentive", score: retentiveScore },
+        ].sort((left, right) => right.score - left.score);
+        const pulseCategory = categoryRows[0]?.category ?? "Retentive";
+        const strongestScore = categoryRows[0]?.score ?? 0;
+        const secondScore = categoryRows[1]?.score ?? 0;
+        const confidenceDelta = clamp(strongestScore - secondScore, 0, 2);
+        const impactRaw = clamp(
+          (strongestScore * 0.9 + energyShiftSignal * 1.2 + confidenceDelta * 0.55 + Math.min(1, tokenCount / 10) * 0.25) / 4.6,
+          0,
+          1,
+        );
+        const impactScore = clamp(Math.round(4 + impactRaw * 6), 1, 10);
+        const vibeLabel =
+          pulseCategory === "Limbic"
+            ? (impactScore >= 8 ? "Heartbreaking" : impactScore >= 6 ? "Emotional Surge" : "Tone Shift")
+            : pulseCategory === "Adrenaline"
+              ? (impactScore >= 8 ? "High-Tension" : impactScore >= 6 ? "Chaotic" : "Intensity Lift")
+              : pulseCategory === "Dopamine"
+                ? (impactScore >= 8 ? "Absurd" : impactScore >= 6 ? "Memenable" : "Comedic Beat")
+                : (impactScore >= 8 ? "Question Trap" : impactScore >= 6 ? "Curiosity Hook" : "Story Setup");
+        const context = snippetText.length > 120 ? `${snippetText.slice(0, 117).trim()}...` : snippetText;
+        const reasoningSignals: string[] = [];
+        if (energyShiftSignal > 0.45) reasoningSignals.push("clear energy shift");
+        if (emotionalHits > 0) reasoningSignals.push("emotional language spike");
+        if (actionHits > 0) reasoningSignals.push("action/drama burst");
+        if (humorHits > 0) reasoningSignals.push("subverted-comedy cue");
+        if (hookHits > 0) reasoningSignals.push("question/hook setup");
+        if (punctuationHits > 0 || uppercaseHits > 0) reasoningSignals.push("delivery intensity markers");
+        const reasoningLead =
+          pulseCategory === "Limbic"
+            ? "Tone and emotional pressure rise in this window."
+            : pulseCategory === "Adrenaline"
+              ? "Tempo and tension peak in this window."
+              : pulseCategory === "Dopamine"
+                ? "Unexpected/comedic payoff creates replay value."
+                : "This moment opens a curiosity loop that demands resolution.";
+        const reasoning = `${reasoningLead} ${reasoningSignals.length > 0 ? `Detected: ${reasoningSignals.join(", ")}.` : "Detected: momentum change in delivery."}`;
+        const compactText = snippetText.length > 112 ? `${snippetText.slice(0, 109).trim()}...` : snippetText;
         return {
           index,
           start: Number(start.toFixed(3)),
           end: Number(end.toFixed(3)),
           label: `${formatTimelineClock(start)}-${formatTimelineClock(end)}`,
           text: compactText,
+          sourceText: snippetText || text,
+          pulseCategory,
+          vibeLabel,
+          context,
+          reasoning,
+          impactScore,
         };
       })
       .filter((option): option is VerticalTranscriptMomentOption => Boolean(option));
@@ -9147,26 +9371,116 @@ const Editor = () => {
       ? Math.max(1, Number(verticalMomentSourceDurationSec))
       : null;
     const scoreRows = verticalTranscriptMomentOptions.map((option, index) => {
-      const text = String(option.text || "").toLowerCase();
-      const hookSignal = /(wait|watch|stop|crazy|secret|why|how|before|first|look)/.test(text) ? 1 : 0;
-      const payoffSignal = /(because|then|next|finally|result|after|learned|prove)/.test(text) ? 1 : 0;
-      const loopSignal = /(\?$|again|one more|rewatch|loop|watch this)/.test(text) ? 1 : 0;
-      const punctuationSignal = /[!?]/.test(text) ? 1 : 0;
+      const contextParts: string[] = [];
+      let remainingChars = 360;
+      for (let cueIndex = option.index; cueIndex < activeTranscriptCues.length; cueIndex += 1) {
+        const cue = activeTranscriptCues[cueIndex];
+        const cueStart = Number(cue.start);
+        if (!Number.isFinite(cueStart)) continue;
+        if (cueStart >= option.end - 0.005 && contextParts.length >= 2) break;
+        const cueText = String(cue.text || "").replace(/\s+/g, " ").trim();
+        if (!cueText) continue;
+        contextParts.push(cueText);
+        remainingChars -= cueText.length;
+        if (contextParts.length >= 18 || remainingChars <= 0) break;
+      }
+      const contextText = (
+        contextParts.join(" ")
+        || option.sourceText
+        || option.text
+      ).replace(/\s+/g, " ").trim();
+      const lower = contextText.toLowerCase();
+      const tokenCount = lower.split(/[^a-z0-9']+/).filter(Boolean).length;
+      const optionDurationSec = Math.max(0.2, option.end - option.start);
+      const hookSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_HOOK_RE) / 2, 0, 1);
+      const payoffSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_PAYOFF_RE) / 2, 0, 1);
+      const loopSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_LOOP_RE) / 2, 0, 1);
+      const emotionalSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_EMOTION_RE) / 3, 0, 1);
+      const stakesSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_STAKES_RE) / 2, 0, 1);
+      const conflictSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_CONFLICT_RE) / 2, 0, 1);
+      const surpriseSignal = clamp(countPatternMatches(lower, VERTICAL_DYNAMIC_SURPRISE_RE) / 2, 0, 1);
+      const fillerPenalty = clamp(
+        countPatternMatches(lower, VERTICAL_DYNAMIC_FILLER_RE) / Math.max(1, tokenCount * 0.3),
+        0,
+        1,
+      );
+      const punctuationSignal = clamp(countPatternMatches(contextText, /[!?]/) / 3, 0, 1);
+      const uppercaseSignal = clamp(countPatternMatches(contextText, /\b[A-Z]{3,}\b/) / 2, 0, 1);
+      const numberSignal = /\d/.test(contextText) ? 1 : 0;
+      const wordsPerSecond = tokenCount / Math.max(1, optionDurationSec);
+      const speechEnergySignal = clamp((wordsPerSecond - 1.15) / 2.2, 0, 1);
+      const highlightHits = verticalAnalysisHighlightKeywords.reduce((sum, keyword) => (
+        lower.includes(keyword) ? sum + 1 : sum
+      ), 0);
+      const highlightSignal = clamp(highlightHits / 3, 0, 1);
+      const pulseImpactSignal = clamp((Number(option.impactScore) - 1) / 9, 0, 1);
+      const limbicBoost = option.pulseCategory === "Limbic" ? 1 : 0;
+      const adrenalineBoost = option.pulseCategory === "Adrenaline" ? 1 : 0;
+      const dopamineBoost = option.pulseCategory === "Dopamine" ? 1 : 0;
+      const retentiveBoost = option.pulseCategory === "Retentive" ? 1 : 0;
       const normalizedPosition = durationForPosition
         ? clamp(option.start / durationForPosition, 0, 1)
         : clamp(index / Math.max(1, verticalTranscriptMomentOptions.length - 1), 0, 1);
       const centerScore = 1 - Math.abs(0.5 - normalizedPosition);
       const endingScore = normalizedPosition;
+      const midpointSec = option.start + optionDurationSec / 2;
+      let anchorSignal = 0;
+      if (verticalAnalysisEmotionalAnchorSeconds.length > 0) {
+        const maxDistance = Math.max(6, optionDurationSec * 0.85);
+        for (const anchorSec of verticalAnalysisEmotionalAnchorSeconds) {
+          const proximity = clamp(1 - Math.abs(anchorSec - midpointSec) / maxDistance, 0, 1);
+          if (proximity > anchorSignal) anchorSignal = proximity;
+        }
+      }
       return {
         index,
         score:
           verticalSelectionMode === "story_arc"
             ? 0
             : verticalSelectionMode === "hook_storm"
-              ? hookSignal * 1.6 + punctuationSignal * 0.7 + centerScore * 0.3 - normalizedPosition * 0.25
+              ? pulseImpactSignal * 1.55
+                + hookSignal * 1.45
+                + emotionalSignal * 1.2
+                + stakesSignal * 1.15
+                + punctuationSignal * 0.9
+                + surpriseSignal * 1.0
+                + anchorSignal * 0.9
+                + speechEnergySignal * 0.7
+                + uppercaseSignal * 0.35
+                + retentiveBoost * 0.6
+                + adrenalineBoost * 0.35
+                - fillerPenalty * 0.6
               : verticalSelectionMode === "loop_builder"
-                ? loopSignal * 1.6 + payoffSignal * 0.8 + endingScore * 0.75 + punctuationSignal * 0.3
-                : hookSignal * 0.95 + payoffSignal * 0.95 + punctuationSignal * 0.45 + centerScore * 0.4,
+                ? pulseImpactSignal * 1.35
+                  + loopSignal * 1.95
+                  + payoffSignal * 1.25
+                  + emotionalSignal * 0.95
+                  + endingScore * 0.95
+                  + punctuationSignal * 0.4
+                  + anchorSignal * 0.65
+                  + highlightSignal * 0.55
+                  + speechEnergySignal * 0.35
+                  + dopamineBoost * 0.45
+                  - fillerPenalty * 0.5
+                : pulseImpactSignal * 1.9
+                  + hookSignal * 1.0
+                  + payoffSignal * 1.15
+                  + emotionalSignal * 1.35
+                  + stakesSignal * 1.05
+                  + conflictSignal * 0.6
+                  + surpriseSignal * 0.6
+                  + punctuationSignal * 0.55
+                  + anchorSignal * 1.2
+                  + highlightSignal * 1.1
+                  + speechEnergySignal * 0.7
+                  + numberSignal * 0.35
+                  + centerScore * 0.25
+                  + limbicBoost * 0.55
+                  + adrenalineBoost * 0.45
+                  + dopamineBoost * 0.45
+                  + retentiveBoost * 0.35
+                  - fillerPenalty * 0.8,
+        startSec: option.start,
         normalizedPosition,
       };
     });
@@ -9176,11 +9490,48 @@ const Editor = () => {
         .sort((left, right) => left.normalizedPosition - right.normalizedPosition || left.index - right.index)
         .map((row) => row.index);
     }
-    return scoreRows
+    const byScore = scoreRows
       .slice()
       .sort((left, right) => right.score - left.score || left.index - right.index)
       .map((row) => row.index);
+    if (byScore.length <= 1) return byScore;
+    const totalDuration = durationForPosition
+      ?? Math.max(1, verticalTranscriptMomentOptions[verticalTranscriptMomentOptions.length - 1]?.end ?? 1);
+    const strictGap = Math.max(
+      5,
+      Math.min(
+        Math.max(9, verticalMomentDurationSeconds * 0.55),
+        totalDuration / Math.max(1, VERTICAL_VARIANT_TOTAL_CLIPS * 1.05),
+      ),
+    );
+    const relaxedGap = Math.max(2.5, strictGap * 0.55);
+    const ranked: number[] = [];
+    const rankedSet = new Set<number>();
+    const pushWithGap = (minGapSec: number) => {
+      for (const candidateIndex of byScore) {
+        if (rankedSet.has(candidateIndex)) continue;
+        const candidateStart = scoreRows[candidateIndex]?.startSec ?? 0;
+        const collides = ranked.some((selectedIndex) => (
+          Math.abs((scoreRows[selectedIndex]?.startSec ?? 0) - candidateStart) < minGapSec
+        ));
+        if (collides) continue;
+        ranked.push(candidateIndex);
+        rankedSet.add(candidateIndex);
+      }
+    };
+    pushWithGap(strictGap);
+    pushWithGap(relaxedGap);
+    for (const candidateIndex of byScore) {
+      if (rankedSet.has(candidateIndex)) continue;
+      ranked.push(candidateIndex);
+      rankedSet.add(candidateIndex);
+    }
+    return ranked;
   }, [
+    activeTranscriptCues,
+    verticalAnalysisEmotionalAnchorSeconds,
+    verticalAnalysisHighlightKeywords,
+    verticalMomentDurationSeconds,
     verticalMomentSourceDurationSec,
     verticalSelectionMode,
     verticalTranscriptMomentOptions,
@@ -9190,20 +9541,35 @@ const Editor = () => {
     const orderedIndices = verticalModeOrderedMomentIndices.length > 0
       ? verticalModeOrderedMomentIndices
       : verticalTranscriptMomentOptions.map((_, index) => index);
+    if (verticalSelectionMode === "story_arc") {
+      return Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, slotIndex) => {
+        const ratio = (slotIndex + 0.5) / VERTICAL_VARIANT_TOTAL_CLIPS;
+        const target = clamp(
+          Math.floor(ratio * orderedIndices.length),
+          0,
+          Math.max(0, orderedIndices.length - 1),
+        );
+        return clamp(
+          Number(orderedIndices[target] ?? orderedIndices[orderedIndices.length - 1] ?? 0),
+          0,
+          Math.max(0, verticalTranscriptMomentOptions.length - 1),
+        );
+      });
+    }
+    const prioritized = orderedIndices.slice(0, Math.max(1, VERTICAL_VARIANT_TOTAL_CLIPS));
     return Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, slotIndex) => {
-      const ratio = (slotIndex + 0.5) / VERTICAL_VARIANT_TOTAL_CLIPS;
-      const target = clamp(
-        Math.floor(ratio * orderedIndices.length),
-        0,
-        Math.max(0, orderedIndices.length - 1),
-      );
+      const target = prioritized[slotIndex]
+        ?? prioritized[slotIndex % prioritized.length]
+        ?? orderedIndices[Math.min(slotIndex, orderedIndices.length - 1)]
+        ?? orderedIndices[orderedIndices.length - 1]
+        ?? 0;
       return clamp(
-        Number(orderedIndices[target] ?? orderedIndices[orderedIndices.length - 1] ?? 0),
+        Number(target),
         0,
         Math.max(0, verticalTranscriptMomentOptions.length - 1),
       );
     });
-  }, [verticalModeOrderedMomentIndices, verticalTranscriptMomentOptions]);
+  }, [verticalModeOrderedMomentIndices, verticalSelectionMode, verticalTranscriptMomentOptions]);
   const verticalVariantMoments = useMemo<VerticalVariantMoment[]>(() => {
     if (verticalTranscriptMomentOptions.length === 0) return [];
     const clipCount = Math.max(1, Math.round(Number(verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS)));
@@ -16921,12 +17287,16 @@ const Editor = () => {
                                                   </option>
                                                   {verticalTranscriptMomentOptions.map((option) => (
                                                     <option key={`${slotKey}-moment-${option.index}`} value={option.index}>
-                                                      {option.label} - {option.text}
+                                                      {option.label} · {option.pulseCategory} · {option.vibeLabel} · {option.impactScore}/10
                                                     </option>
                                                   ))}
                                                 </select>
                                                 {resolvedMoment ? (
-                                                  <span className="vertical-variant-subversion-moment-text">{resolvedMoment.text}</span>
+                                                  <span className="vertical-variant-subversion-moment-text">
+                                                    {resolvedMoment.label} · {resolvedMoment.pulseCategory} · {resolvedMoment.vibeLabel} · Impact {resolvedMoment.impactScore}/10
+                                                    {" — "}
+                                                    Context: {resolvedMoment.context}. {resolvedMoment.reasoning}
+                                                  </span>
                                                 ) : null}
                                               </label>
                                               <p className="text-[11px] text-muted-foreground">
