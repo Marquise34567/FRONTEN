@@ -71,7 +71,6 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
-const VERTICAL_CAPTIONS_TEMP_DISABLED = true;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
@@ -240,6 +239,7 @@ const PREVIEW_EMOJI_RULES: Array<{ pattern: RegExp; emoji: string }> = [
   { pattern: /(laugh|funny|lol|lmao|joke)/i, emoji: "😂" },
   { pattern: /(watch|look|wait|listen|secret|proof)/i, emoji: "👀" },
 ];
+const PREVIEW_CAPTION_WORDS_PER_BATCH = 2;
 const normalizePreviewToken = (value: string) =>
   String(value || "")
     .toLowerCase()
@@ -351,6 +351,31 @@ type VerticalCaptionPresetOptionId =
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
+type VerticalCaptionFontVariantOption = {
+  id: string;
+  label: string;
+  renderFontId: VerticalCaptionFontOptionId;
+  previewFamily: string;
+  fontWeight: number;
+  letterSpacing: number;
+  textTransform: "none" | "uppercase";
+};
+type VerticalCaptionLookOption = {
+  id: string;
+  label: string;
+  description: string;
+  preset: VerticalCaptionPresetOptionId;
+  fontVariantId: string;
+  animation: VerticalCaptionAnimationOptionId;
+  dynamicMode: VerticalCaptionDynamicModeOptionId;
+  outlineWidth: number;
+  shadowStrength: number;
+  animationSpeed: number;
+  highlightWords: boolean;
+  autoEmphasis: boolean;
+  autoEmoji: boolean;
+  removeFillers: boolean;
+};
 type VerticalVoicePresetOptionId = "none" | "deep" | "helium" | "radio" | "robot";
 type VerticalPacingPresetOptionId = "normal" | "fast" | "slow";
 type EditorModeSelection = "auto" | "reaction" | "commentary" | "vlog" | "gaming" | "sports" | "education" | "podcast";
@@ -957,6 +982,76 @@ const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> 
   display_black: '"Poppins", "Space Grotesk", "Inter", sans-serif',
   mono_bold: '"Consolas", "Roboto Mono", monospace',
 };
+const VERTICAL_CAPTION_FONT_FAMILY_LIBRARY: Array<{
+  id: string;
+  label: string;
+  renderFontId: VerticalCaptionFontOptionId;
+  previewFamily: string;
+}> = [
+  { id: "impact_lab", label: "Impact Lab", renderFontId: "impact", previewFamily: '"Anton", "Impact", "Arial Black", sans-serif' },
+  { id: "creator_sans", label: "Creator Sans", renderFontId: "sans_bold", previewFamily: '"Inter", "Montserrat", "Segoe UI", sans-serif' },
+  { id: "tight_condensed", label: "Tight Condensed", renderFontId: "condensed", previewFamily: '"Bebas Neue", "Arial Narrow", "Inter", sans-serif' },
+  { id: "classic_serif", label: "Classic Serif", renderFontId: "serif_bold", previewFamily: '"Merriweather", "Georgia", "Times New Roman", serif' },
+  { id: "premium_display", label: "Premium Display", renderFontId: "display_black", previewFamily: '"Poppins", "Space Grotesk", "Inter", sans-serif' },
+  { id: "mono_signal", label: "Mono Signal", renderFontId: "mono_bold", previewFamily: '"JetBrains Mono", "Consolas", "Roboto Mono", monospace' },
+  { id: "poster_block", label: "Poster Block", renderFontId: "impact", previewFamily: '"Oswald", "Anton", "Impact", sans-serif' },
+  { id: "clean_headline", label: "Clean Headline", renderFontId: "sans_bold", previewFamily: '"Manrope", "Inter", "Segoe UI", sans-serif' },
+  { id: "cinema_title", label: "Cinema Title", renderFontId: "serif_bold", previewFamily: '"Playfair Display", "Merriweather", "Georgia", serif' },
+];
+const VERTICAL_CAPTION_FONT_PERSONALITY_LIBRARY: Array<{
+  id: string;
+  label: string;
+  fontWeight: number;
+  letterSpacing: number;
+  textTransform: "none" | "uppercase";
+}> = [
+  { id: "clean", label: "Clean", fontWeight: 800, letterSpacing: 0.005, textTransform: "none" },
+  { id: "punch", label: "Punch", fontWeight: 900, letterSpacing: 0.01, textTransform: "uppercase" },
+  { id: "cinema", label: "Cinema", fontWeight: 800, letterSpacing: 0.015, textTransform: "uppercase" },
+  { id: "street", label: "Street", fontWeight: 900, letterSpacing: 0.022, textTransform: "uppercase" },
+  { id: "soft", label: "Soft", fontWeight: 700, letterSpacing: 0.002, textTransform: "none" },
+  { id: "hyper", label: "Hyper", fontWeight: 900, letterSpacing: 0.03, textTransform: "uppercase" },
+];
+const VERTICAL_CAPTION_FONT_VARIANT_OPTIONS: VerticalCaptionFontVariantOption[] =
+  VERTICAL_CAPTION_FONT_FAMILY_LIBRARY.flatMap((family) =>
+    VERTICAL_CAPTION_FONT_PERSONALITY_LIBRARY.map((personality) => ({
+      id: `${family.id}_${personality.id}`,
+      label: `${family.label} ${personality.label}`,
+      renderFontId: family.renderFontId,
+      previewFamily: family.previewFamily,
+      fontWeight: personality.fontWeight,
+      letterSpacing: personality.letterSpacing,
+      textTransform: personality.textTransform,
+    })),
+  );
+const VERTICAL_CAPTION_FONT_VARIANT_BY_ID = VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.reduce<Record<string, VerticalCaptionFontVariantOption>>(
+  (acc, option) => {
+    acc[option.id] = option;
+    return acc;
+  },
+  {},
+);
+const DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT = VERTICAL_CAPTION_FONT_OPTIONS.reduce<Record<VerticalCaptionFontOptionId, string>>(
+  (acc, option) => {
+    const fallback = VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.find((entry) => entry.renderFontId === option.id)?.id;
+    acc[option.id] = fallback ?? `${option.id}_clean`;
+    return acc;
+  },
+  {
+    impact: "impact_lab_clean",
+    sans_bold: "creator_sans_clean",
+    condensed: "tight_condensed_clean",
+    serif_bold: "classic_serif_clean",
+    display_black: "premium_display_clean",
+    mono_bold: "mono_signal_clean",
+  },
+);
+const pickVerticalCaptionFontVariantId = (renderFontId: VerticalCaptionFontOptionId, offset = 0) => {
+  const pool = VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.filter((option) => option.renderFontId === renderFontId);
+  if (pool.length === 0) return DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[renderFontId];
+  const normalizedOffset = Math.abs(Math.round(Number(offset) || 0));
+  return pool[normalizedOffset % pool.length].id;
+};
 const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
   VerticalCaptionPresetOptionId,
   { textColor: string; boxColor: string; borderColor: string; glowColor: string }
@@ -1051,6 +1146,129 @@ const VERTICAL_CAPTION_ANIMATION_SPEED_MIN = 0.5;
 const VERTICAL_CAPTION_ANIMATION_SPEED_MAX = 2.2;
 const clampVerticalCaptionAnimationSpeed = (value: number) =>
   Number(clamp(value, VERTICAL_CAPTION_ANIMATION_SPEED_MIN, VERTICAL_CAPTION_ANIMATION_SPEED_MAX).toFixed(2));
+const VERTICAL_CAPTION_LOOK_MODIFIERS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  animation: VerticalCaptionAnimationOptionId;
+  dynamicMode: VerticalCaptionDynamicModeOptionId;
+  outlineDelta: number;
+  shadowDelta: number;
+  animationSpeedMultiplier: number;
+  highlightWords: boolean;
+  autoEmphasis: boolean;
+  autoEmoji: boolean;
+  removeFillers: boolean;
+}> = [
+  {
+    id: "clean",
+    label: "Clean",
+    description: "Readable and smooth for evergreen posts.",
+    animation: "none",
+    dynamicMode: "classic",
+    outlineDelta: -2,
+    shadowDelta: -12,
+    animationSpeedMultiplier: 0.92,
+    highlightWords: false,
+    autoEmphasis: true,
+    autoEmoji: false,
+    removeFillers: true,
+  },
+  {
+    id: "pop",
+    label: "Pop",
+    description: "Punchy mobile style with stronger hook energy.",
+    animation: "pop",
+    dynamicMode: "karaoke_word",
+    outlineDelta: 1,
+    shadowDelta: 6,
+    animationSpeedMultiplier: 1.06,
+    highlightWords: true,
+    autoEmphasis: true,
+    autoEmoji: false,
+    removeFillers: true,
+  },
+  {
+    id: "kinetic",
+    label: "Kinetic",
+    description: "Fast TikTok-style momentum with word motion.",
+    animation: "slide",
+    dynamicMode: "kinetic_word",
+    outlineDelta: 2,
+    shadowDelta: 12,
+    animationSpeedMultiplier: 1.14,
+    highlightWords: true,
+    autoEmphasis: true,
+    autoEmoji: true,
+    removeFillers: false,
+  },
+  {
+    id: "glow",
+    label: "Glow",
+    description: "Stylized neon energy for clips with strong reactions.",
+    animation: "fade",
+    dynamicMode: "kinetic_word",
+    outlineDelta: 0,
+    shadowDelta: 18,
+    animationSpeedMultiplier: 1.08,
+    highlightWords: true,
+    autoEmphasis: true,
+    autoEmoji: true,
+    removeFillers: false,
+  },
+  {
+    id: "bounce",
+    label: "Bounce",
+    description: "Creator-style bounce motion tuned for short loops.",
+    animation: "bounce",
+    dynamicMode: "karaoke_word",
+    outlineDelta: 2,
+    shadowDelta: 10,
+    animationSpeedMultiplier: 1.16,
+    highlightWords: true,
+    autoEmphasis: true,
+    autoEmoji: true,
+    removeFillers: false,
+  },
+  {
+    id: "glitch",
+    label: "Glitch",
+    description: "High contrast tech edge with aggressive transitions.",
+    animation: "glitch",
+    dynamicMode: "kinetic_word",
+    outlineDelta: 3,
+    shadowDelta: 16,
+    animationSpeedMultiplier: 1.18,
+    highlightWords: true,
+    autoEmphasis: true,
+    autoEmoji: true,
+    removeFillers: false,
+  },
+];
+const VERTICAL_CAPTION_LOOK_OPTIONS: VerticalCaptionLookOption[] = VERTICAL_CAPTION_STYLE_OPTIONS.flatMap((styleOption, styleIndex) => {
+  const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[styleOption.id];
+  return VERTICAL_CAPTION_LOOK_MODIFIERS.map((modifier, modifierIndex) => {
+    const outlineWidth = Math.max(0, Math.min(24, Math.round(defaults.outlineWidth + modifier.outlineDelta)));
+    const shadowStrength = Math.max(0, Math.min(100, Math.round(defaults.shadowStrength + modifier.shadowDelta)));
+    const animationSpeed = clampVerticalCaptionAnimationSpeed(defaults.animationSpeed * modifier.animationSpeedMultiplier);
+    return {
+      id: `${styleOption.id}_${modifier.id}`,
+      label: `${styleOption.label} ${modifier.label}`,
+      description: modifier.description,
+      preset: styleOption.id,
+      fontVariantId: pickVerticalCaptionFontVariantId(defaults.fontId, styleIndex + modifierIndex),
+      animation: modifier.animation,
+      dynamicMode: modifier.dynamicMode,
+      outlineWidth,
+      shadowStrength,
+      animationSpeed,
+      highlightWords: modifier.highlightWords,
+      autoEmphasis: modifier.autoEmphasis,
+      autoEmoji: modifier.autoEmoji,
+      removeFillers: modifier.removeFillers,
+    };
+  });
+});
 const RETENTION_PROFILE_SEQUENCE: RetentionStrategyProfile[] = ["safe", "balanced", "viral"];
 const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: string }> = [
   { key: "format", label: "Format" },
@@ -3653,6 +3871,11 @@ const Editor = () => {
   const [verticalCaptionFontId, setVerticalCaptionFontId] = useState<VerticalCaptionFontOptionId>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
   );
+  const [verticalCaptionFontVariantId, setVerticalCaptionFontVariantId] = useState<string>(
+    DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[
+      VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId
+    ],
+  );
   const [verticalCaptionOutlineColor, setVerticalCaptionOutlineColor] = useState<string>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
   );
@@ -3729,6 +3952,12 @@ const Editor = () => {
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [captionSettingsDialogOpen, setCaptionSettingsDialogOpen] = useState(false);
+  const [verticalCaptionLookId, setVerticalCaptionLookId] = useState<string>(`${DEFAULT_VERTICAL_CAPTION_STYLE}_pop`);
+  const [captionStyleSearch, setCaptionStyleSearch] = useState("");
+  const [captionFontSearch, setCaptionFontSearch] = useState("");
+  const [captionBulkClipText, setCaptionBulkClipText] = useState("");
+  const [captionPreviewClipIndex, setCaptionPreviewClipIndex] = useState(-1);
+  const [activeVerticalClipEditorIndex, setActiveVerticalClipEditorIndex] = useState(0);
   const [webcamCrop, setWebcamCrop] = useState<WebcamCrop | null>(null);
   const [webcamCropWasAdjusted, setWebcamCropWasAdjusted] = useState(false);
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
@@ -3743,19 +3972,43 @@ const Editor = () => {
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
-  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(false);
+  const [autoCaptionsEnabled, setAutoCaptionsEnabled] = useState(true);
   const [captionCapability, setCaptionCapability] = useState<CaptionCapability>({
     available: CAPTIONS_PIPELINE_ENABLED,
     mode: CAPTIONS_PIPELINE_ENABLED ? "runtime" : "disabled",
     reason: CAPTIONS_PIPELINE_ENABLED ? null : "Captions are disabled in the editor pipeline.",
   });
+  const selectedVerticalCaptionFontVariant = useMemo(() => {
+    const direct = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[verticalCaptionFontVariantId];
+    if (direct) return direct;
+    const fallbackId = DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[verticalCaptionFontId];
+    return VERTICAL_CAPTION_FONT_VARIANT_BY_ID[fallbackId] ?? VERTICAL_CAPTION_FONT_VARIANT_OPTIONS[0];
+  }, [verticalCaptionFontId, verticalCaptionFontVariantId]);
+  const selectedCaptionClipSlotKeySet = useMemo(() => {
+    const selectedKeys = Object.entries(verticalClipCaptionGenerateSelectedBySlot)
+      .filter(([, selected]) => Boolean(selected))
+      .map(([slotKey]) => slotKey);
+    return new Set(selectedKeys);
+  }, [verticalClipCaptionGenerateSelectedBySlot]);
+  const hasSelectedCaptionClipSlots = selectedCaptionClipSlotKeySet.size > 0;
+  const verticalClipCaptionTextBySlotForJob = useMemo(() => {
+    if (!hasSelectedCaptionClipSlots) return verticalClipCaptionTextBySlot;
+    const filtered: Record<string, string> = {};
+    for (const [slotKey, text] of Object.entries(verticalClipCaptionTextBySlot)) {
+      if (!selectedCaptionClipSlotKeySet.has(slotKey)) continue;
+      const normalized = normalizeVerticalCaptionTextForJob(text);
+      if (!normalized) continue;
+      filtered[slotKey] = normalized;
+    }
+    return filtered;
+  }, [hasSelectedCaptionClipSlots, selectedCaptionClipSlotKeySet, verticalClipCaptionTextBySlot]);
   const verticalCaptionCustomPhrases = useMemo(() => {
     const allLines = [
       ...VERTICAL_VARIANT_CAPTION_KEYS.flatMap((key) => splitVerticalCaptionLines(verticalCaptionTextByVariant[key] || "")),
-      ...Object.values(verticalClipCaptionTextBySlot).flatMap((value) => splitVerticalCaptionLines(value)),
+      ...Object.values(verticalClipCaptionTextBySlotForJob).flatMap((value) => splitVerticalCaptionLines(value)),
     ];
     return Array.from(new Set(allLines));
-  }, [verticalCaptionTextByVariant, verticalClipCaptionTextBySlot]);
+  }, [verticalCaptionTextByVariant, verticalClipCaptionTextBySlotForJob]);
   const resolvedVerticalCaptionText = useMemo(
     () => normalizeVerticalCaptionTextForJob(verticalCaptionCustomPhrases.join("\n")),
     [verticalCaptionCustomPhrases],
@@ -4149,6 +4402,8 @@ const Editor = () => {
     const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[presetId] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
     setVerticalCaptionPreset(presetId);
     setVerticalCaptionFontId(defaults.fontId);
+    setVerticalCaptionFontVariantId(DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[defaults.fontId]);
+    setVerticalCaptionLookId(`${presetId}_pop`);
     setVerticalCaptionOutlineColor(defaults.outlineColor);
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
     setVerticalCaptionAnimation(defaults.animation);
@@ -4159,6 +4414,34 @@ const Editor = () => {
     setVerticalCaptionAutoEmphasis(defaults.autoEmphasis);
     setVerticalCaptionAutoEmoji(defaults.autoEmoji);
     setVerticalCaptionRemoveFillers(defaults.removeFillers);
+  }, []);
+
+  const applyVerticalCaptionFontVariant = useCallback((variantId: string) => {
+    const variant = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[variantId];
+    if (!variant) return;
+    setVerticalCaptionFontVariantId(variant.id);
+    setVerticalCaptionFontId(variant.renderFontId);
+  }, []);
+
+  const applyVerticalCaptionLook = useCallback((lookId: string) => {
+    const look = VERTICAL_CAPTION_LOOK_OPTIONS.find((entry) => entry.id === lookId);
+    if (!look) return;
+    const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[look.preset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const variant = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[look.fontVariantId];
+    setVerticalCaptionLookId(look.id);
+    setVerticalCaptionPreset(look.preset);
+    setVerticalCaptionFontVariantId(look.fontVariantId);
+    setVerticalCaptionFontId(variant?.renderFontId ?? defaults.fontId);
+    setVerticalCaptionOutlineColor(defaults.outlineColor);
+    setVerticalCaptionOutlineWidth(look.outlineWidth);
+    setVerticalCaptionAnimation(look.animation);
+    setVerticalCaptionDynamicMode(look.dynamicMode);
+    setVerticalCaptionShadowStrength(look.shadowStrength);
+    setVerticalCaptionAnimationSpeed(look.animationSpeed);
+    setVerticalCaptionHighlightWords(look.highlightWords);
+    setVerticalCaptionAutoEmphasis(look.autoEmphasis);
+    setVerticalCaptionAutoEmoji(look.autoEmoji);
+    setVerticalCaptionRemoveFillers(look.removeFillers);
   }, []);
 
   const applyPlatformVerticalCaptionPreset = useCallback(
@@ -5410,7 +5693,6 @@ const Editor = () => {
     if (!accessToken) return;
     apiFetch<EditorSettingsResponse>('/api/settings', { token: accessToken })
       .then((d) => {
-        setAutoCaptionsEnabled(false);
         const resolvedSubtitleStyle = normalizeSubtitleStyleFromSettings(d?.settings?.subtitleStyle);
         setSubtitleStyleDraft(resolvedSubtitleStyle);
         setSubtitleStyleDirty(false);
@@ -5973,11 +6255,7 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
-      requestedMode === "vertical"
-        ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
-        : autoCaptionsEnabled
-    );
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
     const verticalCaptionTextForJob = resolvedVerticalCaptionText;
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const subtitlesPayload = {
@@ -6092,7 +6370,7 @@ const Editor = () => {
                 : verticalVariantMoments,
               verticalCaptionText: verticalCaptionTextForJob,
               verticalVariantCaptions: verticalCaptionTextByVariant,
-              verticalVariantClipCaptions: verticalClipCaptionTextBySlot,
+              verticalVariantClipCaptions: verticalClipCaptionTextBySlotForJob,
               verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions,
               verticalCaptions: verticalCaptionsPayload,
             }
@@ -6458,6 +6736,8 @@ const Editor = () => {
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
     setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setVerticalMomentOptionIndexBySlot({});
+    setActiveVerticalClipEditorIndex(0);
+    setCaptionPreviewClipIndex(-1);
     setVerticalVariantCaptionPositions({
       instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
       youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
@@ -6476,12 +6756,6 @@ const Editor = () => {
     verticalMomentSelectionTouchedRef.current = false;
     verticalMomentSelectionTouchedClipIndexRef.current = null;
   }, [isVerticalMode, verticalSelectionMode]);
-
-  useEffect(() => {
-    if (!isVerticalMode) return;
-    if (!autoCaptionsEnabled) return;
-    setAutoCaptionsEnabled(false);
-  }, [autoCaptionsEnabled, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const cropWidth = Math.round(clamp(
@@ -6569,6 +6843,8 @@ const Editor = () => {
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
     setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setVerticalMomentOptionIndexBySlot({});
+    setActiveVerticalClipEditorIndex(0);
+    setCaptionPreviewClipIndex(-1);
     setVerticalVariantCaptionPositions({
       instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
       youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
@@ -6756,9 +7032,11 @@ const Editor = () => {
   const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta);
 
   useEffect(() => {
+    const previewActive = captionSettingsDialogOpen && isVerticalMode;
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
-    if (!video || !canvas || !verticalPreviewUrl || !sourceVideoMeta) return;
+    const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
+    if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
     const singleLayout = skipManualWebcamCrop || !effectiveWebcamCrop;
     if (!singleLayout && !effectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
@@ -6776,7 +7054,11 @@ const Editor = () => {
       verticalCaptionOutlineColor,
       VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "0F172A",
     );
-    const captionFontFamily = VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId] ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
+    const captionFontFamily = selectedVerticalCaptionFontVariant?.previewFamily
+      ?? VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId]
+      ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
+    const captionFontWeight = selectedVerticalCaptionFontVariant?.fontWeight ?? 900;
+    const forceUppercaseByFont = selectedVerticalCaptionFontVariant?.textTransform === "uppercase";
     const captionRawText = resolvedVerticalCaptionText;
     const captionBaseText = captionRawText || "Auto captions preview";
     const captionNoFillers = verticalCaptionRemoveFillers ? removePreviewFillers(captionBaseText) : captionBaseText;
@@ -6788,9 +7070,22 @@ const Editor = () => {
       VERTICAL_CAPTION_PRESET_RENDER_HINTS[verticalCaptionPreset] ??
       VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
     const shouldUppercasePreview = captionPresetRenderHints.uppercase && captionRawText.length === 0;
-    const captionTextForPreview = shouldUppercasePreview
+    const captionTextForPreview = (shouldUppercasePreview || forceUppercaseByFont)
       ? captionTextForPreviewRaw.toUpperCase()
       : captionTextForPreviewRaw;
+    const captionTokensForPreview = captionTextForPreview
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+    const captionWordPairsForPreview = captionTokensForPreview.length > 0
+      ? Array.from(
+          { length: Math.ceil(captionTokensForPreview.length / PREVIEW_CAPTION_WORDS_PER_BATCH) },
+          (_, pairIndex) => captionTokensForPreview
+            .slice(pairIndex * PREVIEW_CAPTION_WORDS_PER_BATCH, pairIndex * PREVIEW_CAPTION_WORDS_PER_BATCH + PREVIEW_CAPTION_WORDS_PER_BATCH)
+            .join(" "),
+        ).filter(Boolean)
+      : [captionTextForPreview];
 
     const drawVideoRegion = (
       src: WebcamCrop,
@@ -6898,6 +7193,10 @@ const Editor = () => {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
+          const captionPairDurationMs = Math.max(220, timing(440));
+          const activeCaptionPair = captionWordPairsForPreview.length > 0
+            ? captionWordPairsForPreview[Math.floor(now / captionPairDurationMs) % captionWordPairsForPreview.length]
+            : captionTextForPreview;
           let animationScale = 1;
           let animationYOffset = 0;
           let animationOpacity = 1;
@@ -6930,11 +7229,11 @@ const Editor = () => {
           ctx.globalAlpha = animationOpacity;
           ctx.translate(centerX, centerY + animationYOffset);
           ctx.scale(animationScale, animationScale);
-          ctx.font = `900 ${fontPx}px ${captionFontFamily}`;
+          ctx.font = `${captionFontWeight} ${fontPx}px ${captionFontFamily}`;
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
 
-          const lines = wrapCaptionText(captionTextForPreview, maxTextWidth, 3);
+          const lines = wrapCaptionText(activeCaptionPair, maxTextWidth, 2);
           if (lines.length > 0) {
             const lineHeight = Math.round(fontPx * 1.08);
             const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
@@ -6972,7 +7271,7 @@ const Editor = () => {
             ctx.shadowBlur = Math.round(fontPx * (boxEnabled ? 0.08 : 0.08 + captionShadowStrength * 0.52));
             ctx.shadowOffsetY = Math.round(fontPx * (boxEnabled ? 0.03 : 0.05) * Math.max(0.35, captionShadowStrength));
             const centerOffset = ((lines.length - 1) * lineHeight) / 2;
-            const allTokens = captionTextForPreview
+            const allTokens = activeCaptionPair
               .replace(/\s+/g, " ")
               .trim()
               .split(" ")
@@ -7041,7 +7340,11 @@ const Editor = () => {
       window.cancelAnimationFrame(raf);
     };
   }, [
+    captionPreviewClipIndex,
+    captionSettingsDialogOpen,
     verticalPreviewUrl,
+    resolvedPreviewOutputUrl,
+    resolvedVerticalVariantOutputUrls,
     sourceVideoMeta,
     effectiveWebcamCrop,
     effectiveVerticalBottomFitMode,
@@ -7052,6 +7355,7 @@ const Editor = () => {
     verticalCaptionAnimationSpeed,
     verticalCaptionFontSize,
     verticalCaptionFontId,
+    verticalCaptionFontVariantId,
     verticalCaptionOutlineColor,
     verticalCaptionOutlineWidth,
     verticalCaptionShadowStrength,
@@ -7062,6 +7366,7 @@ const Editor = () => {
     verticalCaptionPositionX,
     verticalCaptionPositionY,
     verticalCaptionPreset,
+    selectedVerticalCaptionFontVariant,
     resolvedVerticalCaptionText,
     isVerticalMode,
   ]);
@@ -7391,11 +7696,7 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
-          requestedMode === "vertical"
-            ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
-            : autoCaptionsEnabled
-        );
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
         const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -7490,7 +7791,7 @@ const Editor = () => {
           }
           payload.verticalCaptionText = verticalCaptionTextForJob;
           payload.verticalVariantCaptions = verticalCaptionTextByVariant;
-          payload.verticalVariantClipCaptions = verticalClipCaptionTextBySlot;
+          payload.verticalVariantClipCaptions = verticalClipCaptionTextBySlotForJob;
           payload.verticalVariantCaptionPositions = {
             instagram: {
               x: clampCaptionPosition(verticalVariantCaptionPositions.instagram.x),
@@ -11484,6 +11785,99 @@ const Editor = () => {
       }),
     [activeOutputUrls, resolvedPreviewOutputUrl, resolvedVerticalVariantOutputUrls],
   );
+  const captionStyleSearchNormalized = captionStyleSearch.trim().toLowerCase();
+  const captionFontSearchNormalized = captionFontSearch.trim().toLowerCase();
+  const filteredVerticalCaptionLookOptions = useMemo(() => {
+    if (!captionStyleSearchNormalized) return VERTICAL_CAPTION_LOOK_OPTIONS;
+    return VERTICAL_CAPTION_LOOK_OPTIONS.filter((look) => {
+      const preset = VERTICAL_CAPTION_STYLE_OPTIONS.find((entry) => entry.id === look.preset);
+      const haystack = `${look.label} ${look.description} ${preset?.label || ""}`.toLowerCase();
+      return haystack.includes(captionStyleSearchNormalized);
+    });
+  }, [captionStyleSearchNormalized]);
+  const filteredVerticalCaptionFontVariants = useMemo(() => {
+    if (!captionFontSearchNormalized) return VERTICAL_CAPTION_FONT_VARIANT_OPTIONS;
+    return VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.filter((option) =>
+      option.label.toLowerCase().includes(captionFontSearchNormalized),
+    );
+  }, [captionFontSearchNormalized]);
+  const captionPopupClipIndexes = useMemo(
+    () => Array.from({ length: Math.max(1, Math.round(Number(verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS))) }, (_, clipIndex) => clipIndex),
+    [verticalClipCount],
+  );
+  useEffect(() => {
+    if (captionPreviewClipIndex < 0) return;
+    if (captionPreviewClipIndex < captionPopupClipIndexes.length) return;
+    setCaptionPreviewClipIndex(-1);
+  }, [captionPopupClipIndexes, captionPreviewClipIndex]);
+  const allCaptionClipsSelected = useMemo(
+    () => captionPopupClipIndexes.length > 0 && captionPopupClipIndexes.every((clipIndex) => {
+      const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+      return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+    }),
+    [captionPopupClipIndexes, verticalClipCaptionGenerateSelectedBySlot],
+  );
+  const selectedCaptionClipCount = selectedCaptionClipSlotKeySet.size;
+  const setCaptionClipSelection = useCallback((clipIndex: number, selected: boolean) => {
+    const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+    setVerticalClipCaptionGenerateSelectedBySlot((prev) => ({
+      ...prev,
+      [slotKey]: selected,
+    }));
+  }, []);
+  const setCaptionClipSelectionForAll = useCallback((selected: boolean) => {
+    setVerticalClipCaptionGenerateSelectedBySlot((prev) => {
+      const next = { ...prev };
+      for (const clipIndex of captionPopupClipIndexes) {
+        const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+        next[slotKey] = selected;
+      }
+      return next;
+    });
+  }, [captionPopupClipIndexes]);
+  const applyCaptionTextToSelectedClips = useCallback(() => {
+    const normalized = normalizeVerticalCaptionTextForJob(captionBulkClipText);
+    if (!normalized) {
+      toast({
+        title: "Add caption text",
+        description: "Type caption text before applying to selected clips.",
+      });
+      return;
+    }
+    const targetClipIndexes = hasSelectedCaptionClipSlots ? captionPopupClipIndexes.filter((clipIndex) => {
+      const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+      return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+    }) : captionPopupClipIndexes;
+    if (targetClipIndexes.length === 0) return;
+    setVerticalClipCaptionTextBySlot((prev) => {
+      const next = { ...prev };
+      for (const clipIndex of targetClipIndexes) {
+        const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+        next[slotKey] = normalized;
+      }
+      return next;
+    });
+    toast({
+      title: "Captions applied",
+      description: `Updated ${targetClipIndexes.length} clip caption${targetClipIndexes.length === 1 ? "" : "s"}.`,
+    });
+  }, [
+    captionBulkClipText,
+    captionPopupClipIndexes,
+    hasSelectedCaptionClipSlots,
+    toast,
+    verticalClipCaptionGenerateSelectedBySlot,
+  ]);
+  const captionPreviewSourceUrl = useMemo(() => {
+    const sourceFallback = String(verticalPreviewUrl || resolvedPreviewOutputUrl || verticalVariantPreviewUrls[0] || "").trim();
+    if (captionPreviewClipIndex < 0) return sourceFallback;
+    const selected = String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim();
+    return selected || sourceFallback;
+  }, [captionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl, verticalVariantPreviewUrls]);
+  const captionPreviewSourceLabel = useMemo(() => {
+    if (captionPreviewClipIndex < 0) return "Source video";
+    return `Clip #${captionPreviewClipIndex + 1}`;
+  }, [captionPreviewClipIndex]);
   const generateModernCaptionForClip = useCallback((clipIndex: number) => {
     const { variantKey, versionIndex } = getVerticalSlotMetaByClipIndex(clipIndex);
     const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
@@ -13421,6 +13815,21 @@ const Editor = () => {
       }
     }, 20);
   }, []);
+
+  const openCaptionSettingsForClip = useCallback((clipIndex: number) => {
+    const normalizedClipIndex = clamp(Math.round(clipIndex), 0, Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1));
+    const selectedSlot = getVerticalVariantSlotKeyForClipIndex(normalizedClipIndex);
+    setVerticalClipCaptionGenerateSelectedBySlot(() => {
+      const next: Record<string, boolean> = {};
+      for (let idx = 0; idx < VERTICAL_VARIANT_TOTAL_CLIPS; idx += 1) {
+        const slotKey = getVerticalVariantSlotKeyForClipIndex(idx);
+        next[slotKey] = slotKey === selectedSlot;
+      }
+      return next;
+    });
+    setCaptionPreviewClipIndex(normalizedClipIndex);
+    openCaptionSettings();
+  }, [openCaptionSettings]);
 
   const renderSettingsSection = (section: EditorSettingsSection) => {
     if (section === "format") {
@@ -15372,10 +15781,6 @@ const Editor = () => {
                                       const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
                                       const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
                                       const clipCaptionRaw = String(verticalClipCaptionTextBySlot[slotKey] || "");
-                                      const clipCaptionPrompt = String(verticalClipCaptionPromptBySlot[slotKey] || "");
-                                      const clipCaptionSelectedForGeneration = Boolean(
-                                        verticalClipCaptionGenerateSelectedBySlot[slotKey],
-                                      );
                                       const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
                                         verticalCaptionTextByVariant[variantKey] || "",
                                       );
@@ -15469,99 +15874,73 @@ const Editor = () => {
                                                   : "Render"}
                                             </button>
                                           </div>
-                                          <label className="vertical-variant-preview-caption-editor">
-                                            <span className="vertical-variant-preview-caption-label">
-                                              Transcript moment
-                                            </span>
-                                            <select
-                                              value={String(Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0 ? requestedMomentIndex : -1)}
-                                              onChange={(event) => {
-                                                const nextIndex = Number(event.target.value);
-                                                verticalMomentSelectionTouchedRef.current = true;
-                                                verticalMomentSelectionTouchedClipIndexRef.current = clipIndex;
-                                                setVerticalMomentOptionIndexBySlot((prev) => {
-                                                  if (!Number.isFinite(nextIndex) || nextIndex < 0) {
-                                                    const { [slotKey]: _removed, ...rest } = prev;
-                                                    return rest;
-                                                  }
-                                                  return {
-                                                    ...prev,
-                                                    [slotKey]: clamp(Math.round(nextIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1)),
-                                                  };
-                                                });
-                                              }}
-                                              className="vertical-variant-subversion-select"
-                                            >
-                                              <option value="-1">
-                                                {resolvedMoment
-                                                  ? `Auto (${resolvedMoment.label})`
-                                                  : "Auto (wait for transcript)"}
-                                              </option>
-                                              {verticalTranscriptMomentOptions.map((option) => (
-                                                <option key={`${slotKey}-moment-${option.index}`} value={option.index}>
-                                                  {option.label} - {option.text}
-                                                </option>
-                                              ))}
-                                            </select>
-                                            {resolvedMoment ? (
-                                              <span className="vertical-variant-subversion-moment-text">{resolvedMoment.text}</span>
-                                            ) : null}
-                                          </label>
-                                          <label className="vertical-variant-preview-caption-editor">
-                                            <span className="vertical-variant-preview-caption-label">
-                                              Clip caption (manual default)
-                                            </span>
-                                            <Textarea
-                                              value={clipCaptionRaw}
-                                              onChange={(event) =>
-                                                setVerticalClipCaptionTextBySlot((prev) => ({
-                                                  ...prev,
-                                                  [slotKey]: event.target.value,
-                                                }))
-                                              }
-                                              placeholder={`Type caption for clip ${clipIndex + 1} or generate one below`}
-                                              className="vertical-mode-textarea vertical-variant-preview-caption-input min-h-[64px] resize-y border-border/60 bg-muted/20 text-xs"
-                                            />
-                                          </label>
-                                          <label className="vertical-variant-preview-caption-editor">
-                                            <span className="vertical-variant-preview-caption-label">
-                                              Caption generator prompt
-                                            </span>
-                                            <input
-                                              type="text"
-                                              value={clipCaptionPrompt}
-                                              onChange={(event) =>
-                                                setVerticalClipCaptionPromptBySlot((prev) => ({
-                                                  ...prev,
-                                                  [slotKey]: event.target.value,
-                                                }))
-                                              }
-                                              placeholder="Describe the caption tone for this clip"
-                                              className="vertical-variant-caption-prompt-input"
-                                            />
-                                          </label>
-                                          <div className="vertical-variant-caption-generate-row">
-                                            <label className="vertical-variant-caption-generate-toggle">
-                                              <input
-                                                type="checkbox"
-                                                checked={clipCaptionSelectedForGeneration}
-                                                onChange={(event) =>
-                                                  setVerticalClipCaptionGenerateSelectedBySlot((prev) => ({
-                                                    ...prev,
-                                                    [slotKey]: event.target.checked,
-                                                  }))
-                                                }
-                                              />
-                                              <span>Include in Generate selected</span>
-                                            </label>
+                                          <div className="mt-2 flex flex-wrap gap-2">
                                             <button
                                               type="button"
                                               className="vertical-variant-preview-button"
-                                              onClick={() => generateModernCaptionForClip(clipIndex)}
+                                              onClick={() =>
+                                                setActiveVerticalClipEditorIndex((prev) => (prev === clipIndex ? -1 : clipIndex))
+                                              }
                                             >
-                                              Generate caption
+                                              {activeVerticalClipEditorIndex === clipIndex ? "Hide moment editor" : "Edit moment"}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="vertical-variant-preview-button is-primary"
+                                              onClick={() => openCaptionSettingsForClip(clipIndex)}
+                                            >
+                                              Caption Popup
                                             </button>
                                           </div>
+                                          {activeVerticalClipEditorIndex === clipIndex ? (
+                                            <div className="space-y-2">
+                                              <label className="vertical-variant-preview-caption-editor">
+                                                <span className="vertical-variant-preview-caption-label">
+                                                  Transcript moment
+                                                </span>
+                                                <select
+                                                  value={String(Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0 ? requestedMomentIndex : -1)}
+                                                  onChange={(event) => {
+                                                    const nextIndex = Number(event.target.value);
+                                                    verticalMomentSelectionTouchedRef.current = true;
+                                                    verticalMomentSelectionTouchedClipIndexRef.current = clipIndex;
+                                                    setVerticalMomentOptionIndexBySlot((prev) => {
+                                                      if (!Number.isFinite(nextIndex) || nextIndex < 0) {
+                                                        const { [slotKey]: _removed, ...rest } = prev;
+                                                        return rest;
+                                                      }
+                                                      return {
+                                                        ...prev,
+                                                        [slotKey]: clamp(Math.round(nextIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1)),
+                                                      };
+                                                    });
+                                                  }}
+                                                  className="vertical-variant-subversion-select"
+                                                >
+                                                  <option value="-1">
+                                                    {resolvedMoment
+                                                      ? `Auto (${resolvedMoment.label})`
+                                                      : "Auto (wait for transcript)"}
+                                                  </option>
+                                                  {verticalTranscriptMomentOptions.map((option) => (
+                                                    <option key={`${slotKey}-moment-${option.index}`} value={option.index}>
+                                                      {option.label} - {option.text}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                                {resolvedMoment ? (
+                                                  <span className="vertical-variant-subversion-moment-text">{resolvedMoment.text}</span>
+                                                ) : null}
+                                              </label>
+                                              <p className="text-[11px] text-muted-foreground">
+                                                Clip caption text and style now live only in Caption Popup.
+                                              </p>
+                                            </div>
+                                          ) : (
+                                            <p className="mt-2 text-[11px] text-muted-foreground">
+                                              Open Caption Popup to edit text, style, animation, clip targeting, and placement.
+                                            </p>
+                                          )}
                                         </div>
                                       );
                                     })}
@@ -15570,12 +15949,12 @@ const Editor = () => {
                                     <button
                                       type="button"
                                       className="vertical-variant-preview-button"
-                                      onClick={generateModernCaptionsForSelectedClips}
+                                      onClick={openCaptionSettings}
                                     >
-                                      Generate selected clips
+                                      Open Caption Popup
                                     </button>
                                     <span className="vertical-variant-caption-batch-hint">
-                                      Manual typing is still default. Use checkboxes only for clips you want auto-generated.
+                                      Pick a clip in the popup, choose a look/font/animation, and drag caption position live.
                                     </span>
                                   </div>
                                 </div>
@@ -15591,7 +15970,7 @@ const Editor = () => {
                                     </div>
                                   </div>
                                   <p className="vertical-variant-preview-transcript">
-                                    Platform variants are mixed in one queue. Use checkboxes only for clips you want caption generation on.
+                                    Platform variants are mixed in one queue. Captions are now edited in the popup only.
                                   </p>
                                 </div>
                               </div>
@@ -17563,14 +17942,241 @@ const Editor = () => {
 
       <Dialog open={captionSettingsDialogOpen} onOpenChange={setCaptionSettingsDialogOpen}>
         {captionSettingsDialogOpen ? (
-          <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-3xl sm:p-6">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-display">Customize Captions</DialogTitle>
-              <DialogDescription>
-                Tune caption style, animation, and save your settings without leaving the preview.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-3">{renderSettingsSection("captions")}</div>
+          <DialogContent className="max-h-[94vh] max-w-[calc(100vw-1rem)] overflow-hidden border border-primary/35 bg-[radial-gradient(145%_165%_at_2%_0%,rgba(59,130,246,0.18),transparent_58%),radial-gradient(110%_140%_at_98%_0%,rgba(16,185,129,0.12),transparent_62%),linear-gradient(148deg,rgba(2,6,23,0.96),rgba(15,23,42,0.94))] p-0 shadow-[0_36px_80px_-36px_rgba(37,99,235,0.9)] backdrop-blur-xl sm:max-w-6xl">
+            <div className="max-h-[94vh] overflow-y-auto p-4 sm:p-6">
+              <DialogHeader>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <Badge className="border-primary/45 bg-primary/15 text-primary-foreground">Caption Studio</Badge>
+                  <Badge className="border-emerald-300/35 bg-emerald-500/12 text-emerald-100">
+                    {VERTICAL_CAPTION_LOOK_OPTIONS.length}+ styles · {VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.length}+ fonts
+                  </Badge>
+                </div>
+                <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Customize Captions</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Build TikTok-style captions, target selected clips or all clips, and preview placement before rendering.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className={`mt-4 grid gap-4 ${isVerticalMode ? "xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]" : "grid-cols-1"}`}>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border/45 bg-background/30 p-3">
+                    {renderSettingsSection("captions")}
+                  </div>
+
+                  {isVerticalMode ? (
+                    <>
+                      <div className="rounded-2xl border border-primary/35 bg-[linear-gradient(145deg,rgba(30,58,138,0.18),rgba(15,23,42,0.46))] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-foreground">TikTok Caption Looks</p>
+                          <Badge className="border-primary/40 bg-primary/12 text-primary">
+                            {Math.max(50, VERTICAL_CAPTION_LOOK_OPTIONS.length)}+ styles
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Pick from 50+ TikTok-ready looks with matching fonts and animation behavior.
+                        </p>
+                        <input
+                          value={captionStyleSearch}
+                          onChange={(event) => setCaptionStyleSearch(event.target.value)}
+                          placeholder="Search styles (e.g. pop, glitch, clean)"
+                          className="mt-3 h-9 w-full rounded-lg border border-border/60 bg-background/55 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        />
+                        <div className="mt-3 grid max-h-[260px] grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+                          {filteredVerticalCaptionLookOptions.map((look) => {
+                            const active = verticalCaptionLookId === look.id;
+                            const presetMeta = VERTICAL_CAPTION_STYLE_OPTIONS.find((entry) => entry.id === look.preset);
+                            return (
+                              <button
+                                key={look.id}
+                                type="button"
+                                className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                                  active
+                                    ? "border-primary/70 bg-primary/18 text-foreground shadow-[0_12px_26px_-20px_hsl(var(--primary)/0.95)]"
+                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                }`}
+                                onClick={() => applyVerticalCaptionLook(look.id)}
+                              >
+                                <p className="text-xs font-semibold">{look.label}</p>
+                                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{look.description}</p>
+                                <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-primary/80">
+                                  {presetMeta?.label || "Style"}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/55 bg-background/30 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-foreground">Font Library</p>
+                          <Badge variant="outline" className="border-border/60 bg-background/45 text-[10px] text-muted-foreground">
+                            {VERTICAL_CAPTION_FONT_VARIANT_OPTIONS.length} options
+                          </Badge>
+                        </div>
+                        <input
+                          value={captionFontSearch}
+                          onChange={(event) => setCaptionFontSearch(event.target.value)}
+                          placeholder="Search font looks"
+                          className="mt-3 h-9 w-full rounded-lg border border-border/60 bg-background/55 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        />
+                        <div className="mt-3 grid max-h-[220px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                          {filteredVerticalCaptionFontVariants.map((variant) => {
+                            const active = verticalCaptionFontVariantId === variant.id;
+                            return (
+                              <button
+                                key={variant.id}
+                                type="button"
+                                className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                                  active
+                                    ? "border-primary/65 bg-primary/16 text-foreground"
+                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                }`}
+                                onClick={() => applyVerticalCaptionFontVariant(variant.id)}
+                              >
+                                <p
+                                  className="text-sm"
+                                  style={{
+                                    fontFamily: variant.previewFamily,
+                                    fontWeight: variant.fontWeight,
+                                    textTransform: variant.textTransform,
+                                  }}
+                                >
+                                  {variant.label}
+                                </p>
+                                <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                                  Render-safe {variant.renderFontId.replace("_", " ")}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/55 bg-background/30 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-foreground">Clip Selector</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {selectedCaptionClipCount > 0 ? `${selectedCaptionClipCount} selected` : "No clips selected"}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Select the clips that should receive your custom caption text, or apply to all clips.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={allCaptionClipsSelected ? "default" : "outline"}
+                            className="h-8 rounded-full px-3 text-[11px]"
+                            onClick={() => setCaptionClipSelectionForAll(true)}
+                          >
+                            Select all clips
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={!allCaptionClipsSelected ? "default" : "outline"}
+                            className="h-8 rounded-full px-3 text-[11px]"
+                            onClick={() => setCaptionClipSelectionForAll(false)}
+                          >
+                            Clear selection
+                          </Button>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {captionPopupClipIndexes.map((clipIndex) => {
+                            const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+                            const selected = Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+                            return (
+                              <button
+                                key={`caption-clip-select-${clipIndex}`}
+                                type="button"
+                                className={`rounded-xl border px-2.5 py-2 text-left text-xs transition-all ${
+                                  selected
+                                    ? "border-primary/65 bg-primary/18 text-foreground"
+                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                }`}
+                                onClick={() => setCaptionClipSelection(clipIndex, !selected)}
+                              >
+                                Clip #{clipIndex + 1}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <Textarea
+                            value={captionBulkClipText}
+                            onChange={(event) => setCaptionBulkClipText(event.target.value)}
+                            placeholder="Type one caption line to apply to selected clips (or all clips if none selected)"
+                            className="min-h-[88px] border-border/60 bg-background/55 text-xs text-foreground placeholder:text-muted-foreground"
+                          />
+                          <Button
+                            type="button"
+                            className="min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
+                            onClick={applyCaptionTextToSelectedClips}
+                          >
+                            Apply Text To {hasSelectedCaptionClipSlots ? "Selected Clips" : "All Clips"}
+                          </Button>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+
+                {isVerticalMode ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-cyan-300/30 bg-[linear-gradient(145deg,rgba(14,116,144,0.2),rgba(15,23,42,0.54))] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">Live Caption Preview</p>
+                        <Badge className="border-cyan-300/35 bg-cyan-500/12 text-cyan-100">{captionPreviewSourceLabel}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Drag on the preview to reposition captions before render.
+                      </p>
+                      <label className="mt-3 block space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Preview video source</span>
+                        <select
+                          value={String(captionPreviewClipIndex)}
+                          onChange={(event) => setCaptionPreviewClipIndex(Number(event.target.value))}
+                          className="h-9 w-full rounded-lg border border-border/60 bg-background/55 px-2.5 text-xs text-foreground"
+                        >
+                          <option value="-1">Source video</option>
+                          {captionPopupClipIndexes.map((clipIndex) => (
+                            <option key={`caption-preview-clip-${clipIndex}`} value={clipIndex}>
+                              Clip #{clipIndex + 1}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {captionPreviewSourceUrl ? (
+                        <video
+                          ref={verticalCompositionVideoRef}
+                          src={captionPreviewSourceUrl}
+                          preload="metadata"
+                          muted
+                          playsInline
+                          onLoadedMetadata={handleVerticalSourceMetadata}
+                          className="hidden"
+                        />
+                      ) : null}
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-black/45 p-2">
+                        {captionPreviewSourceUrl ? (
+                          <canvas
+                            ref={verticalCompositionCanvasRef}
+                            onPointerDown={beginVerticalCaptionDrag}
+                            className="h-auto w-full touch-none rounded-xl border border-border/50 bg-black/75"
+                          />
+                        ) : (
+                          <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
+                            Upload and prepare a vertical source video to unlock live caption preview.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </DialogContent>
         ) : null}
       </Dialog>
