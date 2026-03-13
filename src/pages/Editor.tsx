@@ -7167,13 +7167,18 @@ const Editor = () => {
     ));
     const insetX = sourceWidth * DEFAULT_WEBCAM_CROP_INSET_X_RATIO;
     const insetY = sourceHeight * DEFAULT_WEBCAM_CROP_INSET_Y_RATIO;
+    const anchorToTop = verticalWebcamPlacement === "top";
     return {
       x: Math.round(clamp(insetX, 0, Math.max(0, sourceWidth - cropWidth))),
-      y: Math.round(clamp(sourceHeight - cropHeight - insetY, 0, Math.max(0, sourceHeight - cropHeight))),
+      y: Math.round(clamp(
+        anchorToTop ? insetY : sourceHeight - cropHeight - insetY,
+        0,
+        Math.max(0, sourceHeight - cropHeight),
+      )),
       w: cropWidth,
       h: cropHeight,
     };
-  }, []);
+  }, [verticalWebcamPlacement]);
 
   const normalizeWebcamCrop = useCallback((value: WebcamCrop, source: { width: number; height: number }): WebcamCrop => {
     const minSize = Math.min(
@@ -7399,6 +7404,11 @@ const Editor = () => {
     if (webcamPaddingPx <= webcamPaddingMax) return;
     setWebcamPaddingPx(webcamPaddingMax);
   }, [webcamPaddingPx, webcamPaddingMax]);
+
+  useEffect(() => {
+    if (!sourceVideoMeta || webcamCropWasAdjusted || skipManualWebcamCrop) return;
+    setWebcamCrop(buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height));
+  }, [buildDefaultWebcamCrop, sourceVideoMeta, webcamCropWasAdjusted, skipManualWebcamCrop]);
 
   const effectiveWebcamCrop = useMemo(() => {
     if (!webcamCrop || !sourceVideoMeta) return null;
@@ -7971,7 +7981,7 @@ const Editor = () => {
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
-            { sourceInsetXRatio: 0.085, sourceInsetYRatio: 0.018, destBleedPx: 2.5 },
+            { sourceInsetXRatio: 0.018, sourceInsetYRatio: 0.01, destBleedPx: 2 },
           );
           const drewBottom = drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
