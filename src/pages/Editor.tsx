@@ -7407,11 +7407,11 @@ const Editor = () => {
       .split(" ")
       .filter(Boolean);
     const captionChunkRangesForPreview = buildPreviewCaptionTokenRanges(captionTokensForPreview.length);
-    const timingClipIndex = selectedCaptionClipIndex >= 0
-      ? selectedCaptionClipIndex
-      : captionPreviewClipIndex >= 0
-        ? captionPreviewClipIndex
-        : -1;
+    const timingClipIndex = captionPreviewClipIndex >= 0
+      ? captionPreviewClipIndex
+      : activeVerticalClipEditorIndex >= 0
+        ? activeVerticalClipEditorIndex
+        : 0;
     const timingSlotMeta = timingClipIndex >= 0 ? getVerticalSlotMetaByClipIndex(timingClipIndex) : null;
     const timingSlotKey = timingSlotMeta
       ? getVerticalVariantSlotKey(timingSlotMeta.variantKey, timingSlotMeta.versionIndex)
@@ -7440,7 +7440,7 @@ const Editor = () => {
     const transcriptLinkedPreview = Boolean(
       timingSlotKey &&
       !normalizeVerticalCaptionTextForJob(String(verticalClipCaptionTextBySlot[timingSlotKey] || "")) &&
-      selectedCaptionClipTranscriptText,
+      String(timingCue?.text || timingMoment?.text || "").trim(),
     );
     const timedCaptionTokens = transcriptLinkedPreview
       ? (() => {
@@ -8055,8 +8055,6 @@ const Editor = () => {
     verticalDefaultMomentIndexBySlot,
     verticalTranscriptMomentOptions,
     activeTranscriptCues,
-    selectedCaptionClipIndex,
-    selectedCaptionClipTranscriptText,
     verticalClipCount,
     verticalClipDurationSeconds,
     verticalSelectionMode,
