@@ -201,9 +201,11 @@ const chunkSizeForFile = (size: number) => {
 };
 
 const uploadParallelismForFile = (size: number) => {
-  if (size >= 1024 * MB) return 4;
-  if (size >= 512 * MB) return 3;
-  if (size >= 256 * MB) return 2;
+  if (size >= 2 * 1024 * MB) return 6;
+  if (size >= 1024 * MB) return 5;
+  if (size >= 512 * MB) return 4;
+  if (size >= 256 * MB) return 3;
+  if (size >= 96 * MB) return 2;
   return 1;
 };
 
@@ -6174,8 +6176,18 @@ const Editor = () => {
           let parallelism = uploadParallelismForFile(total);
           if (conservativeNetwork) parallelism = 1;
           else if (moderateNetwork) parallelism = Math.min(parallelism, 2);
-          if (runtimeProfile.lowPowerDevice) parallelism = Math.min(parallelism, 2);
-          parallelism = clamp(parallelism, 1, 4);
+          if (runtimeProfile.lowPowerDevice) parallelism = Math.min(parallelism, 3);
+          if (
+            !conservativeNetwork &&
+            !moderateNetwork &&
+            !runtimeProfile.lowPowerDevice &&
+            (runtimeProfile.hardwareConcurrency ?? 0) >= 12
+          ) {
+            parallelism = Math.max(parallelism, 6);
+          }
+          parallelism = clamp(parallelism, 1, 6);
+
+          const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
           const uploadPart = async (part: { partNumber: number; url: string }) => {
             const partNumber = part.partNumber;
@@ -6197,9 +6209,26 @@ const Editor = () => {
             return { ETag: etag, PartNumber: partNumber, size: chunk.size };
           };
 
+          const uploadPartWithRetry = async (part: { partNumber: number; url: string }) => {
+            const maxAttempts = conservativeNetwork ? 2 : 3;
+            let attempt = 0;
+            while (attempt < maxAttempts) {
+              attempt += 1;
+              try {
+                return await uploadPart(part);
+              } catch (err: any) {
+                const message = String(err?.message || err || "");
+                if (message.includes("missing_etag_header") || attempt >= maxAttempts) throw err;
+                const backoffMs = Math.min(1800, (attempt * 260) + Math.floor(Math.random() * 180));
+                await wait(backoffMs);
+              }
+            }
+            throw new Error(`upload_part_failed_${part.partNumber}`);
+          };
+
           if (parallelism <= 1 || sortedPresignedParts.length <= 1) {
             for (const part of sortedPresignedParts) {
-              const result = await uploadPart(part);
+              const result = await uploadPartWithRetry(part);
               parts.push({ ETag: result.ETag, PartNumber: result.PartNumber });
               uploaded += result.size;
               setUploadBytesUploaded(uploaded);
@@ -6213,7 +6242,7 @@ const Editor = () => {
               while (cursor < sortedPresignedParts.length) {
                 const current = cursor;
                 cursor += 1;
-                const result = await uploadPart(sortedPresignedParts[current]);
+                const result = await uploadPartWithRetry(sortedPresignedParts[current]);
                 parts.push({ ETag: result.ETag, PartNumber: result.PartNumber });
                 uploaded += result.size;
                 setUploadBytesUploaded(uploaded);
@@ -6257,11 +6286,9 @@ const Editor = () => {
         }
       };
 
-      // Try R2 multipart only when backend indicates direct object upload support.
-      if (create.uploadUrl) {
-        const usedR2 = await tryR2Multipart()
-        if (usedR2) return true
-      }
+      // Always attempt multipart first. If it fails, we gracefully fall back below.
+      const usedR2 = await tryR2Multipart()
+      if (usedR2) return true
 
       const uploadViaProxy = async () => {
         const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
