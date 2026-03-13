@@ -7747,6 +7747,8 @@ const Editor = () => {
       fit: VerticalFitMode,
       options?: {
         sourceInsetRatio?: number;
+        sourceInsetXRatio?: number;
+        sourceInsetYRatio?: number;
         destBleedPx?: number;
       },
     ) => {
@@ -7754,6 +7756,8 @@ const Editor = () => {
       const srcAspect = src.w / src.h;
       const dstAspect = dst.w / dst.h;
       const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
+      const sourceInsetXRatio = Math.max(0, Number(options?.sourceInsetXRatio ?? 0));
+      const sourceInsetYRatio = Math.max(0, Number(options?.sourceInsetYRatio ?? 0));
       const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
       if (fit === "contain") {
         let drawWidth = dst.w;
@@ -7793,10 +7797,12 @@ const Editor = () => {
         sy += (sh - trimmed) / 2;
         sh = trimmed;
       }
-      const overscanRatio = fit === "cover" ? Math.max(0.004, sourceInsetRatio) : sourceInsetRatio;
-      if (overscanRatio > 0) {
-        const insetX = sw * overscanRatio;
-        const insetY = sh * overscanRatio;
+      const baseInsetRatio = fit === "cover" ? 0.004 : 0;
+      const overscanXRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetXRatio);
+      const overscanYRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetYRatio);
+      if (overscanXRatio > 0 || overscanYRatio > 0) {
+        const insetX = sw * overscanXRatio;
+        const insetY = sh * overscanYRatio;
         if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
           sx += insetX;
           sy += insetY;
@@ -7965,7 +7971,7 @@ const Editor = () => {
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
-            { sourceInsetRatio: 0.012, destBleedPx: 1.5 },
+            { sourceInsetXRatio: 0.085, sourceInsetYRatio: 0.018, destBleedPx: 2.5 },
           );
           const drewBottom = drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
