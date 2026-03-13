@@ -13171,14 +13171,25 @@ const Editor = () => {
     return captionPopupClipIndexes[0] ?? -1;
   }, [activeVerticalClipEditorIndex, captionPopupClipIndexes, captionPreviewClipIndex]);
   const captionPreviewSourceUrl = useMemo(() => {
-    const renderedClipUrl = resolvedCaptionPreviewClipIndex >= 0
-      ? String(verticalVariantPreviewUrls[resolvedCaptionPreviewClipIndex] || "").trim()
+    const resolvedClipUrl = resolvedCaptionPreviewClipIndex >= 0
+      ? String(resolvedVerticalVariantOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim()
       : "";
+    if (resolvedClipUrl) return resolvedClipUrl;
+    const directClipUrl = resolvedCaptionPreviewClipIndex >= 0
+      ? String(activeOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim()
+      : "";
+    const renderedClipUrl = directClipUrl && !isAuthRequiredDownloadUrl(directClipUrl) ? directClipUrl : "";
     if (renderedClipUrl) return renderedClipUrl;
     const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
     if (sourceFallback) return sourceFallback;
     return String(verticalPreviewUrl || "").trim();
-  }, [resolvedCaptionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl, verticalVariantPreviewUrls]);
+  }, [
+    activeOutputUrls,
+    resolvedCaptionPreviewClipIndex,
+    resolvedPreviewOutputUrl,
+    resolvedVerticalVariantOutputUrls,
+    verticalPreviewUrl,
+  ]);
   const captionPreviewSourceLabel = useMemo(() => {
     if (resolvedCaptionPreviewClipIndex < 0) return "Clip Preview";
     return `Clip #${resolvedCaptionPreviewClipIndex + 1}`;
@@ -20000,6 +20011,7 @@ const Editor = () => {
                         <video
                           ref={verticalCompositionVideoRef}
                           src={captionPreviewSourceUrl}
+                          crossOrigin="anonymous"
                           preload="metadata"
                           muted
                           playsInline
