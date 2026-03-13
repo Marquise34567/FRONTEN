@@ -4212,6 +4212,17 @@ const Editor = () => {
     }
     return filtered;
   }, [hasSelectedCaptionClipSlots, selectedCaptionClipSlotKeySet, verticalClipCaptionTextBySlot]);
+  const verticalClipCaptionOverlayBySlotForJob = useMemo(() => {
+    if (!hasSelectedCaptionClipSlots) return verticalClipCaptionOverlayBySlot;
+    const filtered: Record<string, VerticalCaptionOverlayTone> = {};
+    for (const [slotKey, rawTone] of Object.entries(verticalClipCaptionOverlayBySlot)) {
+      if (!selectedCaptionClipSlotKeySet.has(slotKey)) continue;
+      const tone: VerticalCaptionOverlayTone =
+        rawTone === "white" || rawTone === "black" ? rawTone : "none";
+      filtered[slotKey] = tone;
+    }
+    return filtered;
+  }, [hasSelectedCaptionClipSlots, selectedCaptionClipSlotKeySet, verticalClipCaptionOverlayBySlot]);
   const verticalCaptionCustomPhrases = useMemo(() => {
     const allLines = [
       ...VERTICAL_VARIANT_CAPTION_KEYS.flatMap((key) => splitVerticalCaptionLines(verticalCaptionTextByVariant[key] || "")),
@@ -6514,6 +6525,7 @@ const Editor = () => {
                 y: clampCaptionPosition(verticalVariantCaptionPositions.tiktok.y),
               },
             },
+            clipOverlayToneBySlot: verticalClipCaptionOverlayBySlotForJob,
           }
         : null;
     const fullAutoYoutubePayload = resolvedFullAutoYoutubeEnabled
@@ -6581,6 +6593,7 @@ const Editor = () => {
               verticalCaptionText: verticalCaptionTextForJob,
               verticalVariantCaptions: verticalCaptionTextByVariant,
               verticalVariantClipCaptions: verticalClipCaptionTextBySlotForJob,
+              verticalClipCaptionOverlayBySlot: verticalClipCaptionOverlayBySlotForJob,
               verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions,
               verticalCaptions: verticalCaptionsPayload,
             }
@@ -8047,6 +8060,7 @@ const Editor = () => {
           payload.verticalCaptionText = verticalCaptionTextForJob;
           payload.verticalVariantCaptions = verticalCaptionTextByVariant;
           payload.verticalVariantClipCaptions = verticalClipCaptionTextBySlotForJob;
+          payload.verticalClipCaptionOverlayBySlot = verticalClipCaptionOverlayBySlotForJob;
           payload.verticalVariantCaptionPositions = {
             instagram: {
               x: clampCaptionPosition(verticalVariantCaptionPositions.instagram.x),
@@ -8087,6 +8101,7 @@ const Editor = () => {
             positionX: clampCaptionPosition(verticalCaptionPositionX),
             positionY: clampCaptionPosition(verticalCaptionPositionY),
             variantPositions: payload.verticalVariantCaptionPositions,
+            clipOverlayToneBySlot: verticalClipCaptionOverlayBySlotForJob,
           };
         }
         if (preferredHook && hookSelectionModeForJob !== "auto") {
@@ -8241,6 +8256,7 @@ const Editor = () => {
       verticalCaptionCustomPhrases,
       verticalCaptionTextByVariant,
       verticalClipCaptionTextBySlot,
+      verticalClipCaptionOverlayBySlotForJob,
       verticalClipCount,
       ensureNotificationPermission,
       toast,
