@@ -4321,6 +4321,7 @@ const Editor = () => {
   const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
+  const [captionPreviewDrawFallback, setCaptionPreviewDrawFallback] = useState(false);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("viral");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
@@ -4475,6 +4476,7 @@ const Editor = () => {
   const verticalVariantMomentsRef = useRef<VerticalVariantMoment[]>([]);
   const verticalClipDurationSecondsRef = useRef<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
+  const captionPreviewDrawFailureCountRef = useRef(0);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
   const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
@@ -7463,7 +7465,19 @@ const Editor = () => {
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
-    if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
+    if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta || captionPreviewDrawFallback) return;
+    const registerDrawFailure = () => {
+      const nextCount = captionPreviewDrawFailureCountRef.current + 1;
+      captionPreviewDrawFailureCountRef.current = nextCount;
+      if (nextCount >= 24) {
+        setCaptionPreviewDrawFallback(true);
+      }
+    };
+    const clearDrawFailure = () => {
+      if (captionPreviewDrawFailureCountRef.current !== 0) {
+        captionPreviewDrawFailureCountRef.current = 0;
+      }
+    };
     const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
     const editableSourcePreviewActive = sourcePreviewUrl.length > 0 && previewSourceUrl === sourcePreviewUrl;
     const resolvedPreviewClipIndex = captionPreviewClipIndex >= 0
@@ -7960,6 +7974,7 @@ const Editor = () => {
       try {
         if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
           verticalCaptionHitboxRef.current = null;
+          registerDrawFailure();
           return;
         }
         if (Math.abs((video.playbackRate || 1) - 1) > 0.01) {
@@ -7975,6 +7990,7 @@ const Editor = () => {
         }
         if (!canDrawFrame) {
           verticalCaptionHitboxRef.current = null;
+          registerDrawFailure();
           return;
         }
         ctx.fillStyle = "#040404";
@@ -8020,8 +8036,10 @@ const Editor = () => {
         }
         if (!drewVideoFrame) {
           verticalCaptionHitboxRef.current = null;
+          registerDrawFailure();
           return;
         }
+        clearDrawFailure();
 
         if (autoCaptionsEnabled && editableSourcePreviewActive) {
           const now = performance.now();
@@ -8211,6 +8229,7 @@ const Editor = () => {
         }
       } catch {
         verticalCaptionHitboxRef.current = null;
+        registerDrawFailure();
       } finally {
         raf = window.requestAnimationFrame(render);
       }
@@ -8284,6 +8303,7 @@ const Editor = () => {
     activeJob?.status,
     activeJob?.analysis,
     isVerticalMode,
+    captionPreviewDrawFallback,
   ]);
 
   const startVerticalRender = useCallback(async () => {
@@ -13194,6 +13214,10 @@ const Editor = () => {
     if (resolvedCaptionPreviewClipIndex < 0) return "Clip Preview";
     return `Clip #${resolvedCaptionPreviewClipIndex + 1}`;
   }, [resolvedCaptionPreviewClipIndex]);
+  useEffect(() => {
+    captionPreviewDrawFailureCountRef.current = 0;
+    setCaptionPreviewDrawFallback(false);
+  }, [captionPreviewSourceUrl, captionSettingsDialogOpen]);
   const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
     if (!Number.isFinite(nextClipIndex)) return;
     const boundedClipIndex = clamp(Math.round(nextClipIndex), 0, Math.max(0, captionPopupClipIndexes.length - 1));
@@ -20021,11 +20045,29 @@ const Editor = () => {
                       ) : null}
                       <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-black/45 p-2">
                         {captionPreviewSourceUrl ? (
-                          <canvas
-                            ref={verticalCompositionCanvasRef}
-                            onPointerDown={beginVerticalCaptionDrag}
-                            className="h-auto w-full touch-none rounded-xl border border-border/50 bg-black/75"
-                          />
+                          captionPreviewDrawFallback ? (
+                            <div className="space-y-2">
+                              <p className="px-1 text-[11px] text-muted-foreground">
+                                Live canvas preview fallback active. Showing direct clip playback.
+                              </p>
+                              <video
+                                src={captionPreviewSourceUrl}
+                                crossOrigin="anonymous"
+                                preload="metadata"
+                                muted
+                                playsInline
+                                autoPlay
+                                loop
+                                className="h-auto w-full rounded-xl border border-border/50 bg-black/75 object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <canvas
+                              ref={verticalCompositionCanvasRef}
+                              onPointerDown={beginVerticalCaptionDrag}
+                              className="h-auto w-full touch-none rounded-xl border border-border/50 bg-black/75"
+                            />
+                          )
                         ) : (
                           <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
                             Upload and prepare a vertical source video to unlock live caption preview.
