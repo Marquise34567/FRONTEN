@@ -7066,9 +7066,13 @@ const Editor = () => {
       toast({ title: "Preparing video", description: "Wait for video metadata to load, then try again." });
       return false;
     }
-    const resolvedVerticalLayout: VerticalLayoutMode = skipManualWebcamCrop ? "single" : "stacked";
     const hasCustomWebcamCrop = webcamCropWasAdjusted || webcamPaddingPx > 0;
     const useAutoWebcamCrop = !skipManualWebcamCrop && !hasCustomWebcamCrop;
+    const resolvedVerticalLayout: VerticalLayoutMode = skipManualWebcamCrop
+      ? "single"
+      : useAutoWebcamCrop
+        ? "auto"
+        : "stacked";
     const fixedWebcamCrop = useAutoWebcamCrop
       ? null
       : normalizeWebcamCrop(
@@ -15222,7 +15226,7 @@ const Editor = () => {
                       <p className="mt-2 text-[11px] text-muted-foreground">
                         {skipManualWebcamCrop
                           ? "Auto Webcam is off. Clips render without the webcam top strip."
-                          : "Auto Webcam is on. Clips render with the webcam top strip."}
+                          : "Auto Webcam is on. Clips auto-detect and apply a webcam top strip when confidence is high."}
                       </p>
                     </div>
                   </div>
