@@ -7771,7 +7771,7 @@ const Editor = () => {
     };
     const preparedCaptionChunksRaw = captionChunkSources
       .map((chunk) => {
-        const lines = wrapCaptionText(chunk.text, maxTextWidth, 2);
+        const lines = wrapCaptionText(chunk.text, maxTextWidth, 1);
         if (lines.length === 0) return null;
         const preparedLines = lines.map((line) => {
           const lineWords = line.split(" ").filter(Boolean);
@@ -7830,6 +7830,10 @@ const Editor = () => {
     let raf = 0;
     const render = () => {
       if (video.readyState >= 2) {
+        if (Math.abs((video.playbackRate || 1) - 1) > 0.01) {
+          video.playbackRate = 1;
+          video.defaultPlaybackRate = 1;
+        }
         ctx.fillStyle = "#040404";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
         if (singleLayout) {
@@ -7857,7 +7861,9 @@ const Editor = () => {
           ctx.stroke();
         }
 
-        if (autoCaptionsEnabled) {
+        const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
+        const editableSourcePreviewActive = sourcePreviewUrl.length > 0 && previewSourceUrl === sourcePreviewUrl;
+        if (autoCaptionsEnabled && editableSourcePreviewActive) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
@@ -8058,6 +8064,10 @@ const Editor = () => {
       }
     };
     const startPlayback = () => {
+      if (Math.abs((video.playbackRate || 1) - 1) > 0.01) {
+        video.playbackRate = 1;
+        video.defaultPlaybackRate = 1;
+      }
       const maybePromise = video.play();
       if (maybePromise && typeof maybePromise.catch === "function") {
         maybePromise.catch(() => undefined);
@@ -12974,11 +12984,10 @@ const Editor = () => {
   const captionPreviewSourceUrl = useMemo(() => {
     const rawSource = String(verticalPreviewUrl || "").trim();
     if (rawSource) return rawSource;
-    const sourceFallback = String(resolvedPreviewOutputUrl || verticalVariantPreviewUrls[0] || "").trim();
+    const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
     if (captionPreviewClipIndex < 0) return sourceFallback;
-    const selected = String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim();
-    return selected || sourceFallback;
-  }, [captionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl, verticalVariantPreviewUrls]);
+    return sourceFallback;
+  }, [captionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl]);
   const captionPreviewSourceLabel = useMemo(() => {
     if (captionPreviewClipIndex < 0) return "Source video";
     return `Clip #${captionPreviewClipIndex + 1}`;
@@ -17298,6 +17307,8 @@ const Editor = () => {
                                                     const nextIndex = Number(event.target.value);
                                                     verticalMomentSelectionTouchedRef.current = true;
                                                     verticalMomentSelectionTouchedClipIndexRef.current = clipIndex;
+                                                    setCaptionPreviewClipIndex(clipIndex);
+                                                    setActiveVerticalClipEditorIndex(clipIndex);
                                                     setVerticalMomentOptionIndexBySlot((prev) => {
                                                       if (!Number.isFinite(nextIndex) || nextIndex < 0) {
                                                         const { [slotKey]: _removed, ...rest } = prev;
