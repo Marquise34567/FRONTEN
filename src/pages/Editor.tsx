@@ -214,6 +214,10 @@ const normalizeVerticalCaptionTextForJob = (value: string) =>
     .replace(/\r\n?/g, "\n")
     .trim()
     .slice(0, 1800);
+const sanitizeVerticalCaptionDraftText = (value: string) =>
+  String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .slice(0, 1800);
 const splitVerticalCaptionLines = (value: string) =>
   normalizeVerticalCaptionTextForJob(value)
     .split(/\n+/)
@@ -239,7 +243,32 @@ const PREVIEW_EMOJI_RULES: Array<{ pattern: RegExp; emoji: string }> = [
   { pattern: /(laugh|funny|lol|lmao|joke)/i, emoji: "😂" },
   { pattern: /(watch|look|wait|listen|secret|proof)/i, emoji: "👀" },
 ];
-const PREVIEW_CAPTION_WORDS_PER_BATCH = 2;
+const PREVIEW_CAPTION_WORDS_PER_BATCH_MIN = 2;
+const PREVIEW_CAPTION_WORDS_PER_BATCH_MAX = 3;
+const chunkPreviewCaptionTokens = (tokens: string[]) => {
+  const cleanTokens = tokens
+    .map((token) => String(token || "").trim())
+    .filter(Boolean);
+  if (cleanTokens.length === 0) return [] as string[];
+  const chunks: string[] = [];
+  let cursor = 0;
+  let alternate = 0;
+  while (cursor < cleanTokens.length) {
+    const remaining = cleanTokens.length - cursor;
+    let batchSize = alternate % 2 === 0
+      ? PREVIEW_CAPTION_WORDS_PER_BATCH_MAX
+      : PREVIEW_CAPTION_WORDS_PER_BATCH_MIN;
+    if (remaining <= PREVIEW_CAPTION_WORDS_PER_BATCH_MAX) {
+      batchSize = remaining;
+    } else if (remaining === PREVIEW_CAPTION_WORDS_PER_BATCH_MAX + 1) {
+      batchSize = PREVIEW_CAPTION_WORDS_PER_BATCH_MIN;
+    }
+    chunks.push(cleanTokens.slice(cursor, cursor + batchSize).join(" "));
+    cursor += batchSize;
+    alternate += 1;
+  }
+  return chunks;
+};
 const normalizePreviewToken = (value: string) =>
   String(value || "")
     .toLowerCase()
@@ -337,6 +366,16 @@ type RetentionAggressionLevel = "low" | "medium" | "high" | "viral";
 type RetentionTargetPlatform = "tiktok" | "instagram_reels" | "youtube";
 type VerticalVariantCaptionKey = "instagram" | "youtube" | "tiktok";
 type VerticalSelectionMode = "best_moments" | "story_arc" | "hook_storm" | "loop_builder";
+type VerticalZoomProfileId = "none" | "smooth" | "punch" | "kinetic";
+type VerticalWebcamPlacementOption = "top" | "bottom";
+type VerticalUploadPresetId =
+  | "auto_agent"
+  | "headline_top"
+  | "reaction_bottom"
+  | "cinema_story"
+  | "neon_hype"
+  | "original_clean";
+type VerticalZoomKeywordMode = "off" | "auto_words" | "beat_words";
 type VerticalCaptionPresetOptionId =
   | "basic_clean"
   | "mrbeast_animated"
@@ -351,6 +390,7 @@ type VerticalCaptionPresetOptionId =
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
+type VerticalCaptionOverlayTone = "none" | "white" | "black";
 type VerticalCaptionFontVariantOption = {
   id: string;
   label: string;
@@ -862,6 +902,159 @@ const VERTICAL_SHORT_FORM_MODE_PRESETS: Array<{
     captionPreset: "mrbeast_animated",
   },
 ];
+type VerticalUploadModePreset = {
+  id: VerticalUploadPresetId;
+  label: string;
+  tagline: string;
+  description: string;
+  previewBackground: string;
+  previewWebcamTint: string;
+  previewContentTint: string;
+  previewCaptionTone: "light" | "dark";
+  previewCaptionSample: string;
+  captionPreset: VerticalCaptionPresetOptionId;
+  fontId: VerticalCaptionFontOptionId;
+  layout: VerticalLayoutMode;
+  webcamPlacement: VerticalWebcamPlacementOption;
+  webcamHeightPct: number;
+  smartZoom: boolean;
+  zoomProfile: VerticalZoomProfileId;
+  zoomIntensity: number;
+  keywordZoomMode: VerticalZoomKeywordMode;
+  premiumLabel: string;
+};
+const VERTICAL_UPLOAD_MODE_PRESETS: VerticalUploadModePreset[] = [
+  {
+    id: "auto_agent",
+    label: "Auto Agent",
+    tagline: "AI chooses layout + zoom",
+    description: "Agent picks the best camera layout, caption style, and word-trigger zoom aggression from your current settings.",
+    previewBackground: "linear-gradient(135deg, rgba(59,130,246,0.46), rgba(16,185,129,0.34) 55%, rgba(15,23,42,0.82))",
+    previewWebcamTint: "rgba(8, 47, 73, 0.72)",
+    previewContentTint: "rgba(30, 41, 59, 0.58)",
+    previewCaptionTone: "light",
+    previewCaptionSample: "AUTO PICKS THE LOOK",
+    captionPreset: "mrbeast_animated",
+    fontId: "display_black",
+    layout: "auto",
+    webcamPlacement: "bottom",
+    webcamHeightPct: 31,
+    smartZoom: true,
+    zoomProfile: "punch",
+    zoomIntensity: 0.78,
+    keywordZoomMode: "auto_words",
+    premiumLabel: "Recommended",
+  },
+  {
+    id: "headline_top",
+    label: "Headline Top Cam",
+    tagline: "Webcam top, content bottom",
+    description: "Classic high-CTR stack with a dominant top webcam strip and punchy headline caption treatment.",
+    previewBackground: "linear-gradient(145deg, rgba(251,191,36,0.44), rgba(249,115,22,0.36) 52%, rgba(2,6,23,0.86))",
+    previewWebcamTint: "rgba(120, 53, 15, 0.74)",
+    previewContentTint: "rgba(51, 65, 85, 0.6)",
+    previewCaptionTone: "dark",
+    previewCaptionSample: "STOP SCROLLING NOW",
+    captionPreset: "rage_mode",
+    fontId: "impact",
+    layout: "stacked",
+    webcamPlacement: "top",
+    webcamHeightPct: 34,
+    smartZoom: true,
+    zoomProfile: "punch",
+    zoomIntensity: 0.86,
+    keywordZoomMode: "beat_words",
+    premiumLabel: "High CTR",
+  },
+  {
+    id: "reaction_bottom",
+    label: "Reaction Bottom Cam",
+    tagline: "Content top, webcam bottom",
+    description: "Gameplay-first frame with content on top and reaction webcam on the bottom strip.",
+    previewBackground: "linear-gradient(150deg, rgba(56,189,248,0.32), rgba(99,102,241,0.4) 52%, rgba(3,7,18,0.88))",
+    previewWebcamTint: "rgba(67, 56, 202, 0.72)",
+    previewContentTint: "rgba(12, 74, 110, 0.52)",
+    previewCaptionTone: "light",
+    previewCaptionSample: "CLUTCH REACTION",
+    captionPreset: "glitch_pop",
+    fontId: "display_black",
+    layout: "stacked",
+    webcamPlacement: "bottom",
+    webcamHeightPct: 29,
+    smartZoom: true,
+    zoomProfile: "kinetic",
+    zoomIntensity: 0.92,
+    keywordZoomMode: "beat_words",
+    premiumLabel: "New",
+  },
+  {
+    id: "cinema_story",
+    label: "Cinema Story",
+    tagline: "Premium narrative stack",
+    description: "Story-first premium style with elegant serif captions and calm cinematic push-ins.",
+    previewBackground: "linear-gradient(142deg, rgba(30,41,59,0.84), rgba(15,23,42,0.94) 58%, rgba(71,85,105,0.7))",
+    previewWebcamTint: "rgba(15, 23, 42, 0.76)",
+    previewContentTint: "rgba(51, 65, 85, 0.55)",
+    previewCaptionTone: "light",
+    previewCaptionSample: "THIS CHANGES EVERYTHING",
+    captionPreset: "cinema_punch",
+    fontId: "serif_bold",
+    layout: "stacked",
+    webcamPlacement: "top",
+    webcamHeightPct: 24,
+    smartZoom: true,
+    zoomProfile: "smooth",
+    zoomIntensity: 0.54,
+    keywordZoomMode: "auto_words",
+    premiumLabel: "Story",
+  },
+  {
+    id: "neon_hype",
+    label: "Neon Hype",
+    tagline: "Kinetic gaming style",
+    description: "Electric neon style with aggressive rhythm and fast word-beat zoom hits.",
+    previewBackground: "linear-gradient(135deg, rgba(168,85,247,0.45), rgba(6,182,212,0.38) 55%, rgba(15,23,42,0.9))",
+    previewWebcamTint: "rgba(49, 46, 129, 0.72)",
+    previewContentTint: "rgba(8, 47, 73, 0.5)",
+    previewCaptionTone: "light",
+    previewCaptionSample: "HYPE MODE ON",
+    captionPreset: "neon_glow",
+    fontId: "condensed",
+    layout: "stacked",
+    webcamPlacement: "bottom",
+    webcamHeightPct: 35,
+    smartZoom: true,
+    zoomProfile: "kinetic",
+    zoomIntensity: 1,
+    keywordZoomMode: "beat_words",
+    premiumLabel: "Gaming",
+  },
+  {
+    id: "original_clean",
+    label: "Original Clean",
+    tagline: "No webcam stack",
+    description: "Keeps original framing with editorially clean captions and minimal motion for brand-safe delivery.",
+    previewBackground: "linear-gradient(145deg, rgba(148,163,184,0.3), rgba(226,232,240,0.16) 48%, rgba(15,23,42,0.86))",
+    previewWebcamTint: "rgba(100, 116, 139, 0.62)",
+    previewContentTint: "rgba(30, 41, 59, 0.52)",
+    previewCaptionTone: "dark",
+    previewCaptionSample: "CLEAN ORIGINAL CUT",
+    captionPreset: "basic_clean",
+    fontId: "sans_bold",
+    layout: "single",
+    webcamPlacement: "top",
+    webcamHeightPct: DEFAULT_WEBCAM_TOP_HEIGHT_PCT,
+    smartZoom: false,
+    zoomProfile: "none",
+    zoomIntensity: 0,
+    keywordZoomMode: "off",
+    premiumLabel: "Original",
+  },
+];
+const DEFAULT_VERTICAL_UPLOAD_MODE_PRESET_ID: VerticalUploadPresetId = "auto_agent";
+const DEFAULT_VERTICAL_UPLOAD_MODE_PRESET =
+  VERTICAL_UPLOAD_MODE_PRESETS.find((preset) => preset.id === DEFAULT_VERTICAL_UPLOAD_MODE_PRESET_ID) ??
+  VERTICAL_UPLOAD_MODE_PRESETS[0];
 const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; label: string }> = [
   { id: "impact", label: "Impact" },
   { id: "sans_bold", label: "Sans Bold" },
@@ -1658,10 +1851,13 @@ type VerticalModePayload = {
   selectionMode?: VerticalSelectionMode;
   webcamCrop?: WebcamCrop | null;
   autoWebcamCrop?: boolean;
-  webcamPlacement?: { heightPct: number };
+  webcamPlacement?: { heightPct: number; position?: VerticalWebcamPlacementOption };
+  webcamPosition?: VerticalWebcamPlacementOption;
   topHeightPx?: number | null;
   bottomFit?: VerticalFitMode;
   webcamFit?: VerticalFitMode;
+  zoomProfile?: VerticalZoomProfileId;
+  zoomIntensity?: number;
   paddingPx?: number;
 };
 
@@ -3809,6 +4005,7 @@ const Editor = () => {
   const [loadingJob, setLoadingJob] = useState(false);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [uploadModePromptOpen, setUploadModePromptOpen] = useState(false);
+  const [verticalUploadPresetPromptOpen, setVerticalUploadPresetPromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
   const [uploadModeExtrasOpen, setUploadModeExtrasOpen] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
@@ -3865,6 +4062,7 @@ const Editor = () => {
     tiktok: "",
   });
   const [verticalClipCaptionTextBySlot, setVerticalClipCaptionTextBySlot] = useState<Record<string, string>>({});
+  const [verticalClipCaptionOverlayBySlot, setVerticalClipCaptionOverlayBySlot] = useState<Record<string, VerticalCaptionOverlayTone>>({});
   const [verticalClipCaptionPromptBySlot, setVerticalClipCaptionPromptBySlot] = useState<Record<string, string>>({});
   const [verticalClipCaptionGenerateSelectedBySlot, setVerticalClipCaptionGenerateSelectedBySlot] = useState<Record<string, boolean>>({});
   const [verticalCaptionPreset, setVerticalCaptionPreset] = useState<VerticalCaptionPresetOptionId>(DEFAULT_VERTICAL_CAPTION_STYLE);
@@ -3921,6 +4119,18 @@ const Editor = () => {
   const [verticalMomentOptionIndexBySlot, setVerticalMomentOptionIndexBySlot] = useState<Record<string, number>>({});
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [verticalPreviewUrl, setVerticalPreviewUrl] = useState<string | null>(null);
+  const [selectedVerticalUploadPresetId, setSelectedVerticalUploadPresetId] = useState<VerticalUploadPresetId>(
+    DEFAULT_VERTICAL_UPLOAD_MODE_PRESET_ID,
+  );
+  const [verticalWebcamPlacement, setVerticalWebcamPlacement] = useState<VerticalWebcamPlacementOption>(
+    DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.webcamPlacement,
+  );
+  const [verticalZoomProfile, setVerticalZoomProfile] = useState<VerticalZoomProfileId>(
+    DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomProfile,
+  );
+  const [verticalZoomIntensity, setVerticalZoomIntensity] = useState<number>(
+    DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomIntensity,
+  );
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
   const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
@@ -6731,11 +6941,17 @@ const Editor = () => {
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
     setBottomFitMode(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
+    setSelectedVerticalUploadPresetId(DEFAULT_VERTICAL_UPLOAD_MODE_PRESET_ID);
+    setVerticalWebcamPlacement(DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.webcamPlacement);
+    setVerticalZoomProfile(DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomProfile);
+    setVerticalZoomIntensity(DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomIntensity);
+    setVerticalUploadPresetPromptOpen(false);
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
     setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setVerticalMomentOptionIndexBySlot({});
+    setVerticalClipCaptionOverlayBySlot({});
     setActiveVerticalClipEditorIndex(0);
     setCaptionPreviewClipIndex(-1);
     setVerticalVariantCaptionPositions({
@@ -6831,13 +7047,11 @@ const Editor = () => {
       verticalMomentAutoRenderTimeoutRef.current = null;
     }
     setPendingVerticalFile(file);
-    setSkipManualWebcamCrop(false);
+    // Preserve the chosen vertical upload preset (layout/placement/zoom) across file swaps.
     setWebcamCrop(null);
     setWebcamCropWasAdjusted(false);
     setSourceVideoMeta(null);
-    setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-    setBottomFitMode(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
@@ -7037,7 +7251,8 @@ const Editor = () => {
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
     if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
-    const singleLayout = skipManualWebcamCrop || !effectiveWebcamCrop;
+    const renderedClipPreviewActive = captionPreviewClipIndex >= 0 && captionPreviewHasRenderedClip;
+    const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !effectiveWebcamCrop;
     if (!singleLayout && !effectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -7059,7 +7274,7 @@ const Editor = () => {
       ?? VERTICAL_CAPTION_FONT_FAMILY.impact;
     const captionFontWeight = selectedVerticalCaptionFontVariant?.fontWeight ?? 900;
     const forceUppercaseByFont = selectedVerticalCaptionFontVariant?.textTransform === "uppercase";
-    const captionRawText = resolvedVerticalCaptionText;
+    const captionRawText = captionPreviewTextForClip;
     const captionBaseText = captionRawText || "Auto captions preview";
     const captionNoFillers = verticalCaptionRemoveFillers ? removePreviewFillers(captionBaseText) : captionBaseText;
     const captionAutoEmoji = verticalCaptionAutoEmoji ? inferPreviewEmoji(captionNoFillers) : "";
@@ -7079,13 +7294,24 @@ const Editor = () => {
       .split(" ")
       .filter(Boolean);
     const captionWordPairsForPreview = captionTokensForPreview.length > 0
-      ? Array.from(
-          { length: Math.ceil(captionTokensForPreview.length / PREVIEW_CAPTION_WORDS_PER_BATCH) },
-          (_, pairIndex) => captionTokensForPreview
-            .slice(pairIndex * PREVIEW_CAPTION_WORDS_PER_BATCH, pairIndex * PREVIEW_CAPTION_WORDS_PER_BATCH + PREVIEW_CAPTION_WORDS_PER_BATCH)
-            .join(" "),
-        ).filter(Boolean)
+      ? chunkPreviewCaptionTokens(captionTokensForPreview)
       : [captionTextForPreview];
+    const overlayPalette = selectedCaptionOverlayTone === "white"
+      ? {
+          textColor: "#0B0D12",
+          boxColor: "rgba(255, 255, 255, 0.94)",
+          borderColor: "rgba(15, 23, 42, 0.82)",
+          glowColor: "rgba(255, 255, 255, 0.42)",
+        }
+      : selectedCaptionOverlayTone === "black"
+        ? {
+            textColor: "#F8FAFC",
+            boxColor: "rgba(0, 0, 0, 0.82)",
+            borderColor: "rgba(255, 255, 255, 0.65)",
+            glowColor: "rgba(0, 0, 0, 0.62)",
+          }
+        : null;
+    const effectiveCaptionPalette = overlayPalette ?? captionPalette;
 
     const drawVideoRegion = (
       src: WebcamCrop,
@@ -7158,6 +7384,7 @@ const Editor = () => {
       lines.push(current);
       return lines.slice(0, maxLines);
     };
+    const singleLayoutFit: VerticalFitMode = renderedClipPreviewActive ? "cover" : effectiveVerticalBottomFitMode;
 
     let raf = 0;
     const render = () => {
@@ -7168,13 +7395,13 @@ const Editor = () => {
           drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
-            effectiveVerticalBottomFitMode,
+            singleLayoutFit,
           );
         } else {
           drawVideoRegion(
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
-            "cover",
+            "contain",
           );
           drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
@@ -7238,7 +7465,7 @@ const Editor = () => {
             const lineHeight = Math.round(fontPx * 1.08);
             const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
             const textBlockHeight = lineHeight * lines.length;
-            const boxEnabled = captionPresetRenderHints.boxEnabled;
+            const boxEnabled = captionPresetRenderHints.boxEnabled || selectedCaptionOverlayTone !== "none";
             const boxPaddingX = Math.round(fontPx * (boxEnabled ? 0.52 : 0.36));
             const boxPaddingY = Math.round(fontPx * (boxEnabled ? 0.42 : 0.28));
             const boxWidth = blockTextWidth + boxPaddingX * 2;
@@ -7253,21 +7480,21 @@ const Editor = () => {
 
             if (boxEnabled) {
               const radius = Math.round(Math.min(fontPx * 0.38, boxHeight * 0.24));
-              ctx.shadowColor = captionPalette.glowColor;
+              ctx.shadowColor = effectiveCaptionPalette.glowColor;
               ctx.shadowBlur = Math.round(fontPx * (0.05 + captionShadowStrength * 0.28));
               ctx.shadowOffsetY = Math.round(fontPx * 0.08);
               drawRoundedRectPath(ctx, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, radius);
-              ctx.fillStyle = captionPalette.boxColor;
+              ctx.fillStyle = effectiveCaptionPalette.boxColor;
               ctx.fill();
               ctx.shadowColor = "transparent";
               ctx.shadowBlur = 0;
               ctx.shadowOffsetY = 0;
               ctx.lineWidth = Math.max(1, Math.round(fontPx * 0.04));
-              ctx.strokeStyle = captionPalette.borderColor;
+              ctx.strokeStyle = effectiveCaptionPalette.borderColor;
               ctx.stroke();
             }
 
-            ctx.shadowColor = boxEnabled ? "rgba(15, 23, 42, 0.22)" : captionPalette.glowColor;
+            ctx.shadowColor = boxEnabled ? "rgba(15, 23, 42, 0.22)" : effectiveCaptionPalette.glowColor;
             ctx.shadowBlur = Math.round(fontPx * (boxEnabled ? 0.08 : 0.08 + captionShadowStrength * 0.52));
             ctx.shadowOffsetY = Math.round(fontPx * (boxEnabled ? 0.03 : 0.05) * Math.max(0.35, captionShadowStrength));
             const centerOffset = ((lines.length - 1) * lineHeight) / 2;
@@ -7306,7 +7533,9 @@ const Editor = () => {
                   ctx.lineJoin = "round";
                   ctx.strokeText(entry.display, cursorX, y);
                 }
-                ctx.fillStyle = isHighlighted || isEmphasis ? captionPalette.borderColor : captionPalette.textColor;
+                ctx.fillStyle = isHighlighted || isEmphasis
+                  ? effectiveCaptionPalette.borderColor
+                  : effectiveCaptionPalette.textColor;
                 ctx.fillText(entry.display, cursorX, y);
                 if (verticalCaptionAnimation === "glitch") {
                   ctx.fillStyle = "rgba(255, 0, 120, 0.42)";
@@ -7368,6 +7597,14 @@ const Editor = () => {
     verticalCaptionPreset,
     selectedVerticalCaptionFontVariant,
     resolvedVerticalCaptionText,
+    verticalClipCaptionTextBySlot,
+    verticalClipCaptionOverlayBySlot,
+    verticalClipCaptionGenerateSelectedBySlot,
+    verticalMomentOptionIndexBySlot,
+    verticalClipCount,
+    activeVerticalClipEditorIndex,
+    activeJob?.id,
+    activeJob?.analysis,
     isVerticalMode,
   ]);
 
@@ -7384,15 +7621,24 @@ const Editor = () => {
     }
     const hasCustomWebcamCrop = webcamCropWasAdjusted || webcamPaddingPx > 0;
     const useAutoWebcamCrop = !skipManualWebcamCrop && !hasCustomWebcamCrop;
+    const uploadPreset =
+      VERTICAL_UPLOAD_MODE_PRESETS.find((preset) => preset.id === selectedVerticalUploadPresetId) ??
+      DEFAULT_VERTICAL_UPLOAD_MODE_PRESET;
     const hasExplicitMomentOverrides = Object.keys(verticalMomentOptionIndexBySlot).length > 0;
     const manualVariantMomentsForRender = hasExplicitMomentOverrides
       ? verticalVariantMomentsRef.current
       : null;
-    const resolvedVerticalLayout: VerticalLayoutMode = skipManualWebcamCrop
-      ? "single"
-      : useAutoWebcamCrop
-        ? "auto"
-        : "stacked";
+    const resolvedVerticalLayout: VerticalLayoutMode =
+      uploadPreset.layout === "single"
+        ? "single"
+        : uploadPreset.layout === "stacked"
+          ? "stacked"
+          : skipManualWebcamCrop
+            ? "single"
+            : useAutoWebcamCrop
+              ? "auto"
+              : "stacked";
+    const clampedVerticalZoomIntensity = Number(clamp(verticalZoomIntensity, 0, 1).toFixed(3));
     const fixedWebcamCrop = useAutoWebcamCrop
       ? null
       : normalizeWebcamCrop(
@@ -7414,10 +7660,14 @@ const Editor = () => {
         autoWebcamCrop: useAutoWebcamCrop,
         webcamPlacement: {
           heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
+          position: verticalWebcamPlacement,
         },
+        webcamPosition: verticalWebcamPlacement,
         topHeightPx,
         bottomFit: effectiveVerticalBottomFitMode,
         webcamFit: "cover",
+        zoomProfile: verticalZoomProfile,
+        zoomIntensity: clampedVerticalZoomIntensity,
         paddingPx: 0,
       },
     });
@@ -7440,7 +7690,11 @@ const Editor = () => {
     effectiveWebcamCrop,
     webcamCrop,
     normalizeWebcamCrop,
+    selectedVerticalUploadPresetId,
     skipManualWebcamCrop,
+    verticalWebcamPlacement,
+    verticalZoomProfile,
+    verticalZoomIntensity,
   ]);
 
   useEffect(() => {
@@ -7497,6 +7751,7 @@ const Editor = () => {
       fileCount,
       mode: SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (isVerticalMode ? "vertical" : "horizontal"),
     });
+    setVerticalUploadPresetPromptOpen(false);
     setUploadRenderSettingsOpen(false);
     setUploadModeExtrasOpen(false);
     setUploadModePromptOpen(true);
@@ -11878,6 +12133,166 @@ const Editor = () => {
     if (captionPreviewClipIndex < 0) return "Source video";
     return `Clip #${captionPreviewClipIndex + 1}`;
   }, [captionPreviewClipIndex]);
+  const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
+    if (!Number.isFinite(nextClipIndex) || nextClipIndex < 0) {
+      setCaptionPreviewClipIndex(-1);
+      return;
+    }
+    const boundedClipIndex = clamp(Math.round(nextClipIndex), 0, Math.max(0, captionPopupClipIndexes.length - 1));
+    setCaptionPreviewClipIndex(boundedClipIndex);
+    setActiveVerticalClipEditorIndex(boundedClipIndex);
+    const selectedSlot = getVerticalVariantSlotKeyForClipIndex(boundedClipIndex);
+    setVerticalClipCaptionGenerateSelectedBySlot(() => {
+      const next: Record<string, boolean> = {};
+      for (const clipIndex of captionPopupClipIndexes) {
+        const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+        next[slotKey] = slotKey === selectedSlot;
+      }
+      return next;
+    });
+  }, [captionPopupClipIndexes]);
+  const selectedCaptionClipIndex = useMemo(() => {
+    if (captionPopupClipIndexes.length === 0) return -1;
+    if (captionPreviewClipIndex >= 0 && captionPreviewClipIndex < captionPopupClipIndexes.length) {
+      return captionPreviewClipIndex;
+    }
+    if (activeVerticalClipEditorIndex >= 0 && activeVerticalClipEditorIndex < captionPopupClipIndexes.length) {
+      return activeVerticalClipEditorIndex;
+    }
+    const selectedClip = captionPopupClipIndexes.find((clipIndex) => {
+      const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+      return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+    });
+    if (typeof selectedClip === "number") return selectedClip;
+    return captionPopupClipIndexes[0] ?? -1;
+  }, [
+    activeVerticalClipEditorIndex,
+    captionPopupClipIndexes,
+    captionPreviewClipIndex,
+    verticalClipCaptionGenerateSelectedBySlot,
+  ]);
+  const selectedCaptionClipSlotKey = useMemo(
+    () => (selectedCaptionClipIndex >= 0 ? getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex) : null),
+    [selectedCaptionClipIndex],
+  );
+  const selectedCaptionClipSlotMeta = useMemo(
+    () => (selectedCaptionClipIndex >= 0 ? getVerticalSlotMetaByClipIndex(selectedCaptionClipIndex) : null),
+    [selectedCaptionClipIndex],
+  );
+  const selectedCaptionClipVariantMeta = useMemo(
+    () => (selectedCaptionClipSlotMeta ? getVerticalVariantMeta(selectedCaptionClipSlotMeta.variantKey) : null),
+    [selectedCaptionClipSlotMeta],
+  );
+  const selectedCaptionClipTranscriptText = useMemo(() => {
+    if (selectedCaptionClipIndex < 0 || !selectedCaptionClipSlotMeta) return "";
+    const slotKey = getVerticalVariantSlotKey(selectedCaptionClipSlotMeta.variantKey, selectedCaptionClipSlotMeta.versionIndex);
+    const requestedMomentIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
+    const fallbackMomentIndex = Number(verticalDefaultMomentIndexBySlot[selectedCaptionClipIndex] ?? 0);
+    const transcriptOptionCount = verticalTranscriptMomentOptions.length;
+    const cueCount = activeTranscriptCues.length;
+    const upperBound = Math.max(0, Math.max(transcriptOptionCount, cueCount) - 1);
+    const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
+      ? clamp(Math.round(requestedMomentIndex), 0, upperBound)
+      : clamp(Math.round(fallbackMomentIndex), 0, upperBound);
+    const cueText = normalizeVerticalCaptionTextForJob(String(activeTranscriptCues[resolvedMomentIndex]?.text || ""));
+    if (cueText) return cueText;
+    const fallbackMomentText = normalizeVerticalCaptionTextForJob(
+      String(verticalTranscriptMomentOptions[resolvedMomentIndex]?.text || ""),
+    );
+    if (fallbackMomentText) return fallbackMomentText;
+    return normalizeVerticalCaptionTextForJob(String(selectedCaptionClipVariantMeta?.transcript || ""));
+  }, [
+    activeTranscriptCues,
+    selectedCaptionClipIndex,
+    selectedCaptionClipSlotMeta,
+    selectedCaptionClipVariantMeta,
+    verticalDefaultMomentIndexBySlot,
+    verticalMomentOptionIndexBySlot,
+    verticalTranscriptMomentOptions,
+  ]);
+  const selectedCaptionClipCustomTextRaw = useMemo(
+    () => (selectedCaptionClipSlotKey ? String(verticalClipCaptionTextBySlot[selectedCaptionClipSlotKey] || "") : ""),
+    [selectedCaptionClipSlotKey, verticalClipCaptionTextBySlot],
+  );
+  const selectedCaptionClipCustomText = useMemo(
+    () => sanitizeVerticalCaptionDraftText(selectedCaptionClipCustomTextRaw),
+    [selectedCaptionClipCustomTextRaw],
+  );
+  const selectedCaptionClipCustomTextNormalized = useMemo(
+    () => normalizeVerticalCaptionTextForJob(selectedCaptionClipCustomTextRaw),
+    [selectedCaptionClipCustomTextRaw],
+  );
+  const captionPreviewTextForClip = selectedCaptionClipCustomTextNormalized
+    || selectedCaptionClipTranscriptText
+    || normalizeVerticalCaptionTextForJob(resolvedVerticalCaptionText)
+    || "Auto captions preview";
+  const selectedCaptionOverlayTone: VerticalCaptionOverlayTone =
+    selectedCaptionClipSlotKey ? (verticalClipCaptionOverlayBySlot[selectedCaptionClipSlotKey] || "none") : "none";
+  const selectedCaptionClipLabel = selectedCaptionClipIndex >= 0
+    ? `Clip #${selectedCaptionClipIndex + 1}`
+    : "Clip";
+  const selectedCaptionClipTranscriptSummary = selectedCaptionClipTranscriptText.length > 190
+    ? `${selectedCaptionClipTranscriptText.slice(0, 187).trim()}...`
+    : selectedCaptionClipTranscriptText;
+  const updateSelectedClipCaptionText = useCallback((value: string) => {
+    if (selectedCaptionClipIndex < 0) return;
+    const slotKey = getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex);
+    setVerticalClipCaptionTextBySlot((prev) => ({
+      ...prev,
+      [slotKey]: sanitizeVerticalCaptionDraftText(value),
+    }));
+  }, [selectedCaptionClipIndex]);
+  const useSelectedClipTranscriptAsCaption = useCallback(() => {
+    if (selectedCaptionClipIndex < 0 || !selectedCaptionClipTranscriptText) return;
+    const slotKey = getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex);
+    setVerticalClipCaptionTextBySlot((prev) => ({
+      ...prev,
+      [slotKey]: selectedCaptionClipTranscriptText,
+    }));
+    toast({
+      title: "Transcript linked",
+      description: `${selectedCaptionClipLabel} now uses transcript text in the caption preview.`,
+    });
+  }, [
+    selectedCaptionClipIndex,
+    selectedCaptionClipLabel,
+    selectedCaptionClipTranscriptText,
+    toast,
+  ]);
+  const clearSelectedClipCaptionOverride = useCallback(() => {
+    if (selectedCaptionClipIndex < 0) return;
+    const slotKey = getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex);
+    setVerticalClipCaptionTextBySlot((prev) => {
+      const next = { ...prev };
+      delete next[slotKey];
+      return next;
+    });
+  }, [selectedCaptionClipIndex]);
+  const setSelectedCaptionOverlayTone = useCallback((tone: VerticalCaptionOverlayTone) => {
+    if (selectedCaptionClipIndex < 0) return;
+    const slotKey = getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex);
+    setVerticalClipCaptionOverlayBySlot((prev) => ({
+      ...prev,
+      [slotKey]: tone,
+    }));
+  }, [selectedCaptionClipIndex]);
+  const applyCenterCaptionOverlay = useCallback((tone: VerticalCaptionOverlayTone) => {
+    setVerticalCaptionPositionX(0.5);
+    setVerticalCaptionPositionY(0.5);
+    setSelectedCaptionOverlayTone(tone);
+    if (!selectedCaptionClipCustomTextNormalized && selectedCaptionClipTranscriptText) {
+      updateSelectedClipCaptionText(selectedCaptionClipTranscriptText);
+    }
+  }, [
+    selectedCaptionClipCustomTextNormalized,
+    selectedCaptionClipTranscriptText,
+    setSelectedCaptionOverlayTone,
+    updateSelectedClipCaptionText,
+  ]);
+  const captionPreviewHasRenderedClip = useMemo(() => {
+    if (captionPreviewClipIndex < 0) return false;
+    return Boolean(String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim());
+  }, [captionPreviewClipIndex, verticalVariantPreviewUrls]);
   const generateModernCaptionForClip = useCallback((clipIndex: number) => {
     const { variantKey, versionIndex } = getVerticalSlotMetaByClipIndex(clipIndex);
     const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
@@ -13112,6 +13527,7 @@ const Editor = () => {
 
   const closeUploadModePrompt = useCallback(() => {
     setUploadModePromptOpen(false);
+    setVerticalUploadPresetPromptOpen(false);
     setUploadRenderSettingsOpen(false);
     setUploadModeExtrasOpen(false);
     setPendingUploadSelection(null);
@@ -13715,12 +14131,125 @@ const Editor = () => {
     }`;
   const verticalModeChipClass = (active: boolean) =>
     `vertical-opus-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
+  const activeVerticalUploadModePreset = useMemo(
+    () =>
+      VERTICAL_UPLOAD_MODE_PRESETS.find((preset) => preset.id === selectedVerticalUploadPresetId) ??
+      DEFAULT_VERTICAL_UPLOAD_MODE_PRESET,
+    [selectedVerticalUploadPresetId],
+  );
   const activeVerticalShortFormPreset = useMemo(
     () =>
       VERTICAL_SHORT_FORM_MODE_PRESETS.find((preset) => preset.id === verticalSelectionMode) ||
       VERTICAL_SHORT_FORM_MODE_PRESETS[0],
     [verticalSelectionMode],
   );
+  const applyVerticalUploadModePreset = useCallback((
+    presetId: VerticalUploadPresetId,
+    source: "mode_select" | "preset_popup" | "preset_chip" = "preset_popup",
+  ) => {
+    const basePreset =
+      VERTICAL_UPLOAD_MODE_PRESETS.find((entry) => entry.id === presetId) ??
+      DEFAULT_VERTICAL_UPLOAD_MODE_PRESET;
+    const autoCaptionPreset: VerticalCaptionPresetOptionId =
+      retentionTargetPlatform === "youtube"
+        ? "cinema_punch"
+        : retentionTargetPlatform === "instagram_reels"
+          ? "bold_clean_box"
+          : "mrbeast_animated";
+    const autoFontId: VerticalCaptionFontOptionId =
+      autoCaptionPreset === "cinema_punch"
+        ? "serif_bold"
+        : autoCaptionPreset === "bold_clean_box"
+          ? "sans_bold"
+          : "display_black";
+    const autoPlacement: VerticalWebcamPlacementOption =
+      editorMode === "gaming" || editorMode === "reaction" || editorMode === "sports"
+        ? "bottom"
+        : "top";
+    const autoZoomProfile: VerticalZoomProfileId =
+      retentionStrategyProfile === "viral"
+        ? "kinetic"
+        : retentionStrategyProfile === "balanced"
+          ? "punch"
+          : "smooth";
+    const autoZoomIntensity = retentionStrategyProfile === "viral"
+      ? 0.94
+      : retentionStrategyProfile === "balanced"
+        ? 0.76
+        : 0.54;
+    const autoKeywordZoomMode: VerticalZoomKeywordMode =
+      retentionStrategyProfile === "safe" ? "auto_words" : "beat_words";
+    const preset: VerticalUploadModePreset = basePreset.id === "auto_agent"
+      ? {
+          ...basePreset,
+          captionPreset: autoCaptionPreset,
+          fontId: autoFontId,
+          webcamPlacement: autoPlacement,
+          zoomProfile: autoZoomProfile,
+          zoomIntensity: autoZoomIntensity,
+          keywordZoomMode: autoKeywordZoomMode,
+        }
+      : basePreset;
+    const layoutIsSingle = preset.layout === "single";
+    const clampedHeightPct = Math.round(clamp(preset.webcamHeightPct, 18, 42));
+    const clampedZoomIntensity = Number(clamp(preset.zoomIntensity, 0, 1).toFixed(3));
+    setSelectedVerticalUploadPresetId(preset.id);
+    setVerticalWebcamPlacement(preset.webcamPlacement);
+    setVerticalZoomProfile(preset.zoomProfile);
+    setVerticalZoomIntensity(clampedZoomIntensity);
+    setSkipManualWebcamCrop(layoutIsSingle);
+    setWebcamTopHeightPct(layoutIsSingle ? DEFAULT_WEBCAM_TOP_HEIGHT_PCT : clampedHeightPct);
+    setBottomFitMode(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
+    applyVerticalCaptionPreset(preset.captionPreset);
+    setVerticalCaptionFontId(preset.fontId);
+    setVerticalCaptionFontVariantId(DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[preset.fontId]);
+    if (preset.keywordZoomMode === "off") {
+      setVerticalCaptionAnimation("none");
+      setVerticalCaptionDynamicMode("classic");
+      setVerticalCaptionHighlightWords(false);
+      setVerticalCaptionAutoEmphasis(false);
+    } else if (preset.keywordZoomMode === "beat_words") {
+      setVerticalCaptionAnimation("bounce");
+      setVerticalCaptionDynamicMode("kinetic_word");
+      setVerticalCaptionHighlightWords(true);
+      setVerticalCaptionAutoEmphasis(true);
+    } else {
+      setVerticalCaptionAnimation("pop");
+      setVerticalCaptionDynamicMode("karaoke_word");
+      setVerticalCaptionHighlightWords(true);
+      setVerticalCaptionAutoEmphasis(true);
+    }
+    setSmartZoomEnabled(preset.smartZoom);
+    if (!autoCaptionsEnabled) {
+      setAutoCaptionsEnabled(true);
+      setSubtitleStyleDirty(true);
+    }
+    trackEditorEvent("upload_vertical_style_preset_selected", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: preset.captionPreset,
+      metadata: {
+        presetId: preset.id,
+        source,
+        autoResolved: basePreset.id === "auto_agent",
+        layout: preset.layout,
+        webcamPlacement: preset.webcamPlacement,
+        webcamHeightPct: clampedHeightPct,
+        zoomProfile: preset.zoomProfile,
+        zoomIntensity: clampedZoomIntensity,
+        smartZoom: preset.smartZoom,
+        keywordZoomMode: preset.keywordZoomMode,
+      },
+    });
+  }, [
+    applyVerticalCaptionPreset,
+    autoCaptionsEnabled,
+    editorMode,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    setSubtitleStyleDirty,
+    trackEditorEvent,
+  ]);
 
   const applyVerticalShortFormPreset = useCallback((presetId: VerticalSelectionMode) => {
     const preset = VERTICAL_SHORT_FORM_MODE_PRESETS.find((entry) => entry.id === presetId);
@@ -13782,7 +14311,13 @@ const Editor = () => {
     const resolvedMode: "horizontal" | "vertical" = SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : mode;
     selectUploadFormatMode(resolvedMode, "upload_mode_modal");
     setPendingUploadSelection((prev) => (prev ? { ...prev, mode: resolvedMode } : prev));
-  }, [selectUploadFormatMode]);
+    if (resolvedMode === "vertical") {
+      applyVerticalUploadModePreset(selectedVerticalUploadPresetId, "mode_select");
+      setVerticalUploadPresetPromptOpen(true);
+      return;
+    }
+    setVerticalUploadPresetPromptOpen(false);
+  }, [applyVerticalUploadModePreset, selectUploadFormatMode, selectedVerticalUploadPresetId]);
 
   const toggleAutoCaptions = useCallback(() => {
     if (captionsToggleDisabled) return;
@@ -13827,6 +14362,7 @@ const Editor = () => {
       }
       return next;
     });
+    setActiveVerticalClipEditorIndex(normalizedClipIndex);
     setCaptionPreviewClipIndex(normalizedClipIndex);
     openCaptionSettings();
   }, [openCaptionSettings]);
@@ -14455,13 +14991,8 @@ const Editor = () => {
           </div>
         </div>
 
-        <Accordion type="single" collapsible className="rounded-xl border border-border/50 bg-muted/15 px-3">
-          <AccordionItem value="caption-options" className="border-0">
-            <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
-              Advanced
-            </AccordionTrigger>
-            <AccordionContent className="pb-3">
-              <div className="space-y-3">
+        <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
+          <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {SUBTITLE_PRESET_OPTIONS.map((preset) => {
                     const locked = !isSubtitlePresetAllowed(preset.id);
@@ -14564,9 +15095,7 @@ const Editor = () => {
                   </div>
                 </div>
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+          </div>
         </div>
       );
     }
@@ -17349,6 +17878,25 @@ const Editor = () => {
                   </button>
                 </div>
               )}
+              {pendingUploadMode === "vertical" ? (
+                <button
+                  type="button"
+                  className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.17),hsl(var(--card)/0.64))] px-3 py-2 text-left transition hover:border-primary/70 hover:bg-primary/16"
+                  onClick={() => setVerticalUploadPresetPromptOpen(true)}
+                  aria-label="Open vertical style preset popup"
+                >
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Vertical Style Preset</p>
+                    <p className="mt-1 text-xs text-foreground">
+                      {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
+                    </p>
+                  </div>
+                  <Badge className="border-primary/45 bg-primary/15 text-primary">{activeVerticalUploadModePreset.premiumLabel}</Badge>
+                </button>
+              ) : null}
             </div>
 
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
@@ -17828,6 +18376,153 @@ const Editor = () => {
       </Dialog>
 
       <Dialog
+        open={verticalUploadPresetPromptOpen}
+        onOpenChange={setVerticalUploadPresetPromptOpen}
+      >
+        {verticalUploadPresetPromptOpen ? (
+        <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto border border-primary/45 bg-[radial-gradient(140%_180%_at_0%_0%,hsl(var(--primary)/0.28),transparent_56%),radial-gradient(120%_150%_at_100%_0%,hsl(var(--glow-secondary)/0.2),transparent_60%),linear-gradient(150deg,hsl(var(--card)/0.96),hsl(var(--card)/0.86))] p-0 shadow-[0_34px_90px_-44px_hsl(var(--primary)/0.9)] backdrop-blur-2xl sm:max-w-4xl">
+          <div className="p-5 sm:p-6">
+            <DialogHeader>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <Badge className="border-primary/40 bg-primary/12 text-primary">Vertical Premium Presets</Badge>
+                <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Webcam Layout Studio</span>
+              </div>
+              <DialogTitle className="text-xl font-display text-foreground">Choose Vertical Look And Webcam Placement</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Pick one of 6 premium presets. Each preset changes caption font style, webcam position, and zoom behavior.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {VERTICAL_UPLOAD_MODE_PRESETS.map((preset) => {
+                const active = selectedVerticalUploadPresetId === preset.id;
+                const webcamPlacementLabel = preset.layout === "single"
+                  ? "Original framing"
+                  : preset.webcamPlacement === "bottom"
+                    ? "Webcam bottom / content top"
+                    : "Webcam top / content bottom";
+                const zoomModeLabel = preset.keywordZoomMode === "off"
+                  ? "Zoom off"
+                  : preset.keywordZoomMode === "beat_words"
+                    ? "Word-beat zooms"
+                    : "AI word-trigger zooms";
+                const previewFontVariantId = DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[preset.fontId];
+                const previewFontVariant =
+                  VERTICAL_CAPTION_FONT_VARIANT_BY_ID[previewFontVariantId] ?? VERTICAL_CAPTION_FONT_VARIANT_OPTIONS[0];
+                const previewCaptionTextColor = preset.previewCaptionTone === "dark"
+                  ? "rgba(15,23,42,0.95)"
+                  : "rgba(248,250,252,0.98)";
+                const previewCaptionBg = preset.previewCaptionTone === "dark"
+                  ? "rgba(248,250,252,0.9)"
+                  : "rgba(15,23,42,0.72)";
+                const webcamStripHeightPct = Math.round(clamp(preset.webcamHeightPct, 20, 42));
+                const webcamStripAtTop = preset.layout !== "single" && preset.webcamPlacement !== "bottom";
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                      active
+                        ? "border-primary/65 bg-[linear-gradient(145deg,hsl(var(--primary)/0.2),hsl(var(--card)/0.62))] shadow-[0_20px_40px_-28px_hsl(var(--primary)/0.9)]"
+                        : "border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.88),hsl(var(--card)/0.58))] hover:border-primary/45 hover:bg-primary/10"
+                    }`}
+                    onClick={() => {
+                      applyVerticalUploadModePreset(preset.id, "preset_popup");
+                      setVerticalUploadPresetPromptOpen(false);
+                    }}
+                    aria-pressed={active}
+                    aria-label={`Apply ${preset.label} vertical preset`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                        <Badge className={active ? "border-primary/45 bg-primary/14 text-primary" : "border-border/55 bg-background/40 text-muted-foreground"}>
+                          {preset.premiumLabel}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-primary/80">{preset.tagline}</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                      <div className="mt-2 overflow-hidden rounded-xl border border-border/50 bg-background/30 p-1.5">
+                        <div
+                          className="relative h-24 overflow-hidden rounded-lg border border-black/20"
+                          style={{ backgroundImage: preset.previewBackground }}
+                        >
+                          <div className="absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(255,255,255,0.16),transparent_55%)]" />
+                          {preset.layout === "single" ? (
+                            <>
+                              <div className="absolute inset-0" style={{ backgroundColor: preset.previewContentTint }} />
+                              <div
+                                className="absolute right-2 top-2 h-7 w-10 rounded-md border border-white/35"
+                                style={{ backgroundColor: preset.previewWebcamTint }}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <div
+                                className={`absolute left-0 right-0 ${webcamStripAtTop ? "top-0 border-b" : "bottom-0 border-t"} border-white/20`}
+                                style={{
+                                  height: `${webcamStripHeightPct}%`,
+                                  backgroundColor: preset.previewWebcamTint,
+                                }}
+                              />
+                              <div
+                                className="absolute left-0 right-0"
+                                style={{
+                                  top: webcamStripAtTop ? `${webcamStripHeightPct}%` : "0%",
+                                  bottom: webcamStripAtTop ? "0%" : `${webcamStripHeightPct}%`,
+                                  backgroundColor: preset.previewContentTint,
+                                }}
+                              />
+                            </>
+                          )}
+                          <span className="absolute right-1.5 top-1.5 rounded-md border border-white/35 bg-black/35 px-1.5 py-[1px] text-[9px] font-medium text-white/95">
+                            {zoomModeLabel}
+                          </span>
+                          <div className="absolute inset-x-2 bottom-2">
+                            <span
+                              className="inline-flex max-w-full truncate rounded-md px-1.5 py-1 text-[9px] uppercase shadow-sm"
+                              style={{
+                                color: previewCaptionTextColor,
+                                backgroundColor: previewCaptionBg,
+                                fontFamily: previewFontVariant.previewFamily,
+                                fontWeight: previewFontVariant.fontWeight,
+                                letterSpacing: `${previewFontVariant.letterSpacing}em`,
+                                textTransform: previewFontVariant.textTransform,
+                              }}
+                            >
+                              {preset.previewCaptionSample}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                        <span className="rounded-full border border-border/55 bg-background/40 px-2 py-1 text-foreground/85">{webcamPlacementLabel}</span>
+                        <span className="rounded-full border border-border/55 bg-background/40 px-2 py-1 text-foreground/85">Font {preset.fontId.replace("_", " ")}</span>
+                        <span className="rounded-full border border-border/55 bg-background/40 px-2 py-1 text-foreground/85">{zoomModeLabel}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-muted-foreground">
+                Auto Agent applies AI-selected camera placement and zoom behavior from transcript emphasis.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="hero-cta-button hero-cta-secondary w-full rounded-full sm:w-auto"
+                onClick={() => setVerticalUploadPresetPromptOpen(false)}
+              >
+                Keep Current
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+        ) : null}
+      </Dialog>
+
+      <Dialog
         open={editorGuideOpen}
         onOpenChange={(open) => {
           if (open) {
@@ -18137,7 +18832,7 @@ const Editor = () => {
                         <span className="text-[11px] text-muted-foreground">Preview video source</span>
                         <select
                           value={String(captionPreviewClipIndex)}
-                          onChange={(event) => setCaptionPreviewClipIndex(Number(event.target.value))}
+                          onChange={(event) => handleCaptionPreviewSourceChange(Number(event.target.value))}
                           className="h-9 w-full rounded-lg border border-border/60 bg-background/55 px-2.5 text-xs text-foreground"
                         >
                           <option value="-1">Source video</option>
@@ -18148,6 +18843,78 @@ const Editor = () => {
                           ))}
                         </select>
                       </label>
+                      <div className="mt-3 rounded-xl border border-border/60 bg-background/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-foreground">Editing captions for {selectedCaptionClipLabel}</p>
+                          <Badge variant="outline" className="border-border/60 bg-background/55 text-[10px] text-muted-foreground">
+                            Transcript-linked
+                          </Badge>
+                        </div>
+                        {selectedCaptionClipTranscriptSummary ? (
+                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                            {selectedCaptionClipTranscriptSummary}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-muted-foreground">Transcript for this clip will appear after transcribe finishes.</p>
+                        )}
+                        <Textarea
+                          value={selectedCaptionClipCustomText}
+                          onChange={(event) => updateSelectedClipCaptionText(event.target.value)}
+                          placeholder="Type caption text for this clip. Preview shows 2-3 words at a time."
+                          className="mt-2 min-h-[84px] border-border/60 bg-background/55 text-xs text-foreground placeholder:text-muted-foreground"
+                        />
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-[11px]"
+                            onClick={useSelectedClipTranscriptAsCaption}
+                            disabled={!selectedCaptionClipTranscriptText}
+                          >
+                            Use Clip Transcript
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-[11px]"
+                            onClick={clearSelectedClipCaptionOverride}
+                            disabled={!selectedCaptionClipCustomText}
+                          >
+                            Clear Override
+                          </Button>
+                        </div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={selectedCaptionOverlayTone === "none" ? "default" : "outline"}
+                            className="h-8 text-[11px]"
+                            onClick={() => setSelectedCaptionOverlayTone("none")}
+                          >
+                            No Overlay
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={selectedCaptionOverlayTone === "white" ? "default" : "outline"}
+                            className="h-8 text-[11px]"
+                            onClick={() => applyCenterCaptionOverlay("white")}
+                          >
+                            Center White
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={selectedCaptionOverlayTone === "black" ? "default" : "outline"}
+                            className="h-8 text-[11px]"
+                            onClick={() => applyCenterCaptionOverlay("black")}
+                          >
+                            Center Black
+                          </Button>
+                        </div>
+                      </div>
                       {captionPreviewSourceUrl ? (
                         <video
                           ref={verticalCompositionVideoRef}
