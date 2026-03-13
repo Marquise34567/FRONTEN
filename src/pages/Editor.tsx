@@ -72,6 +72,7 @@ const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
+const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "contain" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
@@ -301,6 +302,7 @@ const DEFAULT_MAX_CUTS = 12;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 50;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
+const DEFAULT_VERTICAL_CAPTION_POSITION_Y = Number((1300 / DEFAULT_VERTICAL_OUTPUT.height).toFixed(4));
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 8;
 const VERTICAL_CLIP_DURATION_CHOICES = [30, 45, 60] as const;
@@ -867,7 +869,7 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   description: string;
   platformHint?: string;
 }> = [
-  { id: "rage_mode", label: "TikTok Headline", description: "Big all-caps white headline look for viral clips.", platformHint: "TikTok" },
+  { id: "rage_mode", label: "TikTok Headline", description: "Big all-caps yellow text with thick black stroke and pop motion.", platformHint: "TikTok" },
   { id: "bold_clean_box", label: "White Story Card", description: "Rounded white card with dark text, similar to social headline overlays.", platformHint: "IG Reels" },
   { id: "cinema_punch", label: "Shorts Bold", description: "High-contrast cinematic styling for Shorts.", platformHint: "YouTube Shorts" },
   { id: "mrbeast_animated", label: "Opus Pop", description: "Word-level hype captions with creator-style pop timing." },
@@ -911,8 +913,8 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
-    fontId: "impact", outlineColor: "000000", outlineWidth: 12, animation: "none", shadowStrength: 68,
-    dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
+    fontId: "impact", outlineColor: "000000", outlineWidth: 15, animation: "pop", shadowStrength: 44,
+    dynamicMode: "karaoke_word", animationSpeed: 1, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   ice_pop: {
     fontId: "condensed", outlineColor: "041426", outlineWidth: 10, animation: "pop", shadowStrength: 62,
@@ -941,7 +943,7 @@ const PLATFORM_VERTICAL_CAPTION_PRESET: Record<RetentionTargetPlatform, Vertical
   youtube: "cinema_punch",
 };
 const VERTICAL_CAPTION_FONT_FAMILY: Record<VerticalCaptionFontOptionId, string> = {
-  impact: '"Impact", "Arial Black", "Inter", sans-serif',
+  impact: '"Komika Axis", "The Bold Font", "Impact", "Arial Black", "Inter", sans-serif',
   sans_bold: '"Inter", "Segoe UI", sans-serif',
   condensed: '"Arial Narrow", "Inter", sans-serif',
   serif_bold: '"Georgia", "Times New Roman", serif',
@@ -977,10 +979,10 @@ const VERTICAL_CAPTION_PREVIEW_PALETTE: Record<
     glowColor: "rgba(15, 23, 42, 0.18)",
   },
   rage_mode: {
-    textColor: "#FFFFFF",
+    textColor: "#FFFF00",
     boxColor: "rgba(0, 0, 0, 0)",
-    borderColor: "rgba(255, 255, 255, 0.96)",
-    glowColor: "rgba(0, 0, 0, 0.68)",
+    borderColor: "rgba(0, 0, 0, 0.96)",
+    glowColor: "rgba(0, 0, 0, 0.48)",
   },
   ice_pop: {
     textColor: "#E0F2FE",
@@ -3684,13 +3686,13 @@ const Editor = () => {
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].removeFillers,
   );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
-  const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(0.84);
+  const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(DEFAULT_VERTICAL_CAPTION_POSITION_Y);
   const [verticalVariantCaptionPositions, setVerticalVariantCaptionPositions] = useState<
     Record<VerticalVariantCaptionKey, { x: number; y: number }>
   >({
-    instagram: { x: 0.5, y: 0.84 },
-    youtube: { x: 0.5, y: 0.84 },
-    tiktok: { x: 0.5, y: 0.84 },
+    instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+    youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+    tiktok: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
   });
   const [verticalMomentOptionIndexBySlot, setVerticalMomentOptionIndexBySlot] = useState<Record<string, number>>({});
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
@@ -3730,7 +3732,7 @@ const Editor = () => {
   const [sourceVideoMeta, setSourceVideoMeta] = useState<{ width: number; height: number } | null>(null);
   const [webcamTopHeightPct, setWebcamTopHeightPct] = useState(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
   const [webcamPaddingPx, setWebcamPaddingPx] = useState(DEFAULT_WEBCAM_PADDING_PX);
-  const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>("cover");
+  const [bottomFitMode, setBottomFitMode] = useState<VerticalFitMode>(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("viral");
@@ -4167,7 +4169,7 @@ const Editor = () => {
 
   const resetVerticalCaptionPlacement = useCallback(() => {
     setVerticalCaptionPositionX(0.5);
-    setVerticalCaptionPositionY(0.84);
+    setVerticalCaptionPositionY(DEFAULT_VERTICAL_CAPTION_POSITION_Y);
     setVerticalCaptionFontSize(VERTICAL_CAPTION_FONT_SIZE_DEFAULT);
   }, []);
 
@@ -6458,16 +6460,16 @@ const Editor = () => {
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-    setBottomFitMode("cover");
+    setBottomFitMode(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
     setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setVerticalMomentOptionIndexBySlot({});
     setVerticalVariantCaptionPositions({
-      instagram: { x: 0.5, y: 0.84 },
-      youtube: { x: 0.5, y: 0.84 },
-      tiktok: { x: 0.5, y: 0.84 },
+      instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      tiktok: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
     });
     setVerticalSelectionMode("best_moments");
     setVerticalPreviewUrl((prev) => {
@@ -6561,16 +6563,16 @@ const Editor = () => {
     setSourceVideoMeta(null);
     setWebcamTopHeightPct(DEFAULT_WEBCAM_TOP_HEIGHT_PCT);
     setWebcamPaddingPx(DEFAULT_WEBCAM_PADDING_PX);
-    setBottomFitMode("cover");
+    setBottomFitMode(DEFAULT_VERTICAL_BOTTOM_FIT_MODE);
     setCropInteraction(null);
     setVerticalCaptionDragState(null);
     setVerticalClipCount(VERTICAL_VARIANT_TOTAL_CLIPS);
     setVerticalClipDurationSeconds(VERTICAL_CLIP_DURATION_CHOICES[0]);
     setVerticalMomentOptionIndexBySlot({});
     setVerticalVariantCaptionPositions({
-      instagram: { x: 0.5, y: 0.84 },
-      youtube: { x: 0.5, y: 0.84 },
-      tiktok: { x: 0.5, y: 0.84 },
+      instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      tiktok: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
     });
     setVerticalPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -7094,7 +7096,7 @@ const Editor = () => {
           heightPct: Number(clamp01(webcamTopHeightPct / 100).toFixed(4)),
         },
         topHeightPx,
-        bottomFit: "cover",
+        bottomFit: effectiveVerticalBottomFitMode,
         webcamFit: "cover",
         paddingPx: 0,
       },
@@ -7108,6 +7110,7 @@ const Editor = () => {
     sourceVideoMeta,
     toast,
     topHeightPx,
+    effectiveVerticalBottomFitMode,
     verticalClipCount,
     verticalSelectionMode,
     webcamTopHeightPct,
