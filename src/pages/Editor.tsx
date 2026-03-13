@@ -245,16 +245,18 @@ const PREVIEW_EMOJI_RULES: Array<{ pattern: RegExp; emoji: string }> = [
 ];
 const PREVIEW_CAPTION_WORDS_PER_BATCH_MIN = 2;
 const PREVIEW_CAPTION_WORDS_PER_BATCH_MAX = 3;
-const chunkPreviewCaptionTokens = (tokens: string[]) => {
-  const cleanTokens = tokens
-    .map((token) => String(token || "").trim())
-    .filter(Boolean);
-  if (cleanTokens.length === 0) return [] as string[];
-  const chunks: string[] = [];
+type PreviewCaptionTokenRange = {
+  startIndex: number;
+  endIndex: number;
+};
+const buildPreviewCaptionTokenRanges = (tokenCount: number) => {
+  const total = Math.max(0, Math.round(Number(tokenCount) || 0));
+  if (total === 0) return [] as PreviewCaptionTokenRange[];
+  const ranges: PreviewCaptionTokenRange[] = [];
   let cursor = 0;
   let alternate = 0;
-  while (cursor < cleanTokens.length) {
-    const remaining = cleanTokens.length - cursor;
+  while (cursor < total) {
+    const remaining = total - cursor;
     let batchSize = alternate % 2 === 0
       ? PREVIEW_CAPTION_WORDS_PER_BATCH_MAX
       : PREVIEW_CAPTION_WORDS_PER_BATCH_MIN;
@@ -263,11 +265,14 @@ const chunkPreviewCaptionTokens = (tokens: string[]) => {
     } else if (remaining === PREVIEW_CAPTION_WORDS_PER_BATCH_MAX + 1) {
       batchSize = PREVIEW_CAPTION_WORDS_PER_BATCH_MIN;
     }
-    chunks.push(cleanTokens.slice(cursor, cursor + batchSize).join(" "));
+    ranges.push({
+      startIndex: cursor,
+      endIndex: cursor + batchSize,
+    });
     cursor += batchSize;
     alternate += 1;
   }
-  return chunks;
+  return ranges;
 };
 const normalizePreviewToken = (value: string) =>
   String(value || "")
@@ -1986,11 +1991,18 @@ type HookCandidate = {
   reason: string;
   synthetic: boolean;
 };
+type EditorTranscriptCueWord = {
+  start: number;
+  end: number;
+  text: string;
+  confidence?: number | null;
+};
 type EditorTranscriptCue = {
   start: number;
   end: number;
   text: string;
   confidence?: number | null;
+  words?: EditorTranscriptCueWord[];
 };
 type VerticalTranscriptMomentOption = {
   index: number;
@@ -2478,6 +2490,68 @@ const resolveTranscriptCueRows = (value: unknown): unknown[] => {
   return Array.isArray(nested) ? nested : [];
 };
 
+const resolveTranscriptCueWordRows = (row: Record<string, unknown>): unknown[] => {
+  const nested =
+    (Array.isArray(row.words) ? row.words : null) ??
+    (Array.isArray(row.wordTimings) ? row.wordTimings : null) ??
+    (Array.isArray(row.word_timings) ? row.word_timings : null) ??
+    (Array.isArray(row.wordTimestamps) ? row.wordTimestamps : null) ??
+    (Array.isArray(row.word_timestamps) ? row.word_timestamps : null) ??
+    (Array.isArray(row.tokens) ? row.tokens : null);
+  return Array.isArray(nested) ? nested : [];
+};
+
+const normalizeTranscriptCueWords = (value: unknown): EditorTranscriptCueWord[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const row = toObjectRecord(entry);
+      if (!row) return null;
+      const start = firstFiniteNumber(
+        row.start,
+        row.startSec,
+        row.start_sec,
+        row.atSec,
+        row.at_sec,
+        row.time,
+        row.timeSec,
+        row.time_sec,
+      );
+      const end = firstFiniteNumber(
+        row.end,
+        row.endSec,
+        row.end_sec,
+        row.stop,
+        row.stopSec,
+        row.stop_sec,
+        row.timeEnd,
+        row.time_end,
+      );
+      const duration = firstFiniteNumber(row.duration, row.durationSec, row.duration_sec);
+      const resolvedEnd = end ?? (start !== null && duration !== null ? start + duration : null);
+      const text = typeof row.text === "string"
+        ? row.text.trim()
+        : typeof row.word === "string"
+          ? row.word.trim()
+          : typeof row.token === "string"
+            ? row.token.trim()
+            : typeof row.value === "string"
+              ? row.value.trim()
+              : typeof row.content === "string"
+                ? row.content.trim()
+                : "";
+      if (start === null || resolvedEnd === null || resolvedEnd <= start || !text) return null;
+      return {
+        start,
+        end: resolvedEnd,
+        text,
+        confidence: firstFiniteNumber(row.confidence),
+      };
+    })
+    .filter((word): word is EditorTranscriptCueWord => word !== null)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+};
+
 const normalizeTranscriptCueRows = (value: unknown): EditorTranscriptCue[] => {
   const rows = resolveTranscriptCueRows(value);
   if (!rows.length) return [];
@@ -2523,11 +2597,13 @@ const normalizeTranscriptCueRows = (value: unknown): EditorTranscriptCue[] => {
             : "";
       if (start === null || resolvedEnd === null || resolvedEnd <= start || !text) return null;
       const confidenceRaw = firstFiniteNumber(row.confidence);
+      const words = normalizeTranscriptCueWords(resolveTranscriptCueWordRows(row));
       return {
         start,
         end: resolvedEnd,
         text,
         confidence: confidenceRaw,
+        words: words.length > 0 ? words : undefined,
       };
     })
     .filter((cue): cue is EditorTranscriptCue => cue !== null)
@@ -2588,11 +2664,25 @@ const remapTranscriptCuesToEditedTimelinePreview = (
       const overlapStart = Math.max(cue.start, segment.sourceStart);
       const overlapEnd = Math.min(cue.end, segment.sourceEnd);
       if (overlapEnd - overlapStart <= 0.01) return null;
+      const remappedWords = (cue.words || [])
+        .map((word) => {
+          const wordOverlapStart = Math.max(word.start, segment.sourceStart);
+          const wordOverlapEnd = Math.min(word.end, segment.sourceEnd);
+          if (wordOverlapEnd - wordOverlapStart <= 0.005) return null;
+          return {
+            start: Number((segment.outputStart + (wordOverlapStart - segment.sourceStart) / segment.speed).toFixed(3)),
+            end: Number((segment.outputStart + (wordOverlapEnd - segment.sourceStart) / segment.speed).toFixed(3)),
+            text: word.text,
+            confidence: word.confidence ?? null,
+          };
+        })
+        .filter((word): word is EditorTranscriptCueWord => Boolean(word) && word.end > word.start);
       return {
         start: Number((segment.outputStart + (overlapStart - segment.sourceStart) / segment.speed).toFixed(3)),
         end: Number((segment.outputStart + (overlapEnd - segment.sourceStart) / segment.speed).toFixed(3)),
         text: cue.text,
         confidence: cue.confidence ?? null,
+        words: remappedWords.length > 0 ? remappedWords : undefined,
       };
     })
   ))
@@ -2604,6 +2694,10 @@ const remapTranscriptCuesToEditedTimelinePreview = (
     const previous = merged.length > 0 ? merged[merged.length - 1] : null;
     if (previous && previous.text === cue.text && cue.start - previous.end <= 0.08) {
       previous.end = Number(Math.max(previous.end, cue.end).toFixed(3));
+      if (cue.words && cue.words.length > 0) {
+        previous.words = [...(previous.words || []), ...cue.words]
+          .sort((left, right) => left.start - right.start || left.end - right.end);
+      }
       continue;
     }
     merged.push({ ...cue });
@@ -7306,9 +7400,135 @@ const Editor = () => {
       .trim()
       .split(" ")
       .filter(Boolean);
-    const captionWordPairsForPreview = captionTokensForPreview.length > 0
-      ? chunkPreviewCaptionTokens(captionTokensForPreview)
-      : [captionTextForPreview];
+    const captionChunkRangesForPreview = buildPreviewCaptionTokenRanges(captionTokensForPreview.length);
+    const timingClipIndex = selectedCaptionClipIndex >= 0
+      ? selectedCaptionClipIndex
+      : captionPreviewClipIndex >= 0
+        ? captionPreviewClipIndex
+        : -1;
+    const timingSlotMeta = timingClipIndex >= 0 ? getVerticalSlotMetaByClipIndex(timingClipIndex) : null;
+    const timingSlotKey = timingSlotMeta
+      ? getVerticalVariantSlotKey(timingSlotMeta.variantKey, timingSlotMeta.versionIndex)
+      : null;
+    const requestedTimingMomentIndex = timingSlotKey ? Number(verticalMomentOptionIndexBySlot[timingSlotKey]) : Number.NaN;
+    const fallbackTimingMomentIndex = timingClipIndex >= 0 ? Number(verticalDefaultMomentIndexBySlot[timingClipIndex] ?? 0) : 0;
+    const timingUpperBound = Math.max(0, Math.max(activeTranscriptCues.length, verticalTranscriptMomentOptions.length) - 1);
+    const resolvedTimingMomentIndex = Number.isFinite(requestedTimingMomentIndex) && requestedTimingMomentIndex >= 0
+      ? clamp(Math.round(requestedTimingMomentIndex), 0, timingUpperBound)
+      : clamp(Math.round(fallbackTimingMomentIndex), 0, timingUpperBound);
+    const timingCue = activeTranscriptCues[resolvedTimingMomentIndex] ?? null;
+    const timingMoment = verticalTranscriptMomentOptions[resolvedTimingMomentIndex] ?? null;
+    const timingCueStartSec = firstFiniteNumber(timingCue?.start, timingMoment?.start);
+    const timingCueEndSec = firstFiniteNumber(timingCue?.end, timingMoment?.end);
+    const transcriptLinkedPreview = Boolean(
+      timingSlotKey &&
+      !normalizeVerticalCaptionTextForJob(String(verticalClipCaptionTextBySlot[timingSlotKey] || "")) &&
+      selectedCaptionClipTranscriptText,
+    );
+    const timedCaptionTokens = transcriptLinkedPreview && Array.isArray(timingCue?.words)
+      ? timingCue.words
+          .map((word) => ({
+            text: String(word.text || "").trim(),
+            startSec: toFiniteNumber(word.start),
+            endSec: toFiniteNumber(word.end),
+          }))
+          .filter((word) => (
+            Boolean(word.text) &&
+            word.startSec !== null &&
+            word.endSec !== null &&
+            word.endSec > word.startSec
+          ))
+      : [];
+    const filteredTimedCaptionTokens = (verticalCaptionRemoveFillers
+      ? timedCaptionTokens.filter((token) => !PREVIEW_FILLER_TOKENS.has(normalizePreviewToken(token.text)))
+      : timedCaptionTokens
+    ).map((token) => ({
+      ...token,
+      text: (shouldUppercasePreview || forceUppercaseByFont) ? token.text.toUpperCase() : token.text,
+    }));
+    const timedCaptionTokensForPreview = [...filteredTimedCaptionTokens];
+    if (
+      captionAutoEmoji &&
+      timedCaptionTokensForPreview.length > 0 &&
+      !PREVIEW_EMOJI_PATTERN.test(timedCaptionTokensForPreview.map((token) => token.text).join(" "))
+    ) {
+      const lastToken = timedCaptionTokensForPreview[timedCaptionTokensForPreview.length - 1];
+      const emojiAnchor = toFiniteNumber(lastToken.endSec) ?? toFiniteNumber(lastToken.startSec) ?? timingCueEndSec ?? timingCueStartSec ?? null;
+      timedCaptionTokensForPreview.push({
+        text: captionAutoEmoji,
+        startSec: emojiAnchor,
+        endSec: emojiAnchor,
+      });
+    }
+    const captionChunkSources = (() => {
+      if (timedCaptionTokensForPreview.length > 0) {
+        return buildPreviewCaptionTokenRanges(timedCaptionTokensForPreview.length)
+          .map((range) => {
+            const chunkTokens = timedCaptionTokensForPreview.slice(range.startIndex, range.endIndex);
+            if (chunkTokens.length === 0) return null;
+            let startSec: number | null = null;
+            for (const token of chunkTokens) {
+              const resolvedStart = toFiniteNumber(token.startSec);
+              if (resolvedStart !== null) {
+                startSec = resolvedStart;
+                break;
+              }
+            }
+            let endSec: number | null = null;
+            for (let index = chunkTokens.length - 1; index >= 0; index -= 1) {
+              const resolvedEnd = toFiniteNumber(chunkTokens[index].endSec);
+              if (resolvedEnd !== null) {
+                endSec = resolvedEnd;
+                break;
+              }
+            }
+            return {
+              text: chunkTokens.map((token) => token.text).join(" "),
+              tokens: chunkTokens.map((token) => token.text),
+              startSec,
+              endSec,
+            };
+          })
+          .filter((chunk): chunk is {
+            text: string;
+            tokens: string[];
+            startSec: number | null;
+            endSec: number | null;
+          } => Boolean(chunk));
+      }
+      if (captionChunkRangesForPreview.length > 0) {
+        return captionChunkRangesForPreview
+          .map((range) => {
+            const tokens = captionTokensForPreview.slice(range.startIndex, range.endIndex);
+            if (tokens.length === 0) return null;
+            return {
+              text: tokens.join(" "),
+              tokens,
+              startSec: null,
+              endSec: null,
+            };
+          })
+          .filter((chunk): chunk is {
+            text: string;
+            tokens: string[];
+            startSec: number | null;
+            endSec: number | null;
+          } => Boolean(chunk));
+      }
+      const fallbackTokens = captionTokensForPreview.length > 0
+        ? captionTokensForPreview
+        : captionTextForPreview
+            .replace(/\s+/g, " ")
+            .trim()
+            .split(" ")
+            .filter(Boolean);
+      return [{
+        text: captionTextForPreview,
+        tokens: fallbackTokens,
+        startSec: null,
+        endSec: null,
+      }];
+    })();
     const overlayPalette = selectedCaptionOverlayTone === "white"
       ? {
           textColor: "#0B0D12",
@@ -7366,6 +7586,30 @@ const Editor = () => {
       }
       ctx.drawImage(video, sx, sy, sw, sh, dst.x, dst.y, dst.w, dst.h);
     };
+    const fontPx = Math.round(
+      clamp(
+        verticalCaptionFontSize * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width),
+        16,
+        120,
+      ),
+    );
+    const captionShadowStrength = clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX) / 100;
+    const outlinePx = Math.max(0, Math.round(verticalCaptionOutlineWidth * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width)));
+    const maxTextWidth = canvasWidth * 0.82;
+    const lineHeight = Math.round(fontPx * 1.08);
+    const boxEnabled = captionPresetRenderHints.boxEnabled || selectedCaptionOverlayTone !== "none";
+    const boxPaddingX = Math.round(fontPx * (boxEnabled ? 0.52 : 0.36));
+    const boxPaddingY = Math.round(fontPx * (boxEnabled ? 0.42 : 0.28));
+    ctx.font = `${captionFontWeight} ${fontPx}px ${captionFontFamily}`;
+    const measureCache = new Map<string, number>();
+    const measureTextWidth = (value: string) => {
+      const key = String(value || "");
+      const cached = measureCache.get(key);
+      if (typeof cached === "number") return cached;
+      const width = ctx.measureText(key).width;
+      measureCache.set(key, width);
+      return width;
+    };
     const wrapCaptionText = (text: string, maxWidth: number, maxLines: number) => {
       const tokens = text
         .replace(/\s+/g, " ")
@@ -7378,7 +7622,7 @@ const Editor = () => {
       for (let i = 1; i < tokens.length; i += 1) {
         const token = tokens[i];
         const candidate = `${current} ${token}`;
-        if (ctx.measureText(candidate).width <= maxWidth) {
+        if (measureTextWidth(candidate) <= maxWidth) {
           current = candidate;
           continue;
         }
@@ -7387,7 +7631,7 @@ const Editor = () => {
         if (lines.length >= maxLines - 1) {
           const remaining = [current, ...tokens.slice(i + 1)].join(" ");
           let clipped = remaining;
-          while (clipped.length > 1 && ctx.measureText(`${clipped}...`).width > maxWidth) {
+          while (clipped.length > 1 && measureTextWidth(`${clipped}...`) > maxWidth) {
             clipped = clipped.slice(0, -1);
           }
           lines.push(clipped.length < remaining.length ? `${clipped}...` : clipped);
@@ -7397,6 +7641,62 @@ const Editor = () => {
       lines.push(current);
       return lines.slice(0, maxLines);
     };
+    const preparedCaptionChunksRaw = captionChunkSources
+      .map((chunk) => {
+        const lines = wrapCaptionText(chunk.text, maxTextWidth, 2);
+        if (lines.length === 0) return null;
+        const preparedLines = lines.map((line) => {
+          const lineWords = line.split(" ").filter(Boolean);
+          const words = lineWords.map((word, wordIndex) => {
+            const isLast = wordIndex === lineWords.length - 1;
+            const display = isLast ? word : `${word} `;
+            return {
+              word,
+              display,
+              width: measureTextWidth(display),
+              isEmphasis: shouldPreviewEmphasis(word),
+            };
+          });
+          const width = words.reduce((sum, word) => sum + word.width, 0);
+          return {
+            text: line,
+            words,
+            width,
+          };
+        });
+        return {
+          ...chunk,
+          lines: preparedLines,
+          blockTextWidth: preparedLines.reduce((widest, line) => Math.max(widest, line.width), 0),
+        };
+      })
+      .filter((chunk): chunk is {
+        text: string;
+        tokens: string[];
+        startSec: number | null;
+        endSec: number | null;
+        lines: Array<{
+          text: string;
+          words: Array<{
+            word: string;
+            display: string;
+            width: number;
+            isEmphasis: boolean;
+          }>;
+          width: number;
+        }>;
+        blockTextWidth: number;
+      } => Boolean(chunk));
+    const preparedCaptionChunks = preparedCaptionChunksRaw.length > 0
+      ? preparedCaptionChunksRaw
+      : [{
+          text: captionTextForPreview,
+          tokens: captionTokensForPreview.length > 0 ? captionTokensForPreview : [captionTextForPreview],
+          startSec: null,
+          endSec: null,
+          lines: [],
+          blockTextWidth: 0,
+        }];
     const singleLayoutFit: VerticalFitMode = renderedClipPreviewActive ? "cover" : effectiveVerticalBottomFitMode;
 
     let raf = 0;
@@ -7433,10 +7733,6 @@ const Editor = () => {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
-          const captionPairDurationMs = Math.max(220, timing(440));
-          const activeCaptionPair = captionWordPairsForPreview.length > 0
-            ? captionWordPairsForPreview[Math.floor(now / captionPairDurationMs) % captionWordPairsForPreview.length]
-            : captionTextForPreview;
           let animationScale = 1;
           let animationYOffset = 0;
           let animationOpacity = 1;
@@ -7452,18 +7748,58 @@ const Editor = () => {
             animationScale = 1 + Math.sin(now / timing(120)) * 0.01;
           }
 
-          const fontPx = Math.round(
-            clamp(
-              verticalCaptionFontSize * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width),
-              16,
-              120,
-            ),
-          );
-          const captionShadowStrength = clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX) / 100;
-          const outlinePx = Math.max(0, Math.round(verticalCaptionOutlineWidth * (canvasWidth / DEFAULT_VERTICAL_OUTPUT.width)));
           const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionX);
           const centerY = canvasHeight * clampCaptionPosition(verticalCaptionPositionY);
-          const maxTextWidth = canvasWidth * 0.82;
+          const timelineOffsetSec = renderedClipPreviewActive
+            ? (toFiniteNumber(timingMoment?.start) ?? timingCueStartSec ?? 0)
+            : 0;
+          const absolutePreviewTimeSec = Math.max(0, (toFiniteNumber(video.currentTime) ?? 0) + timelineOffsetSec);
+          const cueDurationSec = timingCueStartSec !== null && timingCueEndSec !== null
+            ? Math.max(0.2, timingCueEndSec - timingCueStartSec)
+            : null;
+          const timedChunks = preparedCaptionChunks
+            .map((chunk, index) => {
+              const startSec = toFiniteNumber(chunk.startSec);
+              const endSec = toFiniteNumber(chunk.endSec);
+              if (startSec === null || endSec === null || endSec <= startSec) return null;
+              return {
+                index,
+                startSec,
+                endSec,
+              };
+            })
+            .filter((chunk): chunk is { index: number; startSec: number; endSec: number } => Boolean(chunk));
+          let activeChunkIndex = 0;
+          if (timedChunks.length > 0) {
+            const firstTimedChunk = timedChunks[0];
+            const lastTimedChunk = timedChunks[timedChunks.length - 1];
+            if (absolutePreviewTimeSec <= firstTimedChunk.startSec) {
+              activeChunkIndex = firstTimedChunk.index;
+            } else if (absolutePreviewTimeSec >= lastTimedChunk.endSec) {
+              activeChunkIndex = lastTimedChunk.index;
+            } else {
+              const matchingChunk = timedChunks.find((chunk) => (
+                absolutePreviewTimeSec >= chunk.startSec - 0.02 &&
+                absolutePreviewTimeSec < chunk.endSec + 0.02
+              ));
+              if (matchingChunk) {
+                activeChunkIndex = matchingChunk.index;
+              } else {
+                const nextChunk = timedChunks.find((chunk) => absolutePreviewTimeSec < chunk.startSec);
+                activeChunkIndex = nextChunk ? Math.max(0, nextChunk.index - 1) : lastTimedChunk.index;
+              }
+            }
+          } else if (cueDurationSec !== null && timingCueStartSec !== null && preparedCaptionChunks.length > 0) {
+            const cueProgress = clamp((absolutePreviewTimeSec - timingCueStartSec) / cueDurationSec, 0, 0.999999);
+            activeChunkIndex = Math.min(preparedCaptionChunks.length - 1, Math.floor(cueProgress * preparedCaptionChunks.length));
+          } else {
+            const fallbackChunkDurationMs = Math.max(220, timing(440));
+            activeChunkIndex = preparedCaptionChunks.length > 0
+              ? Math.floor((absolutePreviewTimeSec * 1000 / fallbackChunkDurationMs) % preparedCaptionChunks.length)
+              : 0;
+          }
+          const boundedChunkIndex = clamp(activeChunkIndex, 0, Math.max(0, preparedCaptionChunks.length - 1));
+          const activeChunk = preparedCaptionChunks[boundedChunkIndex] ?? null;
 
           ctx.save();
           ctx.globalAlpha = animationOpacity;
@@ -7473,15 +7809,9 @@ const Editor = () => {
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
 
-          const lines = wrapCaptionText(activeCaptionPair, maxTextWidth, 2);
-          if (lines.length > 0) {
-            const lineHeight = Math.round(fontPx * 1.08);
-            const blockTextWidth = lines.reduce((widest, line) => Math.max(widest, ctx.measureText(line).width), 0);
-            const textBlockHeight = lineHeight * lines.length;
-            const boxEnabled = captionPresetRenderHints.boxEnabled || selectedCaptionOverlayTone !== "none";
-            const boxPaddingX = Math.round(fontPx * (boxEnabled ? 0.52 : 0.36));
-            const boxPaddingY = Math.round(fontPx * (boxEnabled ? 0.42 : 0.28));
-            const boxWidth = blockTextWidth + boxPaddingX * 2;
+          if (activeChunk && activeChunk.lines.length > 0) {
+            const textBlockHeight = lineHeight * activeChunk.lines.length;
+            const boxWidth = activeChunk.blockTextWidth + boxPaddingX * 2;
             const boxHeight = textBlockHeight + boxPaddingY * 2;
             const hitPadding = Math.round(fontPx * 0.2);
             verticalCaptionHitboxRef.current = {
@@ -7510,36 +7840,41 @@ const Editor = () => {
             ctx.shadowColor = boxEnabled ? "rgba(15, 23, 42, 0.22)" : effectiveCaptionPalette.glowColor;
             ctx.shadowBlur = Math.round(fontPx * (boxEnabled ? 0.08 : 0.08 + captionShadowStrength * 0.52));
             ctx.shadowOffsetY = Math.round(fontPx * (boxEnabled ? 0.03 : 0.05) * Math.max(0.35, captionShadowStrength));
-            const centerOffset = ((lines.length - 1) * lineHeight) / 2;
-            const allTokens = activeCaptionPair
-              .replace(/\s+/g, " ")
-              .trim()
-              .split(" ")
-              .filter(Boolean);
+            const centerOffset = ((activeChunk.lines.length - 1) * lineHeight) / 2;
+            let highlightProgress: number | null = null;
+            const activeChunkStartSec = toFiniteNumber(activeChunk.startSec);
+            const activeChunkEndSec = toFiniteNumber(activeChunk.endSec);
+            if (activeChunkStartSec !== null && activeChunkEndSec !== null && activeChunkEndSec > activeChunkStartSec) {
+              highlightProgress = clamp(
+                (absolutePreviewTimeSec - activeChunkStartSec) / (activeChunkEndSec - activeChunkStartSec),
+                0,
+                0.999999,
+              );
+            } else if (cueDurationSec !== null && timingCueStartSec !== null && preparedCaptionChunks.length > 0) {
+              const chunkStartSec = timingCueStartSec + (cueDurationSec * boundedChunkIndex) / preparedCaptionChunks.length;
+              const chunkEndSec = timingCueStartSec + (cueDurationSec * (boundedChunkIndex + 1)) / preparedCaptionChunks.length;
+              if (chunkEndSec > chunkStartSec) {
+                highlightProgress = clamp(
+                  (absolutePreviewTimeSec - chunkStartSec) / (chunkEndSec - chunkStartSec),
+                  0,
+                  0.999999,
+                );
+              }
+            }
             const highlightedTokenIndex =
-              verticalCaptionHighlightWords && allTokens.length > 1
-                ? Math.floor((now / Math.max(90, 320 / Math.max(0.5, animSpeed))) % allTokens.length)
+              verticalCaptionHighlightWords && activeChunk.tokens.length > 1
+                ? highlightProgress !== null
+                  ? Math.min(activeChunk.tokens.length - 1, Math.floor(highlightProgress * activeChunk.tokens.length))
+                  : Math.floor((now / Math.max(90, 320 / Math.max(0.5, animSpeed))) % activeChunk.tokens.length)
                 : -1;
             let tokenCursor = 0;
-            for (let idx = 0; idx < lines.length; idx += 1) {
-              const line = lines[idx];
+            for (let idx = 0; idx < activeChunk.lines.length; idx += 1) {
+              const line = activeChunk.lines[idx];
               const y = idx * lineHeight - centerOffset;
-              const lineWords = line.split(" ").filter(Boolean);
-              if (!lineWords.length) continue;
-              const measuredWords = lineWords.map((word, wordIndex) => {
-                const isLast = wordIndex === lineWords.length - 1;
-                const display = isLast ? word : `${word} `;
-                return {
-                  word,
-                  display,
-                  width: ctx.measureText(display).width,
-                };
-              });
-              const totalLineWidth = measuredWords.reduce((sum, entry) => sum + entry.width, 0);
-              let cursorX = -totalLineWidth / 2;
-              for (const entry of measuredWords) {
+              let cursorX = -line.width / 2;
+              for (const entry of line.words) {
                 const isHighlighted = tokenCursor === highlightedTokenIndex;
-                const isEmphasis = verticalCaptionAutoEmphasis ? shouldPreviewEmphasis(entry.word) : false;
+                const isEmphasis = verticalCaptionAutoEmphasis && entry.isEmphasis;
                 if (outlinePx > 0) {
                   ctx.strokeStyle = `#${captionOutlineColor}`;
                   ctx.lineWidth = outlinePx;
@@ -7615,8 +7950,11 @@ const Editor = () => {
     verticalClipCaptionGenerateSelectedBySlot,
     verticalMomentOptionIndexBySlot,
     verticalClipCount,
+    verticalClipDurationSeconds,
+    verticalSelectionMode,
     activeVerticalClipEditorIndex,
     activeJob?.id,
+    activeJob?.status,
     activeJob?.analysis,
     isVerticalMode,
   ]);
