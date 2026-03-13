@@ -13119,7 +13119,7 @@ const Editor = () => {
   );
   useEffect(() => {
     if (captionPreviewClipIndex < 0) return;
-    if (captionPreviewClipIndex < captionPopupClipIndexes.length) return;
+    if (captionPopupClipIndexes.includes(captionPreviewClipIndex)) return;
     setCaptionPreviewClipIndex(-1);
   }, [captionPopupClipIndexes, captionPreviewClipIndex]);
   const allCaptionClipsSelected = useMemo(
@@ -13182,15 +13182,23 @@ const Editor = () => {
   ]);
   const resolvedCaptionPreviewClipIndex = useMemo(() => {
     if (captionPopupClipIndexes.length === 0) return -1;
-    if (captionPreviewClipIndex >= 0 && captionPreviewClipIndex < captionPopupClipIndexes.length) {
-      return captionPreviewClipIndex;
-    }
-    if (activeVerticalClipEditorIndex >= 0 && activeVerticalClipEditorIndex < captionPopupClipIndexes.length) {
+    if (
+      activeVerticalClipEditorIndex >= 0
+      && captionPopupClipIndexes.includes(activeVerticalClipEditorIndex)
+    ) {
       return activeVerticalClipEditorIndex;
+    }
+    if (captionPreviewClipIndex >= 0 && captionPopupClipIndexes.includes(captionPreviewClipIndex)) {
+      return captionPreviewClipIndex;
     }
     return captionPopupClipIndexes[0] ?? -1;
   }, [activeVerticalClipEditorIndex, captionPopupClipIndexes, captionPreviewClipIndex]);
   const captionPreviewSourceUrl = useMemo(() => {
+    if (resolvedCaptionPreviewClipIndex < 0) {
+      const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
+      if (sourceFallback) return sourceFallback;
+      return String(verticalPreviewUrl || "").trim();
+    }
     const resolvedClipUrl = resolvedCaptionPreviewClipIndex >= 0
       ? String(resolvedVerticalVariantOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim()
       : "";
@@ -13200,9 +13208,12 @@ const Editor = () => {
       : "";
     const renderedClipUrl = directClipUrl && !isAuthRequiredDownloadUrl(directClipUrl) ? directClipUrl : "";
     if (renderedClipUrl) return renderedClipUrl;
-    const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
-    if (sourceFallback) return sourceFallback;
-    return String(verticalPreviewUrl || "").trim();
+    if (resolvedCaptionPreviewClipIndex === 0) {
+      const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
+      if (sourceFallback) return sourceFallback;
+    }
+    // Do not silently switch to another clip source when a specific clip is selected.
+    return "";
   }, [
     activeOutputUrls,
     resolvedCaptionPreviewClipIndex,
@@ -13220,10 +13231,14 @@ const Editor = () => {
   }, [captionPreviewSourceUrl, captionSettingsDialogOpen]);
   const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
     if (!Number.isFinite(nextClipIndex)) return;
-    const boundedClipIndex = clamp(Math.round(nextClipIndex), 0, Math.max(0, captionPopupClipIndexes.length - 1));
-    setCaptionPreviewClipIndex(boundedClipIndex);
-    setActiveVerticalClipEditorIndex(boundedClipIndex);
-    const selectedSlot = getVerticalVariantSlotKeyForClipIndex(boundedClipIndex);
+    const normalizedClipIndex = Math.max(0, Math.round(nextClipIndex));
+    const selectedClipIndex = captionPopupClipIndexes.includes(normalizedClipIndex)
+      ? normalizedClipIndex
+      : (captionPopupClipIndexes[0] ?? -1);
+    if (selectedClipIndex < 0) return;
+    setCaptionPreviewClipIndex(selectedClipIndex);
+    setActiveVerticalClipEditorIndex(selectedClipIndex);
+    const selectedSlot = getVerticalVariantSlotKeyForClipIndex(selectedClipIndex);
     setVerticalClipCaptionGenerateSelectedBySlot(() => {
       const next: Record<string, boolean> = {};
       for (const clipIndex of captionPopupClipIndexes) {
@@ -13235,11 +13250,14 @@ const Editor = () => {
   }, [captionPopupClipIndexes]);
   const selectedCaptionClipIndex = useMemo(() => {
     if (captionPopupClipIndexes.length === 0) return -1;
-    if (captionPreviewClipIndex >= 0 && captionPreviewClipIndex < captionPopupClipIndexes.length) {
-      return captionPreviewClipIndex;
-    }
-    if (activeVerticalClipEditorIndex >= 0 && activeVerticalClipEditorIndex < captionPopupClipIndexes.length) {
+    if (
+      activeVerticalClipEditorIndex >= 0
+      && captionPopupClipIndexes.includes(activeVerticalClipEditorIndex)
+    ) {
       return activeVerticalClipEditorIndex;
+    }
+    if (captionPreviewClipIndex >= 0 && captionPopupClipIndexes.includes(captionPreviewClipIndex)) {
+      return captionPreviewClipIndex;
     }
     const selectedClip = captionPopupClipIndexes.find((clipIndex) => {
       const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
@@ -19918,7 +19936,11 @@ const Editor = () => {
                       <label className="mt-3 block space-y-1">
                         <span className="text-[11px] text-muted-foreground">Preview rendered clip</span>
                         <select
-                          value={String(Math.max(0, resolvedCaptionPreviewClipIndex))}
+                          value={String(
+                            resolvedCaptionPreviewClipIndex >= 0
+                              ? resolvedCaptionPreviewClipIndex
+                              : (captionPopupClipIndexes[0] ?? 0),
+                          )}
                           onChange={(event) => handleCaptionPreviewSourceChange(Number(event.target.value))}
                           className="h-9 w-full rounded-lg border border-border/60 bg-background/55 px-2.5 text-xs text-foreground"
                         >
@@ -20109,7 +20131,9 @@ const Editor = () => {
                           )
                         ) : (
                           <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
-                            Upload and prepare a vertical source video to unlock live caption preview.
+                            {selectedCaptionClipIndex >= 0
+                              ? `Clip #${selectedCaptionClipIndex + 1} preview is still loading.`
+                              : "Upload and prepare a vertical source video to unlock live caption preview."}
                           </div>
                         )}
                       </div>
