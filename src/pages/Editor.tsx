@@ -13390,6 +13390,36 @@ const Editor = () => {
     setSelectedCaptionOverlayTone,
     updateSelectedClipCaptionText,
   ]);
+  const saveCaptionsToRender = useCallback(() => {
+    if (uploadingJobId) return;
+    if (
+      activeJob &&
+      activeJob.renderMode === "vertical" &&
+      activeVerticalJobReadyForDownload &&
+      selectedCaptionClipIndex >= 0
+    ) {
+      void handleRedoRender(activeJob, { clipIndex: selectedCaptionClipIndex });
+      return;
+    }
+    if (pendingVerticalFile && sourceVideoMeta) {
+      void startVerticalRender();
+      return;
+    }
+    toast({
+      title: "No vertical clip ready",
+      description: "Render a vertical job first, then save captions to the selected clip.",
+    });
+  }, [
+    activeJob,
+    activeVerticalJobReadyForDownload,
+    handleRedoRender,
+    pendingVerticalFile,
+    selectedCaptionClipIndex,
+    sourceVideoMeta,
+    startVerticalRender,
+    toast,
+    uploadingJobId,
+  ]);
   const generateModernCaptionForClip = useCallback((clipIndex: number) => {
     const { variantKey, versionIndex } = getVerticalSlotMetaByClipIndex(clipIndex);
     const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
@@ -20025,10 +20055,19 @@ const Editor = () => {
                         <Button
                           type="button"
                           className="mt-3 min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
-                          onClick={() => void startVerticalRender()}
-                          disabled={!pendingVerticalFile || !sourceVideoMeta || Boolean(uploadingJobId)}
+                          onClick={saveCaptionsToRender}
+                          disabled={
+                            Boolean(uploadingJobId) ||
+                            (activeJob?.id ? reprocessingJobId === activeJob.id : false) ||
+                            (!activeJob && (!pendingVerticalFile || !sourceVideoMeta)) ||
+                            selectedCaptionClipIndex < 0
+                          }
                         >
-                          {uploadingJobId ? "Rendering..." : "Save Captions To Render"}
+                          {uploadingJobId || (activeJob?.id && reprocessingJobId === activeJob.id)
+                            ? "Saving..."
+                            : selectedCaptionClipIndex >= 0
+                              ? `Save Captions To Clip #${selectedCaptionClipIndex + 1}`
+                              : "Save Captions To Render"}
                         </Button>
                       </div>
                       {captionPreviewSourceUrl ? (
