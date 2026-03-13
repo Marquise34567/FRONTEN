@@ -7358,7 +7358,13 @@ const Editor = () => {
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
     if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
-    const renderedClipPreviewActive = captionPreviewClipIndex >= 0 && captionPreviewHasRenderedClip;
+    const selectedRenderedClipPreviewUrl = captionPreviewClipIndex >= 0
+      ? String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim()
+      : "";
+    const renderedClipPreviewActive = Boolean(
+      selectedRenderedClipPreviewUrl &&
+      selectedRenderedClipPreviewUrl === previewSourceUrl,
+    );
     const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !effectiveWebcamCrop;
     if (!singleLayout && !effectiveWebcamCrop) return;
     const ctx = canvas.getContext("2d");
@@ -7420,24 +7426,89 @@ const Editor = () => {
     const timingMoment = verticalTranscriptMomentOptions[resolvedTimingMomentIndex] ?? null;
     const timingCueStartSec = firstFiniteNumber(timingCue?.start, timingMoment?.start);
     const timingCueEndSec = firstFiniteNumber(timingCue?.end, timingMoment?.end);
+    const clipTimingStartSec = captionPreviewClipIndex >= 0
+      ? firstFiniteNumber(timingMoment?.start, timingCue?.start)
+      : null;
+    const clipTimingEndSec = captionPreviewClipIndex >= 0
+      ? firstFiniteNumber(timingMoment?.end, timingCue?.end)
+      : null;
+    const clipTimingDurationSec = clipTimingStartSec !== null && clipTimingEndSec !== null
+      ? Math.max(0, clipTimingEndSec - clipTimingStartSec)
+      : null;
+    const clipTimingRangeValid = clipTimingDurationSec !== null && clipTimingDurationSec > 0.05;
+    const cueTimelineStartSec = clipTimingRangeValid ? clipTimingStartSec : timingCueStartSec;
     const transcriptLinkedPreview = Boolean(
       timingSlotKey &&
       !normalizeVerticalCaptionTextForJob(String(verticalClipCaptionTextBySlot[timingSlotKey] || "")) &&
       selectedCaptionClipTranscriptText,
     );
-    const timedCaptionTokens = transcriptLinkedPreview && Array.isArray(timingCue?.words)
-      ? timingCue.words
-          .map((word) => ({
-            text: String(word.text || "").trim(),
-            startSec: toFiniteNumber(word.start),
-            endSec: toFiniteNumber(word.end),
-          }))
-          .filter((word) => (
-            Boolean(word.text) &&
-            word.startSec !== null &&
-            word.endSec !== null &&
-            word.endSec > word.startSec
-          ))
+    const timedCaptionTokens = transcriptLinkedPreview
+      ? (() => {
+          const previewCues = clipTimingRangeValid && clipTimingStartSec !== null && clipTimingEndSec !== null
+            ? activeTranscriptCues.filter((cue) => cue.end > clipTimingStartSec + 0.005 && cue.start < clipTimingEndSec - 0.005)
+            : timingCue
+              ? [timingCue]
+              : [];
+          if (previewCues.length === 0) return [] as Array<{ text: string; startSec: number | null; endSec: number | null }>;
+          const collected = previewCues.flatMap((cue) => {
+            const cueRawStart = toFiniteNumber(cue.start);
+            const cueRawEnd = toFiniteNumber(cue.end);
+            if (cueRawStart === null || cueRawEnd === null || cueRawEnd <= cueRawStart) return [];
+            const cueStart = clipTimingRangeValid && clipTimingStartSec !== null
+              ? Math.max(cueRawStart, clipTimingStartSec)
+              : cueRawStart;
+            const cueEnd = clipTimingRangeValid && clipTimingEndSec !== null
+              ? Math.min(cueRawEnd, clipTimingEndSec)
+              : cueRawEnd;
+            if (!Number.isFinite(cueStart) || !Number.isFinite(cueEnd) || cueEnd <= cueStart) return [];
+            if (Array.isArray(cue.words) && cue.words.length > 0) {
+              const cueWords = cue.words
+                .map((word) => ({
+                  text: String(word.text || "").trim(),
+                  startSec: toFiniteNumber(word.start),
+                  endSec: toFiniteNumber(word.end),
+                }))
+                .filter((word) => (
+                  Boolean(word.text) &&
+                  word.startSec !== null &&
+                  word.endSec !== null &&
+                  word.endSec > word.startSec
+                ))
+                .map((word) => {
+                  const startSec = Math.max(cueStart, Number(word.startSec));
+                  const endSec = Math.min(cueEnd, Number(word.endSec));
+                  if (endSec <= startSec) return null;
+                  return {
+                    text: word.text,
+                    startSec,
+                    endSec,
+                  };
+                })
+                .filter((word): word is { text: string; startSec: number; endSec: number } => Boolean(word));
+              if (cueWords.length > 0) return cueWords;
+            }
+            const fallbackTokens = String(cue.text || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .split(" ")
+              .filter(Boolean);
+            if (fallbackTokens.length === 0) return [];
+            const cueDuration = Math.max(0.05, cueEnd - cueStart);
+            return fallbackTokens.map((token, index) => {
+              const startSec = cueStart + (cueDuration * index) / fallbackTokens.length;
+              const endSec = cueStart + (cueDuration * (index + 1)) / fallbackTokens.length;
+              return {
+                text: token,
+                startSec,
+                endSec,
+              };
+            });
+          });
+          return collected.sort((left, right) => (
+            (toFiniteNumber(left.startSec) ?? 0) - (toFiniteNumber(right.startSec) ?? 0)
+            || (toFiniteNumber(left.endSec) ?? 0) - (toFiniteNumber(right.endSec) ?? 0)
+          ));
+        })()
       : [];
     const filteredTimedCaptionTokens = (verticalCaptionRemoveFillers
       ? timedCaptionTokens.filter((token) => !PREVIEW_FILLER_TOKENS.has(normalizePreviewToken(token.text)))
@@ -7453,7 +7524,13 @@ const Editor = () => {
       !PREVIEW_EMOJI_PATTERN.test(timedCaptionTokensForPreview.map((token) => token.text).join(" "))
     ) {
       const lastToken = timedCaptionTokensForPreview[timedCaptionTokensForPreview.length - 1];
-      const emojiAnchor = toFiniteNumber(lastToken.endSec) ?? toFiniteNumber(lastToken.startSec) ?? timingCueEndSec ?? timingCueStartSec ?? null;
+      const emojiAnchor =
+        toFiniteNumber(lastToken.endSec) ??
+        toFiniteNumber(lastToken.startSec) ??
+        clipTimingEndSec ??
+        timingCueEndSec ??
+        timingCueStartSec ??
+        null;
       timedCaptionTokensForPreview.push({
         text: captionAutoEmoji,
         startSec: emojiAnchor,
@@ -7714,7 +7791,7 @@ const Editor = () => {
           drawVideoRegion(
             effectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
-            "contain",
+            "cover",
           );
           drawVideoRegion(
             { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
@@ -7750,12 +7827,25 @@ const Editor = () => {
 
           const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionX);
           const centerY = canvasHeight * clampCaptionPosition(verticalCaptionPositionY);
+          if (
+            !renderedClipPreviewActive &&
+            clipTimingRangeValid &&
+            clipTimingStartSec !== null &&
+            clipTimingEndSec !== null
+          ) {
+            const currentSec = toFiniteNumber(video.currentTime);
+            if (currentSec === null || currentSec < clipTimingStartSec - 0.05 || currentSec >= clipTimingEndSec - 0.02) {
+              video.currentTime = clipTimingStartSec;
+            }
+          }
           const timelineOffsetSec = renderedClipPreviewActive
-            ? (toFiniteNumber(timingMoment?.start) ?? timingCueStartSec ?? 0)
+            ? (clipTimingStartSec ?? timingCueStartSec ?? 0)
             : 0;
           const absolutePreviewTimeSec = Math.max(0, (toFiniteNumber(video.currentTime) ?? 0) + timelineOffsetSec);
-          const cueDurationSec = timingCueStartSec !== null && timingCueEndSec !== null
-            ? Math.max(0.2, timingCueEndSec - timingCueStartSec)
+          const cueDurationSec = cueTimelineStartSec !== null && clipTimingRangeValid && clipTimingDurationSec !== null
+            ? Math.max(0.2, clipTimingDurationSec)
+            : timingCueStartSec !== null && timingCueEndSec !== null
+              ? Math.max(0.2, timingCueEndSec - timingCueStartSec)
             : null;
           const timedChunks = preparedCaptionChunks
             .map((chunk, index) => {
@@ -7789,8 +7879,8 @@ const Editor = () => {
                 activeChunkIndex = nextChunk ? Math.max(0, nextChunk.index - 1) : lastTimedChunk.index;
               }
             }
-          } else if (cueDurationSec !== null && timingCueStartSec !== null && preparedCaptionChunks.length > 0) {
-            const cueProgress = clamp((absolutePreviewTimeSec - timingCueStartSec) / cueDurationSec, 0, 0.999999);
+          } else if (cueDurationSec !== null && cueTimelineStartSec !== null && preparedCaptionChunks.length > 0) {
+            const cueProgress = clamp((absolutePreviewTimeSec - cueTimelineStartSec) / cueDurationSec, 0, 0.999999);
             activeChunkIndex = Math.min(preparedCaptionChunks.length - 1, Math.floor(cueProgress * preparedCaptionChunks.length));
           } else {
             const fallbackChunkDurationMs = Math.max(220, timing(440));
@@ -7850,9 +7940,9 @@ const Editor = () => {
                 0,
                 0.999999,
               );
-            } else if (cueDurationSec !== null && timingCueStartSec !== null && preparedCaptionChunks.length > 0) {
-              const chunkStartSec = timingCueStartSec + (cueDurationSec * boundedChunkIndex) / preparedCaptionChunks.length;
-              const chunkEndSec = timingCueStartSec + (cueDurationSec * (boundedChunkIndex + 1)) / preparedCaptionChunks.length;
+            } else if (cueDurationSec !== null && cueTimelineStartSec !== null && preparedCaptionChunks.length > 0) {
+              const chunkStartSec = cueTimelineStartSec + (cueDurationSec * boundedChunkIndex) / preparedCaptionChunks.length;
+              const chunkEndSec = cueTimelineStartSec + (cueDurationSec * (boundedChunkIndex + 1)) / preparedCaptionChunks.length;
               if (chunkEndSec > chunkStartSec) {
                 highlightProgress = clamp(
                   (absolutePreviewTimeSec - chunkStartSec) / (chunkEndSec - chunkStartSec),
@@ -7905,12 +7995,24 @@ const Editor = () => {
       }
       raf = window.requestAnimationFrame(render);
     };
+    const alignPlaybackToClipRange = () => {
+      if (renderedClipPreviewActive || !clipTimingRangeValid || clipTimingStartSec === null) return;
+      const duration = toFiniteNumber(video.duration);
+      const target = duration !== null && duration > 0
+        ? clamp(clipTimingStartSec, 0, Math.max(0, duration - 0.05))
+        : Math.max(0, clipTimingStartSec);
+      const current = toFiniteNumber(video.currentTime);
+      if (current === null || Math.abs(current - target) > 0.12) {
+        video.currentTime = target;
+      }
+    };
     const startPlayback = () => {
       const maybePromise = video.play();
       if (maybePromise && typeof maybePromise.catch === "function") {
         maybePromise.catch(() => undefined);
       }
     };
+    alignPlaybackToClipRange();
     startPlayback();
     render();
     return () => {
@@ -7949,6 +8051,12 @@ const Editor = () => {
     verticalClipCaptionOverlayBySlot,
     verticalClipCaptionGenerateSelectedBySlot,
     verticalMomentOptionIndexBySlot,
+    verticalVariantPreviewUrls,
+    verticalDefaultMomentIndexBySlot,
+    verticalTranscriptMomentOptions,
+    activeTranscriptCues,
+    selectedCaptionClipIndex,
+    selectedCaptionClipTranscriptText,
     verticalClipCount,
     verticalClipDurationSeconds,
     verticalSelectionMode,
@@ -12478,7 +12586,9 @@ const Editor = () => {
     verticalClipCaptionGenerateSelectedBySlot,
   ]);
   const captionPreviewSourceUrl = useMemo(() => {
-    const sourceFallback = String(verticalPreviewUrl || resolvedPreviewOutputUrl || verticalVariantPreviewUrls[0] || "").trim();
+    const rawSource = String(verticalPreviewUrl || "").trim();
+    if (rawSource) return rawSource;
+    const sourceFallback = String(resolvedPreviewOutputUrl || verticalVariantPreviewUrls[0] || "").trim();
     if (captionPreviewClipIndex < 0) return sourceFallback;
     const selected = String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim();
     return selected || sourceFallback;
@@ -12643,10 +12753,6 @@ const Editor = () => {
     setSelectedCaptionOverlayTone,
     updateSelectedClipCaptionText,
   ]);
-  const captionPreviewHasRenderedClip = useMemo(() => {
-    if (captionPreviewClipIndex < 0) return false;
-    return Boolean(String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim());
-  }, [captionPreviewClipIndex, verticalVariantPreviewUrls]);
   const generateModernCaptionForClip = useCallback((clipIndex: number) => {
     const { variantKey, versionIndex } = getVerticalSlotMetaByClipIndex(clipIndex);
     const slotKey = getVerticalVariantSlotKey(variantKey, versionIndex);
