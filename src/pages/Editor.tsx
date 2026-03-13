@@ -8051,7 +8051,6 @@ const Editor = () => {
     verticalClipCaptionOverlayBySlot,
     verticalClipCaptionGenerateSelectedBySlot,
     verticalMomentOptionIndexBySlot,
-    verticalVariantPreviewUrls,
     verticalClipCount,
     verticalClipDurationSeconds,
     verticalSelectionMode,
