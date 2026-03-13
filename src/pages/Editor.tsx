@@ -7464,8 +7464,13 @@ const Editor = () => {
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
     if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta) return;
-    const selectedRenderedClipPreviewUrl = captionPreviewClipIndex >= 0
-      ? String(verticalVariantPreviewUrls[captionPreviewClipIndex] || "").trim()
+    const resolvedPreviewClipIndex = captionPreviewClipIndex >= 0
+      ? clamp(Math.round(captionPreviewClipIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
+      : activeVerticalClipEditorIndex >= 0
+        ? clamp(Math.round(activeVerticalClipEditorIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
+        : 0;
+    const selectedRenderedClipPreviewUrl = resolvedPreviewClipIndex >= 0
+      ? String(verticalVariantPreviewUrls[resolvedPreviewClipIndex] || "").trim()
       : "";
     const renderedClipPreviewActive = Boolean(
       selectedRenderedClipPreviewUrl &&
@@ -7518,11 +7523,7 @@ const Editor = () => {
       .split(" ")
       .filter(Boolean);
     const captionChunkRangesForPreview = buildPreviewCaptionTokenRanges(captionTokensForPreview.length);
-    const timingClipIndex = captionPreviewClipIndex >= 0
-      ? captionPreviewClipIndex
-      : activeVerticalClipEditorIndex >= 0
-        ? activeVerticalClipEditorIndex
-        : 0;
+    const timingClipIndex = resolvedPreviewClipIndex >= 0 ? resolvedPreviewClipIndex : 0;
     const timingSlotMeta = timingClipIndex >= 0 ? getVerticalSlotMetaByClipIndex(timingClipIndex) : null;
     const timingSlotKey = timingSlotMeta
       ? getVerticalVariantSlotKey(timingSlotMeta.variantKey, timingSlotMeta.versionIndex)
@@ -7538,10 +7539,10 @@ const Editor = () => {
     const timingCueStartSec = firstFiniteNumber(timingCue?.start, timingMoment?.start);
     const timingCueEndSec = firstFiniteNumber(timingCue?.end, timingMoment?.end);
     const previewDurationSec = toFiniteNumber(video.duration);
-    const clipTimingStartRawSec = captionPreviewClipIndex >= 0
+    const clipTimingStartRawSec = resolvedPreviewClipIndex >= 0
       ? firstFiniteNumber(timingMoment?.start, timingCue?.start)
       : null;
-    const clipTimingEndRawSec = captionPreviewClipIndex >= 0
+    const clipTimingEndRawSec = resolvedPreviewClipIndex >= 0
       ? firstFiniteNumber(timingMoment?.end, timingCue?.end)
       : null;
     const clipTimingStartSec = clipTimingStartRawSec === null
@@ -7984,8 +7985,16 @@ const Editor = () => {
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
         let drewVideoFrame = false;
         if (singleLayout) {
+          const singleLayoutSource = renderedClipPreviewActive
+            ? {
+                x: 0,
+                y: 0,
+                w: Math.max(1, video.videoWidth || sourceVideoMeta.width),
+                h: Math.max(1, video.videoHeight || sourceVideoMeta.height),
+              }
+            : { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height };
           drewVideoFrame = drawVideoRegion(
-            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            singleLayoutSource,
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
             singleLayoutFit,
             { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
@@ -8245,6 +8254,7 @@ const Editor = () => {
     verticalPreviewUrl,
     resolvedPreviewOutputUrl,
     resolvedVerticalVariantOutputUrls,
+    verticalVariantPreviewUrls,
     sourceVideoMeta,
     correctedEffectiveWebcamCrop,
     effectiveVerticalBottomFitMode,
@@ -13156,22 +13166,31 @@ const Editor = () => {
     toast,
     verticalClipCaptionGenerateSelectedBySlot,
   ]);
-  const captionPreviewSourceUrl = useMemo(() => {
-    const rawSource = String(verticalPreviewUrl || "").trim();
-    if (rawSource) return rawSource;
-    const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
-    if (captionPreviewClipIndex < 0) return sourceFallback;
-    return sourceFallback;
-  }, [captionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl]);
-  const captionPreviewSourceLabel = useMemo(() => {
-    if (captionPreviewClipIndex < 0) return "Source video";
-    return `Clip #${captionPreviewClipIndex + 1}`;
-  }, [captionPreviewClipIndex]);
-  const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
-    if (!Number.isFinite(nextClipIndex) || nextClipIndex < 0) {
-      setCaptionPreviewClipIndex(-1);
-      return;
+  const resolvedCaptionPreviewClipIndex = useMemo(() => {
+    if (captionPopupClipIndexes.length === 0) return -1;
+    if (captionPreviewClipIndex >= 0 && captionPreviewClipIndex < captionPopupClipIndexes.length) {
+      return captionPreviewClipIndex;
     }
+    if (activeVerticalClipEditorIndex >= 0 && activeVerticalClipEditorIndex < captionPopupClipIndexes.length) {
+      return activeVerticalClipEditorIndex;
+    }
+    return captionPopupClipIndexes[0] ?? -1;
+  }, [activeVerticalClipEditorIndex, captionPopupClipIndexes, captionPreviewClipIndex]);
+  const captionPreviewSourceUrl = useMemo(() => {
+    const renderedClipUrl = resolvedCaptionPreviewClipIndex >= 0
+      ? String(verticalVariantPreviewUrls[resolvedCaptionPreviewClipIndex] || "").trim()
+      : "";
+    if (renderedClipUrl) return renderedClipUrl;
+    const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
+    if (sourceFallback) return sourceFallback;
+    return String(verticalPreviewUrl || "").trim();
+  }, [resolvedCaptionPreviewClipIndex, resolvedPreviewOutputUrl, verticalPreviewUrl, verticalVariantPreviewUrls]);
+  const captionPreviewSourceLabel = useMemo(() => {
+    if (resolvedCaptionPreviewClipIndex < 0) return "Clip Preview";
+    return `Clip #${resolvedCaptionPreviewClipIndex + 1}`;
+  }, [resolvedCaptionPreviewClipIndex]);
+  const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
+    if (!Number.isFinite(nextClipIndex)) return;
     const boundedClipIndex = clamp(Math.round(nextClipIndex), 0, Math.max(0, captionPopupClipIndexes.length - 1));
     setCaptionPreviewClipIndex(boundedClipIndex);
     setActiveVerticalClipEditorIndex(boundedClipIndex);
@@ -19838,13 +19857,12 @@ const Editor = () => {
                         Drag on the preview to reposition captions before render.
                       </p>
                       <label className="mt-3 block space-y-1">
-                        <span className="text-[11px] text-muted-foreground">Preview video source</span>
+                        <span className="text-[11px] text-muted-foreground">Preview rendered clip</span>
                         <select
-                          value={String(captionPreviewClipIndex)}
+                          value={String(Math.max(0, resolvedCaptionPreviewClipIndex))}
                           onChange={(event) => handleCaptionPreviewSourceChange(Number(event.target.value))}
                           className="h-9 w-full rounded-lg border border-border/60 bg-background/55 px-2.5 text-xs text-foreground"
                         >
-                          <option value="-1">Source video</option>
                           {captionPopupClipIndexes.map((clipIndex) => (
                             <option key={`caption-preview-clip-${clipIndex}`} value={clipIndex}>
                               Clip #{clipIndex + 1}
