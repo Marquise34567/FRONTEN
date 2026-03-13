@@ -4203,6 +4203,8 @@ const Editor = () => {
   );
   const [verticalCaptionPositionX, setVerticalCaptionPositionX] = useState<number>(0.5);
   const [verticalCaptionPositionY, setVerticalCaptionPositionY] = useState<number>(DEFAULT_VERTICAL_CAPTION_POSITION_Y);
+  const verticalCaptionPositionXRef = useRef<number>(0.5);
+  const verticalCaptionPositionYRef = useRef<number>(DEFAULT_VERTICAL_CAPTION_POSITION_Y);
   const [verticalVariantCaptionPositions, setVerticalVariantCaptionPositions] = useState<
     Record<VerticalVariantCaptionKey, { x: number; y: number }>
   >({
@@ -4282,6 +4284,12 @@ const Editor = () => {
     mode: CAPTIONS_PIPELINE_ENABLED ? "runtime" : "disabled",
     reason: CAPTIONS_PIPELINE_ENABLED ? null : "Captions are disabled in the editor pipeline.",
   });
+  useEffect(() => {
+    verticalCaptionPositionXRef.current = clampCaptionPosition(verticalCaptionPositionX);
+  }, [verticalCaptionPositionX]);
+  useEffect(() => {
+    verticalCaptionPositionYRef.current = clampCaptionPosition(verticalCaptionPositionY);
+  }, [verticalCaptionPositionY]);
   const selectedVerticalCaptionFontVariant = useMemo(() => {
     const direct = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[verticalCaptionFontVariantId];
     if (direct) return direct;
@@ -7275,6 +7283,8 @@ const Editor = () => {
     } catch {
       // Ignore capture failures on browsers that reject this pointer state.
     }
+    verticalCaptionPositionXRef.current = nextX;
+    verticalCaptionPositionYRef.current = nextY;
     setVerticalCaptionPositionX(nextX);
     setVerticalCaptionPositionY(nextY);
     setVerticalCaptionDragState({
@@ -7294,10 +7304,16 @@ const Editor = () => {
       if (!rect.width || !rect.height) return;
       const deltaX = (event.clientX - verticalCaptionDragState.startClientX) / rect.width;
       const deltaY = (event.clientY - verticalCaptionDragState.startClientY) / rect.height;
-      setVerticalCaptionPositionX(clampCaptionPosition(verticalCaptionDragState.startX + deltaX));
-      setVerticalCaptionPositionY(clampCaptionPosition(verticalCaptionDragState.startY + deltaY));
+      const nextX = clampCaptionPosition(verticalCaptionDragState.startX + deltaX);
+      const nextY = clampCaptionPosition(verticalCaptionDragState.startY + deltaY);
+      verticalCaptionPositionXRef.current = nextX;
+      verticalCaptionPositionYRef.current = nextY;
     };
-    const onEnd = () => setVerticalCaptionDragState(null);
+    const onEnd = () => {
+      setVerticalCaptionPositionX(verticalCaptionPositionXRef.current);
+      setVerticalCaptionPositionY(verticalCaptionPositionYRef.current);
+      setVerticalCaptionDragState(null);
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onEnd);
     window.addEventListener("pointercancel", onEnd);
@@ -7825,8 +7841,8 @@ const Editor = () => {
             animationScale = 1 + Math.sin(now / timing(120)) * 0.01;
           }
 
-          const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionX);
-          const centerY = canvasHeight * clampCaptionPosition(verticalCaptionPositionY);
+          const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionXRef.current);
+          const centerY = canvasHeight * clampCaptionPosition(verticalCaptionPositionYRef.current);
           if (
             !renderedClipPreviewActive &&
             clipTimingRangeValid &&
@@ -8042,8 +8058,6 @@ const Editor = () => {
     verticalCaptionAutoEmphasis,
     verticalCaptionAutoEmoji,
     verticalCaptionRemoveFillers,
-    verticalCaptionPositionX,
-    verticalCaptionPositionY,
     verticalCaptionPreset,
     selectedVerticalCaptionFontVariant,
     resolvedVerticalCaptionText,
