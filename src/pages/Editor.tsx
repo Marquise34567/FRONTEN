@@ -7068,6 +7068,10 @@ const Editor = () => {
     }
     const hasCustomWebcamCrop = webcamCropWasAdjusted || webcamPaddingPx > 0;
     const useAutoWebcamCrop = !skipManualWebcamCrop && !hasCustomWebcamCrop;
+    const hasExplicitMomentOverrides = Object.keys(verticalMomentOptionIndexBySlot).length > 0;
+    const manualVariantMomentsForRender = hasExplicitMomentOverrides
+      ? verticalVariantMomentsRef.current
+      : null;
     const resolvedVerticalLayout: VerticalLayoutMode = skipManualWebcamCrop
       ? "single"
       : useAutoWebcamCrop
@@ -7083,7 +7087,7 @@ const Editor = () => {
       mode: "vertical",
       verticalClipCount: Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS),
       verticalClipDurationSeconds: verticalClipDurationSecondsRef.current,
-      verticalVariantMoments: verticalVariantMomentsRef.current,
+      verticalVariantMoments: manualVariantMomentsForRender,
       verticalMode: {
         enabled: true,
         output: { ...DEFAULT_VERTICAL_OUTPUT },
@@ -7112,6 +7116,7 @@ const Editor = () => {
     topHeightPx,
     effectiveVerticalBottomFitMode,
     verticalClipCount,
+    verticalMomentOptionIndexBySlot,
     verticalSelectionMode,
     webcamTopHeightPct,
     webcamPaddingPx,
