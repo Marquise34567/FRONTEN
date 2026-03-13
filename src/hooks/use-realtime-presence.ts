@@ -23,11 +23,16 @@ const buildRealtimeSocketUrls = (token: string) => {
       // ignore malformed base URL
     }
   };
-  if (typeof window !== "undefined") {
-    addFromBase(`${window.location.protocol}//${window.location.host}`);
-  }
   if (API_URL) {
     addFromBase(API_URL);
+    return out;
+  }
+  if (typeof window !== "undefined") {
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const isLocalDevHost = hostname === "localhost" || hostname === "127.0.0.1";
+    if (!isLocalDevHost) {
+      addFromBase(`${window.location.protocol}//${window.location.host}`);
+    }
   }
   return out;
 };

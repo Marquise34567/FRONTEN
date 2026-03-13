@@ -7480,10 +7480,11 @@ const Editor = () => {
     };
     const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
     const editableSourcePreviewActive = sourcePreviewUrl.length > 0 && previewSourceUrl === sourcePreviewUrl;
+    const resolvedPreviewClipPoolSize = Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, resolvedVerticalVariantOutputUrls.length);
     const resolvedPreviewClipIndex = captionPreviewClipIndex >= 0
-      ? clamp(Math.round(captionPreviewClipIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
+      ? clamp(Math.round(captionPreviewClipIndex), 0, Math.max(0, resolvedPreviewClipPoolSize - 1))
       : activeVerticalClipEditorIndex >= 0
-        ? clamp(Math.round(activeVerticalClipEditorIndex), 0, Math.max(0, verticalVariantPreviewUrls.length - 1))
+        ? clamp(Math.round(activeVerticalClipEditorIndex), 0, Math.max(0, resolvedPreviewClipPoolSize - 1))
         : 0;
     const renderedClipPreviewActive = !editableSourcePreviewActive;
     const singleLayout = renderedClipPreviewActive || skipManualWebcamCrop || !correctedEffectiveWebcamCrop;
@@ -8267,7 +8268,6 @@ const Editor = () => {
     verticalPreviewUrl,
     resolvedPreviewOutputUrl,
     resolvedVerticalVariantOutputUrls,
-    verticalVariantPreviewUrls,
     sourceVideoMeta,
     correctedEffectiveWebcamCrop,
     effectiveVerticalBottomFitMode,
