@@ -22108,11 +22108,11 @@ const Editor = () => {
         }}
       >
         {exportOpen && activeJob?.renderMode !== "vertical" ? (
-        <DialogContent
-          className="relative max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
-          onInteractOutside={(event) => event.preventDefault()}
-          onEscapeKeyDown={(event) => event.preventDefault()}
-        >
+          <DialogContent
+            className="relative max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => event.preventDefault()}
+          >
           <div className="pointer-events-none absolute -left-10 -top-12 h-28 w-28 rounded-full bg-primary/20 blur-3xl" />
           <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-cyan-300/15 blur-3xl" />
           <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-primary/10 via-transparent to-transparent" />
@@ -22348,10 +22348,11 @@ const Editor = () => {
               </Button>
             </div>
           </div>
-        </DialogContent>
+          </DialogContent>
         ) : null}
       </Dialog>
-    </GlowBackdrop></Suspense>
+    </GlowBackdrop>
+    </Suspense>
   );
 };
 
