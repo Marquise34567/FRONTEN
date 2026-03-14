@@ -44,6 +44,7 @@ let authBlockedUntilFreshToken = false;
 let lastSeenAccessToken: string | null = null;
 const RETRYABLE_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const FAILOVER_HTTP_STATUSES = new Set([404, 502, 503, 504]);
 const DEFAULT_API_TIMEOUT_MS = 20000;
 const DEFAULT_API_RETRY_DELAY_MS = 450;
 const DEFAULT_IDEMPOTENT_RETRIES = 1;
@@ -136,8 +137,8 @@ export async function apiFetch<T>(
       seen.add(normalized);
       out.push(normalized);
     };
+    if (runtimeOriginBase) add(runtimeOriginBase);
     add(preferredBase);
-    add(runtimeOriginBase);
     if (!out.length) out.push("");
     return out;
   })();
@@ -275,6 +276,12 @@ export async function apiFetch<T>(
         }
         authBlockedUntilFreshToken = true;
         emitAuthExpired();
+      }
+      const canFailoverHttpError =
+        baseIndex + 1 < apiBaseCandidates.length &&
+        FAILOVER_HTTP_STATUSES.has(res.status);
+      if (canFailoverHttpError) {
+        return performRequest(resolvedToken, isRetry, attempt, baseIndex + 1);
       }
       const canRetryHttpError =
         attempt < maxRetries &&

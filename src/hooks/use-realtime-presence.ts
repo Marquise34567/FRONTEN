@@ -25,7 +25,6 @@ const buildRealtimeSocketUrls = (token: string) => {
   };
   if (API_URL) {
     addFromBase(API_URL);
-    return out;
   }
   if (typeof window !== "undefined") {
     const hostname = String(window.location.hostname || "").toLowerCase();
