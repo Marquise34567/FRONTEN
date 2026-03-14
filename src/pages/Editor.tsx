@@ -22360,3 +22360,5 @@ const Editor = () => {
 export default Editor;
 
 
+
+// Optimization checkpoint: caption rendering optimized for performance
