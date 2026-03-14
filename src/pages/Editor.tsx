@@ -1417,6 +1417,7 @@ const VERTICAL_CAPTION_OUTLINE_WIDTH_MAX = 10;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
 const VERTICAL_CAPTION_SHADOW_MIN = 0;
 const VERTICAL_CAPTION_SHADOW_MAX = 100;
+const VERTICAL_CAPTION_SHADOW_BLUR_MAX = 42;
 const VERTICAL_CAPTION_ANIMATION_SPEED_MIN = 0.5;
 const VERTICAL_CAPTION_ANIMATION_SPEED_MAX = 2.2;
 const clampVerticalCaptionAnimationSpeed = (value: number) =>
@@ -4201,6 +4202,252 @@ type CheckoutSuccessDialogState = {
 
 const displayName = (job: JobSummary) => job.inputPath?.split("/").pop() || "Untitled";
 
+type VerticalCaptionSnapshot = {
+  enabled: boolean;
+  autoGenerate: boolean;
+  preset: VerticalCaptionPresetOptionId;
+  text: string;
+  fontId: VerticalCaptionFontOptionId;
+  fontSize: number;
+  textColor: string;
+  accentColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  animation: VerticalCaptionAnimationOptionId;
+  animationSpeed: number;
+  dynamicMode: VerticalCaptionDynamicModeOptionId;
+  voicePreset: VerticalVoicePresetOptionId;
+  pacingPreset: VerticalPacingPresetOptionId;
+  highlightWords: boolean;
+  autoEmphasis: boolean;
+  autoEmoji: boolean;
+  removeFillers: boolean;
+  shadowStrength: number;
+  positionX: number;
+  positionY: number;
+  variantPositions: Record<VerticalVariantCaptionKey, { x: number; y: number }>;
+  clipTextBySlot: Record<string, string>;
+  clipOverlayToneBySlot: Record<string, VerticalCaptionOverlayTone>;
+};
+
+const normalizeVerticalCaptionPresetId = (value: unknown): VerticalCaptionPresetOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = VERTICAL_CAPTION_STYLE_OPTIONS.find((option) => option.id === normalized);
+  return match ? match.id : DEFAULT_VERTICAL_CAPTION_STYLE;
+};
+
+const normalizeVerticalCaptionFontId = (
+  value: unknown,
+  fallback: VerticalCaptionFontOptionId,
+): VerticalCaptionFontOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = VERTICAL_CAPTION_FONT_OPTIONS.find((option) => option.id === normalized);
+  return match ? match.id : fallback;
+};
+
+const normalizeVerticalCaptionDynamicModeId = (
+  value: unknown,
+  fallback: VerticalCaptionDynamicModeOptionId,
+): VerticalCaptionDynamicModeOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS.find((option) => option.id === normalized);
+  return match ? match.id : fallback;
+};
+
+const normalizeVerticalVoicePresetId = (
+  value: unknown,
+  fallback: VerticalVoicePresetOptionId,
+): VerticalVoicePresetOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = VERTICAL_VOICE_PRESET_OPTIONS.find((option) => option.id === normalized);
+  return match ? match.id : fallback;
+};
+
+const normalizeVerticalPacingPresetId = (
+  value: unknown,
+  fallback: VerticalPacingPresetOptionId,
+): VerticalPacingPresetOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = VERTICAL_PACING_PRESET_OPTIONS.find((option) => option.id === normalized);
+  return match ? match.id : fallback;
+};
+
+const normalizeVerticalCaptionOverlayTone = (value: unknown): VerticalCaptionOverlayTone => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "white") return "white";
+  if (normalized === "black") return "black";
+  return "none";
+};
+
+const toSortedRecord = <T extends Record<string, any>>(value: T): T => {
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+  return entries.reduce((acc, [key, entry]) => {
+    acc[key as keyof T] = entry;
+    return acc;
+  }, {} as T);
+};
+
+const normalizeVerticalCaptionTextBySlot = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object") return {};
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, entry]) => [key, normalizeVerticalCaptionTextForJob(String(entry || ""))] as const)
+    .filter(([, entry]) => entry.length > 0);
+  return toSortedRecord(Object.fromEntries(entries));
+};
+
+const normalizeVerticalCaptionOverlayToneBySlot = (value: unknown): Record<string, VerticalCaptionOverlayTone> => {
+  if (!value || typeof value !== "object") return {};
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, entry]) => [key, normalizeVerticalCaptionOverlayTone(entry)] as const);
+  return toSortedRecord(Object.fromEntries(entries));
+};
+
+const normalizeVerticalCaptionVariantPositions = (
+  value: unknown,
+  fallbackX: number,
+  fallbackY: number,
+): Record<VerticalVariantCaptionKey, { x: number; y: number }> => {
+  const base = {
+    instagram: { x: fallbackX, y: fallbackY },
+    youtube: { x: fallbackX, y: fallbackY },
+    tiktok: { x: fallbackX, y: fallbackY },
+  };
+  if (!value || typeof value !== "object") return base;
+  const raw = value as Record<string, any>;
+  return {
+    instagram: {
+      x: clampCaptionPosition(Number(raw?.instagram?.x ?? base.instagram.x)),
+      y: clampCaptionPosition(Number(raw?.instagram?.y ?? base.instagram.y)),
+    },
+    youtube: {
+      x: clampCaptionPosition(Number(raw?.youtube?.x ?? base.youtube.x)),
+      y: clampCaptionPosition(Number(raw?.youtube?.y ?? base.youtube.y)),
+    },
+    tiktok: {
+      x: clampCaptionPosition(Number(raw?.tiktok?.x ?? base.tiktok.x)),
+      y: clampCaptionPosition(Number(raw?.tiktok?.y ?? base.tiktok.y)),
+    },
+  };
+};
+
+const resolveVerticalCaptionShadowStrength = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed > VERTICAL_CAPTION_SHADOW_BLUR_MAX && parsed <= VERTICAL_CAPTION_SHADOW_MAX) {
+    return clamp(Math.round(parsed), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
+  }
+  if (parsed <= VERTICAL_CAPTION_SHADOW_BLUR_MAX) {
+    const percent = (parsed / VERTICAL_CAPTION_SHADOW_BLUR_MAX) * 100;
+    return clamp(Math.round(percent), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
+  }
+  return clamp(Math.round(parsed), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
+};
+
+const buildVerticalCaptionSnapshotFromConfig = (
+  config: Record<string, unknown>,
+): VerticalCaptionSnapshot => {
+  const preset = normalizeVerticalCaptionPresetId(config.preset ?? config.captionPreset ?? config.style);
+  const presetDefaults =
+    VERTICAL_CAPTION_PRESET_DEFAULTS[preset] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+  const paletteDefaults =
+    VERTICAL_CAPTION_PREVIEW_PALETTE[preset] ?? VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+  const fontId = normalizeVerticalCaptionFontId(config.fontId, presetDefaults.fontId);
+  const fontSize = clamp(
+    Number(config.fontSize ?? VERTICAL_CAPTION_FONT_SIZE_DEFAULT),
+    VERTICAL_CAPTION_FONT_SIZE_MIN,
+    VERTICAL_CAPTION_FONT_SIZE_MAX,
+  );
+  const textColor = normalizeCaptionHexColor(String(config.textColor ?? ""), paletteDefaults.textColor);
+  const accentColor = normalizeCaptionHexColor(
+    String(config.accentColor ?? config.highlightColor ?? ""),
+    paletteDefaults.highlightColor,
+  );
+  const outlineColor = normalizeCaptionHexColor(String(config.outlineColor ?? ""), presetDefaults.outlineColor);
+  const outlineWidth = clamp(
+    Number(config.outlineWidth ?? presetDefaults.outlineWidth),
+    VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+    VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+  );
+  const animation = normalizeVerticalCaptionAnimation(String(config.animation ?? presetDefaults.animation));
+  const animationSpeed = clampVerticalCaptionAnimationSpeed(
+    Number(config.animationSpeed ?? presetDefaults.animationSpeed),
+  );
+  const dynamicMode = normalizeVerticalCaptionDynamicModeId(config.dynamicMode, presetDefaults.dynamicMode);
+  const voicePreset = normalizeVerticalVoicePresetId(config.voicePreset, "none");
+  const pacingPreset = normalizeVerticalPacingPresetId(config.pacingPreset, "normal");
+  const highlightWords = typeof config.highlightWords === "boolean"
+    ? config.highlightWords
+    : presetDefaults.highlightWords;
+  const autoEmphasis = typeof config.autoEmphasis === "boolean"
+    ? config.autoEmphasis
+    : presetDefaults.autoEmphasis;
+  const autoEmoji = typeof config.autoEmoji === "boolean"
+    ? config.autoEmoji
+    : presetDefaults.autoEmoji;
+  const removeFillers = typeof config.removeFillers === "boolean"
+    ? config.removeFillers
+    : presetDefaults.removeFillers;
+  const text = normalizeVerticalCaptionTextForJob(String(config.text ?? config.captionText ?? ""));
+  const enabled = typeof config.enabled === "boolean" ? config.enabled : true;
+  const autoGenerate = typeof config.autoGenerate === "boolean" ? config.autoGenerate : enabled && text.length === 0;
+  const positionX = clampCaptionPosition(Number(config.positionX ?? 0.5));
+  const positionY = clampCaptionPosition(Number(config.positionY ?? DEFAULT_VERTICAL_CAPTION_POSITION_Y));
+  const variantPositions = normalizeVerticalCaptionVariantPositions(config.variantPositions, positionX, positionY);
+  const clipTextBySlot = normalizeVerticalCaptionTextBySlot(config.clipTextBySlot ?? config.variantClipCaptions);
+  const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(config.clipOverlayToneBySlot);
+  const shadowStrength = resolveVerticalCaptionShadowStrength(
+    config.shadowStrength ?? config.shadowBlur ?? presetDefaults.shadowStrength,
+    presetDefaults.shadowStrength,
+  );
+
+  return {
+    enabled,
+    autoGenerate,
+    preset,
+    text,
+    fontId,
+    fontSize: Math.round(fontSize),
+    textColor,
+    accentColor,
+    outlineColor,
+    outlineWidth: Math.round(outlineWidth),
+    animation,
+    animationSpeed,
+    dynamicMode,
+    voicePreset,
+    pacingPreset,
+    highlightWords,
+    autoEmphasis,
+    autoEmoji,
+    removeFillers,
+    shadowStrength,
+    positionX,
+    positionY,
+    variantPositions,
+    clipTextBySlot,
+    clipOverlayToneBySlot,
+  };
+};
+
+const buildVerticalCaptionSignature = (snapshot: VerticalCaptionSnapshot | null) =>
+  snapshot ? JSON.stringify(snapshot) : "";
+
+const pickVerticalCaptionConfigSource = (
+  renderSettings: Record<string, unknown> | null,
+  analysis: Record<string, unknown> | null,
+): Record<string, unknown> | null => {
+  const candidates = [renderSettings, analysis];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nested = (candidate as Record<string, unknown>).verticalCaptions ??
+      (candidate as Record<string, unknown>).vertical_captions;
+    if (nested && typeof nested === "object") {
+      return nested as Record<string, unknown>;
+    }
+  }
+  return null;
+};
+
 const Editor = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -4590,6 +4837,8 @@ const Editor = () => {
   const verticalClipDurationSecondsRef = useRef<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const captionPreviewDrawFailureCountRef = useRef(0);
+  const verticalCaptionSyncJobRef = useRef<string | null>(null);
+  const pendingDownloadAfterRenderRef = useRef<{ jobId: string; clipIndex: number } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
   const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
@@ -8880,7 +9129,7 @@ const Editor = () => {
 
   const handleRedoRender = useCallback(
     async (job: JobDetail, options?: { clipIndex?: number }) => {
-      if (!accessToken || !job?.id) return;
+      if (!accessToken || !job?.id) return false;
       void ensureNotificationPermission("export_start");
       setReprocessingJobId(job.id);
       try {
@@ -9506,6 +9755,116 @@ const Editor = () => {
     activeJob && (activeJob as any).renderSettings && typeof (activeJob as any).renderSettings === "object"
       ? ((activeJob as any).renderSettings as Record<string, unknown>)
       : null;
+  const activeVerticalCaptionConfig = useMemo(
+    () => pickVerticalCaptionConfigSource(activeRenderSettings, activeAnalysis),
+    [activeAnalysis, activeRenderSettings],
+  );
+  const activeVerticalCaptionSnapshot = useMemo(
+    () => (activeVerticalCaptionConfig ? buildVerticalCaptionSnapshotFromConfig(activeVerticalCaptionConfig) : null),
+    [activeVerticalCaptionConfig],
+  );
+  const activeVerticalCaptionSignature = useMemo(
+    () => buildVerticalCaptionSignature(activeVerticalCaptionSnapshot),
+    [activeVerticalCaptionSnapshot],
+  );
+  const currentVerticalCaptionSnapshot = useMemo(() => {
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
+    const palette =
+      VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const defaults =
+      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const textColor = normalizeCaptionHexColor(verticalCaptionTextColor, palette.textColor);
+    const accentColor = normalizeCaptionHexColor(verticalCaptionHighlightColor, palette.highlightColor);
+    const outlineColor = normalizeCaptionHexColor(verticalCaptionOutlineColor, defaults.outlineColor);
+    const outlineWidth = clamp(
+      Number(verticalCaptionOutlineWidth || defaults.outlineWidth),
+      VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+      VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+    );
+    const fontSize = clamp(
+      Number(verticalCaptionFontSize || VERTICAL_CAPTION_FONT_SIZE_DEFAULT),
+      VERTICAL_CAPTION_FONT_SIZE_MIN,
+      VERTICAL_CAPTION_FONT_SIZE_MAX,
+    );
+    const positionX = clampCaptionPosition(verticalCaptionPositionX);
+    const positionY = clampCaptionPosition(verticalCaptionPositionY);
+    const variantPositions = normalizeVerticalCaptionVariantPositions(
+      verticalVariantCaptionPositions,
+      positionX,
+      positionY,
+    );
+    const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlotForJob);
+    const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlotForJob);
+    const text = normalizeVerticalCaptionTextForJob(resolvedVerticalCaptionText);
+    return {
+      enabled: captionsEnabledForJob,
+      autoGenerate: captionsEnabledForJob && text.length === 0,
+      preset: verticalCaptionPreset,
+      text,
+      fontId: verticalCaptionFontId,
+      fontSize: Math.round(fontSize),
+      textColor,
+      accentColor,
+      outlineColor,
+      outlineWidth: Math.round(outlineWidth),
+      animation: resolvedVerticalCaptionAnimation,
+      animationSpeed: resolvedVerticalCaptionAnimationSpeed,
+      dynamicMode: verticalCaptionDynamicMode,
+      voicePreset: verticalVoicePreset,
+      pacingPreset: verticalPacingPreset,
+      highlightWords: verticalCaptionHighlightWords,
+      autoEmphasis: verticalCaptionAutoEmphasis,
+      autoEmoji: verticalCaptionAutoEmoji,
+      removeFillers: verticalCaptionRemoveFillers,
+      shadowStrength: Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX)),
+      positionX,
+      positionY,
+      variantPositions,
+      clipTextBySlot,
+      clipOverlayToneBySlot,
+    } satisfies VerticalCaptionSnapshot;
+  }, [
+    autoCaptionsEnabled,
+    resolvedVerticalCaptionText,
+    resolvedVerticalCaptionAnimation,
+    resolvedVerticalCaptionAnimationSpeed,
+    verticalCaptionAutoEmoji,
+    verticalCaptionAutoEmphasis,
+    verticalCaptionDynamicMode,
+    verticalCaptionFontId,
+    verticalCaptionFontSize,
+    verticalCaptionHighlightColor,
+    verticalCaptionHighlightWords,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionPositionX,
+    verticalCaptionPositionY,
+    verticalCaptionPreset,
+    verticalCaptionRemoveFillers,
+    verticalCaptionShadowStrength,
+    verticalCaptionTextColor,
+    verticalClipCaptionOverlayBySlotForJob,
+    verticalClipCaptionTextBySlotForJob,
+    verticalPacingPreset,
+    verticalVariantCaptionPositions,
+    verticalVoicePreset,
+  ]);
+  const currentVerticalCaptionSignature = useMemo(
+    () => buildVerticalCaptionSignature(currentVerticalCaptionSnapshot),
+    [currentVerticalCaptionSnapshot],
+  );
+  const verticalCaptionsDirty = useMemo(() => {
+    if (!activeJob?.id || activeJob.renderMode !== "vertical") return false;
+    if (!currentVerticalCaptionSignature || !activeVerticalCaptionSignature) return false;
+    return currentVerticalCaptionSignature !== activeVerticalCaptionSignature;
+  }, [
+    activeJob?.id,
+    activeJob?.renderMode,
+    activeVerticalCaptionSignature,
+    currentVerticalCaptionSignature,
+  ]);
   const autonomousEditor =
     activeJob?.autonomousEditor && typeof activeJob.autonomousEditor === "object"
       ? (activeJob.autonomousEditor as AutonomousEditorSummary)
@@ -14389,6 +14748,54 @@ const Editor = () => {
     setVideoCrf(nextVideoCrf);
     setAudioBitrateKbps(nextAudioBitrateKbps);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
+  useEffect(() => {
+    if (!activeJob?.id || activeJob.renderMode !== "vertical") {
+      verticalCaptionSyncJobRef.current = null;
+      return;
+    }
+    if (verticalCaptionSyncJobRef.current === activeJob.id) return;
+    if (!activeVerticalCaptionSnapshot) {
+      verticalCaptionSyncJobRef.current = activeJob.id;
+      return;
+    }
+    const snapshot = activeVerticalCaptionSnapshot;
+    const normalizedText = sanitizeVerticalCaptionDraftText(snapshot.text);
+    const motionProfile =
+      VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.find((profile) => profile.id === verticalCaptionMotionProfile) ??
+      VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS[0];
+    const speedMultiplier = motionProfile?.speedMultiplier ?? 1;
+    setVerticalCaptionPreset(snapshot.preset);
+    setVerticalCaptionFontId(snapshot.fontId);
+    setVerticalCaptionFontVariantId(DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[snapshot.fontId]);
+    setVerticalCaptionFontSize(snapshot.fontSize);
+    setVerticalCaptionTextColor(normalizeCaptionCssColor(snapshot.textColor, snapshot.textColor));
+    setVerticalCaptionHighlightColor(normalizeCaptionCssColor(snapshot.accentColor, snapshot.accentColor));
+    setVerticalCaptionOutlineColor(normalizeCaptionCssColor(snapshot.outlineColor, snapshot.outlineColor));
+    setVerticalCaptionOutlineWidth(snapshot.outlineWidth);
+    setVerticalCaptionAnimation(snapshot.animation);
+    setVerticalCaptionAnimationSpeed(
+      clampVerticalCaptionAnimationSpeed(snapshot.animationSpeed / Math.max(0.01, speedMultiplier)),
+    );
+    setVerticalCaptionDynamicMode(snapshot.dynamicMode);
+    setVerticalCaptionHighlightWords(snapshot.highlightWords);
+    setVerticalCaptionAutoEmphasis(snapshot.autoEmphasis);
+    setVerticalCaptionAutoEmoji(snapshot.autoEmoji);
+    setVerticalCaptionRemoveFillers(snapshot.removeFillers);
+    setVerticalCaptionShadowStrength(snapshot.shadowStrength);
+    setVerticalCaptionPositionX(snapshot.positionX);
+    setVerticalCaptionPositionY(snapshot.positionY);
+    setVerticalVariantCaptionPositions(snapshot.variantPositions);
+    setVerticalCaptionTextByVariant({
+      instagram: normalizedText,
+      youtube: normalizedText,
+      tiktok: normalizedText,
+    });
+    setVerticalClipCaptionTextBySlot(snapshot.clipTextBySlot);
+    setVerticalClipCaptionOverlayBySlot(snapshot.clipOverlayToneBySlot);
+    setVerticalVoicePreset(snapshot.voicePreset);
+    setVerticalPacingPreset(snapshot.pacingPreset);
+    verticalCaptionSyncJobRef.current = activeJob.id;
+  }, [activeJob?.id, activeJob?.renderMode, activeVerticalCaptionSnapshot, verticalCaptionMotionProfile]);
   useEffect(() => {
     if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
     if (achievementSignals.length === 0) return;
