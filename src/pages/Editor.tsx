@@ -74,6 +74,9 @@ const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH = 520;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_HEIGHT = 980;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_AREA = 500_000;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
@@ -103,6 +106,17 @@ type RuntimeProfile = {
 };
 
 const LOW_BANDWIDTH_TYPES = new Set(["slow-2g", "2g", "3g"]);
+const shouldEnableAutoShortScreenMode = (viewportWidth: number, viewportHeight: number) => {
+  const width = Math.max(0, Math.round(Number(viewportWidth) || 0));
+  const height = Math.max(0, Math.round(Number(viewportHeight) || 0));
+  if (!width || !height) return false;
+  const shortEdge = Math.min(width, height);
+  const longEdge = Math.max(width, height);
+  const area = shortEdge * longEdge;
+  if (shortEdge > MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH) return false;
+  if (longEdge <= MOBILE_SHORT_MODE_MAX_VIEWPORT_HEIGHT) return true;
+  return area <= MOBILE_SHORT_MODE_MAX_VIEWPORT_AREA;
+};
 
 const asPositiveNumber = (value: unknown) => {
   const resolved = Number(value);
@@ -1114,6 +1128,21 @@ const VERTICAL_CAPTION_STYLE_OPTIONS: Array<{
   { id: "retro_wave", label: "Retro Wave", description: "Colorful retro styling with bold presence." },
   { id: "glitch_pop", label: "Glitch Pop", description: "Techy glitch-inspired styling for energetic moments." },
   { id: "shadow_strike", label: "Shadow Strike", description: "Bold captions with heavy cinematic drop shadow." },
+];
+const TIKTOK_CAPTION_STYLE_OPTIONS: Array<{
+  id: VerticalCaptionPresetOptionId;
+  label: string;
+  description: string;
+}> = [
+  { id: "rage_mode", label: "TikTok Headline", description: "Classic all-caps hook style with strong black stroke." },
+  { id: "mrbeast_animated", label: "Opus Pop", description: "Opus-style white + lime words with kinetic word timing." },
+  { id: "shadow_strike", label: "Opus Shadow", description: "Opus-inspired style with a stronger cinematic drop shadow." },
+  { id: "ice_pop", label: "Ice Pop", description: "Cool-toned pop look tuned for gaming and reaction content." },
+  { id: "glitch_pop", label: "Glitch Pop", description: "Tech-style glitch treatment with sharp motion emphasis." },
+  { id: "retro_wave", label: "Retro Wave", description: "Bold colorful look with punchy throwback energy." },
+  { id: "neon_glow", label: "High Energy Neon", description: "Bright neon glow styling for reaction-heavy moments." },
+  { id: "cinema_punch", label: "Shorts Bold", description: "Cinematic serif styling for dramatic short-form narration." },
+  { id: "bold_clean_box", label: "White Story Card", description: "Rounded white card style for talking-head story moments." },
 ];
 const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   VerticalCaptionPresetOptionId,
@@ -4308,6 +4337,10 @@ const Editor = () => {
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [captionSettingsDialogOpen, setCaptionSettingsDialogOpen] = useState(false);
   const [verticalCaptionLookId, setVerticalCaptionLookId] = useState<string>(`${DEFAULT_VERTICAL_CAPTION_STYLE}_pop`);
+  const [tikTokStylePickerOpen, setTikTokStylePickerOpen] = useState(false);
+  const [pendingTikTokCaptionPresetId, setPendingTikTokCaptionPresetId] = useState<VerticalCaptionPresetOptionId>(
+    DEFAULT_VERTICAL_CAPTION_STYLE,
+  );
   const [captionStyleSearch, setCaptionStyleSearch] = useState("");
   const [captionFontSearch, setCaptionFontSearch] = useState("");
   const [captionBulkClipText, setCaptionBulkClipText] = useState("");
@@ -4340,6 +4373,16 @@ const Editor = () => {
   useEffect(() => {
     verticalCaptionPositionYRef.current = clampCaptionPosition(verticalCaptionPositionY);
   }, [verticalCaptionPositionY]);
+  useEffect(() => {
+    if (!tikTokStylePickerOpen) {
+      setPendingTikTokCaptionPresetId(verticalCaptionPreset);
+    }
+  }, [tikTokStylePickerOpen, verticalCaptionPreset]);
+  useEffect(() => {
+    if (!captionSettingsDialogOpen) {
+      setTikTokStylePickerOpen(false);
+    }
+  }, [captionSettingsDialogOpen]);
   const selectedVerticalCaptionFontVariant = useMemo(() => {
     const direct = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[verticalCaptionFontVariantId];
     if (direct) return direct;
@@ -4395,6 +4438,7 @@ const Editor = () => {
   const [timelineSegmentActionByKey, setTimelineSegmentActionByKey] = useState<Record<string, "fix" | "remove">>({});
   const [timelineSegmentActionSubmittingKey, setTimelineSegmentActionSubmittingKey] = useState<string | null>(null);
   const [mobilePipeline, setMobilePipeline] = useState(false);
+  const [autoShortScreenMode, setAutoShortScreenMode] = useState(false);
   const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile>(() => readRuntimeProfile());
   const [isPageVisible, setIsPageVisible] = useState(() => (
     typeof document === "undefined" ? true : document.visibilityState !== "hidden"
@@ -4792,6 +4836,43 @@ const Editor = () => {
     setVerticalCaptionAutoEmoji(defaults.autoEmoji);
     setVerticalCaptionRemoveFillers(defaults.removeFillers);
   }, []);
+  const toggleTikTokStylePicker = useCallback(() => {
+    setTikTokStylePickerOpen((previous) => {
+      const nextOpen = !previous;
+      if (nextOpen) {
+        setPendingTikTokCaptionPresetId(verticalCaptionPreset);
+      }
+      return nextOpen;
+    });
+  }, [verticalCaptionPreset]);
+  const applySelectedTikTokCaptionStyle = useCallback(() => {
+    const selectedOption =
+      TIKTOK_CAPTION_STYLE_OPTIONS.find((option) => option.id === pendingTikTokCaptionPresetId) ??
+      TIKTOK_CAPTION_STYLE_OPTIONS[0];
+    applyVerticalCaptionPreset(selectedOption.id);
+    setAutoCaptionsEnabled(true);
+    setTikTokStylePickerOpen(false);
+    setPendingTikTokCaptionPresetId(selectedOption.id);
+    trackEditorEvent("caption_tiktok_style_applied", {
+      retentionProfile: retentionStrategyProfile,
+      targetPlatform: retentionTargetPlatform,
+      captionStyle: selectedOption.id,
+      metadata: {
+        source: "caption_editor_popup",
+      },
+    });
+    toast({
+      title: "TikTok style applied",
+      description: `${selectedOption.label} is now active in preview.`,
+    });
+  }, [
+    applyVerticalCaptionPreset,
+    pendingTikTokCaptionPresetId,
+    retentionStrategyProfile,
+    retentionTargetPlatform,
+    toast,
+    trackEditorEvent,
+  ]);
 
   const applyVerticalCaptionFontVariant = useCallback((variantId: string) => {
     const variant = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[variantId];
@@ -6169,9 +6250,13 @@ const Editor = () => {
     // Mobile signal should follow viewport width so screen-size behavior is predictable.
     const syncMobileSignal = () => {
       const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
       const isMobile = viewportWidth <= 767;
+      const shortMode = shouldEnableAutoShortScreenMode(viewportWidth, viewportHeight);
       setMobilePipeline(isMobile);
+      setAutoShortScreenMode(shortMode);
       document.documentElement.classList.toggle("mobile", isMobile);
+      document.documentElement.dataset.editorShortMode = shortMode ? "true" : "false";
     };
     syncMobileSignal();
     window.addEventListener("resize", syncMobileSignal, { passive: true });
@@ -6179,8 +6264,17 @@ const Editor = () => {
     return () => {
       window.removeEventListener("resize", syncMobileSignal);
       window.removeEventListener("orientationchange", syncMobileSignal);
+      if (typeof document !== "undefined") {
+        delete document.documentElement.dataset.editorShortMode;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!autoShortScreenMode) return;
+    setHideJobsPanel(true);
+    setHideEditorControlsPanel(true);
+  }, [autoShortScreenMode]);
 
   useEffect(() => {
     if (mobilePipeline) {
@@ -7465,7 +7559,11 @@ const Editor = () => {
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
-    if (!previewActive || !video || !canvas || !previewSourceUrl || !sourceVideoMeta || captionPreviewDrawFallback) return;
+    if (!previewActive || !video || !canvas || !previewSourceUrl || captionPreviewDrawFallback) return;
+    const resolvedSourceMeta = sourceVideoMeta ?? {
+      width: Math.max(1, video.videoWidth || DEFAULT_VERTICAL_OUTPUT.width),
+      height: Math.max(1, video.videoHeight || DEFAULT_VERTICAL_OUTPUT.height),
+    };
     const registerDrawFailure = () => {
       const nextCount = captionPreviewDrawFailureCountRef.current + 1;
       captionPreviewDrawFailureCountRef.current = nextCount;
@@ -8002,10 +8100,10 @@ const Editor = () => {
             ? {
                 x: 0,
                 y: 0,
-                w: Math.max(1, video.videoWidth || sourceVideoMeta.width),
-                h: Math.max(1, video.videoHeight || sourceVideoMeta.height),
+                w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+                h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
               }
-            : { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height };
+            : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
           drewVideoFrame = drawVideoRegion(
             singleLayoutSource,
             { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
@@ -8020,7 +8118,7 @@ const Editor = () => {
             { sourceInsetXRatio: 0.018, sourceInsetYRatio: 0.01, destBleedPx: 2 },
           );
           const drewBottom = drawVideoRegion(
-            { x: 0, y: 0, w: sourceVideoMeta.width, h: sourceVideoMeta.height },
+            { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
             { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
             effectiveVerticalBottomFitMode,
             { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
@@ -8042,23 +8140,33 @@ const Editor = () => {
         }
         clearDrawFailure();
 
-        if (autoCaptionsEnabled && editableSourcePreviewActive) {
+        if (autoCaptionsEnabled && (editableSourcePreviewActive || renderedClipPreviewActive)) {
           const now = performance.now();
           const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
+          const dynamicAnimationIntensity = verticalCaptionDynamicMode === "kinetic_word"
+            ? 1.24
+            : verticalCaptionDynamicMode === "karaoke_word"
+              ? 1.1
+              : 1;
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
           let animationScale = 1;
           let animationYOffset = 0;
           let animationOpacity = 1;
           if (verticalCaptionAnimation === "pop") {
-            animationScale = 1 + Math.sin(now / timing(190)) * 0.03;
+            const popPulse = Math.sin(now / timing(150));
+            animationScale = 1
+              + Math.max(0, popPulse) * 0.055 * dynamicAnimationIntensity
+              - Math.max(0, -popPulse) * 0.02;
           } else if (verticalCaptionAnimation === "slide") {
-            animationYOffset = Math.sin(now / timing(440)) * 4;
+            animationYOffset = Math.sin(now / timing(360)) * (4.8 * dynamicAnimationIntensity);
           } else if (verticalCaptionAnimation === "fade") {
-            animationOpacity = 0.76 + Math.abs(Math.sin(now / timing(460))) * 0.24;
+            const lowOpacity = Math.max(0.58, 0.72 - (dynamicAnimationIntensity - 1) * 0.14);
+            animationOpacity = lowOpacity + Math.abs(Math.sin(now / timing(420))) * (1 - lowOpacity);
           } else if (verticalCaptionAnimation === "bounce") {
-            animationYOffset = -Math.abs(Math.sin(now / timing(210))) * 7;
+            animationYOffset = -Math.abs(Math.sin(now / timing(170))) * (8.6 * dynamicAnimationIntensity);
           } else if (verticalCaptionAnimation === "glitch") {
-            animationScale = 1 + Math.sin(now / timing(120)) * 0.01;
+            animationScale = 1 + Math.sin(now / timing(104)) * 0.014 * dynamicAnimationIntensity;
+            animationYOffset = Math.sin(now / timing(78)) * 1.6 * dynamicAnimationIntensity;
           }
 
           const centerX = canvasWidth * clampCaptionPosition(verticalCaptionPositionXRef.current);
@@ -8191,7 +8299,12 @@ const Editor = () => {
               verticalCaptionHighlightWords && activeChunk.tokens.length > 1
                 ? highlightProgress !== null
                   ? Math.min(activeChunk.tokens.length - 1, Math.floor(highlightProgress * activeChunk.tokens.length))
-                  : Math.floor((now / Math.max(90, 320 / Math.max(0.5, animSpeed))) % activeChunk.tokens.length)
+                  : Math.floor(
+                    (
+                      now
+                      / Math.max(72, 260 / (Math.max(0.5, animSpeed) * dynamicAnimationIntensity))
+                    ) % activeChunk.tokens.length,
+                  )
                 : -1;
             let tokenCursor = 0;
             for (let idx = 0; idx < activeChunk.lines.length; idx += 1) {
@@ -8256,10 +8369,23 @@ const Editor = () => {
         maybePromise.catch(() => undefined);
       }
     };
-    alignPlaybackToClipRange();
-    startPlayback();
+    const ensurePlaybackActive = () => {
+      if (renderedClipPreviewActive && video.ended) {
+        video.currentTime = 0;
+      }
+      alignPlaybackToClipRange();
+      startPlayback();
+    };
+    video.loop = true;
+    video.addEventListener("loadedmetadata", ensurePlaybackActive);
+    video.addEventListener("canplay", ensurePlaybackActive);
+    video.addEventListener("ended", ensurePlaybackActive);
+    ensurePlaybackActive();
     render();
     return () => {
+      video.removeEventListener("loadedmetadata", ensurePlaybackActive);
+      video.removeEventListener("canplay", ensurePlaybackActive);
+      video.removeEventListener("ended", ensurePlaybackActive);
       window.cancelAnimationFrame(raf);
     };
   }, [
@@ -9121,6 +9247,7 @@ const Editor = () => {
     activeVerticalJobReadyForDownload ||
     (isActiveVerticalJob && activeOutputUrls.length > 0),
   );
+  const showVerticalGalleryOnlyLayout = Boolean(isVerticalMode && hasVerticalVariantWorkspace);
   const verticalVariantStatusLabel = activeVerticalJobProcessing || uploadingJobId
     ? "Rendering..."
     : activeVerticalJobReadyForDownload
@@ -13093,7 +13220,9 @@ const Editor = () => {
           const resolvedPreview = String(resolvedPreviewOutputUrl || "").trim();
           if (resolvedPreview) return resolvedPreview;
         }
-        return String(activeOutputUrls[idx] || "").trim();
+        const directUrl = String(activeOutputUrls[idx] || "").trim();
+        if (directUrl && !isAuthRequiredDownloadUrl(directUrl)) return directUrl;
+        return "";
       }),
     [activeOutputUrls, resolvedPreviewOutputUrl, resolvedVerticalVariantOutputUrls],
   );
@@ -13180,19 +13309,34 @@ const Editor = () => {
     toast,
     verticalClipCaptionGenerateSelectedBySlot,
   ]);
+  const singleTargetedCaptionClipIndex = useMemo(() => {
+    const selectedClipIndexes = captionPopupClipIndexes.filter((clipIndex) => {
+      const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
+      return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
+    });
+    return selectedClipIndexes.length === 1 ? selectedClipIndexes[0] : -1;
+  }, [captionPopupClipIndexes, verticalClipCaptionGenerateSelectedBySlot]);
   const resolvedCaptionPreviewClipIndex = useMemo(() => {
     if (captionPopupClipIndexes.length === 0) return -1;
+    if (captionPreviewClipIndex >= 0 && captionPopupClipIndexes.includes(captionPreviewClipIndex)) {
+      return captionPreviewClipIndex;
+    }
+    if (singleTargetedCaptionClipIndex >= 0 && captionPopupClipIndexes.includes(singleTargetedCaptionClipIndex)) {
+      return singleTargetedCaptionClipIndex;
+    }
     if (
       activeVerticalClipEditorIndex >= 0
       && captionPopupClipIndexes.includes(activeVerticalClipEditorIndex)
     ) {
       return activeVerticalClipEditorIndex;
     }
-    if (captionPreviewClipIndex >= 0 && captionPopupClipIndexes.includes(captionPreviewClipIndex)) {
-      return captionPreviewClipIndex;
-    }
     return captionPopupClipIndexes[0] ?? -1;
-  }, [activeVerticalClipEditorIndex, captionPopupClipIndexes, captionPreviewClipIndex]);
+  }, [
+    activeVerticalClipEditorIndex,
+    captionPopupClipIndexes,
+    captionPreviewClipIndex,
+    singleTargetedCaptionClipIndex,
+  ]);
   const captionPreviewSourceUrl = useMemo(() => {
     if (resolvedCaptionPreviewClipIndex < 0) {
       const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
@@ -13229,6 +13373,42 @@ const Editor = () => {
     captionPreviewDrawFailureCountRef.current = 0;
     setCaptionPreviewDrawFallback(false);
   }, [captionPreviewSourceUrl, captionSettingsDialogOpen]);
+  useEffect(() => {
+    if (!captionSettingsDialogOpen || !isVerticalMode) return;
+    const video = verticalCompositionVideoRef.current;
+    if (!video) return;
+    const nextSource = String(captionPreviewSourceUrl || "").trim();
+    if (!nextSource) {
+      try {
+        video.pause();
+      } catch {
+        // Ignore playback pause errors from detached media elements.
+      }
+      return;
+    }
+    const currentSource = String(video.currentSrc || video.src || "").trim();
+    if (currentSource !== nextSource) {
+      video.src = nextSource;
+      try {
+        video.currentTime = 0;
+      } catch {
+        // Ignore seek failures until metadata is ready.
+      }
+      video.load();
+    } else {
+      try {
+        if (video.ended || video.currentTime > 0.05) {
+          video.currentTime = 0;
+        }
+      } catch {
+        // Ignore seek failures until metadata is ready.
+      }
+    }
+    const maybePromise = video.play();
+    if (maybePromise && typeof maybePromise.catch === "function") {
+      maybePromise.catch(() => undefined);
+    }
+  }, [captionPreviewSourceUrl, captionSettingsDialogOpen, isVerticalMode, resolvedCaptionPreviewClipIndex]);
   const handleCaptionPreviewSourceChange = useCallback((nextClipIndex: number) => {
     if (!Number.isFinite(nextClipIndex)) return;
     const normalizedClipIndex = Math.max(0, Math.round(nextClipIndex));
@@ -13248,29 +13428,10 @@ const Editor = () => {
       return next;
     });
   }, [captionPopupClipIndexes]);
-  const selectedCaptionClipIndex = useMemo(() => {
-    if (captionPopupClipIndexes.length === 0) return -1;
-    if (
-      activeVerticalClipEditorIndex >= 0
-      && captionPopupClipIndexes.includes(activeVerticalClipEditorIndex)
-    ) {
-      return activeVerticalClipEditorIndex;
-    }
-    if (captionPreviewClipIndex >= 0 && captionPopupClipIndexes.includes(captionPreviewClipIndex)) {
-      return captionPreviewClipIndex;
-    }
-    const selectedClip = captionPopupClipIndexes.find((clipIndex) => {
-      const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
-      return Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
-    });
-    if (typeof selectedClip === "number") return selectedClip;
-    return captionPopupClipIndexes[0] ?? -1;
-  }, [
-    activeVerticalClipEditorIndex,
-    captionPopupClipIndexes,
-    captionPreviewClipIndex,
-    verticalClipCaptionGenerateSelectedBySlot,
-  ]);
+  const selectedCaptionClipIndex = useMemo(
+    () => resolvedCaptionPreviewClipIndex,
+    [resolvedCaptionPreviewClipIndex],
+  );
   const selectedCaptionClipSlotKey = useMemo(
     () => (selectedCaptionClipIndex >= 0 ? getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex) : null),
     [selectedCaptionClipIndex],
@@ -16531,11 +16692,12 @@ const Editor = () => {
       <main
         className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
           performanceConstrained ? "network-constrained editor-performance-safe" : ""
-        }`}
+        } ${autoShortScreenMode ? "editor-auto-short-mode" : ""}`}
         data-network={runtimeProfile.effectiveType ?? "unknown"}
         data-save-data={runtimeProfile.saveData ? "true" : "false"}
         data-low-power={lowPowerMode ? "true" : "false"}
         data-performance={performanceConstrained ? "constrained" : "standard"}
+        data-editor-short-mode={autoShortScreenMode ? "true" : "false"}
       >
         <motion.div
           initial={performanceConstrained ? false : { opacity: 0, y: 20 }}
@@ -16592,6 +16754,8 @@ const Editor = () => {
             ) : null}
           </AnimatePresence>
 
+          {!showVerticalGalleryOnlyLayout ? (
+            <>
           <div className="editor-premium-hero mb-6 p-4 sm:p-5">
             <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -16635,6 +16799,11 @@ const Editor = () => {
                     {isNetworkOnline && performanceConstrained ? (
                       <Badge className="border-primary/35 bg-primary/12 text-primary">
                         Performance-safe mode enabled
+                      </Badge>
+                    ) : null}
+                    {autoShortScreenMode ? (
+                      <Badge className="border-cyan-300/35 bg-cyan-400/12 text-cyan-100">
+                        Auto short-screen mode enabled
                       </Badge>
                     ) : null}
                   </div>
@@ -17116,6 +17285,8 @@ const Editor = () => {
               </div>
             </div>
           )}
+            </>
+          ) : null}
 
           <input
             ref={fileInputRef}
@@ -17125,8 +17296,8 @@ const Editor = () => {
             onChange={handleFileInputChange}
           />
 
-          <div className={`grid grid-cols-1 gap-6 ${hideJobsPanel ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
-            {!hideJobsPanel ? (
+          <div className={`grid grid-cols-1 gap-6 ${(showVerticalGalleryOnlyLayout || hideJobsPanel) ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
+            {!showVerticalGalleryOnlyLayout && !hideJobsPanel ? (
               <aside className="editor-job-list-shell min-w-0 space-y-4 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -17230,6 +17401,7 @@ const Editor = () => {
             ) : null}
 
             <section className="min-w-0 space-y-6">
+              {!showVerticalGalleryOnlyLayout ? (
               <div
                 ref={uploadDropZoneRef}
                 className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
@@ -17282,138 +17454,156 @@ const Editor = () => {
                   )}
                 </div>
               </div>
+              ) : null}
 
               {isVerticalMode && (
-                <div className="glass-card vertical-opus-shell p-5 space-y-5">
-                  <div className="space-y-3">
-                    <div className="vertical-opus-hero rounded-2xl border border-border/60 p-4">
-                      <div className="space-y-1.5">
-                        <p className="vertical-mode-title text-sm font-semibold text-foreground">Vertical Clip Workspace</p>
-                        <p className="vertical-mode-subtitle text-xs text-muted-foreground">
-                          Upload once, choose a style, and review 8 clip options in one place.
-                        </p>
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          Upload your source video.
+                <div className="vertical-reboot-shell">
+                  {!showVerticalGalleryOnlyLayout ? (
+                    <div className="vertical-reboot-config-grid">
+                      <div className="vertical-reboot-config-column">
+                        <div className="vertical-reboot-hero">
+                          <div className="vertical-reboot-kicker-row">
+                            <span className="vertical-reboot-kicker">Vertical Studio</span>
+                            <Badge variant="secondary" className="vertical-reboot-kicker-pill text-[10px]">
+                              {verticalVariantStatusLabel}
+                            </Badge>
+                          </div>
+                          <p className="vertical-reboot-title">Design, render, and ship scroll-stopping shorts.</p>
+                          <p className="vertical-reboot-subtitle">
+                            Select your clip strategy, tune timing, and generate 8 vertical outputs in one streamlined workspace.
+                          </p>
                         </div>
-                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          Pick clip style and length.
+                        <div className="vertical-reboot-step-grid">
+                          <div className="vertical-reboot-step">1. Upload source footage.</div>
+                          <div className="vertical-reboot-step">2. Choose style and duration.</div>
+                          <div className="vertical-reboot-step">3. Render and download best clips.</div>
                         </div>
-                        <div className="vertical-opus-step rounded-xl border border-border/50 px-3 py-2 text-[11px] text-muted-foreground">
-                          Render, review, and download what you need.
-                        </div>
-                      </div>
-                    </div>
-                    <div className="vertical-opus-card rounded-2xl border border-border/50 bg-card/45 p-3">
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-foreground">Clip style</p>
-                        <p className="text-[11px] text-muted-foreground">Current: {activeVerticalShortFormPreset.label}</p>
-                      </div>
-                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-                        {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            className={sectionPillClass(verticalSelectionMode === preset.id)}
-                            onClick={() => applyVerticalShortFormPreset(preset.id)}
-                            aria-label={preset.label}
-                          >
-                            <div className="flex flex-col items-center">
-                              <span className="text-[11px] font-semibold">{preset.label}</span>
-                              <span className="mt-1 text-center text-[10px] text-muted-foreground">{preset.description}</span>
+                        <div className="vertical-reboot-card vertical-reboot-card-lg">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-foreground">Clip strategy</p>
+                            <p className="text-[11px] text-muted-foreground">Current: {activeVerticalShortFormPreset.label}</p>
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                            {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                className={sectionPillClass(verticalSelectionMode === preset.id)}
+                                onClick={() => applyVerticalShortFormPreset(preset.id)}
+                                aria-label={preset.label}
+                              >
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[11px] font-semibold">{preset.label}</span>
+                                  <span className="mt-1 text-center text-[10px] text-muted-foreground">{preset.description}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-3 space-y-1">
+                            <p className="text-[11px] text-muted-foreground">Clip length</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
+                                <button
+                                  key={`vertical-duration-${durationChoice}`}
+                                  type="button"
+                                  className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
+                                  onClick={() => {
+                                    setVerticalClipDurationSeconds(durationChoice);
+                                    verticalMomentSelectionTouchedRef.current = true;
+                                    verticalMomentSelectionTouchedClipIndexRef.current = null;
+                                  }}
+                                >
+                                  {durationChoice}s
+                                </button>
+                              ))}
                             </div>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="mt-3 space-y-1">
-                        <p className="text-[11px] text-muted-foreground">Clip length</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
-                            <button
-                              key={`vertical-duration-${durationChoice}`}
-                              type="button"
-                              className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
-                              onClick={() => {
-                                setVerticalClipDurationSeconds(durationChoice);
-                                verticalMomentSelectionTouchedRef.current = true;
-                                verticalMomentSelectionTouchedClipIndexRef.current = null;
-                              }}
-                            >
-                              {durationChoice}s
-                            </button>
-                          ))}
+                          </div>
                         </div>
                       </div>
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        {skipManualWebcamCrop
-                          ? "Auto Webcam is off. Clips render without the webcam top strip."
-                          : "Auto Webcam is on. Clips auto-detect and apply a webcam top strip when confidence is high."}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="grid gap-3">
-                    <div className="vertical-mode-panel space-y-2 rounded-xl border border-border/40 bg-card/45 p-3">
-                      <p className="text-xs font-medium text-foreground">Extra tuning (optional)</p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                          <span className="text-[11px] text-muted-foreground">Voice tone</span>
-                          <select
-                            value={verticalVoicePreset}
-                            onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
-                            className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
-                          >
-                            {VERTICAL_VOICE_PRESET_OPTIONS.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                          <span className="text-[11px] text-muted-foreground">Pacing</span>
-                          <select
-                            value={verticalPacingPreset}
-                            onChange={(event) => setVerticalPacingPreset(event.target.value as VerticalPacingPresetOptionId)}
-                            className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
-                          >
-                            {VERTICAL_PACING_PRESET_OPTIONS.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-[11px] text-muted-foreground">
-                          Captions stay on in vertical mode. Voice and pacing apply to all vertical clips.
-                        </p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-8 rounded-full border-border/60 bg-background/70 px-3 text-[11px] text-foreground"
-                          onClick={openCaptionSettings}
-                        >
-                          Customize Captions
-                        </Button>
+                      <div className="vertical-reboot-config-column">
+                        <div className="vertical-reboot-card vertical-reboot-card-lg vertical-reboot-tuning-card">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-foreground">Refinement controls</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Voice, pacing, and captions apply across vertical clip generation.
+                            </p>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                              <span className="text-[11px] text-muted-foreground">Voice tone</span>
+                              <select
+                                value={verticalVoicePreset}
+                                onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
+                                className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
+                              >
+                                {VERTICAL_VOICE_PRESET_OPTIONS.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+                              <span className="text-[11px] text-muted-foreground">Pacing</span>
+                              <select
+                                value={verticalPacingPreset}
+                                onChange={(event) => setVerticalPacingPreset(event.target.value as VerticalPacingPresetOptionId)}
+                                className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
+                              >
+                                {VERTICAL_PACING_PRESET_OPTIONS.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <span className="vertical-reboot-mini-pill text-[10px]">
+                              Webcam: {skipManualWebcamCrop ? "Off" : "Auto On"}
+                            </span>
+                            <span className="vertical-reboot-mini-pill text-[10px]">
+                              Duration: {verticalClipDurationSeconds}s
+                            </span>
+                            <span className="vertical-reboot-mini-pill text-[10px]">
+                              Captions: Enabled
+                            </span>
+                          </div>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-[11px] text-muted-foreground">
+                              {skipManualWebcamCrop
+                                ? "Auto Webcam is off. Clips render without the webcam top strip."
+                                : "Auto Webcam is on. Clips auto-detect and apply a webcam top strip when confidence is high."}
+                            </p>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full border-border/60 bg-background/70 px-3 text-[11px] text-foreground"
+                              onClick={openCaptionSettings}
+                            >
+                              Caption Studio
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   {!hasVerticalVariantWorkspace && (
-                    <p className="vertical-mode-note text-xs text-muted-foreground">
-                      Upload a video to start your vertical clip gallery.
-                    </p>
+                    <div className="vertical-reboot-empty">
+                      <p className="vertical-mode-note text-xs text-muted-foreground">
+                        Upload a video to start your vertical clip gallery.
+                      </p>
+                    </div>
                   )}
 
                   {hasVerticalVariantWorkspace && (
-                    <div className="space-y-4">
+                    <div className="vertical-reboot-gallery-shell space-y-4">
                       {verticalPreviewUrl ? (
                         <video
-                          ref={verticalCompositionVideoRef}
+                          ref={verticalSourceVideoRef}
                           src={verticalPreviewUrl}
                           preload="metadata"
                           muted
@@ -17422,17 +17612,23 @@ const Editor = () => {
                           className="hidden"
                         />
                       ) : null}
-                      <div className="vertical-opus-card rounded-xl border border-border/50 bg-card/45 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-medium text-foreground">Clip Gallery</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              Review 8 clip options in one place before downloading.
-                            </p>
-                          </div>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {verticalVariantStatusLabel}
-                          </Badge>
+                      <div className="vertical-reboot-gallery-overview">
+                        <div>
+                          <p className="text-xs font-medium text-foreground">
+                            {showVerticalGalleryOnlyLayout ? "Original Clips Command Deck" : "Clip Gallery Command Deck"}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {showVerticalGalleryOnlyLayout
+                              ? "One unified gallery with live-ready renders, captions, and clip actions."
+                              : "Review all 8 vertical candidates before finalizing."}
+                          </p>
+                        </div>
+                        <div className="vertical-reboot-overview-metrics">
+                          <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
+                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
+                          <span className="vertical-reboot-mini-pill text-[10px]">
+                            {Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}
+                          </span>
                         </div>
                       </div>
                       <div className="vertical-variant-preview-list">
@@ -17443,11 +17639,13 @@ const Editor = () => {
                           const scoreValue = Math.max(90, variant.baseScore - clipScoreBoost);
                           const canDownload = activeVerticalJobReadyForDownload;
                           return (
-                            <article key="vertical-gallery-card" className="vertical-variant-preview-card is-instagram">
-                              <p className="vertical-variant-preview-title">Clip Gallery (8 options)</p>
+                            <article key="vertical-gallery-card" className="vertical-variant-preview-card vertical-reboot-gallery-card is-instagram">
+                              <p className="vertical-variant-preview-title">
+                                {showVerticalGalleryOnlyLayout ? "Original Clips (8)" : "Clip Gallery (8 options)"}
+                              </p>
                               <div className="vertical-variant-preview-content">
                                 <div className="vertical-variant-preview-media-wrap">
-                                  <div className="vertical-variant-subversion-list">
+                                  <div className={`vertical-variant-subversion-list ${showVerticalGalleryOnlyLayout ? "is-gallery-only" : ""}`}>
                                     {Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }).map((_, clipIndex) => {
                                       const { variantKey, versionIndex } = getVerticalSlotMetaByClipIndex(clipIndex);
                                       const variantMeta = getVerticalVariantMeta(variantKey);
@@ -17466,16 +17664,140 @@ const Editor = () => {
                                         versionIndex,
                                         variantMeta.defaultCaption,
                                       );
-                                      const clipPreviewCaption =
-                                        normalizedClipCaption.split(/\n+/).find(Boolean) ||
-                                        variantPreviewCaption ||
-                                        defaultClipCaption;
+                                      const clipCaptionOverlayTone: VerticalCaptionOverlayTone =
+                                        verticalClipCaptionOverlayBySlot[slotKey] || "none";
                                       const requestedMomentIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
                                       const fallbackMomentIndex = Number(verticalDefaultMomentIndexBySlot[clipIndex] ?? 0);
                                       const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
                                         ? clamp(Math.round(requestedMomentIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1))
                                         : clamp(Math.round(fallbackMomentIndex), 0, Math.max(0, verticalTranscriptMomentOptions.length - 1));
                                       const resolvedMoment = verticalTranscriptMomentOptions[resolvedMomentIndex];
+                                      const transcriptMomentCaption = normalizeVerticalCaptionTextForJob(
+                                        String(resolvedMoment?.sourceText || resolvedMoment?.text || ""),
+                                      );
+                                      const transcriptCueCaption = normalizeVerticalCaptionTextForJob(
+                                        String(activeTranscriptCues[resolvedMomentIndex]?.text || ""),
+                                      );
+                                      const clipTranscriptCaption = transcriptMomentCaption || transcriptCueCaption;
+                                      const clipPreviewCaptionSource =
+                                        normalizedClipCaption.split(/\n+/).find(Boolean) ||
+                                        clipTranscriptCaption.split(/\n+/).find(Boolean) ||
+                                        variantPreviewCaption ||
+                                        defaultClipCaption;
+                                      const clipPreviewCaptionNoFillers = verticalCaptionRemoveFillers
+                                        ? removePreviewFillers(clipPreviewCaptionSource)
+                                        : clipPreviewCaptionSource;
+                                      const clipPreviewCaptionBaseText =
+                                        clipPreviewCaptionNoFillers || clipPreviewCaptionSource;
+                                      const clipPreviewCaptionEmoji = verticalCaptionAutoEmoji
+                                        ? inferPreviewEmoji(clipPreviewCaptionBaseText)
+                                        : "";
+                                      const clipPreviewCaptionRaw = clipPreviewCaptionEmoji && !PREVIEW_EMOJI_PATTERN.test(clipPreviewCaptionBaseText)
+                                        ? `${clipPreviewCaptionBaseText} ${clipPreviewCaptionEmoji}`
+                                        : clipPreviewCaptionBaseText;
+                                      const clipPreviewCaptionPalette =
+                                        VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+                                        VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+                                      const clipPreviewCaptionOverlayPalette = clipCaptionOverlayTone === "white"
+                                        ? {
+                                            boxColor: "rgba(255, 255, 255, 0.94)",
+                                            borderColor: "rgba(15, 23, 42, 0.82)",
+                                            glowColor: "rgba(255, 255, 255, 0.42)",
+                                          }
+                                        : clipCaptionOverlayTone === "black"
+                                          ? {
+                                              boxColor: "rgba(0, 0, 0, 0.82)",
+                                              borderColor: "rgba(255, 255, 255, 0.65)",
+                                              glowColor: "rgba(0, 0, 0, 0.62)",
+                                            }
+                                          : null;
+                                      const clipPreviewCaptionHints =
+                                        VERTICAL_CAPTION_PRESET_RENDER_HINTS[verticalCaptionPreset] ??
+                                        VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+                                      const clipPreviewCaptionForceUppercase =
+                                        clipPreviewCaptionHints.uppercase ||
+                                        selectedVerticalCaptionFontVariant?.textTransform === "uppercase";
+                                      const clipPreviewCaptionText = clipPreviewCaptionForceUppercase
+                                        ? clipPreviewCaptionRaw.toUpperCase()
+                                        : clipPreviewCaptionRaw;
+                                      const clipPreviewCaption =
+                                        clipPreviewCaptionText.length > 118
+                                          ? `${clipPreviewCaptionText.slice(0, 115).trimEnd()}...`
+                                          : clipPreviewCaptionText;
+                                      const clipPreviewCaptionEffectivePalette = {
+                                        ...clipPreviewCaptionPalette,
+                                        ...(clipPreviewCaptionOverlayPalette ?? {}),
+                                        textColor: normalizeCaptionCssColor(verticalCaptionTextColor, clipPreviewCaptionPalette.textColor),
+                                      };
+                                      const clipPreviewCaptionOutline = normalizeCaptionHexColor(
+                                        verticalCaptionOutlineColor,
+                                        VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "000000",
+                                      );
+                                      const clipPreviewCaptionStrokePx = Number(
+                                        clamp(verticalCaptionOutlineWidth * 0.1, 1, 3.2).toFixed(2),
+                                      );
+                                      const clipPreviewCaptionShadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
+                                      const clipPreviewCaptionBoxEnabled =
+                                        clipPreviewCaptionHints.boxEnabled || clipCaptionOverlayTone !== "none";
+                                      const clipCaptionSelected =
+                                        selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
+                                      const clipCaptionAnimationEnabled =
+                                        clipCaptionSelected && verticalCaptionAnimation !== "none";
+                                      const clipCaptionDynamicIntensity = verticalCaptionDynamicMode === "kinetic_word"
+                                        ? 1.24
+                                        : verticalCaptionDynamicMode === "karaoke_word"
+                                          ? 1.1
+                                          : 1;
+                                      const clipCaptionAnimationClass = clipCaptionAnimationEnabled
+                                        ? `is-animated is-${verticalCaptionAnimation}`
+                                        : "";
+                                      const clipCaptionAnimationBaseMs = verticalCaptionAnimation === "slide"
+                                        ? 980
+                                        : verticalCaptionAnimation === "fade"
+                                          ? 1080
+                                          : verticalCaptionAnimation === "bounce"
+                                            ? 560
+                                            : verticalCaptionAnimation === "glitch"
+                                              ? 540
+                                              : 640;
+                                      const clipCaptionAnimationDurationMs = Math.round(
+                                        Math.max(
+                                          240,
+                                          clipCaptionAnimationBaseMs / (
+                                            Math.max(0.5, clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed))
+                                            * clipCaptionDynamicIntensity
+                                          ),
+                                        ),
+                                      );
+                                      const clipPreviewCaptionStyle = {
+                                        color: clipPreviewCaptionEffectivePalette.textColor,
+                                        fontFamily: selectedVerticalCaptionFontVariant?.previewFamily
+                                          ?? VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId]
+                                          ?? VERTICAL_CAPTION_FONT_FAMILY.impact,
+                                        fontWeight: selectedVerticalCaptionFontVariant?.fontWeight ?? 900,
+                                        letterSpacing: `${selectedVerticalCaptionFontVariant?.letterSpacing ?? 0.02}em`,
+                                        textTransform: clipPreviewCaptionForceUppercase ? "uppercase" : "none",
+                                        WebkitTextStroke: `${clipPreviewCaptionStrokePx}px #${clipPreviewCaptionOutline}`,
+                                        textShadow: `0 ${Math.max(1, Math.round(2 + clipPreviewCaptionShadowOpacity * 4))}px ${Math.max(3, Math.round(8 + clipPreviewCaptionShadowOpacity * 12))}px ${clipPreviewCaptionEffectivePalette.glowColor}`,
+                                        backgroundColor: clipPreviewCaptionBoxEnabled
+                                          ? clipPreviewCaptionEffectivePalette.boxColor
+                                          : "transparent",
+                                        border: clipPreviewCaptionBoxEnabled
+                                          ? `1px solid ${clipPreviewCaptionEffectivePalette.borderColor}`
+                                          : "none",
+                                        borderRadius: clipPreviewCaptionBoxEnabled ? "0.58rem" : "0.2rem",
+                                        padding: clipPreviewCaptionBoxEnabled ? "0.24rem 0.46rem" : "0.06rem 0.16rem",
+                                        "--caption-pop-scale": Number((1 + 0.08 * clipCaptionDynamicIntensity).toFixed(3)),
+                                        "--caption-slide-y": `${Math.round(4 + 3 * (clipCaptionDynamicIntensity - 1))}px`,
+                                        "--caption-bounce-y": `${Math.round(8 + 4 * (clipCaptionDynamicIntensity - 1))}px`,
+                                        "--caption-fade-low": Number(
+                                          Math.max(0.58, 0.74 - (clipCaptionDynamicIntensity - 1) * 0.12).toFixed(2),
+                                        ),
+                                        "--caption-glitch-shift": `${Number((1.35 * clipCaptionDynamicIntensity).toFixed(2))}px`,
+                                        animationDuration: clipCaptionAnimationEnabled
+                                          ? `${clipCaptionAnimationDurationMs}ms`
+                                          : undefined,
+                                      };
                                       const durationLabel = clipReady
                                         ? `${verticalMomentDurationSeconds}s rendered`
                                         : clipProcessing
@@ -17486,8 +17808,22 @@ const Editor = () => {
                                         : variantKey === "youtube"
                                           ? "YouTube"
                                           : "TikTok";
+                                      const clipStatusLabel = clipReady ? "Ready" : clipProcessing ? "Rendering" : "Queued";
+                                      const clipProgressPct = clipReady ? 100 : clamp(Math.round(totalPipelineProgress || 0), 0, 99);
+                                      const rerenderDisabled =
+                                        !!uploadingJobId ||
+                                        ((activeJob && activeJob.renderMode === "vertical")
+                                          ? reprocessingJobId === activeJob.id
+                                          : !verticalSelectionReady);
+                                      const handleRenderClick = () => {
+                                        if (activeJob && activeJob.renderMode === "vertical") {
+                                          void handleRedoRender(activeJob, { clipIndex });
+                                          return;
+                                        }
+                                        void startVerticalRender();
+                                      };
                                       return (
-                                        <div key={`vertical-clip-${clipIndex + 1}`} className="vertical-variant-subversion-card">
+                                        <div key={`vertical-clip-${clipIndex + 1}`} className="vertical-variant-subversion-card vertical-reboot-clip-card">
                                           <p className="vertical-variant-subversion-heading">
                                             #{clipIndex + 1} {platformLabel} V{versionIndex + 1}
                                           </p>
@@ -17498,10 +17834,24 @@ const Editor = () => {
                                                 preload="metadata"
                                                 controls
                                                 playsInline
-                                                className="vertical-variant-preview-video"
+                                                className="vertical-variant-preview-video cursor-pointer"
+                                                onClick={() => openCaptionSettingsForClip(clipIndex)}
+                                                title={`Open captions for clip #${clipIndex + 1}`}
                                               />
                                             ) : (
-                                              <div className="vertical-variant-preview-empty" aria-live="polite">
+                                              <div
+                                                className="vertical-variant-preview-empty cursor-pointer"
+                                                aria-live="polite"
+                                                role="button"
+                                                tabIndex={0}
+                                                onClick={() => openCaptionSettingsForClip(clipIndex)}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    openCaptionSettingsForClip(clipIndex);
+                                                  }
+                                                }}
+                                              >
                                                 {clipProcessing ? (
                                                   <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
                                                 ) : (
@@ -17513,9 +17863,67 @@ const Editor = () => {
                                               </div>
                                             )}
                                             <span className="vertical-variant-preview-time">{durationLabel}</span>
-                                            <p className="vertical-variant-preview-caption">{clipPreviewCaption}</p>
+                                            {clipPreviewCaption ? (
+                                              <p
+                                                className={`vertical-variant-preview-caption ${clipReady ? "is-ready" : ""} ${clipCaptionSelected ? "is-selected" : ""}`.trim()}
+                                              >
+                                                <span
+                                                  className={`vertical-variant-preview-caption-text ${clipCaptionAnimationClass}`.trim()}
+                                                  style={clipPreviewCaptionStyle}
+                                                >
+                                                  {clipPreviewCaption}
+                                                </span>
+                                              </p>
+                                            ) : null}
                                           </div>
-                                          <div className="vertical-variant-preview-actions">
+                                          {showVerticalGalleryOnlyLayout ? (
+                                            <div className="vertical-variant-card-stats">
+                                              <span className={`vertical-variant-card-chip ${
+                                                clipReady ? "is-ready" : clipProcessing ? "is-processing" : ""
+                                              }`}>
+                                                {clipStatusLabel}
+                                              </span>
+                                              <span className="vertical-variant-card-chip">{clipProgressPct}%</span>
+                                              {resolvedMoment ? (
+                                                <span className="vertical-variant-card-chip">{resolvedMoment.impactScore}/10</span>
+                                              ) : null}
+                                            </div>
+                                          ) : null}
+                                          {showVerticalGalleryOnlyLayout ? (
+                                            <div className="vertical-variant-icon-actions">
+                                              <button
+                                                type="button"
+                                                className="vertical-variant-icon-button"
+                                                disabled={!canDownload}
+                                                onClick={() => void handleDownload(clipIndex)}
+                                                aria-label={`Download clip ${clipIndex + 1}`}
+                                                title="Download clip"
+                                              >
+                                                <span aria-hidden className="vertical-variant-icon-emoji">⬇️</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="vertical-variant-icon-button"
+                                                onClick={handleRenderClick}
+                                                disabled={rerenderDisabled}
+                                                aria-label={`${clipReady ? "Re-render" : "Render"} clip ${clipIndex + 1}`}
+                                                title={clipReady ? "Re-render clip" : "Render clip"}
+                                              >
+                                                <span aria-hidden className="vertical-variant-icon-emoji">🔁</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="vertical-variant-icon-button"
+                                                onClick={() => openCaptionSettingsForClip(clipIndex)}
+                                                aria-label={`Edit captions for clip ${clipIndex + 1}`}
+                                                title="Edit captions"
+                                              >
+                                                <span aria-hidden className="vertical-variant-icon-emoji">💬</span>
+                                              </button>
+                                            </div>
+                                          ) : null}
+                                          {!showVerticalGalleryOnlyLayout ? (
+                                            <div className="vertical-variant-preview-actions">
                                             <button
                                               type="button"
                                               className="vertical-variant-preview-button is-primary"
@@ -17527,19 +17935,8 @@ const Editor = () => {
                                             <button
                                               type="button"
                                               className="vertical-variant-preview-button"
-                                              onClick={() => {
-                                                if (activeJob && activeJob.renderMode === "vertical") {
-                                                  void handleRedoRender(activeJob, { clipIndex });
-                                                  return;
-                                                }
-                                                void startVerticalRender();
-                                              }}
-                                              disabled={
-                                                !!uploadingJobId ||
-                                                ((activeJob && activeJob.renderMode === "vertical")
-                                                  ? reprocessingJobId === activeJob.id
-                                                  : !verticalSelectionReady)
-                                              }
+                                              onClick={handleRenderClick}
+                                              disabled={rerenderDisabled}
                                             >
                                               {clipReady
                                                 ? (reprocessingJobId === activeJob?.id ? "Re-rendering..." : "Render Again")
@@ -17547,8 +17944,10 @@ const Editor = () => {
                                                   ? "Rendering..."
                                                   : "Render"}
                                             </button>
-                                          </div>
-                                          <div className="mt-2 flex flex-wrap gap-2">
+                                            </div>
+                                          ) : null}
+                                          {!showVerticalGalleryOnlyLayout ? (
+                                            <div className="mt-2 flex flex-wrap gap-2">
                                             <button
                                               type="button"
                                               className="vertical-variant-preview-button"
@@ -17565,8 +17964,9 @@ const Editor = () => {
                                             >
                                               Caption Popup
                                             </button>
-                                          </div>
-                                          {activeVerticalClipEditorIndex === clipIndex ? (
+                                            </div>
+                                          ) : null}
+                                          {!showVerticalGalleryOnlyLayout && activeVerticalClipEditorIndex === clipIndex ? (
                                             <div className="space-y-2">
                                               <label className="vertical-variant-preview-caption-editor">
                                                 <span className="vertical-variant-preview-caption-label">
@@ -17616,16 +18016,17 @@ const Editor = () => {
                                                 Clip caption text and style now live only in Caption Popup.
                                               </p>
                                             </div>
-                                          ) : (
+                                          ) : !showVerticalGalleryOnlyLayout ? (
                                             <p className="mt-2 text-[11px] text-muted-foreground">
                                               Open Caption Popup to edit text, style, animation, clip targeting, and placement.
                                             </p>
-                                          )}
+                                          ) : null}
                                         </div>
                                       );
                                     })}
                                   </div>
-                                  <div className="vertical-variant-caption-batch-row">
+                                  {!showVerticalGalleryOnlyLayout ? (
+                                    <div className="vertical-variant-caption-batch-row">
                                     <button
                                       type="button"
                                       className="vertical-variant-preview-button"
@@ -17636,9 +18037,11 @@ const Editor = () => {
                                     <span className="vertical-variant-caption-batch-hint">
                                       Pick a clip in the popup, choose a look/font/animation, and drag caption position live.
                                     </span>
-                                  </div>
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <div className="vertical-variant-preview-analysis">
+                                {!showVerticalGalleryOnlyLayout ? (
+                                  <div className="vertical-variant-preview-analysis">
                                   <div className="vertical-variant-preview-summary">
                                     <p className="vertical-variant-preview-summary-text">
                                       Clips are ordered by estimated retention so you can quickly choose the best ones.
@@ -17652,13 +18055,15 @@ const Editor = () => {
                                   <p className="vertical-variant-preview-transcript">
                                     Platform variants are mixed in one queue. Captions are now edited in the popup only.
                                   </p>
-                                </div>
+                                  </div>
+                                ) : null}
                               </div>
                             </article>
                           );
                         })}
                       </div>
 
+                      {(!showVerticalGalleryOnlyLayout || !activeVerticalJobReadyForDownload || Boolean(uploadingJobId)) ? (
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="vertical-mode-note text-xs text-muted-foreground">
                           {uploadingJobId
@@ -17675,6 +18080,7 @@ const Editor = () => {
                           Render Clip Gallery
                         </Button>
                       </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -18073,6 +18479,7 @@ const Editor = () => {
               </div>
               )}
 
+              {!showVerticalGalleryOnlyLayout ? (
               <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
                 <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -18924,6 +19331,7 @@ const Editor = () => {
                   </>
                 )}
               </div>
+              ) : null}
             </section>
           </div>
         </motion.div>
@@ -19785,362 +20193,342 @@ const Editor = () => {
         </DialogContent>
         ) : null}
       </Dialog>
-
       <Dialog open={captionSettingsDialogOpen} onOpenChange={setCaptionSettingsDialogOpen}>
         {captionSettingsDialogOpen ? (
-          <DialogContent className="max-h-[94vh] max-w-[calc(100vw-1rem)] overflow-hidden border border-primary/35 bg-[radial-gradient(145%_165%_at_2%_0%,rgba(59,130,246,0.18),transparent_58%),radial-gradient(110%_140%_at_98%_0%,rgba(16,185,129,0.12),transparent_62%),linear-gradient(148deg,rgba(2,6,23,0.96),rgba(15,23,42,0.94))] p-0 shadow-[0_36px_80px_-36px_rgba(37,99,235,0.9)] backdrop-blur-xl sm:max-w-6xl">
-            <div className="max-h-[94vh] overflow-y-auto p-4 sm:p-6">
+          <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-hidden border border-border/50 bg-background/95 p-0 backdrop-blur-xl sm:max-w-5xl">
+            <div className="max-h-[90vh] overflow-y-auto p-4 sm:p-5">
               <DialogHeader>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <Badge className="border-primary/45 bg-primary/15 text-primary-foreground">Caption Studio</Badge>
-                  <Badge className="border-emerald-300/35 bg-emerald-500/12 text-emerald-100">
-                    {VERTICAL_CAPTION_LOOK_OPTIONS.length}+ styles · clip-linked captions
-                  </Badge>
-                </div>
-                <DialogTitle className="text-xl font-display text-foreground sm:text-2xl">Customize Captions</DialogTitle>
+                <DialogTitle className="text-xl font-display text-foreground">Caption Editor</DialogTitle>
                 <DialogDescription className="text-sm text-muted-foreground">
-                  Build TikTok-style captions, target selected clips or all clips, and preview placement before rendering.
+                  Click a clip to target it, then edit and save captions for that selected clip.
                 </DialogDescription>
               </DialogHeader>
 
-              <div className={`mt-4 grid gap-4 ${isVerticalMode ? "xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]" : "grid-cols-1"}`}>
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-border/45 bg-background/30 p-3">
-                    {renderSettingsSection("captions")}
-                  </div>
-
-                  {isVerticalMode ? (
-                    <>
-                      <div className="rounded-2xl border border-primary/35 bg-[linear-gradient(145deg,rgba(30,58,138,0.18),rgba(15,23,42,0.46))] p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-foreground">TikTok Caption Looks</p>
-                          <Badge className="border-primary/40 bg-primary/12 text-primary">
-                            {Math.max(50, VERTICAL_CAPTION_LOOK_OPTIONS.length)}+ styles
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Pick from 50+ TikTok-ready looks with matching fonts and animation behavior.
-                        </p>
-                        <input
-                          value={captionStyleSearch}
-                          onChange={(event) => setCaptionStyleSearch(event.target.value)}
-                          placeholder="Search styles (e.g. pop, glitch, clean)"
-                          className="mt-3 h-9 w-full rounded-lg border border-border/60 bg-background/55 px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        />
-                        <div className="mt-3 grid max-h-[260px] grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
-                          {filteredVerticalCaptionLookOptions.map((look) => {
-                            const active = verticalCaptionLookId === look.id;
-                            const presetMeta = VERTICAL_CAPTION_STYLE_OPTIONS.find((entry) => entry.id === look.preset);
-                            return (
-                              <button
-                                key={look.id}
-                                type="button"
-                                className={`rounded-xl border px-3 py-2 text-left transition-all ${
-                                  active
-                                    ? "border-primary/70 bg-primary/18 text-foreground shadow-[0_12px_26px_-20px_hsl(var(--primary)/0.95)]"
-                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
-                                }`}
-                                onClick={() => applyVerticalCaptionLook(look.id)}
-                              >
-                                <p className="text-xs font-semibold">{look.label}</p>
-                                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{look.description}</p>
-                                <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-primary/80">
-                                  {presetMeta?.label || "Style"}
-                                </p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-border/55 bg-background/30 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-foreground">Clip Selector</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {selectedCaptionClipCount > 0 ? `${selectedCaptionClipCount} selected` : "No clips selected"}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Select the clips that should receive your custom caption text, or apply to all clips.
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={allCaptionClipsSelected ? "default" : "outline"}
-                            className="h-8 rounded-full px-3 text-[11px]"
-                            onClick={() => setCaptionClipSelectionForAll(true)}
-                          >
-                            Select all clips
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={!allCaptionClipsSelected ? "default" : "outline"}
-                            className="h-8 rounded-full px-3 text-[11px]"
-                            onClick={() => setCaptionClipSelectionForAll(false)}
-                          >
-                            Clear selection
-                          </Button>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          {captionPopupClipIndexes.map((clipIndex) => {
-                            const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
-                            const selected = Boolean(verticalClipCaptionGenerateSelectedBySlot[slotKey]);
-                            return (
-                              <button
-                                key={`caption-clip-select-${clipIndex}`}
-                                type="button"
-                                className={`rounded-xl border px-2.5 py-2 text-left text-xs transition-all ${
-                                  selected
-                                    ? "border-primary/65 bg-primary/18 text-foreground"
-                                    : "border-border/60 bg-background/45 text-muted-foreground hover:border-primary/45 hover:text-foreground"
-                                }`}
-                                onClick={() => setCaptionClipSelection(clipIndex, !selected)}
-                              >
-                                Clip #{clipIndex + 1}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          <Textarea
-                            value={captionBulkClipText}
-                            onChange={(event) => setCaptionBulkClipText(event.target.value)}
-                            placeholder="Type one caption line to apply to selected clips (or all clips if none selected)"
-                            className="min-h-[88px] border-border/60 bg-background/55 text-xs text-foreground placeholder:text-muted-foreground"
-                          />
-                          <Button
-                            type="button"
-                            className="min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
-                            onClick={applyCaptionTextToSelectedClips}
-                          >
-                            Apply Text To {hasSelectedCaptionClipSlots ? "Selected Clips" : "All Clips"}
-                          </Button>
-                        </div>
-                      </div>
-                    </>
-                  ) : null}
+              {!isVerticalMode ? (
+                <div className="mt-3 rounded-xl border border-border/50 bg-muted/20 p-3">
+                  {renderSettingsSection("captions")}
                 </div>
+              ) : (
+                <div className="mt-4 grid gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
+                  <aside className="rounded-xl border border-border/60 bg-muted/15 p-2.5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Clips</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Select a clip to edit its captions.
+                    </p>
+                    <div className="mt-2 max-h-[62vh] space-y-2 overflow-y-auto pr-1">
+                      {captionPopupClipIndexes.map((clipIndex) => {
+                        const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
+                        const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
+                        const selected = resolvedCaptionPreviewClipIndex === clipIndex;
+                        return (
+                          <button
+                            key={`caption-side-clip-${clipIndex}`}
+                            type="button"
+                            className={`w-full rounded-lg border p-1.5 text-left transition ${
+                              selected
+                                ? "border-primary/70 bg-primary/15"
+                                : "border-border/60 bg-background/50 hover:border-primary/45"
+                            }`}
+                            onClick={() => handleCaptionPreviewSourceChange(clipIndex)}
+                          >
+                            <div className="overflow-hidden rounded-md border border-border/55 bg-black/70">
+                              {clipReady ? (
+                                <video
+                                  src={clipUrl}
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  className="h-16 w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-16 items-center justify-center text-[11px] text-muted-foreground">
+                                  Clip preview pending
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-1 flex items-center justify-between text-[11px]">
+                              <span className="font-medium text-foreground">Clip #{clipIndex + 1}</span>
+                              <span className={selected ? "text-primary" : "text-muted-foreground"}>
+                                {selected ? "Selected" : clipReady ? "Ready" : "Queued"}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </aside>
 
-                {isVerticalMode ? (
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-cyan-300/30 bg-[linear-gradient(145deg,rgba(14,116,144,0.2),rgba(15,23,42,0.54))] p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground">Live Caption Preview</p>
-                        <Badge className="border-cyan-300/35 bg-cyan-500/12 text-cyan-100">{captionPreviewSourceLabel}</Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Drag on the preview to reposition captions before render.
-                      </p>
-                      <label className="mt-3 block space-y-1">
-                        <span className="text-[11px] text-muted-foreground">Preview rendered clip</span>
-                        <select
-                          value={String(
-                            resolvedCaptionPreviewClipIndex >= 0
-                              ? resolvedCaptionPreviewClipIndex
-                              : (captionPopupClipIndexes[0] ?? 0),
-                          )}
-                          onChange={(event) => handleCaptionPreviewSourceChange(Number(event.target.value))}
-                          className="h-9 w-full rounded-lg border border-border/60 bg-background/55 px-2.5 text-xs text-foreground"
-                        >
-                          {captionPopupClipIndexes.map((clipIndex) => (
-                            <option key={`caption-preview-clip-${clipIndex}`} value={clipIndex}>
-                              Clip #{clipIndex + 1}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="mt-3 rounded-xl border border-border/60 bg-background/45 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-foreground">Editing captions for {selectedCaptionClipLabel}</p>
-                          <Badge variant="outline" className="border-border/60 bg-background/55 text-[10px] text-muted-foreground">
-                            Transcript-linked
-                          </Badge>
-                        </div>
-                        {selectedCaptionClipTranscriptSummary ? (
-                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                            {selectedCaptionClipTranscriptSummary}
-                          </p>
-                        ) : (
-                          <p className="mt-1 text-[11px] text-muted-foreground">Transcript for this clip will appear after transcribe finishes.</p>
-                        )}
-                        <Textarea
-                          value={selectedCaptionClipCustomText}
-                          onChange={(event) => updateSelectedClipCaptionText(event.target.value)}
-                          placeholder="Type caption text for this clip. Preview shows 2-3 words at a time."
-                          className="mt-2 min-h-[84px] border-border/60 bg-background/55 text-xs text-foreground placeholder:text-muted-foreground"
-                        />
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-[11px]"
-                            onClick={useSelectedClipTranscriptAsCaption}
-                            disabled={!selectedCaptionClipTranscriptText}
-                          >
-                            Use Clip Transcript
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-[11px]"
-                            onClick={clearSelectedClipCaptionOverride}
-                            disabled={!selectedCaptionClipCustomText}
-                          >
-                            Clear Override
-                          </Button>
-                        </div>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={selectedCaptionOverlayTone === "none" ? "default" : "outline"}
-                            className="h-8 text-[11px]"
-                            onClick={() => setSelectedCaptionOverlayTone("none")}
-                          >
-                            No Overlay
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={selectedCaptionOverlayTone === "white" ? "default" : "outline"}
-                            className="h-8 text-[11px]"
-                            onClick={() => applyCenterCaptionOverlay("white")}
-                          >
-                            Center White
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={selectedCaptionOverlayTone === "black" ? "default" : "outline"}
-                            className="h-8 text-[11px]"
-                            onClick={() => applyCenterCaptionOverlay("black")}
-                          >
-                            Center Black
-                          </Button>
-                        </div>
-                        <div className="mt-3 rounded-xl border border-border/60 bg-background/45 p-2.5">
-                          <p className="text-xs font-semibold text-foreground">Caption Colors</p>
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Tune base text, highlighted word color, and outline color for this caption style.
-                          </p>
-                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
-                              Text
-                              <input
-                                type="color"
-                                value={normalizeCaptionCssColor(verticalCaptionTextColor, "FFFFFF")}
-                                onChange={(event) =>
-                                  setVerticalCaptionTextColor(normalizeCaptionCssColor(event.target.value, "FFFFFF"))
-                                }
-                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
-                                aria-label="Caption text color"
-                              />
-                            </label>
-                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
-                              Highlight
-                              <input
-                                type="color"
-                                value={normalizeCaptionCssColor(verticalCaptionHighlightColor, "FDE047")}
-                                onChange={(event) =>
-                                  setVerticalCaptionHighlightColor(normalizeCaptionCssColor(event.target.value, "FDE047"))
-                                }
-                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
-                                aria-label="Caption highlight color"
-                              />
-                            </label>
-                            <label className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
-                              Outline
-                              <input
-                                type="color"
-                                value={normalizeCaptionCssColor(
-                                  verticalCaptionOutlineColor,
-                                  VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                                )}
-                                onChange={(event) =>
-                                  setVerticalCaptionOutlineColor(
-                                    normalizeCaptionHexColor(
-                                      event.target.value,
-                                      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset].outlineColor,
-                                    ),
-                                  )
-                                }
-                                className="h-7 w-9 cursor-pointer rounded border border-border/60 bg-transparent p-0"
-                                aria-label="Caption outline color"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          className="mt-3 min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
-                          onClick={saveCaptionsToRender}
-                          disabled={
-                            Boolean(uploadingJobId) ||
-                            (activeJob?.id ? reprocessingJobId === activeJob.id : false) ||
-                            (!activeJob && (!pendingVerticalFile || !sourceVideoMeta)) ||
-                            selectedCaptionClipIndex < 0
-                          }
-                        >
-                          {uploadingJobId || (activeJob?.id && reprocessingJobId === activeJob.id)
-                            ? "Saving..."
-                            : selectedCaptionClipIndex >= 0
-                              ? `Save Captions To Clip #${selectedCaptionClipIndex + 1}`
-                              : "Save Captions To Render"}
-                        </Button>
+                  <section className="space-y-3">
+                    <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">Preview · {selectedCaptionClipLabel}</p>
+                        <Badge className="border-primary/45 bg-primary/10 text-primary">{captionPreviewSourceLabel}</Badge>
                       </div>
                       {captionPreviewSourceUrl ? (
                         <video
+                          key={`caption-preview-source-${resolvedCaptionPreviewClipIndex}-${captionPreviewSourceUrl}`}
                           ref={verticalCompositionVideoRef}
                           src={captionPreviewSourceUrl}
-                          crossOrigin="anonymous"
                           preload="metadata"
                           muted
+                          loop
+                          autoPlay
                           playsInline
                           onLoadedMetadata={handleVerticalSourceMetadata}
-                          className="hidden"
+                          className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
                         />
                       ) : null}
-                      <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-black/45 p-2">
-                        {captionPreviewSourceUrl ? (
-                          captionPreviewDrawFallback ? (
-                            <div className="space-y-2">
-                              <p className="px-1 text-[11px] text-muted-foreground">
-                                Live canvas preview fallback active. Showing direct clip playback.
-                              </p>
-                              <video
-                                src={captionPreviewSourceUrl}
-                                crossOrigin="anonymous"
-                                preload="metadata"
-                                muted
-                                playsInline
-                                autoPlay
-                                loop
-                                className="h-auto w-full rounded-xl border border-border/50 bg-black/75 object-cover"
-                              />
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,230px)_minmax(0,1fr)]">
+                        <div className="self-start overflow-hidden rounded-xl border border-border/60 bg-black/45 p-2">
+                          <div className="mx-auto w-[min(190px,100%)] sm:w-[min(220px,100%)]">
+                            <div className="relative aspect-[9/16] overflow-hidden rounded-lg border border-border/50 bg-black/75">
+                              {captionPreviewSourceUrl ? (
+                                captionPreviewDrawFallback ? (
+                                  <video
+                                    src={captionPreviewSourceUrl}
+                                    preload="metadata"
+                                    muted
+                                    playsInline
+                                    autoPlay
+                                    loop
+                                    className="h-full w-full bg-black/75 object-cover"
+                                  />
+                                ) : (
+                                  <canvas
+                                    ref={verticalCompositionCanvasRef}
+                                    onPointerDown={beginVerticalCaptionDrag}
+                                    className="h-full w-full touch-none bg-black/75"
+                                  />
+                                )
+                              ) : (
+                                <div className="flex h-full items-center justify-center border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
+                                  {selectedCaptionClipIndex >= 0
+                                    ? `Clip #${selectedCaptionClipIndex + 1} preview is still loading.`
+                                    : "Upload and prepare a vertical source video to unlock live caption preview."}
+                                </div>
+                              )}
                             </div>
-                          ) : (
-                            <canvas
-                              ref={verticalCompositionCanvasRef}
-                              onPointerDown={beginVerticalCaptionDrag}
-                              className="h-auto w-full touch-none rounded-xl border border-border/50 bg-black/75"
-                            />
-                          )
-                        ) : (
-                          <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
-                            {selectedCaptionClipIndex >= 0
-                              ? `Clip #${selectedCaptionClipIndex + 1} preview is still loading.`
-                              : "Upload and prepare a vertical source video to unlock live caption preview."}
                           </div>
-                        )}
+                        </div>
+
+                        <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-foreground">Caption text</p>
+                            <div className="relative flex items-center gap-1.5">
+                              <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
+                                Clip-linked
+                              </Badge>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 rounded-md px-2.5 text-[10px]"
+                                onClick={toggleTikTokStylePicker}
+                                aria-expanded={tikTokStylePickerOpen}
+                                aria-haspopup="dialog"
+                              >
+                                {tikTokStylePickerOpen ? "Hide TikTok Styles" : "TikTok Styles Popup"}
+                              </Button>
+                              {tikTokStylePickerOpen ? (
+                                <div className="absolute right-0 top-[calc(100%+0.35rem)] z-30 w-[min(21rem,calc(100vw-2.75rem))] rounded-lg border border-border/60 bg-background/95 p-2.5 shadow-[0_16px_40px_-20px_rgba(2,6,23,0.8)] backdrop-blur-md">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
+                                      TikTok caption styles
+                                    </p>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-7 rounded-md px-2.5 text-[10px]"
+                                      onClick={applySelectedTikTokCaptionStyle}
+                                      disabled={pendingTikTokCaptionPresetId === verticalCaptionPreset}
+                                    >
+                                      Apply
+                                    </Button>
+                                  </div>
+                                  <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                    {TIKTOK_CAPTION_STYLE_OPTIONS.map((styleOption) => {
+                                      const picked = pendingTikTokCaptionPresetId === styleOption.id;
+                                      const active = verticalCaptionPreset === styleOption.id;
+                                      return (
+                                        <button
+                                          key={`tiktok-caption-style-${styleOption.id}`}
+                                          type="button"
+                                          className={`rounded-lg border px-2 py-2 text-left transition-all ${
+                                            picked
+                                              ? "border-primary/65 bg-primary/15 text-foreground"
+                                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                          }`}
+                                          onClick={() => setPendingTikTokCaptionPresetId(styleOption.id)}
+                                          aria-pressed={picked}
+                                        >
+                                          <div className="flex items-center justify-between gap-1.5">
+                                            <span className="text-[11px] font-medium">{styleOption.label}</span>
+                                            {active ? (
+                                              <span className="rounded-full border border-primary/40 bg-primary/15 px-1.5 py-[1px] text-[9px] text-primary">
+                                                Active
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          <p className="mt-1 text-[10px] leading-relaxed">{styleOption.description}</p>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="mt-2 rounded-md border border-border/55 bg-muted/25 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/85">
+                                        Style depth
+                                      </p>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 rounded-md px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                        onClick={() => {
+                                          const defaults =
+                                            VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ??
+                                            VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+                                          setVerticalCaptionOutlineWidth(defaults.outlineWidth);
+                                          setVerticalCaptionShadowStrength(defaults.shadowStrength);
+                                        }}
+                                      >
+                                        Reset
+                                      </Button>
+                                    </div>
+                                    <div className="mt-2 space-y-2">
+                                      <label className="space-y-1">
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                          <span>Outline</span>
+                                          <span>{Math.round(clamp(verticalCaptionOutlineWidth, 0, 24))} px</span>
+                                        </div>
+                                        <Slider
+                                          min={0}
+                                          max={24}
+                                          step={1}
+                                          className="editor-settings-slider"
+                                          value={[Math.round(clamp(verticalCaptionOutlineWidth, 0, 24))]}
+                                          onValueChange={(values) => {
+                                            const next = Number(values?.[0] ?? verticalCaptionOutlineWidth);
+                                            if (!Number.isFinite(next)) return;
+                                            setVerticalCaptionOutlineWidth(clamp(Math.round(next), 0, 24));
+                                          }}
+                                        />
+                                      </label>
+                                      <label className="space-y-1">
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                          <span>Drop Shadow</span>
+                                          <span>{Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))}%</span>
+                                        </div>
+                                        <Slider
+                                          min={VERTICAL_CAPTION_SHADOW_MIN}
+                                          max={VERTICAL_CAPTION_SHADOW_MAX}
+                                          step={1}
+                                          className="editor-settings-slider"
+                                          value={[Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))]}
+                                          onValueChange={(values) => {
+                                            const next = Number(values?.[0] ?? verticalCaptionShadowStrength);
+                                            if (!Number.isFinite(next)) return;
+                                            setVerticalCaptionShadowStrength(
+                                              clamp(Math.round(next), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX),
+                                            );
+                                          }}
+                                        />
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                          {selectedCaptionClipTranscriptSummary ? (
+                            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                              {selectedCaptionClipTranscriptSummary}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Transcript for this clip appears after transcribe finishes.
+                            </p>
+                          )}
+                          <Textarea
+                            value={selectedCaptionClipCustomText}
+                            onChange={(event) => updateSelectedClipCaptionText(event.target.value)}
+                            placeholder="Type caption text for the selected clip."
+                            className="mt-2 min-h-[88px] border-border/60 bg-background/60 text-xs text-foreground placeholder:text-muted-foreground"
+                          />
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-[11px]"
+                              onClick={useSelectedClipTranscriptAsCaption}
+                              disabled={!selectedCaptionClipTranscriptText}
+                            >
+                              Use Clip Transcript
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-[11px]"
+                              onClick={clearSelectedClipCaptionOverride}
+                              disabled={!selectedCaptionClipCustomText}
+                            >
+                              Clear Override
+                            </Button>
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={selectedCaptionOverlayTone === "none" ? "default" : "outline"}
+                              className="h-8 text-[11px]"
+                              onClick={() => setSelectedCaptionOverlayTone("none")}
+                            >
+                              No Overlay
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={selectedCaptionOverlayTone === "white" ? "default" : "outline"}
+                              className="h-8 text-[11px]"
+                              onClick={() => applyCenterCaptionOverlay("white")}
+                            >
+                              Center White
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={selectedCaptionOverlayTone === "black" ? "default" : "outline"}
+                              className="h-8 text-[11px]"
+                              onClick={() => applyCenterCaptionOverlay("black")}
+                            >
+                              Center Black
+                            </Button>
+                          </div>
+                          <Button
+                            type="button"
+                            className="mt-3 min-h-10 w-full rounded-xl bg-primary text-white hover:bg-primary/90"
+                            onClick={saveCaptionsToRender}
+                            disabled={
+                              Boolean(uploadingJobId) ||
+                              (activeJob?.id ? reprocessingJobId === activeJob.id : false) ||
+                              (!activeJob && (!pendingVerticalFile || !sourceVideoMeta)) ||
+                              selectedCaptionClipIndex < 0
+                            }
+                          >
+                            {uploadingJobId || (activeJob?.id && reprocessingJobId === activeJob.id)
+                              ? "Saving..."
+                              : selectedCaptionClipIndex >= 0
+                                ? `Save Captions To Clip #${selectedCaptionClipIndex + 1}`
+                                : "Save Captions To Render"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
+                  </section>
+                </div>
+              )}
             </div>
           </DialogContent>
         ) : null}
@@ -20857,4 +21245,5 @@ const Editor = () => {
 };
 
 export default Editor;
+
 
