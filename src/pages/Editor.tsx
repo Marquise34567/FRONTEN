@@ -22362,3 +22362,5 @@ export default Editor;
 
 
 // Optimization checkpoint: caption rendering optimized for performance
+
+// Caption preview download enabled
