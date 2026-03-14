@@ -6855,7 +6855,11 @@ const Editor = () => {
               verticalCaptionHighlightColor,
               verticalCaptionPaletteForJob.highlightColor,
             ),
-            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            outlineWidth: clamp(
+              Math.round(verticalCaptionOutlineWidth),
+              VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+              VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+            ),
             animation: resolvedVerticalCaptionAnimation,
             animationSpeed: resolvedVerticalCaptionAnimationSpeed,
             dynamicMode: verticalCaptionDynamicMode,
@@ -9004,7 +9008,11 @@ const Editor = () => {
               verticalCaptionHighlightColor,
               verticalCaptionPaletteForJob.highlightColor,
             ),
-            outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
+            outlineWidth: clamp(
+              Math.round(verticalCaptionOutlineWidth),
+              VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+              VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+            ),
             animation: resolvedVerticalCaptionAnimation,
             animationSpeed: resolvedVerticalCaptionAnimationSpeed,
             dynamicMode: verticalCaptionDynamicMode,
@@ -17592,139 +17600,6 @@ const Editor = () => {
 
               {isVerticalMode && (
                 <div className="vertical-reboot-shell">
-                  {!showVerticalGalleryOnlyLayout ? (
-                    <div className="vertical-reboot-config-grid">
-                      <div className="vertical-reboot-config-column">
-                        <div className="vertical-reboot-hero">
-                          <div className="vertical-reboot-kicker-row">
-                            <span className="vertical-reboot-kicker">Vertical Studio</span>
-                            <Badge variant="secondary" className="vertical-reboot-kicker-pill text-[10px]">
-                              {verticalVariantStatusLabel}
-                            </Badge>
-                          </div>
-                          <p className="vertical-reboot-title">Design, render, and ship scroll-stopping shorts.</p>
-                          <p className="vertical-reboot-subtitle">
-                            Select your clip strategy, tune timing, and generate 8 vertical outputs in one streamlined workspace.
-                          </p>
-                        </div>
-                        <div className="vertical-reboot-step-grid">
-                          <div className="vertical-reboot-step">1. Upload source footage.</div>
-                          <div className="vertical-reboot-step">2. Choose style and duration.</div>
-                          <div className="vertical-reboot-step">3. Render and download best clips.</div>
-                        </div>
-                        <div className="vertical-reboot-card vertical-reboot-card-lg">
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-foreground">Clip strategy</p>
-                            <p className="text-[11px] text-muted-foreground">Current: {activeVerticalShortFormPreset.label}</p>
-                          </div>
-                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-                            {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                className={sectionPillClass(verticalSelectionMode === preset.id)}
-                                onClick={() => applyVerticalShortFormPreset(preset.id)}
-                                aria-label={preset.label}
-                              >
-                                <div className="flex flex-col items-center">
-                                  <span className="text-[11px] font-semibold">{preset.label}</span>
-                                  <span className="mt-1 text-center text-[10px] text-muted-foreground">{preset.description}</span>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mt-3 space-y-1">
-                            <p className="text-[11px] text-muted-foreground">Clip length</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {VERTICAL_CLIP_DURATION_CHOICES.map((durationChoice) => (
-                                <button
-                                  key={`vertical-duration-${durationChoice}`}
-                                  type="button"
-                                  className={verticalModeChipClass(verticalClipDurationSeconds === durationChoice)}
-                                  onClick={() => {
-                                    setVerticalClipDurationSeconds(durationChoice);
-                                    verticalMomentSelectionTouchedRef.current = true;
-                                    verticalMomentSelectionTouchedClipIndexRef.current = null;
-                                  }}
-                                >
-                                  {durationChoice}s
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="vertical-reboot-config-column">
-                        <div className="vertical-reboot-card vertical-reboot-card-lg vertical-reboot-tuning-card">
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-foreground">Refinement controls</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              Voice, pacing, and captions apply across vertical clip generation.
-                            </p>
-                          </div>
-                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                              <span className="text-[11px] text-muted-foreground">Voice tone</span>
-                              <select
-                                value={verticalVoicePreset}
-                                onChange={(event) => setVerticalVoicePreset(event.target.value as VerticalVoicePresetOptionId)}
-                                className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
-                              >
-                                {VERTICAL_VOICE_PRESET_OPTIONS.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-                              <span className="text-[11px] text-muted-foreground">Pacing</span>
-                              <select
-                                value={verticalPacingPreset}
-                                onChange={(event) => setVerticalPacingPreset(event.target.value as VerticalPacingPresetOptionId)}
-                                className="rounded-md border border-border/60 bg-background/75 px-2 py-1 text-[11px] text-foreground"
-                              >
-                                {VERTICAL_PACING_PRESET_OPTIONS.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <span className="vertical-reboot-mini-pill text-[10px]">
-                              Webcam: {skipManualWebcamCrop ? "Off" : "Auto On"}
-                            </span>
-                            <span className="vertical-reboot-mini-pill text-[10px]">
-                              Duration: {verticalClipDurationSeconds}s
-                            </span>
-                            <span className="vertical-reboot-mini-pill text-[10px]">
-                              Captions: Enabled
-                            </span>
-                          </div>
-                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-[11px] text-muted-foreground">
-                              {skipManualWebcamCrop
-                                ? "Auto Webcam is off. Clips render without the webcam top strip."
-                                : "Auto Webcam is on. Clips auto-detect and apply a webcam top strip when confidence is high."}
-                            </p>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full border-border/60 bg-background/70 px-3 text-[11px] text-foreground"
-                              onClick={openCaptionSettings}
-                            >
-                              Caption Studio
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
                   {!hasVerticalVariantWorkspace && (
                     <div className="vertical-reboot-empty">
                       <p className="vertical-mode-note text-xs text-muted-foreground">
@@ -19602,23 +19477,57 @@ const Editor = () => {
                 </div>
               )}
               {pendingUploadMode === "vertical" ? (
-                <button
-                  type="button"
-                  className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.17),hsl(var(--card)/0.64))] px-3 py-2 text-left transition hover:border-primary/70 hover:bg-primary/16"
-                  onClick={() => setVerticalUploadPresetPromptOpen(true)}
-                  aria-label="Open vertical style preset popup"
-                >
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Vertical Style Preset</p>
-                    <p className="mt-1 text-xs text-foreground">
-                      {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
-                    </p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
-                    </p>
+                <div className="mt-3 space-y-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.17),hsl(var(--card)/0.64))] px-3 py-2 text-left transition hover:border-primary/70 hover:bg-primary/16"
+                    onClick={() => setVerticalUploadPresetPromptOpen(true)}
+                    aria-label="Open vertical style preset popup"
+                  >
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Vertical Style Preset</p>
+                      <p className="mt-1 text-xs text-foreground">
+                        {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
+                      </p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
+                      </p>
+                    </div>
+                    <Badge className="border-primary/45 bg-primary/15 text-primary">{activeVerticalUploadModePreset.premiumLabel}</Badge>
+                  </button>
+                  <div className="rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.12),hsl(var(--card)/0.58))] px-3 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Clip Style</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Applies to vertical clip selection and ranking for this upload.
+                        </p>
+                      </div>
+                      <Badge className="border-primary/40 bg-primary/12 text-primary">
+                        {activeVerticalShortFormPreset.label}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
+                        <button
+                          key={`upload-vertical-style-${preset.id}`}
+                          type="button"
+                          className={sectionPillClass(verticalSelectionMode === preset.id)}
+                          onClick={() => applyVerticalShortFormPreset(preset.id)}
+                          aria-label={`Select ${preset.label} clip style`}
+                          aria-pressed={verticalSelectionMode === preset.id}
+                        >
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-semibold">{preset.label}</span>
+                            <span className="mt-1 text-center text-[10px] text-muted-foreground">
+                              {preset.description}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <Badge className="border-primary/45 bg-primary/15 text-primary">{activeVerticalUploadModePreset.premiumLabel}</Badge>
-                </button>
+                </div>
               ) : null}
             </div>
 
@@ -20563,18 +20472,38 @@ const Editor = () => {
                                       <label className="space-y-1">
                                         <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                                           <span>Outline</span>
-                                          <span>{Math.round(clamp(verticalCaptionOutlineWidth, 0, 24))} px</span>
+                                          <span>
+                                            {Math.round(
+                                              clamp(
+                                                verticalCaptionOutlineWidth,
+                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                              ),
+                                            )} px
+                                          </span>
                                         </div>
                                         <Slider
-                                          min={0}
-                                          max={24}
+                                          min={VERTICAL_CAPTION_OUTLINE_WIDTH_MIN}
+                                          max={VERTICAL_CAPTION_OUTLINE_WIDTH_MAX}
                                           step={1}
                                           className="editor-settings-slider"
-                                          value={[Math.round(clamp(verticalCaptionOutlineWidth, 0, 24))]}
+                                          value={[Math.round(
+                                            clamp(
+                                              verticalCaptionOutlineWidth,
+                                              VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                              VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                            ),
+                                          )]}
                                           onValueChange={(values) => {
                                             const next = Number(values?.[0] ?? verticalCaptionOutlineWidth);
                                             if (!Number.isFinite(next)) return;
-                                            setVerticalCaptionOutlineWidth(clamp(Math.round(next), 0, 24));
+                                            setVerticalCaptionOutlineWidth(
+                                              clamp(
+                                                Math.round(next),
+                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                              ),
+                                            );
                                           }}
                                         />
                                       </label>
@@ -20669,6 +20598,202 @@ const Editor = () => {
                             >
                               Clear Override
                             </Button>
+                          </div>
+                          <div className="mt-3 space-y-2 rounded-lg border border-border/55 bg-background/45 p-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
+                                Style options
+                              </p>
+                              <Badge variant="outline" className="border-primary/45 bg-primary/10 text-[10px] text-primary">
+                                All clips animated
+                              </Badge>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              These style controls apply to captions across the full video render.
+                            </p>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Look Search</span>
+                                <input
+                                  value={captionStyleSearch}
+                                  onChange={(event) => setCaptionStyleSearch(event.target.value)}
+                                  placeholder="Search looks..."
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Font Search</span>
+                                <input
+                                  value={captionFontSearch}
+                                  onChange={(event) => setCaptionFontSearch(event.target.value)}
+                                  placeholder="Search fonts..."
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground"
+                                />
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Caption Look</span>
+                                <select
+                                  value={verticalCaptionLookId}
+                                  onChange={(event) => applyVerticalCaptionLook(event.target.value)}
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground"
+                                >
+                                  {filteredVerticalCaptionLookOptions.map((look) => (
+                                    <option key={`caption-look-${look.id}`} value={look.id}>
+                                      {look.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Font Style</span>
+                                <select
+                                  value={verticalCaptionFontVariantId}
+                                  onChange={(event) => applyVerticalCaptionFontVariant(event.target.value)}
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground"
+                                >
+                                  {filteredVerticalCaptionFontVariants.map((variant) => (
+                                    <option key={`caption-font-variant-${variant.id}`} value={variant.id}>
+                                      {variant.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Animation</span>
+                                <select
+                                  value={resolvedVerticalCaptionAnimation}
+                                  onChange={(event) => setVerticalCaptionAnimation(normalizeVerticalCaptionAnimation(event.target.value))}
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground"
+                                >
+                                  {VERTICAL_CAPTION_ANIMATION_OPTIONS.map((animationOption) => (
+                                    <option key={`caption-animation-${animationOption.id}`} value={animationOption.id}>
+                                      {animationOption.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Dynamic Mode</span>
+                                <select
+                                  value={verticalCaptionDynamicMode}
+                                  onChange={(event) => setVerticalCaptionDynamicMode(event.target.value as VerticalCaptionDynamicModeOptionId)}
+                                  className="w-full rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-foreground"
+                                >
+                                  {VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS.map((modeOption) => (
+                                    <option key={`caption-dynamic-mode-${modeOption.id}`} value={modeOption.id}>
+                                      {modeOption.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <label className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                  <span>Font Size</span>
+                                  <span>{Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX))} px</span>
+                                </div>
+                                <Slider
+                                  min={VERTICAL_CAPTION_FONT_SIZE_MIN}
+                                  max={VERTICAL_CAPTION_FONT_SIZE_MAX}
+                                  step={1}
+                                  className="editor-settings-slider"
+                                  value={[Math.round(clamp(verticalCaptionFontSize, VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX))]}
+                                  onValueChange={(values) => {
+                                    const next = Number(values?.[0] ?? verticalCaptionFontSize);
+                                    if (!Number.isFinite(next)) return;
+                                    setVerticalCaptionFontSize(clamp(Math.round(next), VERTICAL_CAPTION_FONT_SIZE_MIN, VERTICAL_CAPTION_FONT_SIZE_MAX));
+                                  }}
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                  <span>Animation Speed</span>
+                                  <span>{resolvedVerticalCaptionAnimationSpeed.toFixed(2)}x</span>
+                                </div>
+                                <Slider
+                                  min={VERTICAL_CAPTION_ANIMATION_SPEED_MIN}
+                                  max={VERTICAL_CAPTION_ANIMATION_SPEED_MAX}
+                                  step={0.01}
+                                  className="editor-settings-slider"
+                                  value={[resolvedVerticalCaptionAnimationSpeed]}
+                                  onValueChange={(values) => {
+                                    const next = Number(values?.[0] ?? resolvedVerticalCaptionAnimationSpeed);
+                                    if (!Number.isFinite(next)) return;
+                                    setVerticalCaptionAnimationSpeed(clampVerticalCaptionAnimationSpeed(next));
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Text Color</span>
+                                <input
+                                  type="color"
+                                  value={normalizeCaptionCssColor(verticalCaptionTextColor, "FFFFFF")}
+                                  onChange={(event) => setVerticalCaptionTextColor(normalizeCaptionCssColor(event.target.value, "FFFFFF"))}
+                                  className="h-8 w-full cursor-pointer rounded-md border border-border/60 bg-background/60 p-1"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Highlight Color</span>
+                                <input
+                                  type="color"
+                                  value={normalizeCaptionCssColor(verticalCaptionHighlightColor, "FDE047")}
+                                  onChange={(event) => setVerticalCaptionHighlightColor(normalizeCaptionCssColor(event.target.value, "FDE047"))}
+                                  className="h-8 w-full cursor-pointer rounded-md border border-border/60 bg-background/60 p-1"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Outline Color</span>
+                                <input
+                                  type="color"
+                                  value={normalizeCaptionCssColor(verticalCaptionOutlineColor, "000000")}
+                                  onChange={(event) => setVerticalCaptionOutlineColor(normalizeCaptionCssColor(event.target.value, "000000"))}
+                                  className="h-8 w-full cursor-pointer rounded-md border border-border/60 bg-background/60 p-1"
+                                />
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <label className="inline-flex items-center gap-2 text-[11px] text-foreground/90">
+                                <input
+                                  type="checkbox"
+                                  checked={verticalCaptionHighlightWords}
+                                  onChange={(event) => setVerticalCaptionHighlightWords(event.target.checked)}
+                                  className="h-3.5 w-3.5 rounded border-border/70 accent-primary"
+                                />
+                                Highlight active words
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-[11px] text-foreground/90">
+                                <input
+                                  type="checkbox"
+                                  checked={verticalCaptionAutoEmphasis}
+                                  onChange={(event) => setVerticalCaptionAutoEmphasis(event.target.checked)}
+                                  className="h-3.5 w-3.5 rounded border-border/70 accent-primary"
+                                />
+                                Auto emphasis
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-[11px] text-foreground/90">
+                                <input
+                                  type="checkbox"
+                                  checked={verticalCaptionAutoEmoji}
+                                  onChange={(event) => setVerticalCaptionAutoEmoji(event.target.checked)}
+                                  className="h-3.5 w-3.5 rounded border-border/70 accent-primary"
+                                />
+                                Auto emoji
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-[11px] text-foreground/90">
+                                <input
+                                  type="checkbox"
+                                  checked={verticalCaptionRemoveFillers}
+                                  onChange={(event) => setVerticalCaptionRemoveFillers(event.target.checked)}
+                                  className="h-3.5 w-3.5 rounded border-border/70 accent-primary"
+                                />
+                                Remove fillers
+                              </label>
+                            </div>
                           </div>
                           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <Button
