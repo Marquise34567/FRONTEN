@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { API_URL } from "@/lib/api"
+import { API_URL, getRuntimeOriginBase, shouldIncludeApiBase } from "@/lib/api"
 import { getControlPanelPassword } from "@/lib/controlPanelAuth"
 import type { AdminRealtimePayload } from "./shared"
 
@@ -32,7 +32,10 @@ export const useAdminRealtimeStream = (accessToken?: string | null, intervalMs =
     const streamPath = `/api/admin/stream?token=${encodeURIComponent(accessToken)}&password=${encodeURIComponent(
       getControlPanelPassword()
     )}&intervalMs=${streamInterval}`
-    const source = new EventSource(`${API_URL || ""}${streamPath}`)
+    const runtimeOriginBase = getRuntimeOriginBase()
+    const canUseApiBase = shouldIncludeApiBase(API_URL || "", runtimeOriginBase)
+    const streamBase = canUseApiBase && API_URL ? API_URL : (runtimeOriginBase || "")
+    const source = new EventSource(`${streamBase}${streamPath}`)
 
     source.addEventListener("ready", () => {
       if (cancelled) return

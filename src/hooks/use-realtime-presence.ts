@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { API_URL } from "@/lib/api";
+import { API_URL, getRuntimeOriginBase, shouldIncludeApiBase } from "@/lib/api";
 
 const BASE_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -23,14 +23,15 @@ const buildRealtimeSocketUrls = (token: string) => {
       // ignore malformed base URL
     }
   };
-  if (API_URL) {
+  const runtimeOriginBase = getRuntimeOriginBase();
+  if (API_URL && shouldIncludeApiBase(API_URL, runtimeOriginBase)) {
     addFromBase(API_URL);
   }
   if (typeof window !== "undefined") {
     const hostname = String(window.location.hostname || "").toLowerCase();
     const isLocalDevHost = hostname === "localhost" || hostname === "127.0.0.1";
     if (!isLocalDevHost) {
-      addFromBase(`${window.location.protocol}//${window.location.host}`);
+      if (runtimeOriginBase) addFromBase(runtimeOriginBase);
     }
   }
   return out;

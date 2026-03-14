@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen, FileCode } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { API_URL, apiFetch, ApiError } from "@/lib/api";
+import { API_URL, apiFetch, ApiError, getRuntimeOriginBase, shouldIncludeApiBase } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
 import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
@@ -7507,10 +7507,13 @@ const Editor = () => {
           seenProxyBases.add(normalized)
           proxyBases.push(normalized)
         }
-        if (typeof window !== "undefined") {
-          addProxyBase(`${window.location.protocol}//${window.location.host}`)
+        const runtimeOriginBase = getRuntimeOriginBase()
+        if (runtimeOriginBase) {
+          addProxyBase(runtimeOriginBase)
         }
-        addProxyBase(API_URL || "")
+        if (shouldIncludeApiBase(API_URL || "", runtimeOriginBase)) {
+          addProxyBase(API_URL || "")
+        }
         if (!proxyBases.length) proxyBases.push("")
         let lastError: unknown = null
         for (const base of proxyBases) {
@@ -20240,29 +20243,33 @@ const Editor = () => {
                 </div>
               )}
               {pendingUploadMode === "vertical" ? (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3 space-y-2">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.17),hsl(var(--card)/0.64))] px-3 py-2 text-left transition hover:border-primary/70 hover:bg-primary/16"
+                    className={`${uploadFormatCardClass(true, true)} w-full`}
                     onClick={() => setVerticalUploadPresetPromptOpen(true)}
                     aria-label="Open vertical style preset popup"
                   >
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Vertical Style Preset</p>
-                      <p className="mt-1 text-xs text-foreground">
-                        {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
-                      </p>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
-                      </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Vertical Style Preset</p>
+                        <p className="text-xs text-muted-foreground">
+                          {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
+                        </p>
+                      </div>
+                      <Badge className="border-primary/45 bg-primary/12 text-primary">
+                        {activeVerticalUploadModePreset.premiumLabel}
+                      </Badge>
                     </div>
-                    <Badge className="border-primary/45 bg-primary/15 text-primary">{activeVerticalUploadModePreset.premiumLabel}</Badge>
                   </button>
-                  <div className="rounded-xl border border-primary/45 bg-[linear-gradient(140deg,hsl(var(--primary)/0.12),hsl(var(--card)/0.58))] px-3 py-3">
+                  <div className={`${uploadFormatCardClass(false, true)} space-y-3`}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Clip Style</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Clip Style</p>
+                        <p className="text-xs text-muted-foreground">
                           Applies to vertical clip selection and ranking for this upload.
                         </p>
                       </div>
@@ -20270,7 +20277,7 @@ const Editor = () => {
                         {activeVerticalShortFormPreset.label}
                       </Badge>
                     </div>
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
                         <button
                           key={`upload-vertical-style-${preset.id}`}

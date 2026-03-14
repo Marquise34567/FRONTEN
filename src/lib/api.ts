@@ -3,6 +3,8 @@
 // so fetches use relative paths (e.g. `/api/...`).
 const rawApiUrl = import.meta.env.VITE_API_URL || "";
 const forceAbsoluteDevApi = String(import.meta.env.VITE_FORCE_API_URL || "").trim().toLowerCase() === "true";
+const TRUE_PATTERN = /^(1|true|yes|on)$/i;
+const FALSE_PATTERN = /^(0|false|no|off)$/i;
 const normalizeApiUrl = (value: string) => {
   if (!value) return "";
   let trimmed = value.trim();
@@ -13,6 +15,36 @@ const normalizeApiUrl = (value: string) => {
   trimmed = trimmed.replace(/^https\/\//i, "https://").replace(/^http\/\//i, "http://");
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
   return `https://${trimmed}`;
+};
+const readCrossOriginFallbackFlag = () => {
+  const raw = String(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API_FALLBACK || "").trim();
+  if (!raw) return import.meta.env.DEV;
+  if (FALSE_PATTERN.test(raw)) return false;
+  return TRUE_PATTERN.test(raw);
+};
+const ALLOW_CROSS_ORIGIN_API_FALLBACK = readCrossOriginFallbackFlag();
+const normalizeOriginBase = (value: string) => {
+  const trimmed = String(value || "").trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return trimmed;
+  }
+};
+const isSameOriginBase = (left: string, right: string) => {
+  if (!left || !right) return false;
+  return normalizeOriginBase(left) === normalizeOriginBase(right);
+};
+export const getRuntimeOriginBase = () => (
+  typeof window !== "undefined" ? `${window.location.protocol}//${window.location.host}` : ""
+);
+export const shouldIncludeApiBase = (apiBase: string, runtimeOriginBase: string) => {
+  if (!apiBase) return false;
+  if (!runtimeOriginBase) return true;
+  if (isSameOriginBase(apiBase, runtimeOriginBase)) return true;
+  return ALLOW_CROSS_ORIGIN_API_FALLBACK;
 };
 const isLoopbackHostname = (hostname: string) => (
   hostname === "localhost" ||
@@ -35,6 +67,22 @@ const resolveApiUrl = (value: string) => {
   return normalized;
 };
 export const API_URL = resolveApiUrl(rawApiUrl);
+export const getApiBaseCandidates = (options: { includeEmpty?: boolean } = {}) => {
+  const includeEmpty = options.includeEmpty !== false;
+  const runtimeOriginBase = getRuntimeOriginBase();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (candidate: string) => {
+    const normalized = String(candidate || "").trim().replace(/\/$/, "");
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+  if (runtimeOriginBase) add(runtimeOriginBase);
+  if (shouldIncludeApiBase(API_URL || "", runtimeOriginBase)) add(API_URL);
+  if (includeEmpty && !out.length) out.push("");
+  return out;
+};
 const PUBLIC_API_PREFIXES = ["/api/public/"];
 const PUBLIC_API_EXACT = new Set(["/api/health", "/api/ping"]);
 const isControlPanelPath = (path: string) =>
@@ -124,24 +172,7 @@ export async function apiFetch<T>(
   options: ApiFetchOptions = {},
 ): Promise<T> {
   // Allow empty API_URL so requests can be relative (proxied by Vite in dev).
-  const preferredBase = API_URL || "";
-  const runtimeOriginBase = typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.host}`
-    : "";
-  const apiBaseCandidates = (() => {
-    const out: string[] = [];
-    const seen = new Set<string>();
-    const add = (candidate: string) => {
-      const normalized = String(candidate || "").trim().replace(/\/$/, "");
-      if (seen.has(normalized)) return;
-      seen.add(normalized);
-      out.push(normalized);
-    };
-    if (runtimeOriginBase) add(runtimeOriginBase);
-    add(preferredBase);
-    if (!out.length) out.push("");
-    return out;
-  })();
+  const apiBaseCandidates = getApiBaseCandidates();
   const buildRequestUrl = (baseCandidate: string) => {
     const normalizedPath = String(path || "");
     if (/^https?:\/\//i.test(normalizedPath)) return normalizedPath;
