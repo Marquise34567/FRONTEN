@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen, FileCode } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -6371,6 +6371,13 @@ const Editor = () => {
   }, [autoShortScreenMode]);
 
   useEffect(() => {
+    if (isVerticalMode) return;
+    if (activeJob || uploadingJobId) {
+      setHideEditorControlsPanel(true);
+    }
+  }, [activeJob, uploadingJobId, isVerticalMode]);
+
+  useEffect(() => {
     if (mobilePipeline) {
       setPipelineLogOpen(false);
       setRetentionDetailsOpen(false);
@@ -9274,6 +9281,63 @@ const Editor = () => {
     }
   };
 
+  const handleExportXml = useCallback(() => {
+    if (!activeJob) return;
+    try {
+      const analysis = (activeJob.analysis ?? {}) as Record<string, unknown>;
+      const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "").trim() || "export";
+      const escapeXml = (value: string) =>
+        value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&apos;");
+      const toXmlNumber = (value: unknown) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return "";
+        return Number(numeric.toFixed(3)).toString();
+      };
+      const edl = Array.isArray((analysis as any).edl) ? (analysis as any).edl as Array<Record<string, unknown>> : [];
+      const segmentRows = edl.map((segment, index) => {
+        const start =
+          toXmlNumber(segment.start ?? segment.startSec ?? segment.in ?? segment.begin ?? segment.from ?? 0);
+        const end =
+          toXmlNumber(segment.end ?? segment.endSec ?? segment.out ?? segment.finish ?? segment.to ?? 0);
+        const label = escapeXml(String(segment.label ?? segment.type ?? "segment"));
+        return `    <segment index="${index + 1}" start="${start}" end="${end}" label="${label}" />`;
+      });
+      const xml = [
+        `<?xml version="1.0" encoding="UTF-8"?>`,
+        `<autoEditorProject version="1.0">`,
+        `  <job id="${escapeXml(activeJob.id)}" renderMode="${escapeXml(String(activeJob.renderMode || "horizontal"))}" status="${escapeXml(String(activeJob.status || ""))}" createdAt="${escapeXml(String(activeJob.createdAt || ""))}">`,
+        `    <source name="${escapeXml(baseName)}" />`,
+        `    <segments>`,
+        segmentRows.length ? segmentRows.join("\n") : `      <segment index="1" start="0" end="0" label="full_render" />`,
+        `    </segments>`,
+        `  </job>`,
+        `</autoEditorProject>`,
+      ].join("\n");
+      const blob = new Blob([xml], { type: "application/xml" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${baseName}.xml`;
+      link.rel = "noopener";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      try {
+        link.click();
+      } finally {
+        document.body.removeChild(link);
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1500);
+      }
+      toast({ title: "XML exported", description: "Project XML saved to your downloads." });
+    } catch (err: any) {
+      toast({ title: "XML export failed", description: err?.message || "Please try again." });
+    }
+  }, [activeJob, toast]);
+
   const handleOpenOutputFolder = async (clipIndex = 0) => {
     if (!accessToken || !activeJob) return false;
     setOpeningFileExplorer(true);
@@ -9374,6 +9438,8 @@ const Editor = () => {
     (isActiveVerticalJob && activeOutputUrls.length > 0),
   );
   const showVerticalGalleryOnlyLayout = Boolean(isVerticalMode && !verticalExtrasModeEnabled);
+  const showUploadDropzone = !showVerticalGalleryOnlyLayout && (isVerticalMode || (!activeJob && !uploadingJobId));
+  const showModeInsightsInline = searchParams.get("modePageInline") === "1";
   const verticalExtrasHref = useMemo(() => {
     const next = new URLSearchParams(searchParams);
     next.set("mode", "vertical");
@@ -12971,6 +13037,7 @@ const Editor = () => {
     if (activeJob?.id) {
       params.set("jobId", activeJob.id);
     }
+    params.set("mode", isVerticalMode ? "vertical" : "horizontal");
     params.set("fullScanProgress", String(scanProgress));
     params.set(
       "fullScanLabel",
@@ -13741,7 +13808,8 @@ const Editor = () => {
       activeJob.renderMode === "vertical" &&
       activeVerticalJobReadyForDownload
     ) {
-      void handleRedoRender(activeJob);
+      const targetedClipIndex = resolvedCaptionPreviewClipIndex >= 0 ? resolvedCaptionPreviewClipIndex : null;
+      void handleRedoRender(activeJob, targetedClipIndex !== null ? { clipIndex: targetedClipIndex } : undefined);
       return;
     }
     if (pendingVerticalFile && sourceVideoMeta) {
@@ -15585,7 +15653,7 @@ const Editor = () => {
   };
 
   const sectionPillClass = (active: boolean) =>
-    `editor-settings-pill min-h-12 rounded-xl border px-3 py-2 text-left text-sm font-medium transition-all md:min-h-[46px] ${
+    `editor-settings-pill min-h-10 rounded-xl border px-2.5 py-1.5 text-left text-[13px] font-medium transition-all ${
       active
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
@@ -17015,9 +17083,9 @@ const Editor = () => {
                 </div>
               </div>
             </div>
-              <div className="editor-settings-shell w-full p-3.5 md:p-4">
-                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
+              <div className="editor-settings-shell w-full p-2.5 md:p-3">
+                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                  <div className="space-y-0.5">
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Editing Tools</p>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-foreground">{t("editor.settings.title")}</span>
@@ -17036,7 +17104,7 @@ const Editor = () => {
                       }
                       setHideEditorControlsPanel(true);
                     }}
-                    className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                    className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
                     aria-label={hideEditorControlsPanel ? t("editor.settings.open") : t("editor.settings.close")}
                     title={hideEditorControlsPanel ? t("editor.settings.openShort") : t("editor.settings.closeShort")}
                   >
@@ -17049,27 +17117,27 @@ const Editor = () => {
                   }`}
                 >
                   {hideEditorControlsPanel ? (
-                    <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-muted/15 px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-1.5 rounded-xl border border-border/50 bg-muted/15 px-2.5 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                       <span>{t("editor.settings.hidden")}</span>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="min-h-10 rounded-lg border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                        className="min-h-9 rounded-lg border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
                         onClick={() => setHideEditorControlsPanel(false)}
                       >
                         {t("editor.settings.openShort")}
                       </Button>
                     </div>
                   ) : (
-                    <div className={`space-y-3 ${mobilePipeline ? "pb-20" : ""}`}>
+                    <div className={`space-y-2 ${mobilePipeline ? "pb-20" : ""}`}>
                       {captionEngineOffline ? (
-                        <div className="rounded-xl border border-primary/35 bg-gradient-to-r from-primary/15 via-primary/8 to-transparent px-3 py-2.5">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="rounded-xl border border-primary/35 bg-gradient-to-r from-primary/15 via-primary/8 to-transparent px-2.5 py-2">
+                          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                             <p className="text-sm font-medium text-foreground">Captions are offline. Add your OpenAI key in Settings to enable them.</p>
                             <Button
                               type="button"
-                              className="min-h-12 rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)] md:min-h-10"
+                              className="min-h-10 rounded-xl bg-gradient-to-r from-primary to-[hsl(var(--glow-secondary))] text-white hover:from-primary/90 hover:to-[hsl(var(--glow-secondary)/0.9)]"
                               onClick={() => navigate("/settings")}
                             >
                               Fix Now
@@ -17079,19 +17147,19 @@ const Editor = () => {
                       ) : null}
 
                       <div className="editor-tools-step-card">
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 1</p>
                             <p className="text-sm font-semibold text-foreground">Quick Setup</p>
                           </div>
                           <Badge className="border-primary/35 bg-primary/10 text-primary">Simple Mode</Badge>
                         </div>
-                        <p className="mb-3 text-xs text-muted-foreground">
+                        <p className="mb-2 text-xs text-muted-foreground">
                           Choose format, vibe, cuts, and captions. Most creators can render from this section alone.
                         </p>
-                        <div className="mb-3 space-y-1.5">
+                        <div className="mb-2 space-y-1">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">One-tap presets</p>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                             <button
                               type="button"
                               className={sectionPillClass(!isVerticalMode && retentionStrategyProfile === "safe" && maxCutsRequested <= 6)}
@@ -17127,14 +17195,14 @@ const Editor = () => {
                             </button>
                           </div>
                         </div>
-                        <div className="mb-3 rounded-xl border border-border/55 bg-background/25 px-3 py-2">
+                        <div className="mb-2 rounded-xl border border-border/55 bg-background/25 px-2.5 py-2">
                           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets moved</p>
                           <p className="mt-1 text-xs text-foreground/85">
                             Choose YouTube niche presets in the Upload Mode popup right before rendering.
                           </p>
                         </div>
-                        <div className="mb-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.14),rgba(10,14,30,0.52))] p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="mb-2 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.14),rgba(10,14,30,0.52))] p-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
                             <div>
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">AI placement controls</p>
                               <p className="text-xs text-foreground/85">
@@ -17143,10 +17211,10 @@ const Editor = () => {
                             </div>
                             <Badge className="border-primary/35 bg-primary/10 text-primary">Live</Badge>
                           </div>
-                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+                          <div className="mt-1.5 grid grid-cols-1 gap-1.5 md:grid-cols-3">
                             <button
                               type="button"
-                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                              className={`rounded-xl border px-2.5 py-1.5 text-left transition-all ${
                                 smartZoomEnabled
                                   ? "border-primary/55 bg-primary/18 text-foreground"
                                   : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
@@ -17158,15 +17226,15 @@ const Editor = () => {
                               aria-pressed={smartZoomEnabled}
                               aria-label="Toggle smart zoom-ins"
                             >
-                              <div className="flex items-center gap-2 text-sm font-medium">
+                              <div className="flex items-center gap-2 text-[13px] font-medium">
                                 <MousePointerClick className="h-4 w-4" aria-hidden />
                                 Smart Zoom-ins
                               </div>
-                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI punch-in framing on emphasis beats.</p>
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">AI punch-in framing on emphasis beats.</p>
                             </button>
                             <button
                               type="button"
-                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                              className={`rounded-xl border px-2.5 py-1.5 text-left transition-all ${
                                 autoTransitionsEnabled
                                   ? "border-primary/55 bg-primary/18 text-foreground"
                                   : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
@@ -17178,15 +17246,15 @@ const Editor = () => {
                               aria-pressed={autoTransitionsEnabled}
                               aria-label="Toggle auto transitions"
                             >
-                              <div className="flex items-center gap-2 text-sm font-medium">
+                              <div className="flex items-center gap-2 text-[13px] font-medium">
                                 <ScissorsSquare className="h-4 w-4" aria-hidden />
                                 Auto Transitions
                               </div>
-                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI inserts transitions where scene energy changes.</p>
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">AI inserts transitions where scene energy changes.</p>
                             </button>
                             <button
                               type="button"
-                              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                              className={`rounded-xl border px-2.5 py-1.5 text-left transition-all ${
                                 autoSoundFxEnabled
                                   ? "border-primary/55 bg-primary/18 text-foreground"
                                   : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
@@ -17198,16 +17266,16 @@ const Editor = () => {
                               aria-pressed={autoSoundFxEnabled}
                               aria-label="Toggle impact sound effects"
                             >
-                              <div className="flex items-center gap-2 text-sm font-medium">
+                              <div className="flex items-center gap-2 text-[13px] font-medium">
                                 <Music className="h-4 w-4" aria-hidden />
                                 Impact Sound FX
                               </div>
-                              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">AI layers subtle swooshes/hits on key moments.</p>
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">AI layers subtle swooshes/hits on key moments.</p>
                             </button>
                           </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 items-stretch">
-                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 items-stretch">
+                          <div className="min-h-[120px] flex flex-col justify-between space-y-1.5 rounded-xl border border-border/50 bg-background/35 p-2">
                             <p className="text-xs text-muted-foreground">Vibe · {activeRetentionLabel}</p>
                             <Slider
                               min={0}
@@ -17222,7 +17290,7 @@ const Editor = () => {
                               }}
                             />
                           </div>
-                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                          <div className="min-h-[120px] flex flex-col justify-between space-y-1.5 rounded-xl border border-border/50 bg-background/35 p-2">
                             <p className="text-xs text-muted-foreground">Cuts · {maxCutsRequested}</p>
                             <Slider
                               min={MAX_CUTS_MIN}
@@ -17237,11 +17305,11 @@ const Editor = () => {
                               }}
                             />
                           </div>
-                          <div className="min-h-[140px] flex flex-col justify-between space-y-2 rounded-xl border border-border/50 bg-background/35 p-2.5">
+                          <div className="min-h-[120px] flex flex-col justify-between space-y-1.5 rounded-xl border border-border/50 bg-background/35 p-2">
                             <p className="text-xs text-muted-foreground">Captions · {autoCaptionsEnabled ? "On" : "Off"}</p>
                             <Button
                               type="button"
-                              className={`w-full min-h-12 rounded-xl md:min-h-[46px] ${
+                              className={`w-full min-h-10 rounded-xl ${
                                 autoCaptionsEnabled
                                   ? "bg-primary text-white hover:bg-primary/90"
                                   : "border border-border/60 bg-muted/20 text-foreground hover:border-primary/40 hover:bg-primary/10"
@@ -17258,57 +17326,57 @@ const Editor = () => {
                             </Button>
                           </div>
                         </div>
-                        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                        <div className="mt-2 flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                               {isVerticalMode ? "Vertical" : "Horizontal"}
                             </span>
-                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                               {activeTargetPlatformLabel}
                             </span>
-                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                               {activeEditorModeLabel}
                             </span>
-                            <span className={`rounded-full border px-2.5 py-1 ${smartZoomEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                            <span className={`rounded-full border px-2 py-0.5 ${smartZoomEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
                               Zoom {smartZoomEnabled ? "On" : "Off"}
                             </span>
-                            <span className={`rounded-full border px-2.5 py-1 ${autoTransitionsEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                            <span className={`rounded-full border px-2 py-0.5 ${autoTransitionsEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
                               Transitions {autoTransitionsEnabled ? "On" : "Off"}
                             </span>
-                            <span className={`rounded-full border px-2.5 py-1 ${autoSoundFxEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
+                            <span className={`rounded-full border px-2 py-0.5 ${autoSoundFxEnabled ? "border-primary/35 bg-primary/10 text-primary" : "border-border/60 bg-muted/15 text-muted-foreground"}`}>
                               SFX {autoSoundFxEnabled ? "On" : "Off"}
                             </span>
                             {coldStartAutopilotEnabled ? (
-                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                                 Cold-Start
                               </span>
                             ) : null}
                             {continuityFirstEnabled ? (
-                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                                 Continuity-First
                               </span>
                             ) : null}
                             {exploreX3Enabled ? (
-                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                                 Explore x3
                               </span>
                             ) : null}
                             {topHumanGuardEnabled ? (
-                              <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                              <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                                 Top-Human Guard
                               </span>
                             ) : null}
-                            <span className="rounded-full border border-border/60 bg-muted/15 px-2.5 py-1 text-muted-foreground">
+                            <span className="rounded-full border border-border/60 bg-muted/15 px-2 py-0.5 text-muted-foreground">
                               Style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%
                             </span>
-                            <span className="rounded-full border border-primary/35 bg-primary/10 px-2.5 py-1 text-primary">
+                            <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-primary">
                               {activePlatformRecommendation.label}
                             </span>
                           </div>
                           <Button
                             type="button"
                             size="sm"
-                            className="min-h-12 rounded-xl bg-primary px-4 text-white hover:bg-primary/90 md:min-h-10"
+                            className="min-h-10 rounded-xl bg-primary px-3 text-white hover:bg-primary/90"
                             onClick={applyPlatformRecommendation}
                           >
                             Auto Recommend
@@ -17317,12 +17385,12 @@ const Editor = () => {
                       </div>
 
                       <div className="editor-tools-step-card" data-editor-step="fine-tune">
-                        <div className="mb-3 flex items-center justify-between gap-2">
+                        <div className="mb-2 flex items-center justify-between gap-1.5">
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
-                            <p className="text-sm font-semibold text-foreground">Fine Tune (Optional)</p>
+                            <p className="text-[13px] font-semibold text-foreground">Fine Tune (Optional)</p>
                           </div>
-                          <span className="text-[11px] text-muted-foreground">Optional details</span>
+                          <span className="text-[10px] text-muted-foreground">Optional details</span>
                         </div>
                         {mobilePipeline ? (
                           <Accordion
@@ -17333,14 +17401,14 @@ const Editor = () => {
                               if (!value) return;
                               setEditorSettingsSection(value as EditorSettingsSection);
                             }}
-                            className="space-y-2"
+                            className="space-y-1.5"
                           >
                             {EDITOR_SETTINGS_SECTIONS.map((item) => (
-                              <AccordionItem key={item.key} value={item.key} className="rounded-xl border border-border/50 bg-muted/15 px-3">
-                                <AccordionTrigger className="py-3 text-sm text-foreground hover:no-underline">
+                              <AccordionItem key={item.key} value={item.key} className="rounded-lg border border-border/50 bg-muted/15 px-2.5">
+                                <AccordionTrigger className="py-2.5 text-[13px] text-foreground hover:no-underline">
                                   {item.label}
                                 </AccordionTrigger>
-                                <AccordionContent className="pb-2">{renderSettingsSection(item.key)}</AccordionContent>
+                                <AccordionContent className="pb-1.5">{renderSettingsSection(item.key)}</AccordionContent>
                               </AccordionItem>
                             ))}
                           </Accordion>
@@ -17348,14 +17416,14 @@ const Editor = () => {
                           <Tabs
                             value={editorSettingsSection}
                             onValueChange={(value) => setEditorSettingsSection(value as EditorSettingsSection)}
-                            className="space-y-3"
+                            className="space-y-2"
                           >
-                            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border/50 bg-muted/15 p-1.5 md:grid-cols-4">
+                            <TabsList className="grid h-auto w-full grid-cols-2 gap-1.5 rounded-lg border border-border/50 bg-muted/15 p-1 md:grid-cols-4">
                               {EDITOR_SETTINGS_SECTIONS.map((item) => (
                                 <TabsTrigger
                                   key={item.key}
                                   value={item.key}
-                                  className="editor-settings-tab min-h-12 rounded-lg text-xs"
+                                  className="editor-settings-tab min-h-9 rounded-md text-[11px]"
                                 >
                                   {item.label}
                                 </TabsTrigger>
@@ -17371,7 +17439,7 @@ const Editor = () => {
                       </div>
 
                       {outcomeAutomationProfile ? (
-                        <div className="rounded-xl border border-border/50 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+                        <div className="rounded-xl border border-border/50 bg-muted/15 px-2.5 py-1.5 text-[11px] text-muted-foreground">
                           Outcome automation: {outcomeAutomationProfile.enabled
                             ? `${outcomeAutomationProfile.sampleSize} outcomes, ${outcomeAutomationConfidencePercent}% confidence${Math.abs(outcomeAutomationExpectedLiftPoints) >= 0.1 ? `, expected ${outcomeAutomationExpectedLiftPoints >= 0 ? "+" : ""}${outcomeAutomationExpectedLiftPoints.toFixed(1)} pts` : ""}.`
                             : outcomeAutomationProfile.reasons?.[0] || "Collecting watch-time outcomes to calibrate menu defaults."}
@@ -17564,7 +17632,7 @@ const Editor = () => {
             ) : null}
 
             <section className="min-w-0 space-y-6">
-              {!showVerticalGalleryOnlyLayout ? (
+              {showUploadDropzone ? (
               <div
                 ref={uploadDropZoneRef}
                 data-vertical={isVerticalMode ? "true" : "false"}
@@ -17737,8 +17805,13 @@ const Editor = () => {
                                         versionIndex,
                                         variantMeta.defaultCaption,
                                       );
-                                      const clipCaptionOverlayTone: VerticalCaptionOverlayTone =
-                                        verticalClipCaptionOverlayBySlot[slotKey] || "none";
+                                      const hasClipOverlayTone = Object.prototype.hasOwnProperty.call(
+                                        verticalClipCaptionOverlayBySlot,
+                                        slotKey,
+                                      );
+                                      const clipPreviewOverlayTone: VerticalCaptionOverlayTone = hasClipOverlayTone
+                                        ? verticalClipCaptionOverlayBySlot[slotKey]
+                                        : "white";
                                       const requestedMomentIndex = Number(verticalMomentOptionIndexBySlot[slotKey]);
                                       const fallbackMomentIndex = Number(verticalDefaultMomentIndexBySlot[clipIndex] ?? 0);
                                       const resolvedMomentIndex = Number.isFinite(requestedMomentIndex) && requestedMomentIndex >= 0
@@ -17771,13 +17844,13 @@ const Editor = () => {
                                       const clipPreviewCaptionPalette =
                                         VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
                                         VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
-                                      const clipPreviewCaptionOverlayPalette = clipCaptionOverlayTone === "white"
+                                      const clipPreviewCaptionOverlayPalette = clipPreviewOverlayTone === "white"
                                         ? {
                                             boxColor: "rgba(255, 255, 255, 0.94)",
                                             borderColor: "rgba(15, 23, 42, 0.82)",
                                             glowColor: "rgba(255, 255, 255, 0.42)",
                                           }
-                                        : clipCaptionOverlayTone === "black"
+                                        : clipPreviewOverlayTone === "black"
                                           ? {
                                               boxColor: "rgba(0, 0, 0, 0.82)",
                                               borderColor: "rgba(255, 255, 255, 0.65)",
@@ -17797,10 +17870,14 @@ const Editor = () => {
                                         clipPreviewCaptionText.length > 118
                                           ? `${clipPreviewCaptionText.slice(0, 115).trimEnd()}...`
                                           : clipPreviewCaptionText;
+                                      const clipPreviewCaptionTextColor =
+                                        clipPreviewOverlayTone === "white" && !hasClipOverlayTone
+                                          ? "#0B0D12"
+                                          : normalizeCaptionCssColor(verticalCaptionTextColor, clipPreviewCaptionPalette.textColor);
                                       const clipPreviewCaptionEffectivePalette = {
                                         ...clipPreviewCaptionPalette,
                                         ...(clipPreviewCaptionOverlayPalette ?? {}),
-                                        textColor: normalizeCaptionCssColor(verticalCaptionTextColor, clipPreviewCaptionPalette.textColor),
+                                        textColor: clipPreviewCaptionTextColor,
                                       };
                                       const clipPreviewCaptionOutline = normalizeCaptionHexColor(
                                         verticalCaptionOutlineColor,
@@ -17811,10 +17888,10 @@ const Editor = () => {
                                       );
                                       const clipPreviewCaptionShadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
                                       const clipPreviewCaptionBoxEnabled =
-                                        clipPreviewCaptionHints.boxEnabled || clipCaptionOverlayTone !== "none";
+                                        clipPreviewCaptionHints.boxEnabled || clipPreviewOverlayTone !== "none";
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
-                                      const showPreviewCaptionOverlay = showVerticalGalleryOnlyLayout;
+                                      const showPreviewCaptionOverlay = Boolean(clipPreviewCaption) && (clipReady || showVerticalGalleryOnlyLayout);
                                       const clipCaptionAnimationEnabled = false;
                                       const clipCaptionDynamicIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
                                         ? 1.24
@@ -18281,7 +18358,7 @@ const Editor = () => {
                       ) : null}
                     </AnimatePresence>
                   </div>
-                  {activeJob ? (
+                  {activeJob && showModeInsightsInline ? (
                     <div className="border-t border-border/55 bg-background/35 p-3">
                       <div className="relative overflow-hidden rounded-2xl border border-primary/35 bg-[radial-gradient(150%_130%_at_0%_0%,rgba(56,189,248,0.2),transparent_52%),radial-gradient(130%_120%_at_100%_0%,rgba(147,197,253,0.16),transparent_48%),linear-gradient(150deg,rgba(16,20,44,0.86),rgba(8,12,26,0.92))] p-3 shadow-[0_26px_48px_-32px_rgba(14,116,144,0.78)]">
                         <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -18676,6 +18753,8 @@ const Editor = () => {
                         </ol>
                       </div>
                     </div>
+                    {showModeInsightsInline ? (
+                      <>
                     <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1">
@@ -18921,7 +19000,7 @@ const Editor = () => {
                             className="min-h-10 w-full gap-2 sm:w-auto"
                             onClick={() => navigate(aModePageHref)}
                           >
-                            Open A-Mode Page
+                            Open Mode Page
                           </Button>
                         </div>
                       </div>
@@ -18956,6 +19035,27 @@ const Editor = () => {
                         </div>
                       )}
                     </div>
+                      </>
+                    ) : (
+                      <div className="rounded-xl border border-border/55 bg-background/35 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Mode Page</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Transcript editor, outcome loop, and video stats now live on the Mode Page.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            className="min-h-10 w-full gap-2 sm:w-auto"
+                            onClick={() => navigate(aModePageHref)}
+                          >
+                            <Gauge className="h-4 w-4" />
+                            Open Mode Page
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {normalizeStatus(activeJob.status) === "ready" && (
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
@@ -20186,6 +20286,7 @@ const Editor = () => {
               </Button>
             </div>
           </div>
+        </div>
         </DialogContent>
         ) : null}
       </Dialog>
@@ -21377,60 +21478,64 @@ const Editor = () => {
       >
         {exportOpen && activeJob?.renderMode !== "vertical" ? (
         <DialogContent
-          className="max-w-[calc(100vw-1rem)] border border-border/50 bg-background/95 p-4 backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+          className="relative max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
-          <DialogHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
-                <p className="text-sm text-muted-foreground">
-                  {activeJob?.renderMode === "vertical"
-                    ? "Choose quality and download each vertical clip."
-                    : "Choose your quality and download the final MP4."}
-                </p>
+          <div className="pointer-events-none absolute -left-10 -top-12 h-28 w-28 rounded-full bg-primary/20 blur-3xl" />
+          <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-cyan-300/15 blur-3xl" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-primary/10 via-transparent to-transparent" />
+          <div className="relative z-10">
+            <DialogHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <DialogTitle className="text-xl font-display">Export ready</DialogTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {activeJob?.renderMode === "vertical"
+                      ? "Choose quality and download each vertical clip."
+                      : "Choose your quality and download the final MP4."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeJob && normalizeStatus(activeJob.status) === "ready" ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-9 w-9 border-border/60 bg-card/40"
+                          onClick={() => setExportFeedbackOpen((prev) => !prev)}
+                        >
+                          {creatorFeedbackSubmitting !== null ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MessageCircle className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="border-border/60 bg-card text-foreground">
+                        Leave render feedback
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 border-border/60 bg-card/40"
+                    aria-label="Close export popup"
+                    onClick={() => {
+                      setExportFeedbackOpen(false);
+                      setExportOpen(false);
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {activeJob && normalizeStatus(activeJob.status) === "ready" ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="outline"
-                        className="h-9 w-9 border-border/60 bg-card/40"
-                        onClick={() => setExportFeedbackOpen((prev) => !prev)}
-                      >
-                        {creatorFeedbackSubmitting !== null ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MessageCircle className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="border-border/60 bg-card text-foreground">
-                      Leave render feedback
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-9 w-9 border-border/60 bg-card/40"
-                  aria-label="Close export popup"
-                  onClick={() => {
-                    setExportFeedbackOpen(false);
-                    setExportOpen(false);
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="space-y-4">
+            </DialogHeader>
+            <div className="space-y-4">
             {exportFeedbackOpen && activeJob ? (
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
                 <p className="text-sm font-medium text-foreground">How was this render?</p>
@@ -21559,33 +21664,57 @@ const Editor = () => {
                 </p>
               ) : null}
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full sm:w-auto"
+                  className="w-full gap-2 sm:w-auto"
                   onClick={() => {
                     setExportFeedbackOpen(false);
                     setExportOpen(false);
                     openFeedbackDeepDiveSection("retention_vs_emotion");
                   }}
                 >
+                  <Gauge className="h-4 w-4" />
                   Open Feedback Deep Dive
                 </Button>
                 <Button
-                  className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
-                  onClick={async () => {
-                    const didStartDownload = await handleDownload(0);
-                    if (didStartDownload) {
-                      setExportOpen(false);
-                    }
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={handleExportXml}
+                  disabled={!activeJob || normalizeStatus(activeJob.status) !== "ready"}
+                >
+                  <FileCode className="h-4 w-4" />
+                  Export XML
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={() => {
+                    setExportFeedbackOpen(false);
+                    setExportOpen(false);
+                    setRenderMode("vertical");
                   }}
                 >
-                  <Download className="w-4 h-4" />
-                  {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
+                  <Smartphone className="h-4 w-4" />
+                  Turn into Short
                 </Button>
               </div>
+              <Button
+                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground sm:w-auto"
+                onClick={async () => {
+                  const didStartDownload = await handleDownload(0);
+                  if (didStartDownload) {
+                    setExportOpen(false);
+                  }
+                }}
+              >
+                <Download className="w-4 h-4" />
+                {activeJob?.renderMode === "vertical" ? "Clip 1" : "Final MP4"}
+              </Button>
             </div>
           </div>
         </DialogContent>
