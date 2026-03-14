@@ -414,6 +414,7 @@ type VerticalCaptionPresetOptionId =
 type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif_bold" | "display_black" | "mono_bold";
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
+type VerticalCaptionMotionProfileId = "subtle" | "balanced" | "aggressive";
 type VerticalCaptionOverlayTone = "none" | "white" | "black";
 type VerticalCaptionFontVariantOption = {
   id: string;
@@ -1088,7 +1089,6 @@ const VERTICAL_CAPTION_FONT_OPTIONS: Array<{ id: VerticalCaptionFontOptionId; la
   { id: "mono_bold", label: "Mono Bold" },
 ];
 const VERTICAL_CAPTION_ANIMATION_OPTIONS: Array<{ id: VerticalCaptionAnimationOptionId; label: string }> = [
-  { id: "none", label: "Static" },
   { id: "pop", label: "Pop" },
   { id: "slide", label: "Slide" },
   { id: "fade", label: "Fade" },
@@ -1100,6 +1100,36 @@ const VERTICAL_CAPTION_DYNAMIC_MODE_OPTIONS: Array<{ id: VerticalCaptionDynamicM
   { id: "karaoke_word", label: "Karaoke Word" },
   { id: "kinetic_word", label: "Kinetic Rapid" },
 ];
+const VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS: Array<{
+  id: VerticalCaptionMotionProfileId;
+  label: string;
+  description: string;
+  speedMultiplier: number;
+  intensityMultiplier: number;
+}> = [
+  {
+    id: "subtle",
+    label: "Subtle",
+    description: "Calmer movement for cleaner, less jumpy captions.",
+    speedMultiplier: 0.9,
+    intensityMultiplier: 0.84,
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    description: "Default creator pacing with noticeable but controlled motion.",
+    speedMultiplier: 1,
+    intensityMultiplier: 1,
+  },
+  {
+    id: "aggressive",
+    label: "Aggressive",
+    description: "Fast, punchy caption hits similar to high-energy short-form edits.",
+    speedMultiplier: 1.18,
+    intensityMultiplier: 1.28,
+  },
+];
+const DEFAULT_VERTICAL_CAPTION_MOTION_PROFILE: VerticalCaptionMotionProfileId = "balanced";
 const VERTICAL_VOICE_PRESET_OPTIONS: Array<{ id: VerticalVoicePresetOptionId; label: string }> = [
   { id: "none", label: "Original Voice" },
   { id: "deep", label: "Low Pitch" },
@@ -1161,7 +1191,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
   }
 > = {
   basic_clean: {
-    fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "none", shadowStrength: 34,
+    fontId: "sans_bold", outlineColor: "0F172A", outlineWidth: 3, animation: "fade", shadowStrength: 34,
     dynamicMode: "classic", animationSpeed: 1.0, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   mrbeast_animated: {
@@ -1173,7 +1203,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "kinetic_word", animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   bold_clean_box: {
-    fontId: "sans_bold", outlineColor: "0B0D12", outlineWidth: 1, animation: "none", shadowStrength: 22,
+    fontId: "sans_bold", outlineColor: "0B0D12", outlineWidth: 1, animation: "fade", shadowStrength: 22,
     dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
@@ -1193,11 +1223,11 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "kinetic_word", animationSpeed: 1.2, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   cinema_punch: {
-    fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "none", shadowStrength: 58,
+    fontId: "serif_bold", outlineColor: "1A1203", outlineWidth: 7, animation: "slide", shadowStrength: 58,
     dynamicMode: "classic", animationSpeed: 0.92, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   shadow_strike: {
-    fontId: "display_black", outlineColor: "000000", outlineWidth: 9, animation: "none", shadowStrength: 90,
+    fontId: "display_black", outlineColor: "000000", outlineWidth: 9, animation: "bounce", shadowStrength: 90,
     dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
 };
@@ -1388,6 +1418,14 @@ const VERTICAL_CAPTION_ANIMATION_SPEED_MIN = 0.5;
 const VERTICAL_CAPTION_ANIMATION_SPEED_MAX = 2.2;
 const clampVerticalCaptionAnimationSpeed = (value: number) =>
   Number(clamp(value, VERTICAL_CAPTION_ANIMATION_SPEED_MIN, VERTICAL_CAPTION_ANIMATION_SPEED_MAX).toFixed(2));
+const normalizeVerticalCaptionAnimation = (value: string | null | undefined): VerticalCaptionAnimationOptionId => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "slide") return "slide";
+  if (normalized === "fade") return "fade";
+  if (normalized === "bounce") return "bounce";
+  if (normalized === "glitch") return "glitch";
+  return "pop";
+};
 const VERTICAL_CAPTION_LOOK_MODIFIERS: Array<{
   id: string;
   label: string;
@@ -1406,7 +1444,7 @@ const VERTICAL_CAPTION_LOOK_MODIFIERS: Array<{
     id: "clean",
     label: "Clean",
     description: "Readable and smooth for evergreen posts.",
-    animation: "none",
+    animation: "fade",
     dynamicMode: "classic",
     outlineDelta: -2,
     shadowDelta: -12,
@@ -4213,6 +4251,7 @@ const Editor = () => {
   });
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
+  const verticalExtrasModeEnabled = searchParams.get("verticalExtras") === "1";
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("best_moments");
@@ -4266,6 +4305,9 @@ const Editor = () => {
   );
   const [verticalCaptionAnimationSpeed, setVerticalCaptionAnimationSpeed] = useState<number>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animationSpeed,
+  );
+  const [verticalCaptionMotionProfile, setVerticalCaptionMotionProfile] = useState<VerticalCaptionMotionProfileId>(
+    DEFAULT_VERTICAL_CAPTION_MOTION_PROFILE,
   );
   const [verticalCaptionHighlightWords, setVerticalCaptionHighlightWords] = useState<boolean>(
     VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].highlightWords,
@@ -4383,12 +4425,31 @@ const Editor = () => {
       setTikTokStylePickerOpen(false);
     }
   }, [captionSettingsDialogOpen]);
+  const activeVerticalCaptionMotionProfile = useMemo(
+    () => (
+      VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.find((profile) => profile.id === verticalCaptionMotionProfile)
+      ?? VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.find((profile) => profile.id === DEFAULT_VERTICAL_CAPTION_MOTION_PROFILE)
+      ?? VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS[0]
+    ),
+    [verticalCaptionMotionProfile],
+  );
+  const resolvedVerticalCaptionAnimationSpeed = useMemo(
+    () => clampVerticalCaptionAnimationSpeed(
+      verticalCaptionAnimationSpeed * (activeVerticalCaptionMotionProfile?.speedMultiplier ?? 1),
+    ),
+    [activeVerticalCaptionMotionProfile, verticalCaptionAnimationSpeed],
+  );
+  const verticalCaptionMotionIntensityMultiplier = activeVerticalCaptionMotionProfile?.intensityMultiplier ?? 1;
   const selectedVerticalCaptionFontVariant = useMemo(() => {
     const direct = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[verticalCaptionFontVariantId];
     if (direct) return direct;
     const fallbackId = DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[verticalCaptionFontId];
     return VERTICAL_CAPTION_FONT_VARIANT_BY_ID[fallbackId] ?? VERTICAL_CAPTION_FONT_VARIANT_OPTIONS[0];
   }, [verticalCaptionFontId, verticalCaptionFontVariantId]);
+  const resolvedVerticalCaptionAnimation = useMemo(
+    () => normalizeVerticalCaptionAnimation(verticalCaptionAnimation),
+    [verticalCaptionAnimation],
+  );
   const selectedCaptionClipSlotKeySet = useMemo(() => {
     const selectedKeys = Object.entries(verticalClipCaptionGenerateSelectedBySlot)
       .filter(([, selected]) => Boolean(selected))
@@ -4513,6 +4574,8 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalClipPreviewBlobUrlByClipRef = useRef<Record<number, string>>({});
+  const verticalClipPreviewBlobIdentityByClipRef = useRef<Record<number, string>>({});
   const verticalAutoRenderRequestedRef = useRef(false);
   const verticalMomentSelectionTouchedRef = useRef(false);
   const verticalMomentSelectionTouchedClipIndexRef = useRef<number | null>(null);
@@ -4581,6 +4644,31 @@ const Editor = () => {
     () => resolveFullAutoYoutubeVibe(fullAutoYoutubeVibe, fullAutoResolvedTarget),
     [fullAutoYoutubeVibe, fullAutoResolvedTarget],
   );
+  const clearVerticalClipPreviewBlobCache = useCallback((retainClipIndexes?: Set<number>) => {
+    if (typeof window === "undefined") return;
+    const blobByClip = verticalClipPreviewBlobUrlByClipRef.current;
+    const identityByClip = verticalClipPreviewBlobIdentityByClipRef.current;
+    for (const clipKey of Object.keys(blobByClip)) {
+      const clipIndex = Number(clipKey);
+      if (!Number.isFinite(clipIndex)) continue;
+      if (retainClipIndexes?.has(clipIndex)) continue;
+      const blobUrl = blobByClip[clipIndex];
+      if (blobUrl) {
+        try {
+          window.URL.revokeObjectURL(blobUrl);
+        } catch {
+          // Ignore URL revoke failures for stale or already-released blobs.
+        }
+      }
+      delete blobByClip[clipIndex];
+      delete identityByClip[clipIndex];
+    }
+  }, []);
+  useEffect(() => (
+    () => {
+      clearVerticalClipPreviewBlobCache();
+    }
+  ), [clearVerticalClipPreviewBlobCache]);
 
   const selectedJobId = searchParams.get("jobId");
   const hasActiveJobs = jobs.some((job) => !isTerminalStatus(job.status));
@@ -4827,7 +4915,7 @@ const Editor = () => {
     setVerticalCaptionTextColor(normalizeCaptionCssColor(palette.textColor, "FFFFFF"));
     setVerticalCaptionHighlightColor(normalizeCaptionCssColor(palette.highlightColor, "FDE047"));
     setVerticalCaptionOutlineWidth(defaults.outlineWidth);
-    setVerticalCaptionAnimation(defaults.animation);
+    setVerticalCaptionAnimation(normalizeVerticalCaptionAnimation(defaults.animation));
     setVerticalCaptionDynamicMode(defaults.dynamicMode);
     setVerticalCaptionShadowStrength(defaults.shadowStrength);
     setVerticalCaptionAnimationSpeed(defaults.animationSpeed);
@@ -4895,7 +4983,7 @@ const Editor = () => {
     setVerticalCaptionTextColor(normalizeCaptionCssColor(palette.textColor, "FFFFFF"));
     setVerticalCaptionHighlightColor(normalizeCaptionCssColor(palette.highlightColor, "FDE047"));
     setVerticalCaptionOutlineWidth(look.outlineWidth);
-    setVerticalCaptionAnimation(look.animation);
+    setVerticalCaptionAnimation(normalizeVerticalCaptionAnimation(look.animation));
     setVerticalCaptionDynamicMode(look.dynamicMode);
     setVerticalCaptionShadowStrength(look.shadowStrength);
     setVerticalCaptionAnimationSpeed(look.animationSpeed);
@@ -6763,8 +6851,8 @@ const Editor = () => {
               verticalCaptionPaletteForJob.highlightColor,
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
-            animation: verticalCaptionAnimation,
-            animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            animation: resolvedVerticalCaptionAnimation,
+            animationSpeed: resolvedVerticalCaptionAnimationSpeed,
             dynamicMode: verticalCaptionDynamicMode,
             voicePreset: verticalVoicePreset,
             pacingPreset: verticalPacingPreset,
@@ -8142,29 +8230,30 @@ const Editor = () => {
 
         if (autoCaptionsEnabled && (editableSourcePreviewActive || renderedClipPreviewActive)) {
           const now = performance.now();
-          const animSpeed = clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed);
-          const dynamicAnimationIntensity = verticalCaptionDynamicMode === "kinetic_word"
+          const animSpeed = resolvedVerticalCaptionAnimationSpeed;
+          const dynamicAnimationIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
             ? 1.24
             : verticalCaptionDynamicMode === "karaoke_word"
               ? 1.1
               : 1;
+          const dynamicAnimationIntensity = dynamicAnimationIntensityBase * verticalCaptionMotionIntensityMultiplier;
           const timing = (base: number) => Math.max(60, base / Math.max(0.5, animSpeed));
           let animationScale = 1;
           let animationYOffset = 0;
           let animationOpacity = 1;
-          if (verticalCaptionAnimation === "pop") {
+          if (resolvedVerticalCaptionAnimation === "pop") {
             const popPulse = Math.sin(now / timing(150));
             animationScale = 1
               + Math.max(0, popPulse) * 0.055 * dynamicAnimationIntensity
               - Math.max(0, -popPulse) * 0.02;
-          } else if (verticalCaptionAnimation === "slide") {
+          } else if (resolvedVerticalCaptionAnimation === "slide") {
             animationYOffset = Math.sin(now / timing(360)) * (4.8 * dynamicAnimationIntensity);
-          } else if (verticalCaptionAnimation === "fade") {
+          } else if (resolvedVerticalCaptionAnimation === "fade") {
             const lowOpacity = Math.max(0.58, 0.72 - (dynamicAnimationIntensity - 1) * 0.14);
             animationOpacity = lowOpacity + Math.abs(Math.sin(now / timing(420))) * (1 - lowOpacity);
-          } else if (verticalCaptionAnimation === "bounce") {
+          } else if (resolvedVerticalCaptionAnimation === "bounce") {
             animationYOffset = -Math.abs(Math.sin(now / timing(170))) * (8.6 * dynamicAnimationIntensity);
-          } else if (verticalCaptionAnimation === "glitch") {
+          } else if (resolvedVerticalCaptionAnimation === "glitch") {
             animationScale = 1 + Math.sin(now / timing(104)) * 0.014 * dynamicAnimationIntensity;
             animationYOffset = Math.sin(now / timing(78)) * 1.6 * dynamicAnimationIntensity;
           }
@@ -8324,7 +8413,7 @@ const Editor = () => {
                   ? effectiveCaptionPalette.highlightColor
                   : effectiveCaptionPalette.textColor;
                 ctx.fillText(entry.display, cursorX, y);
-                if (verticalCaptionAnimation === "glitch") {
+                if (resolvedVerticalCaptionAnimation === "glitch") {
                   ctx.fillStyle = "rgba(255, 0, 120, 0.42)";
                   ctx.fillText(entry.display, cursorX - 1.5, y);
                   ctx.fillStyle = "rgba(0, 255, 255, 0.42)";
@@ -8401,7 +8490,8 @@ const Editor = () => {
     skipManualWebcamCrop,
     autoCaptionsEnabled,
     verticalCaptionAnimation,
-    verticalCaptionAnimationSpeed,
+    resolvedVerticalCaptionAnimationSpeed,
+    verticalCaptionMotionIntensityMultiplier,
     verticalCaptionFontSize,
     verticalCaptionFontId,
     verticalCaptionFontVariantId,
@@ -8910,8 +9000,8 @@ const Editor = () => {
               verticalCaptionPaletteForJob.highlightColor,
             ),
             outlineWidth: clamp(Math.round(verticalCaptionOutlineWidth), 0, 24),
-            animation: verticalCaptionAnimation,
-            animationSpeed: clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed),
+            animation: resolvedVerticalCaptionAnimation,
+            animationSpeed: resolvedVerticalCaptionAnimationSpeed,
             dynamicMode: verticalCaptionDynamicMode,
             voicePreset: verticalVoicePreset,
             pacingPreset: verticalPacingPreset,
@@ -9057,7 +9147,7 @@ const Editor = () => {
       subtitleStyleDraft,
       ultraPipelineMode,
       verticalCaptionAnimation,
-      verticalCaptionAnimationSpeed,
+      resolvedVerticalCaptionAnimationSpeed,
       verticalCaptionDynamicMode,
       verticalCaptionHighlightWords,
       verticalCaptionAutoEmphasis,
@@ -9247,7 +9337,14 @@ const Editor = () => {
     activeVerticalJobReadyForDownload ||
     (isActiveVerticalJob && activeOutputUrls.length > 0),
   );
-  const showVerticalGalleryOnlyLayout = Boolean(isVerticalMode && hasVerticalVariantWorkspace);
+  const showVerticalGalleryOnlyLayout = Boolean(isVerticalMode && !verticalExtrasModeEnabled);
+  const verticalExtrasHref = useMemo(() => {
+    const next = new URLSearchParams(searchParams);
+    next.set("mode", "vertical");
+    next.delete("verticalExtras");
+    const query = next.toString();
+    return query ? `/editor/vertical-extras?${query}` : "/editor/vertical-extras?mode=vertical";
+  }, [searchParams]);
   const verticalVariantStatusLabel = activeVerticalJobProcessing || uploadingJobId
     ? "Rendering..."
     : activeVerticalJobReadyForDownload
@@ -13145,18 +13242,29 @@ const Editor = () => {
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   useEffect(() => {
     if (!isVerticalMode || !activeJob?.id || !activeVerticalJobReadyForDownload) {
-      setResolvedVerticalVariantOutputUrls([]);
+      setResolvedVerticalVariantOutputUrls((prev) => (prev.length > 0 ? [] : prev));
+      clearVerticalClipPreviewBlobCache();
       return () => {};
     }
     let canceled = false;
-    const blobUrls: string[] = [];
+    const maxClipIndex = Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1);
+    const preferredClipIndex = captionPreviewClipIndex >= 0
+      ? clamp(Math.round(captionPreviewClipIndex), 0, maxClipIndex)
+      : activeVerticalClipEditorIndex >= 0
+        ? clamp(Math.round(activeVerticalClipEditorIndex), 0, maxClipIndex)
+        : 0;
+    const keepWarmClipIndexes = new Set<number>([0, preferredClipIndex]);
 
     const resolveClipPreviewUrl = async (clipIndex: number) => {
       const existingClipUrl = String(activeOutputUrls[clipIndex] || "").trim();
       const fallbackPreviewUrl = clipIndex === 0 ? String(resolvedPreviewOutputUrl || "").trim() : "";
       let resolvedSourceUrl = existingClipUrl || fallbackPreviewUrl;
+      const shouldHydrateAuthClip = keepWarmClipIndexes.has(clipIndex);
 
-      if (!resolvedSourceUrl && accessToken) {
+      if (
+        accessToken &&
+        (!resolvedSourceUrl || (isAuthRequiredDownloadUrl(resolvedSourceUrl) && shouldHydrateAuthClip))
+      ) {
         try {
           const refreshed = await apiFetch<{ url?: string }>(`/api/jobs/${activeJob.id}/output-url?clip=${clipIndex + 1}`, {
             method: "GET",
@@ -13164,7 +13272,7 @@ const Editor = () => {
           });
           resolvedSourceUrl = appendVideoCacheBust(String(refreshed?.url || ""), activePreviewCacheKey);
         } catch {
-          resolvedSourceUrl = "";
+          resolvedSourceUrl = existingClipUrl || fallbackPreviewUrl;
         }
       }
 
@@ -13172,6 +13280,14 @@ const Editor = () => {
       if (!resolvedSourceUrl) return "";
       if (!isAuthRequiredDownloadUrl(resolvedSourceUrl)) return resolvedSourceUrl;
       if (!accessToken) return "";
+      if (!shouldHydrateAuthClip) return "";
+
+      const sourceIdentity = buildPreviewUrlIdentity(resolvedSourceUrl);
+      const cachedBlobUrl = verticalClipPreviewBlobUrlByClipRef.current[clipIndex];
+      const cachedBlobIdentity = verticalClipPreviewBlobIdentityByClipRef.current[clipIndex];
+      if (cachedBlobUrl && cachedBlobIdentity === sourceIdentity) {
+        return cachedBlobUrl;
+      }
 
       try {
         const response = await fetch(resolvedSourceUrl, {
@@ -13183,7 +13299,16 @@ const Editor = () => {
         const blob = await response.blob();
         if (canceled) return "";
         const blobUrl = window.URL.createObjectURL(blob);
-        blobUrls.push(blobUrl);
+        const priorBlobUrl = verticalClipPreviewBlobUrlByClipRef.current[clipIndex];
+        if (priorBlobUrl && priorBlobUrl !== blobUrl) {
+          try {
+            window.URL.revokeObjectURL(priorBlobUrl);
+          } catch {
+            // Ignore URL revoke failures for stale or already-released blobs.
+          }
+        }
+        verticalClipPreviewBlobUrlByClipRef.current[clipIndex] = blobUrl;
+        verticalClipPreviewBlobIdentityByClipRef.current[clipIndex] = sourceIdentity;
         return blobUrl;
       } catch {
         return "";
@@ -13192,22 +13317,26 @@ const Editor = () => {
 
     void Promise.all(Array.from({ length: VERTICAL_VARIANT_TOTAL_CLIPS }, (_, idx) => resolveClipPreviewUrl(idx))).then((urls) => {
       if (canceled) return;
-      setResolvedVerticalVariantOutputUrls(urls);
+      setResolvedVerticalVariantOutputUrls((prev) => {
+        const unchanged = prev.length === urls.length && prev.every((value, index) => value === urls[index]);
+        return unchanged ? prev : urls;
+      });
+      clearVerticalClipPreviewBlobCache(keepWarmClipIndexes);
     });
 
     return () => {
       canceled = true;
-      for (const url of blobUrls) {
-        window.URL.revokeObjectURL(url);
-      }
     };
   }, [
+    activeVerticalClipEditorIndex,
     accessToken,
     activeJob?.id,
     activeVerticalJobReadyForDownload,
     activeOutputUrls,
     activePreviewCacheKey,
     activeVerticalOutputUrlIdentity,
+    captionPreviewClipIndex,
+    clearVerticalClipPreviewBlobCache,
     isVerticalMode,
     resolvedPreviewOutputUrl,
   ]);
@@ -15510,7 +15639,7 @@ const Editor = () => {
     setVerticalCaptionFontId(preset.fontId);
     setVerticalCaptionFontVariantId(DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[preset.fontId]);
     if (preset.keywordZoomMode === "off") {
-      setVerticalCaptionAnimation("none");
+      setVerticalCaptionAnimation("fade");
       setVerticalCaptionDynamicMode("classic");
       setVerticalCaptionHighlightWords(false);
       setVerticalCaptionAutoEmphasis(false);
@@ -17596,6 +17725,25 @@ const Editor = () => {
                       <p className="vertical-mode-note text-xs text-muted-foreground">
                         Upload a video to start your vertical clip gallery.
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 rounded-full px-3 text-[11px]"
+                          onClick={handlePickFile}
+                        >
+                          Upload source
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 rounded-full border-border/60 bg-background/60 px-3 text-[11px] text-foreground"
+                          onClick={() => navigate(verticalExtrasHref)}
+                        >
+                          Vertical Extras
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -17629,6 +17777,15 @@ const Editor = () => {
                           <span className="vertical-reboot-mini-pill text-[10px]">
                             {Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}
                           </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-full border-border/60 bg-background/60 px-2.5 text-[10px] text-foreground"
+                            onClick={() => navigate(verticalExtrasHref)}
+                          >
+                            Vertical Extras
+                          </Button>
                         </div>
                       </div>
                       <div className="vertical-variant-preview-list">
@@ -17742,29 +17899,31 @@ const Editor = () => {
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
                                       const clipCaptionAnimationEnabled =
-                                        clipCaptionSelected && verticalCaptionAnimation !== "none";
-                                      const clipCaptionDynamicIntensity = verticalCaptionDynamicMode === "kinetic_word"
+                                        clipReady;
+                                      const clipCaptionDynamicIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
                                         ? 1.24
                                         : verticalCaptionDynamicMode === "karaoke_word"
                                           ? 1.1
                                           : 1;
+                                      const clipCaptionDynamicIntensity =
+                                        clipCaptionDynamicIntensityBase * verticalCaptionMotionIntensityMultiplier;
                                       const clipCaptionAnimationClass = clipCaptionAnimationEnabled
-                                        ? `is-animated is-${verticalCaptionAnimation}`
+                                        ? `is-animated is-${resolvedVerticalCaptionAnimation}`
                                         : "";
-                                      const clipCaptionAnimationBaseMs = verticalCaptionAnimation === "slide"
+                                      const clipCaptionAnimationBaseMs = resolvedVerticalCaptionAnimation === "slide"
                                         ? 980
-                                        : verticalCaptionAnimation === "fade"
+                                        : resolvedVerticalCaptionAnimation === "fade"
                                           ? 1080
-                                          : verticalCaptionAnimation === "bounce"
+                                          : resolvedVerticalCaptionAnimation === "bounce"
                                             ? 560
-                                            : verticalCaptionAnimation === "glitch"
+                                            : resolvedVerticalCaptionAnimation === "glitch"
                                               ? 540
                                               : 640;
                                       const clipCaptionAnimationDurationMs = Math.round(
                                         Math.max(
                                           240,
                                           clipCaptionAnimationBaseMs / (
-                                            Math.max(0.5, clampVerticalCaptionAnimationSpeed(verticalCaptionAnimationSpeed))
+                                            Math.max(0.5, resolvedVerticalCaptionAnimationSpeed)
                                             * clipCaptionDynamicIntensity
                                           ),
                                         ),
@@ -20237,7 +20396,7 @@ const Editor = () => {
                                   src={clipUrl}
                                   muted
                                   playsInline
-                                  preload="metadata"
+                                  preload="none"
                                   className="h-16 w-full object-cover"
                                 />
                               ) : (
@@ -20434,6 +20593,35 @@ const Editor = () => {
                                           }}
                                         />
                                       </label>
+                                      <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                          <span>Motion profile</span>
+                                          <span>{activeVerticalCaptionMotionProfile.label}</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+                                          {VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.map((profile) => {
+                                            const active = verticalCaptionMotionProfile === profile.id;
+                                            return (
+                                              <button
+                                                key={`caption-motion-profile-${profile.id}`}
+                                                type="button"
+                                                className={`rounded-md border px-2 py-1.5 text-[10px] transition ${
+                                                  active
+                                                    ? "border-primary/65 bg-primary/15 text-foreground"
+                                                    : "border-border/55 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                                }`}
+                                                onClick={() => setVerticalCaptionMotionProfile(profile.id)}
+                                                aria-pressed={active}
+                                              >
+                                                {profile.label}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                                          {activeVerticalCaptionMotionProfile.description}
+                                        </p>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
