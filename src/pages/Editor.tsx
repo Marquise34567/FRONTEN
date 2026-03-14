@@ -20823,26 +20823,24 @@ const Editor = () => {
                   <button
                     key={preset.id}
                     type="button"
-                    className={`rounded-2xl border px-4 py-3 text-left transition-all ${
-                      active
-                        ? "border-primary/65 bg-[linear-gradient(145deg,hsl(var(--primary)/0.2),hsl(var(--card)/0.62))] shadow-[0_20px_40px_-28px_hsl(var(--primary)/0.9)]"
-                        : "border-border/55 bg-[linear-gradient(145deg,hsl(var(--card)/0.88),hsl(var(--card)/0.58))] hover:border-primary/45 hover:bg-primary/10"
-                    }`}
+                    className={`${uploadFormatCardClass(active, true)} w-full`}
                     onClick={() => {
                       applyVerticalUploadModePreset(preset.id, "preset_popup");
                       setVerticalUploadPresetPromptOpen(false);
                     }}
                     aria-pressed={active}
                     aria-label={`Apply ${preset.label} vertical preset`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground">{preset.label}</p>
-                        <Badge className={active ? "border-primary/45 bg-primary/14 text-primary" : "border-border/55 bg-background/40 text-muted-foreground"}>
+                  >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">{preset.label}</p>
+                          <p className="text-xs text-muted-foreground">{preset.tagline}</p>
+                          <p className="text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
+                        </div>
+                        <Badge className={active ? "border-primary/45 bg-primary/12 text-primary" : "border-border/55 bg-background/40 text-muted-foreground"}>
                           {preset.premiumLabel}
                         </Badge>
                       </div>
-                      <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-primary/80">{preset.tagline}</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
                       <div className="mt-2 overflow-hidden rounded-xl border border-border/50 bg-background/30 p-1.5">
                         <div
                           className="relative h-24 overflow-hidden rounded-lg border border-black/20"
