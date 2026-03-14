@@ -1195,7 +1195,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "classic", animationSpeed: 1.0, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   mrbeast_animated: {
-    fontId: "impact", outlineColor: "050505", outlineWidth: 18, animation: "pop", shadowStrength: 62,
+    fontId: "impact", outlineColor: "050505", outlineWidth: 6, animation: "pop", shadowStrength: 36,
     dynamicMode: "karaoke_word", animationSpeed: 1.08, highlightWords: true, autoEmphasis: true, autoEmoji: true, removeFillers: false,
   },
   neon_glow: {
@@ -1207,7 +1207,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
-    fontId: "impact", outlineColor: "000000", outlineWidth: 15, animation: "pop", shadowStrength: 44,
+    fontId: "impact", outlineColor: "000000", outlineWidth: 6, animation: "pop", shadowStrength: 28,
     dynamicMode: "karaoke_word", animationSpeed: 1, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   ice_pop: {
@@ -1411,6 +1411,8 @@ const DEFAULT_CREATOR_STYLE_LOCK_PERCENT = 65;
 const clampCreatorStyleLockPercent = (value: number) => clamp(Math.round(value), CREATOR_STYLE_LOCK_MIN, CREATOR_STYLE_LOCK_MAX);
 const VERTICAL_CAPTION_FONT_SIZE_MIN = 30;
 const VERTICAL_CAPTION_FONT_SIZE_MAX = 220;
+const VERTICAL_CAPTION_OUTLINE_WIDTH_MIN = 0;
+const VERTICAL_CAPTION_OUTLINE_WIDTH_MAX = 10;
 const VERTICAL_CAPTION_FONT_SIZE_DEFAULT = 96;
 const VERTICAL_CAPTION_SHADOW_MIN = 0;
 const VERTICAL_CAPTION_SHADOW_MAX = 100;
@@ -1528,7 +1530,10 @@ const VERTICAL_CAPTION_LOOK_MODIFIERS: Array<{
 const VERTICAL_CAPTION_LOOK_OPTIONS: VerticalCaptionLookOption[] = VERTICAL_CAPTION_STYLE_OPTIONS.flatMap((styleOption, styleIndex) => {
   const defaults = VERTICAL_CAPTION_PRESET_DEFAULTS[styleOption.id];
   return VERTICAL_CAPTION_LOOK_MODIFIERS.map((modifier, modifierIndex) => {
-    const outlineWidth = Math.max(0, Math.min(24, Math.round(defaults.outlineWidth + modifier.outlineDelta)));
+    const outlineWidth = Math.max(
+      VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+      Math.min(VERTICAL_CAPTION_OUTLINE_WIDTH_MAX, Math.round(defaults.outlineWidth + modifier.outlineDelta)),
+    );
     const shadowStrength = Math.max(0, Math.min(100, Math.round(defaults.shadowStrength + modifier.shadowDelta)));
     const animationSpeed = clampVerticalCaptionAnimationSpeed(defaults.animationSpeed * modifier.animationSpeedMultiplier);
     return {

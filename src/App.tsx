@@ -18,6 +18,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
 const Editor = lazy(() => import("./pages/Editor"));
 const EditorAMode = lazy(() => import("./pages/EditorAMode"));
+const VerticalExtras = lazy(() => import("./pages/VerticalExtras"));
 const ShortsModeDemo = lazy(() => import("./pages/ShortsModeDemo"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
 const Pricing = lazy(() => import("./pages/Pricing"));
@@ -261,6 +262,7 @@ const AuthenticatedRoutePrefetch = () => {
     const timer = window.setTimeout(() => {
       void import("./pages/Editor");
       void import("./pages/EditorAMode");
+      void import("./pages/VerticalExtras");
       void import("./pages/Settings");
       void import("./pages/JobDetail");
     }, 700);
@@ -380,6 +382,16 @@ const App = () => {
                   <RequireAuth>
                     <RouteSuspense>
                       <EditorAMode />
+                    </RouteSuspense>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/editor/vertical-extras"
+                element={
+                  <RequireAuth>
+                    <RouteSuspense>
+                      <VerticalExtras />
                     </RouteSuspense>
                   </RequireAuth>
                 }
