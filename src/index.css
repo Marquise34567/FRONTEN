@@ -856,6 +856,87 @@ html[data-performance='constrained'] .trial-takeover-active * {
     min-height: clamp(10.5rem, 30vh, 15rem);
   }
 
+  .editor-upload-dropzone.vertical-upload-premium {
+    border-color: hsl(var(--primary) / 0.32);
+    background:
+      radial-gradient(140% 140% at 0% 0%, hsl(var(--glow-secondary) / 0.16), transparent 62%),
+      radial-gradient(140% 140% at 100% 100%, hsl(var(--primary) / 0.18), transparent 62%),
+      linear-gradient(135deg, hsl(var(--card) / 0.85), hsl(var(--card) / 0.6));
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.22),
+      0 18px 60px -26px hsl(var(--primary) / 0.5),
+      inset 0 1px 0 hsl(var(--foreground) / 0.06);
+  }
+
+  .editor-upload-dropzone.vertical-upload-premium:hover {
+    border-color: hsl(var(--primary) / 0.46);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.28),
+      0 22px 72px -28px hsl(var(--primary) / 0.6),
+      inset 0 1px 0 hsl(var(--foreground) / 0.08);
+  }
+
+  .vertical-upload-premium-bg,
+  .vertical-upload-premium-sheen {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .vertical-upload-premium-bg {
+    background:
+      radial-gradient(120% 140% at 18% 12%, hsl(var(--primary) / 0.22), transparent 58%),
+      radial-gradient(120% 140% at 85% 80%, hsl(var(--glow-secondary) / 0.24), transparent 62%);
+    opacity: 0.85;
+  }
+
+  .vertical-upload-premium-sheen {
+    background: linear-gradient(120deg, transparent 12%, hsl(var(--primary) / 0.18) 46%, transparent 70%);
+    opacity: 0.6;
+  }
+
+  .vertical-upload-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  .vertical-upload-pill {
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--primary) / 0.45);
+    background: hsl(var(--primary) / 0.16);
+    color: hsl(var(--primary));
+    font-weight: 600;
+  }
+
+  .vertical-upload-pill.is-muted {
+    border-color: hsl(var(--surface-glass-border) / 0.6);
+    background: hsl(var(--background) / 0.4);
+    color: hsl(var(--foreground) / 0.7);
+  }
+
+  .vertical-upload-icon {
+    background: linear-gradient(140deg, hsl(var(--primary) / 0.2), hsl(var(--glow-secondary) / 0.26));
+    border: 1px solid hsl(var(--primary) / 0.3);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / 0.12),
+      0 8px 22px -14px hsl(var(--primary) / 0.6);
+  }
+
+  .vertical-upload-title {
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+    text-shadow: 0 6px 18px hsl(var(--glow-secondary) / 0.18);
+  }
+
+  .vertical-upload-subtitle {
+    max-width: 34rem;
+  }
+
   .network-constrained .glass-card {
     backdrop-filter: blur(8px) saturate(102%);
     box-shadow:

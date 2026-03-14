@@ -415,6 +415,7 @@ type VerticalCaptionFontOptionId = "impact" | "sans_bold" | "condensed" | "serif
 type VerticalCaptionAnimationOptionId = "none" | "pop" | "slide" | "fade" | "bounce" | "glitch";
 type VerticalCaptionDynamicModeOptionId = "classic" | "karaoke_word" | "kinetic_word";
 type VerticalCaptionMotionProfileId = "subtle" | "balanced" | "aggressive";
+type VerticalCaptionRenderMode = "captions" | "animated_text";
 type VerticalCaptionOverlayTone = "none" | "white" | "black";
 type VerticalCaptionFontVariantOption = {
   id: string;
@@ -7161,17 +7162,39 @@ const Editor = () => {
 
       const uploadViaProxy = async () => {
         const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
-        const proxyUrl = API_URL ? `${API_URL}${proxyPath}` : proxyPath
-        const proxyResp = await fetch(proxyUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        })
-        if (!proxyResp.ok) throw new Error('Proxy upload failed')
-        setUploadProgress(100)
+        const proxyBases: string[] = []
+        const seenProxyBases = new Set<string>()
+        const addProxyBase = (candidate: string) => {
+          const normalized = String(candidate || "").trim().replace(/\/$/, "")
+          if (!normalized || seenProxyBases.has(normalized)) return
+          seenProxyBases.add(normalized)
+          proxyBases.push(normalized)
+        }
+        if (typeof window !== "undefined") {
+          addProxyBase(`${window.location.protocol}//${window.location.host}`)
+        }
+        addProxyBase(API_URL || "")
+        if (!proxyBases.length) proxyBases.push("")
+        let lastError: unknown = null
+        for (const base of proxyBases) {
+          const proxyUrl = `${base}${proxyPath}`
+          try {
+            const proxyResp = await fetch(proxyUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": file.type || "application/octet-stream",
+              },
+              body: file,
+            })
+            if (!proxyResp.ok) throw new Error(`Proxy upload failed (${proxyResp.status})`)
+            setUploadProgress(100)
+            return
+          } catch (err) {
+            lastError = err
+          }
+        }
+        throw lastError ?? new Error("Proxy upload failed")
       }
 
       // Fallback: if server provided a single PUT uploadUrl, use it. Otherwise use proxy upload.
@@ -13716,10 +13739,9 @@ const Editor = () => {
     if (
       activeJob &&
       activeJob.renderMode === "vertical" &&
-      activeVerticalJobReadyForDownload &&
-      selectedCaptionClipIndex >= 0
+      activeVerticalJobReadyForDownload
     ) {
-      void handleRedoRender(activeJob, { clipIndex: selectedCaptionClipIndex });
+      void handleRedoRender(activeJob);
       return;
     }
     if (pendingVerticalFile && sourceVideoMeta) {
@@ -13728,14 +13750,13 @@ const Editor = () => {
     }
     toast({
       title: "No vertical clip ready",
-      description: "Render a vertical job first, then save captions to the selected clip.",
+      description: "Render a vertical job first, then save captions for the whole video.",
     });
   }, [
     activeJob,
     activeVerticalJobReadyForDownload,
     handleRedoRender,
     pendingVerticalFile,
-    selectedCaptionClipIndex,
     sourceVideoMeta,
     startVerticalRender,
     toast,
@@ -17546,7 +17567,10 @@ const Editor = () => {
               {!showVerticalGalleryOnlyLayout ? (
               <div
                 ref={uploadDropZoneRef}
-                className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center ${
+                data-vertical={isVerticalMode ? "true" : "false"}
+                className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
+                  isVerticalMode ? "vertical-upload-premium" : ""
+                } ${
                   isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
                 }`}
                 onClick={handlePickFile}
@@ -17559,14 +17583,26 @@ const Editor = () => {
                 tabIndex={0}
                 aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
               >
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                {isVerticalMode ? (
+                  <>
+                    <div className="vertical-upload-premium-bg" aria-hidden="true" />
+                    <div className="vertical-upload-premium-sheen" aria-hidden="true" />
+                  </>
+                ) : null}
+                <div className="flex flex-col items-center gap-3 relative z-10">
+                  {isVerticalMode ? (
+                    <div className="vertical-upload-kicker">
+                      <span className="vertical-upload-pill">Studio Upload</span>
+                      <span className="vertical-upload-pill is-muted">9:16 Shorts</span>
+                    </div>
+                  ) : null}
+                  <div className={`w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center ${isVerticalMode ? "vertical-upload-icon" : ""}`}>
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
-                  <p className="font-medium text-foreground">
+                  <p className={`font-medium text-foreground ${isVerticalMode ? "vertical-upload-title" : ""}`}>
                     {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className={`text-sm text-muted-foreground ${isVerticalMode ? "vertical-upload-subtitle" : ""}`}>
                     {isVerticalMode
                       ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
                       : "MP4, M4V, or MKV up to 2GB"}
@@ -17778,8 +17814,8 @@ const Editor = () => {
                                         clipPreviewCaptionHints.boxEnabled || clipCaptionOverlayTone !== "none";
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
-                                      const clipCaptionAnimationEnabled =
-                                        clipReady;
+                                      const showPreviewCaptionOverlay = showVerticalGalleryOnlyLayout;
+                                      const clipCaptionAnimationEnabled = false;
                                       const clipCaptionDynamicIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
                                         ? 1.24
                                         : verticalCaptionDynamicMode === "karaoke_word"
@@ -17902,7 +17938,7 @@ const Editor = () => {
                                               </div>
                                             )}
                                             <span className="vertical-variant-preview-time">{durationLabel}</span>
-                                            {clipPreviewCaption ? (
+                                            {showPreviewCaptionOverlay && clipPreviewCaption ? (
                                               <p
                                                 className={`vertical-variant-preview-caption ${clipReady ? "is-ready" : ""} ${clipCaptionSelected ? "is-selected" : ""}`.trim()}
                                               >
@@ -20273,7 +20309,7 @@ const Editor = () => {
               <DialogHeader>
                 <DialogTitle className="text-xl font-display text-foreground">Caption Editor</DialogTitle>
                 <DialogDescription className="text-sm text-muted-foreground">
-                  Click a clip to target it, then edit and save captions for that selected clip.
+                  Click a clip to edit text overrides. Style and animation settings apply across the whole video.
                 </DialogDescription>
               </DialogHeader>
 
@@ -20831,15 +20867,12 @@ const Editor = () => {
                             disabled={
                               Boolean(uploadingJobId) ||
                               (activeJob?.id ? reprocessingJobId === activeJob.id : false) ||
-                              (!activeJob && (!pendingVerticalFile || !sourceVideoMeta)) ||
-                              selectedCaptionClipIndex < 0
+                              (!activeJob && (!pendingVerticalFile || !sourceVideoMeta))
                             }
                           >
                             {uploadingJobId || (activeJob?.id && reprocessingJobId === activeJob.id)
                               ? "Saving..."
-                              : selectedCaptionClipIndex >= 0
-                                ? `Save Captions To Clip #${selectedCaptionClipIndex + 1}`
-                                : "Save Captions To Render"}
+                              : "Save Captions To Whole Video"}
                           </Button>
                         </div>
                       </div>
