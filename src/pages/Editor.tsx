@@ -13,6 +13,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -1564,6 +1565,13 @@ const EDITOR_SETTINGS_SECTIONS: Array<{ key: EditorSettingsSection; label: strin
   { key: "cuts", label: "Cuts" },
   { key: "captions", label: "Captions" },
 ];
+type CurseFilterLevel = "low" | "medium" | "high";
+const CURSE_FILTER_LEVEL_SEQUENCE: CurseFilterLevel[] = ["low", "medium", "high"];
+const CURSE_FILTER_LABELS: Record<CurseFilterLevel, string> = {
+  low: "Low",
+  medium: "Mid",
+  high: "High",
+};
 const EDITOR_MODE_OPTIONS: Array<{ value: EditorModeSelection; label: string; description: string }> = [
   { value: "auto", label: "Auto", description: "Let the model infer style from your content." },
   { value: "reaction", label: "Reaction", description: "Higher-energy pacing tuned for reactions." },
@@ -4208,6 +4216,7 @@ type VerticalCaptionSnapshot = {
   autoGenerate: boolean;
   preset: VerticalCaptionPresetOptionId;
   text: string;
+  variantTextByKey: Record<VerticalVariantCaptionKey, string>;
   fontId: VerticalCaptionFontOptionId;
   fontSize: number;
   textColor: string;
@@ -4296,6 +4305,26 @@ const normalizeVerticalCaptionTextBySlot = (value: unknown): Record<string, stri
   return toSortedRecord(Object.fromEntries(entries));
 };
 
+const normalizeVerticalCaptionVariantTextByKey = (
+  value: unknown,
+  fallback: string,
+): Record<VerticalVariantCaptionKey, string> => {
+  const fallbackText = normalizeVerticalCaptionTextForJob(String(fallback || ""));
+  if (!value || typeof value !== "object") {
+    return {
+      instagram: fallbackText,
+      youtube: fallbackText,
+      tiktok: fallbackText,
+    };
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    instagram: normalizeVerticalCaptionTextForJob(String(raw.instagram ?? "")),
+    youtube: normalizeVerticalCaptionTextForJob(String(raw.youtube ?? "")),
+    tiktok: normalizeVerticalCaptionTextForJob(String(raw.tiktok ?? "")),
+  };
+};
+
 const normalizeVerticalCaptionOverlayToneBySlot = (value: unknown): Record<string, VerticalCaptionOverlayTone> => {
   if (!value || typeof value !== "object") return {};
   const entries = Object.entries(value as Record<string, unknown>)
@@ -4334,14 +4363,14 @@ const normalizeVerticalCaptionVariantPositions = (
 const resolveVerticalCaptionShadowStrength = (value: unknown, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
-  if (parsed > VERTICAL_CAPTION_SHADOW_BLUR_MAX && parsed <= VERTICAL_CAPTION_SHADOW_MAX) {
-    return clamp(Math.round(parsed), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
-  }
-  if (parsed <= VERTICAL_CAPTION_SHADOW_BLUR_MAX) {
-    const percent = (parsed / VERTICAL_CAPTION_SHADOW_BLUR_MAX) * 100;
-    return clamp(Math.round(percent), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
-  }
   return clamp(Math.round(parsed), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
+};
+
+const resolveVerticalCaptionShadowStrengthFromBlur = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const percent = (parsed / VERTICAL_CAPTION_SHADOW_BLUR_MAX) * 100;
+  return clamp(Math.round(percent), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX);
 };
 
 const buildVerticalCaptionSnapshotFromConfig = (
@@ -4389,6 +4418,13 @@ const buildVerticalCaptionSnapshotFromConfig = (
     ? config.removeFillers
     : presetDefaults.removeFillers;
   const text = normalizeVerticalCaptionTextForJob(String(config.text ?? config.captionText ?? ""));
+  const variantTextByKey = normalizeVerticalCaptionVariantTextByKey(
+    config.variantCaptions ??
+      config.verticalVariantCaptions ??
+      config["variant_captions"] ??
+      config["vertical_variant_captions"],
+    text,
+  );
   const enabled = typeof config.enabled === "boolean" ? config.enabled : true;
   const autoGenerate = typeof config.autoGenerate === "boolean" ? config.autoGenerate : enabled && text.length === 0;
   const positionX = clampCaptionPosition(Number(config.positionX ?? 0.5));
@@ -4396,16 +4432,21 @@ const buildVerticalCaptionSnapshotFromConfig = (
   const variantPositions = normalizeVerticalCaptionVariantPositions(config.variantPositions, positionX, positionY);
   const clipTextBySlot = normalizeVerticalCaptionTextBySlot(config.clipTextBySlot ?? config.variantClipCaptions);
   const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(config.clipOverlayToneBySlot);
-  const shadowStrength = resolveVerticalCaptionShadowStrength(
-    config.shadowStrength ?? config.shadowBlur ?? presetDefaults.shadowStrength,
-    presetDefaults.shadowStrength,
-  );
+  const shadowStrengthValue = (config.shadowStrength ?? config["shadow_strength"]);
+  const hasShadowStrength = Number.isFinite(Number(shadowStrengthValue));
+  const shadowStrength = hasShadowStrength
+    ? resolveVerticalCaptionShadowStrength(shadowStrengthValue, presetDefaults.shadowStrength)
+    : resolveVerticalCaptionShadowStrengthFromBlur(
+        config.shadowBlur ?? config["shadow_blur"],
+        presetDefaults.shadowStrength,
+      );
 
   return {
     enabled,
     autoGenerate,
     preset,
     text,
+    variantTextByKey,
     fontId,
     fontSize: Math.round(fontSize),
     textColor,
@@ -4440,10 +4481,35 @@ const pickVerticalCaptionConfigSource = (
   const candidates = [renderSettings, analysis];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") continue;
-    const nested = (candidate as Record<string, unknown>).verticalCaptions ??
-      (candidate as Record<string, unknown>).vertical_captions;
+    const candidateRecord = candidate as Record<string, unknown>;
+    const nested = candidateRecord.verticalCaptions ?? candidateRecord.vertical_captions;
     if (nested && typeof nested === "object") {
-      return nested as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...(nested as Record<string, unknown>) };
+      const variantCaptions = candidateRecord.verticalVariantCaptions ?? candidateRecord.vertical_variant_captions;
+      if (variantCaptions && typeof variantCaptions === "object" && !("variantCaptions" in merged)) {
+        merged.variantCaptions = variantCaptions;
+      }
+      const clipTextBySlot =
+        candidateRecord.verticalVariantClipCaptions ?? candidateRecord.vertical_variant_clip_captions;
+      if (
+        clipTextBySlot &&
+        typeof clipTextBySlot === "object" &&
+        !("clipTextBySlot" in merged) &&
+        !("variantClipCaptions" in merged)
+      ) {
+        merged.clipTextBySlot = clipTextBySlot;
+      }
+      const clipOverlayToneBySlot =
+        candidateRecord.verticalClipCaptionOverlayBySlot ?? candidateRecord.vertical_clip_caption_overlay_by_slot;
+      if (clipOverlayToneBySlot && typeof clipOverlayToneBySlot === "object" && !("clipOverlayToneBySlot" in merged)) {
+        merged.clipOverlayToneBySlot = clipOverlayToneBySlot;
+      }
+      const variantPositions =
+        candidateRecord.verticalVariantCaptionPositions ?? candidateRecord.vertical_variant_caption_positions;
+      if (variantPositions && typeof variantPositions === "object" && !("variantPositions" in merged)) {
+        merged.variantPositions = variantPositions;
+      }
+      return merged;
     }
   }
   return null;
@@ -4603,6 +4669,9 @@ const Editor = () => {
   );
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
   const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [curseFilterLevel, setCurseFilterLevel] = useState<CurseFilterLevel>("low");
+  const [curseFilterEnabled, setCurseFilterEnabled] = useState(false);
+  const [curseFilterPopoverOpen, setCurseFilterPopoverOpen] = useState(false);
   const [editorInstructionPrompt, setEditorInstructionPrompt] = useState("");
   const [editorMode, setEditorMode] = useState<EditorModeSelection>("auto");
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("retention_king");
@@ -7166,6 +7235,7 @@ const Editor = () => {
           preferAiBroll: true,
         }
       : null;
+    const curseFilterPayload = { enabled: curseFilterEnabled, level: curseFilterLevel };
     if (hasReachedRenderLimitForMode(requestedMode)) {
       const detail = tier === "free"
         ? `Free plan includes ${maxRendersPerMonth ?? 10} renders per month.`
@@ -7199,6 +7269,7 @@ const Editor = () => {
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
+              curseWordRemoval: curseFilterPayload,
               videoPreset,
               videoCrf,
               audioBitrateKbps,
@@ -7243,6 +7314,7 @@ const Editor = () => {
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
               tangentKiller,
+              curseWordRemoval: curseFilterPayload,
               videoPreset,
               videoCrf,
               audioBitrateKbps,
@@ -9186,6 +9258,7 @@ const Editor = () => {
             (job.analysis as any)?.hook_mode ??
             (job.analysis as any)?.hookMode,
           );
+        const curseFilterPayload = { enabled: curseFilterEnabled, level: curseFilterLevel };
         const payload: Record<string, unknown> = {
           requestedQuality: selectedQuality,
           retentionAggressionLevel: autoModeV3Defaults.aggressionLevel,
@@ -9203,6 +9276,7 @@ const Editor = () => {
           longFormAggression: autoModeV3Defaults.longFormAggression,
           longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
           tangentKiller,
+          curseWordRemoval: curseFilterPayload,
           videoPreset,
           videoCrf,
           audioBitrateKbps,
@@ -9453,6 +9527,8 @@ const Editor = () => {
       retentionStrategyProfile,
       retentionTargetPlatform,
       tangentKiller,
+      curseFilterEnabled,
+      curseFilterLevel,
       videoPreset,
       videoCrf,
       audioBitrateKbps,
@@ -9851,14 +9927,16 @@ const Editor = () => {
       positionX,
       positionY,
     );
-    const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlot);
-    const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlot);
+    const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlotForJob);
+    const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlotForJob);
     const text = normalizeVerticalCaptionTextForJob(resolvedVerticalCaptionText);
+    const variantTextByKey = normalizeVerticalCaptionVariantTextByKey(verticalCaptionTextByVariant, text);
     return {
       enabled: captionsEnabledForJob,
       autoGenerate: captionsEnabledForJob && text.length === 0,
       preset: verticalCaptionPreset,
       text,
+      variantTextByKey,
       fontId: verticalCaptionFontId,
       fontSize: Math.round(fontSize),
       textColor,
@@ -9901,8 +9979,9 @@ const Editor = () => {
     verticalCaptionRemoveFillers,
     verticalCaptionShadowStrength,
     verticalCaptionTextColor,
-    verticalClipCaptionOverlayBySlot,
-    verticalClipCaptionTextBySlot,
+    verticalCaptionTextByVariant,
+    verticalClipCaptionOverlayBySlotForJob,
+    verticalClipCaptionTextBySlotForJob,
     verticalPacingPreset,
     verticalVariantCaptionPositions,
     verticalVoicePreset,
@@ -14816,6 +14895,11 @@ const Editor = () => {
     }
     const snapshot = activeVerticalCaptionSnapshot;
     const normalizedText = sanitizeVerticalCaptionDraftText(snapshot.text);
+    const variantTextByKey = snapshot.variantTextByKey ?? {
+      instagram: normalizedText,
+      youtube: normalizedText,
+      tiktok: normalizedText,
+    };
     const motionProfile =
       VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.find((profile) => profile.id === verticalCaptionMotionProfile) ??
       VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS[0];
@@ -14842,9 +14926,9 @@ const Editor = () => {
     setVerticalCaptionPositionY(snapshot.positionY);
     setVerticalVariantCaptionPositions(snapshot.variantPositions);
     setVerticalCaptionTextByVariant({
-      instagram: normalizedText,
-      youtube: normalizedText,
-      tiktok: normalizedText,
+      instagram: sanitizeVerticalCaptionDraftText(variantTextByKey.instagram),
+      youtube: sanitizeVerticalCaptionDraftText(variantTextByKey.youtube),
+      tiktok: sanitizeVerticalCaptionDraftText(variantTextByKey.tiktok),
     });
     setVerticalClipCaptionTextBySlot(snapshot.clipTextBySlot);
     setVerticalClipCaptionOverlayBySlot(snapshot.clipOverlayToneBySlot);
@@ -16748,6 +16832,7 @@ const Editor = () => {
       );
     }
     if (section === "cuts") {
+      const curseFilterSliderValue = Math.max(0, CURSE_FILTER_LEVEL_SEQUENCE.indexOf(curseFilterLevel));
       return (
         <div className="space-y-4">
           <div className="rounded-xl border border-border/50 bg-muted/15 p-3">
@@ -16772,6 +16857,98 @@ const Editor = () => {
             <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
               <span>{MAX_CUTS_MIN}</span>
               <span>{MAX_CUTS_MAX}</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-primary/35 bg-primary/5 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-foreground">IGE Optimization</p>
+                <p className="text-xs text-muted-foreground">Trim out individual curse words while keeping flow intact.</p>
+              </div>
+              <Badge
+                variant={curseFilterEnabled ? "default" : "outline"}
+                className={curseFilterEnabled ? "bg-primary/20 text-primary-foreground" : "border-border/60 bg-muted/30 text-muted-foreground"}
+              >
+                {curseFilterEnabled ? `${CURSE_FILTER_LABELS[curseFilterLevel]} · On` : "Off"}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Popover open={curseFilterPopoverOpen} onOpenChange={setCurseFilterPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-10 rounded-xl border-border/60 bg-background/60 text-foreground hover:border-primary/40 hover:bg-primary/10"
+                  >
+                    Remove Curse Words
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 rounded-xl border border-border/60 bg-background/95 p-3 shadow-[0_18px_40px_-20px_rgba(0,0,0,0.65)]">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Profanity trimmer</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Cuts just the flagged word, leaving nearby speech and timing untouched.
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="border-border/60 bg-muted/25 text-[11px]">
+                        {CURSE_FILTER_LABELS[curseFilterLevel]}
+                      </Badge>
+                    </div>
+                    <Slider
+                      min={0}
+                      max={CURSE_FILTER_LEVEL_SEQUENCE.length - 1}
+                      step={1}
+                      value={[curseFilterSliderValue]}
+                      className="editor-settings-slider"
+                      onValueChange={(values) => {
+                        const nextIndex = clamp(
+                          Math.round(Number(values?.[0] ?? curseFilterSliderValue)),
+                          0,
+                          CURSE_FILTER_LEVEL_SEQUENCE.length - 1,
+                        );
+                        setCurseFilterLevel(CURSE_FILTER_LEVEL_SEQUENCE[nextIndex]);
+                      }}
+                    />
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>Low</span>
+                      <span>Mid</span>
+                      <span>High</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-[12px] text-foreground">
+                        <Switch checked={curseFilterEnabled} onCheckedChange={(checked) => setCurseFilterEnabled(checked)} />
+                        <span>Enable on render</span>
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 rounded-lg bg-primary px-3 text-white hover:bg-primary/90"
+                        onClick={() => {
+                          setCurseFilterEnabled(true);
+                          setCurseFilterPopoverOpen(false);
+                          trackEditorEvent("curse_filter_updated", {
+                            retentionProfile: retentionStrategyProfile,
+                            targetPlatform: retentionTargetPlatform,
+                            metadata: {
+                              level: curseFilterLevel,
+                            },
+                          });
+                        }}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <p className="text-[11px] text-muted-foreground">
+                {curseFilterEnabled
+                  ? `Will remove ${CURSE_FILTER_LABELS[curseFilterLevel].toLowerCase()} profanity from the next run.`
+                  : "Off by default — enable when you want a clean cut of explicit words."}
+              </p>
             </div>
           </div>
 
