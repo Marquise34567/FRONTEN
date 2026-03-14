@@ -2,6 +2,9 @@ node_modules/
 dist/
 .env
 .env.*
+!.env.production
 
 # Ignore temporary deploy folder
 frontend-deploy-temp/
+
+.vercel
