@@ -22348,7 +22348,8 @@ const Editor = () => {
               </Button>
             </div>
           </div>
-          </DialogContent>
+        </div>
+        </DialogContent>
         ) : null}
       </Dialog>
     </GlowBackdrop>
