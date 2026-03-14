@@ -4720,6 +4720,7 @@ const Editor = () => {
   const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [captionPreviewDrawFallback, setCaptionPreviewDrawFallback] = useState(false);
+  const [captionPreviewDownloading, setCaptionPreviewDownloading] = useState(false);
   const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("viral");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
@@ -8539,7 +8540,6 @@ const Editor = () => {
       try {
         if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
           verticalCaptionHitboxRef.current = null;
-          registerDrawFailure();
           return;
         }
         if (Math.abs((video.playbackRate || 1) - 1) > 0.01) {
@@ -14157,6 +14157,134 @@ const Editor = () => {
       return next;
     });
   }, [captionPopupClipIndexes]);
+  const handleDownloadCaptionPreview = useCallback(async () => {
+    if (captionPreviewDownloading) return;
+    const canvas = verticalCompositionCanvasRef.current;
+    if (!canvas || !canvas.width || !canvas.height) {
+      toast({
+        title: "Preview not ready",
+        description: "Wait for the caption preview to load before downloading.",
+      });
+      return;
+    }
+    if (captionPreviewDrawFallback) {
+      toast({
+        title: "Preview unavailable",
+        description: "Live caption preview is disabled for this clip. Try reloading the preview or rendering again.",
+      });
+      return;
+    }
+
+    const baseName = activeJob ? displayName(activeJob).replace(/\.[^/.]+$/, "") : "caption-preview";
+    const clipLabel = resolvedCaptionPreviewClipIndex >= 0 ? `clip-${resolvedCaptionPreviewClipIndex + 1}` : "preview";
+    const safeBase = baseName.trim() || "caption-preview";
+
+    if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+      try {
+        const blob = await new Promise<Blob | null>((resolve) => {
+          if (typeof canvas.toBlob === "function") {
+            canvas.toBlob(resolve, "image/png");
+          } else {
+            resolve(null);
+          }
+        });
+        if (!blob) throw new Error("preview_capture_unavailable");
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${safeBase}-${clipLabel}-caption-preview.png`;
+        link.rel = "noopener";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1500);
+        toast({
+          title: "Preview downloaded",
+          description: "Animated capture is not supported in this browser. Saved a still frame instead.",
+        });
+      } catch {
+        toast({
+          title: "Preview download failed",
+          description: "This browser cannot capture animated previews yet.",
+        });
+      }
+      return;
+    }
+
+    setCaptionPreviewDownloading(true);
+    try {
+      const fps = performanceConstrained ? 24 : 30;
+      const stream = canvas.captureStream(fps);
+      const video = verticalCompositionVideoRef.current;
+      try {
+        const audioStream = video?.captureStream?.();
+        const audioTracks = audioStream?.getAudioTracks?.() ?? [];
+        for (const track of audioTracks) {
+          stream.addTrack(track);
+        }
+      } catch {
+        // Audio capture is optional; ignore failures.
+      }
+
+      const preferredTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
+      const selectedType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = new MediaRecorder(stream, selectedType ? { mimeType: selectedType } : undefined);
+      const chunks: Blob[] = [];
+      const recordedBlob = new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+        recorder.onerror = () => reject(new Error("preview_capture_failed"));
+        recorder.onstop = () => {
+          resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
+        };
+      });
+
+      recorder.start();
+      const durationSec = Math.min(6, Math.max(2.5, Number(verticalClipDurationSeconds) || 4));
+      await new Promise((resolve) => window.setTimeout(resolve, durationSec * 1000));
+      if (recorder.state !== "inactive") recorder.stop();
+
+      const blob = await recordedBlob;
+      if (!blob.size) throw new Error("preview_capture_empty");
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${safeBase}-${clipLabel}-caption-preview.webm`;
+      link.rel = "noopener";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1500);
+      toast({
+        title: "Preview downloaded",
+        description: `Saved animated caption preview (${Math.round(durationSec)}s).`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Preview download failed",
+        description: err?.message || "Could not capture the animated preview.",
+      });
+    } finally {
+      setCaptionPreviewDownloading(false);
+    }
+  }, [
+    activeJob,
+    captionPreviewDownloading,
+    captionPreviewDrawFallback,
+    performanceConstrained,
+    resolvedCaptionPreviewClipIndex,
+    toast,
+    verticalClipDurationSeconds,
+  ]);
   const selectedCaptionClipIndex = useMemo(
     () => resolvedCaptionPreviewClipIndex,
     [resolvedCaptionPreviewClipIndex],
@@ -18522,7 +18650,7 @@ const Editor = () => {
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
                                       const showPreviewCaptionOverlay = Boolean(clipPreviewCaption) && (clipReady || showVerticalGalleryOnlyLayout);
-                                      const clipCaptionAnimationEnabled = false;
+                                      const clipCaptionAnimationEnabled = !runtimeProfile.reducedMotion;
                                       const clipCaptionDynamicIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
                                         ? 1.24
                                         : verticalCaptionDynamicMode === "karaoke_word"
@@ -21103,7 +21231,19 @@ const Editor = () => {
                     <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-foreground">Preview · {selectedCaptionClipLabel}</p>
-                        <Badge className="border-primary/45 bg-primary/10 text-primary">{captionPreviewSourceLabel}</Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className="border-primary/45 bg-primary/10 text-primary">{captionPreviewSourceLabel}</Badge>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-md px-2.5 text-[10px]"
+                            onClick={handleDownloadCaptionPreview}
+                            disabled={!captionPreviewSourceUrl || captionPreviewDownloading || captionPreviewDrawFallback}
+                          >
+                            {captionPreviewDownloading ? "Exporting..." : "Download Preview"}
+                          </Button>
+                        </div>
                       </div>
                       {captionPreviewSourceUrl ? (
                         <video
