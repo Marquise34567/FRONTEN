@@ -37,6 +37,19 @@ const isSameOriginBase = (left: string, right: string) => {
   if (!left || !right) return false;
   return normalizeOriginBase(left) === normalizeOriginBase(right);
 };
+const CROSS_ORIGIN_FALLBACK_BLOCKED_DOMAINS = ["autoeditor.app"];
+const isProtectedRuntimeOrigin = (originBase: string) => {
+  if (!originBase) return false;
+  try {
+    const parsed = new URL(originBase);
+    const host = parsed.hostname.toLowerCase();
+    return CROSS_ORIGIN_FALLBACK_BLOCKED_DOMAINS.some(
+      (domain) => host === domain || host.endsWith(`.${domain}`)
+    );
+  } catch {
+    return false;
+  }
+};
 export const getRuntimeOriginBase = () => (
   typeof window !== "undefined" ? `${window.location.protocol}//${window.location.host}` : ""
 );
@@ -44,6 +57,7 @@ export const shouldIncludeApiBase = (apiBase: string, runtimeOriginBase: string)
   if (!apiBase) return false;
   if (!runtimeOriginBase) return true;
   if (isSameOriginBase(apiBase, runtimeOriginBase)) return true;
+  if (isProtectedRuntimeOrigin(runtimeOriginBase)) return false;
   return ALLOW_CROSS_ORIGIN_API_FALLBACK;
 };
 const isLoopbackHostname = (hostname: string) => (
