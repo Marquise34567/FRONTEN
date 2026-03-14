@@ -20918,7 +20918,6 @@ const Editor = () => {
               </Button>
             </div>
           </div>
-        </div>
         </DialogContent>
         ) : null}
       </Dialog>
