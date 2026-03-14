@@ -71,6 +71,7 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
+const VERTICAL_CAPTIONS_TEMP_DISABLED = true;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
@@ -7079,7 +7080,11 @@ const Editor = () => {
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
     const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
+      requestedMode === "vertical"
+        ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
+        : autoCaptionsEnabled
+    );
     const verticalCaptionTextForJob = resolvedVerticalCaptionText;
     const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
     const verticalCaptionPaletteForJob =
@@ -7107,6 +7112,10 @@ const Editor = () => {
             textColor: normalizeCaptionHexColor(
               verticalCaptionTextColor,
               verticalCaptionPaletteForJob.textColor,
+            ),
+            accentColor: normalizeCaptionHexColor(
+              verticalCaptionHighlightColor,
+              verticalCaptionPaletteForJob.highlightColor,
             ),
             highlightColor: normalizeCaptionHexColor(
               verticalCaptionHighlightColor,
@@ -7625,6 +7634,12 @@ const Editor = () => {
     verticalMomentSelectionTouchedRef.current = false;
     verticalMomentSelectionTouchedClipIndexRef.current = null;
   }, [isVerticalMode, verticalSelectionMode]);
+
+  useEffect(() => {
+    if (!isVerticalMode) return;
+    if (!autoCaptionsEnabled) return;
+    setAutoCaptionsEnabled(false);
+  }, [autoCaptionsEnabled, isVerticalMode]);
 
   const buildDefaultWebcamCrop = useCallback((sourceWidth: number, sourceHeight: number): WebcamCrop => {
     const cropWidth = Math.round(clamp(
@@ -9153,7 +9168,11 @@ const Editor = () => {
         const requestedMode = job.renderMode === "vertical" ? "vertical" : "horizontal";
         const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
         const subtitlePresetForJob = parseSubtitleStyleConfig(subtitleStyleForJob).preset;
-        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
+        const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
+          requestedMode === "vertical"
+            ? (VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled)
+            : autoCaptionsEnabled
+        );
         const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
         const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
@@ -9283,6 +9302,10 @@ const Editor = () => {
               verticalCaptionTextColor,
               verticalCaptionPaletteForJob.textColor,
             ),
+            accentColor: normalizeCaptionHexColor(
+              verticalCaptionHighlightColor,
+              verticalCaptionPaletteForJob.highlightColor,
+            ),
             highlightColor: normalizeCaptionHexColor(
               verticalCaptionHighlightColor,
               verticalCaptionPaletteForJob.highlightColor,
@@ -9366,6 +9389,7 @@ const Editor = () => {
                 : "Your job was added back to the queue.",
           });
         }
+        return true;
       } catch (err: any) {
         if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED" && err.data?.feature === "editorInstructions") {
           promptDirectorNotesUpgrade();
@@ -9394,6 +9418,7 @@ const Editor = () => {
             description: err?.message || "Please try again.",
           });
         }
+        return false;
       } finally {
         setReprocessingJobId((current) => (current === job.id ? null : current));
       }
@@ -9469,9 +9494,30 @@ const Editor = () => {
     ],
   );
 
-  const handleDownload = async (clipIndex = 0) => {
+  const handleDownload = async (clipIndex = 0, options?: { skipRerenderCheck?: boolean }) => {
     if (!accessToken || !activeJob) return false;
     try {
+      const skipRerenderCheck = Boolean(options?.skipRerenderCheck);
+      if (
+        !skipRerenderCheck &&
+        activeJob.renderMode === "vertical" &&
+        verticalCaptionsDirty &&
+        normalizeStatus(activeJob.status) === "ready"
+      ) {
+        if (reprocessingJobId === activeJob.id) {
+          toast({ title: "Render in progress", description: "Finish the current render before downloading." });
+          return false;
+        }
+        const queued = await handleRedoRender(activeJob, { clipIndex });
+        if (queued) {
+          pendingDownloadAfterRenderRef.current = { jobId: activeJob.id, clipIndex };
+          toast({
+            title: "Rendering caption updates",
+            description: "Download will start automatically once the new render is ready.",
+          });
+        }
+        return false;
+      }
       const clipParam = clipIndex + 1;
       const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
       const fallbackFileName =
@@ -9529,6 +9575,14 @@ const Editor = () => {
       return false;
     }
   };
+
+  useEffect(() => {
+    const pending = pendingDownloadAfterRenderRef.current;
+    if (!pending || !activeJob?.id || pending.jobId !== activeJob.id) return;
+    if (normalizeStatus(activeJob.status) !== "ready") return;
+    pendingDownloadAfterRenderRef.current = null;
+    void handleDownload(pending.clipIndex, { skipRerenderCheck: true });
+  }, [activeJob?.id, activeJob?.status]);
 
   const handleExportXml = useCallback(() => {
     if (!activeJob) return;
@@ -9768,7 +9822,9 @@ const Editor = () => {
     [activeVerticalCaptionSnapshot],
   );
   const currentVerticalCaptionSnapshot = useMemo(() => {
-    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && autoCaptionsEnabled;
+    const captionsEnabledForJob = CAPTIONS_PIPELINE_ENABLED && (
+      VERTICAL_CAPTIONS_TEMP_DISABLED ? false : autoCaptionsEnabled
+    );
     const palette =
       VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
       VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
@@ -9795,8 +9851,8 @@ const Editor = () => {
       positionX,
       positionY,
     );
-    const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlotForJob);
-    const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlotForJob);
+    const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlot);
+    const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlot);
     const text = normalizeVerticalCaptionTextForJob(resolvedVerticalCaptionText);
     return {
       enabled: captionsEnabledForJob,
@@ -9845,8 +9901,8 @@ const Editor = () => {
     verticalCaptionRemoveFillers,
     verticalCaptionShadowStrength,
     verticalCaptionTextColor,
-    verticalClipCaptionOverlayBySlotForJob,
-    verticalClipCaptionTextBySlotForJob,
+    verticalClipCaptionOverlayBySlot,
+    verticalClipCaptionTextBySlot,
     verticalPacingPreset,
     verticalVariantCaptionPositions,
     verticalVoicePreset,
@@ -16284,6 +16340,7 @@ const Editor = () => {
   ]);
 
   const openCaptionSettings = useCallback(() => {
+    setHideEditorControlsPanel(false);
     setEditorSettingsSection("captions");
     setCaptionSettingsDialogOpen(true);
     if (typeof document === "undefined") return;
@@ -18044,8 +18101,6 @@ const Editor = () => {
                 ref={uploadDropZoneRef}
                 data-vertical={isVerticalMode ? "true" : "false"}
                 className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
-                  isVerticalMode ? "vertical-upload-premium" : ""
-                } ${
                   isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
                 }`}
                 onClick={handlePickFile}
@@ -18058,26 +18113,14 @@ const Editor = () => {
                 tabIndex={0}
                 aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
               >
-                {isVerticalMode ? (
-                  <>
-                    <div className="vertical-upload-premium-bg" aria-hidden="true" />
-                    <div className="vertical-upload-premium-sheen" aria-hidden="true" />
-                  </>
-                ) : null}
                 <div className="flex flex-col items-center gap-3 relative z-10">
-                  {isVerticalMode ? (
-                    <div className="vertical-upload-kicker">
-                      <span className="vertical-upload-pill">Studio Upload</span>
-                      <span className="vertical-upload-pill is-muted">9:16 Shorts</span>
-                    </div>
-                  ) : null}
-                  <div className={`w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center ${isVerticalMode ? "vertical-upload-icon" : ""}`}>
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
                     <Upload className="w-7 h-7 text-primary" />
                   </div>
-                  <p className={`font-medium text-foreground ${isVerticalMode ? "vertical-upload-title" : ""}`}>
+                  <p className="font-medium text-foreground">
                     {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
                   </p>
-                  <p className={`text-sm text-muted-foreground ${isVerticalMode ? "vertical-upload-subtitle" : ""}`}>
+                  <p className="text-sm text-muted-foreground">
                     {isVerticalMode
                       ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
                       : "MP4, M4V, or MKV up to 2GB"}
