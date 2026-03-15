@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -67,8 +67,10 @@ const DEMO_CLIPS = [
 
 const SHORTS_EDITOR_LINK = "/editor?autopick=1&mode=vertical";
 const STEP_ADVANCE_MS = 1800;
+const AUTO_REDIRECT_DELAY_MS = 1200;
 
 const ShortsModeDemo = () => {
+  const navigate = useNavigate();
   const [stepIndex, setStepIndex] = useState(0);
   const [running, setRunning] = useState(true);
   const maxStep = DEMO_STEPS.length - 1;
@@ -84,6 +86,15 @@ const ShortsModeDemo = () => {
     }, STEP_ADVANCE_MS);
     return () => window.clearTimeout(timer);
   }, [maxStep, running, stepIndex]);
+
+  useEffect(() => {
+    if (running) return;
+    if (stepIndex < maxStep) return;
+    const timer = window.setTimeout(() => {
+      navigate(SHORTS_EDITOR_LINK);
+    }, AUTO_REDIRECT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [maxStep, navigate, running, stepIndex]);
 
   const progressPercent = useMemo(
     () => Math.round(((stepIndex + 1) / DEMO_STEPS.length) * 100),

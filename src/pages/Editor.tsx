@@ -9194,7 +9194,9 @@ const Editor = () => {
     try {
       if (!searchParams.get("autopick")) return;
       if (!accessToken) {
-        const target = `/editor?autopick=1`;
+        const targetParams = new URLSearchParams(searchParams);
+        const targetQuery = targetParams.toString();
+        const target = targetQuery ? `/editor?${targetQuery}` : "/editor?autopick=1";
         navigate(`/login?next=${encodeURIComponent(target)}`);
         return;
       }
