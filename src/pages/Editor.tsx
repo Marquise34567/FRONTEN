@@ -18792,21 +18792,24 @@ const Editor = () => {
                                         verticalCaptionOutlineColor,
                                         VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "000000",
                                       );
-                                      const clipPreviewCaptionStrokePx = Number(
-                                        clamp(verticalCaptionOutlineWidth * 0.06, 0.6, 1.8).toFixed(2),
-                                      );
-                                      const clipPreviewCaptionShadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
                                       const clipPreviewCaptionBoxEnabled =
                                         clipPreviewCaptionHints.boxEnabled || clipPreviewOverlayTone !== "none";
+                                      const clipPreviewCaptionStrokePx = clipPreviewCaptionBoxEnabled
+                                        ? 0
+                                        : Number(
+                                          clamp(verticalCaptionOutlineWidth * 0.05, 0.45, 1.4).toFixed(2),
+                                        );
+                                      const clipPreviewCaptionShadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
                                       const clipPreviewCaptionFontPx = Math.round(
-                                        clamp(verticalCaptionFontSize * 0.22, 14, 24),
+                                        clamp(verticalCaptionFontSize * 0.26, 16, 30),
                                       );
                                       const clipPreviewShadowBlur = clipPreviewCaptionBoxEnabled
-                                        ? Math.max(1, Math.round(1 + clipPreviewCaptionShadowOpacity * 3))
+                                        ? 0
                                         : Math.max(2, Math.round(2 + clipPreviewCaptionShadowOpacity * 5));
                                       const clipPreviewShadowY = clipPreviewCaptionBoxEnabled
-                                        ? 1
+                                        ? 0
                                         : Math.max(1, Math.round(1 + clipPreviewCaptionShadowOpacity * 2));
+                                      const clipPreviewLetterSpacing = clipPreviewCaption.length > 36 ? 0.01 : 0.02;
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
                                       const showPreviewCaptionOverlay = Boolean(clipPreviewCaption) && (clipReady || showVerticalGalleryOnlyLayout);
@@ -18845,12 +18848,14 @@ const Editor = () => {
                                           ?? VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId]
                                           ?? VERTICAL_CAPTION_FONT_FAMILY.impact,
                                         fontWeight: selectedVerticalCaptionFontVariant?.fontWeight ?? 900,
-                                        letterSpacing: `${selectedVerticalCaptionFontVariant?.letterSpacing ?? 0.02}em`,
+                                        letterSpacing: `${clipPreviewLetterSpacing}em`,
                                         fontSize: `${clipPreviewCaptionFontPx}px`,
                                         lineHeight: 1.1,
                                         textTransform: clipPreviewCaptionForceUppercase ? "uppercase" : "none",
                                         WebkitTextStroke: `${clipPreviewCaptionStrokePx}px #${clipPreviewCaptionOutline}`,
-                                        textShadow: `0 ${clipPreviewShadowY}px ${clipPreviewShadowBlur}px rgba(0, 0, 0, 0.65)`,
+                                        textShadow: clipPreviewShadowBlur > 0
+                                          ? `0 ${clipPreviewShadowY}px ${clipPreviewShadowBlur}px rgba(0, 0, 0, 0.65)`
+                                          : "none",
                                         backgroundColor: clipPreviewCaptionBoxEnabled
                                           ? clipPreviewCaptionEffectivePalette.boxColor
                                           : "transparent",
