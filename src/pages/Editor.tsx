@@ -72,7 +72,8 @@ const PREVIEW_IMPROVEMENT_POPUP_ROTATE_CONSTRAINED_MS = 6200;
 const BACKGROUND_POLL_HIDDEN_INTERVAL_MS = 12000;
 const BACKGROUND_POLL_CONSTRAINED_INTERVAL_MS = 6500;
 const BACKGROUND_JOB_POLL_CONSTRAINED_INTERVAL_MS = 7000;
-const VERTICAL_CAPTIONS_TEMP_DISABLED = true;
+const VERTICAL_CAPTIONS_TEMP_DISABLED = false;
+const SHOW_CAPTION_STYLE_OPTIONS = false;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
@@ -7071,14 +7072,27 @@ const Editor = () => {
     file: File,
     onProgress: (value: number) => void,
     onProgressBytes?: (loaded: number, total: number) => void,
+    options?: {
+      body?: BodyInit;
+      headers?: Record<string, string>;
+      skipContentType?: boolean;
+      fallbackTotalBytes?: number;
+    },
   ) => {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      const body = options?.body ?? file;
+      const headers = options?.headers ?? {};
+      const fallbackTotal = Number.isFinite(Number(options?.fallbackTotalBytes))
+        ? Number(options?.fallbackTotalBytes)
+        : file.size;
       xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-        const percent = Math.round((event.loaded / event.total) * 100);
+        const total = event.lengthComputable ? event.total : fallbackTotal;
+        if (!total || !Number.isFinite(total)) return;
+        const loaded = Math.min(Math.max(0, event.loaded || 0), total);
+        const percent = Math.min(100, Math.round((loaded / total) * 100));
         onProgress(percent);
-        if (onProgressBytes) onProgressBytes(event.loaded, event.total);
+        if (onProgressBytes) onProgressBytes(loaded, total);
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) resolve();
@@ -7086,10 +7100,19 @@ const Editor = () => {
       };
       xhr.onerror = () => reject(new Error("Upload failed"));
       xhr.open("PUT", url, true);
-      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-      xhr.send(file);
+      const headerEntries = Object.entries(headers);
+      const hasContentTypeHeader = headerEntries.some(([key]) => key.toLowerCase() === "content-type");
+      for (const [key, value] of headerEntries) {
+        xhr.setRequestHeader(key, value);
+      }
+      if (!options?.skipContentType && !hasContentTypeHeader) {
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      }
+      xhr.send(body);
     });
   };
+
+  const isSupabaseSignedUploadUrl = (url: string) => url.includes("/storage/v1/object/upload/sign/");
 
   // Resumable upload logic removed — we use backend-presigned multipart upload to R2
 
@@ -7333,7 +7356,13 @@ const Editor = () => {
                 fit: "contain" as const,
               },
             };
-      const create = await apiFetch<{ job: JobDetail; uploadUrl?: string | null; inputPath: string; bucket: string }>(
+      const create = await apiFetch<{
+        job: JobDetail;
+        uploadUrl?: string | null;
+        inputPath: string;
+        bucket: string;
+        uploadProvider?: "r2" | "supabase" | null;
+      }>(
         "/api/jobs/create",
         {
           method: "POST",
@@ -7494,12 +7523,14 @@ const Editor = () => {
         }
       };
 
-      // Always attempt multipart first. If it fails, we gracefully fall back below.
-      const usedR2 = await tryR2Multipart()
+      // Always attempt multipart first when R2 is available. If it fails, we gracefully fall back below.
+      const canUseMultipart = create.uploadProvider !== "supabase";
+      const usedR2 = canUseMultipart ? await tryR2Multipart() : false;
       if (usedR2) return true
 
       const uploadViaProxy = async () => {
-        const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}`
+        const filenameParam = encodeURIComponent(file.name || "upload");
+        const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}&filename=${filenameParam}`
         const proxyBases: string[] = []
         const seenProxyBases = new Set<string>()
         const addProxyBase = (candidate: string) => {
@@ -7525,6 +7556,7 @@ const Editor = () => {
               headers: {
                 Authorization: `Bearer ${accessToken}`,
                 "Content-Type": file.type || "application/octet-stream",
+                "X-File-Name": file.name || "upload",
               },
               body: file,
             })
@@ -7539,15 +7571,38 @@ const Editor = () => {
       }
 
       // Fallback: if server provided a single PUT uploadUrl, use it. Otherwise use proxy upload.
-      if (create.uploadUrl) {
+      const skipDirectUpload = isLocalhostLoopbackRuntime() && create.uploadProvider === "supabase";
+      if (create.uploadUrl && !skipDirectUpload) {
         jobFileSizeRef.current[create.job.id] = file.size
         uploadStartRef.current[create.job.id] = Date.now()
         try {
-          await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
-            setUploadBytesUploaded(loaded)
-            setUploadBytesTotal(total)
-            setUploadProgress(Math.round((loaded / total) * 100))
-          })
+          const isSupabaseSignedUpload =
+            create.uploadProvider === "supabase" || isSupabaseSignedUploadUrl(create.uploadUrl);
+          if (isSupabaseSignedUpload) {
+            const formData = new FormData();
+            formData.append("cacheControl", "3600");
+            formData.append("", file);
+            const supabaseHeaders: Record<string, string> = { "x-upsert": "true" };
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+            if (supabaseAnonKey) supabaseHeaders["apikey"] = supabaseAnonKey;
+            if (accessToken) supabaseHeaders["Authorization"] = `Bearer ${accessToken}`;
+            await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+              setUploadBytesUploaded(loaded);
+              setUploadBytesTotal(total);
+              setUploadProgress(Math.round((loaded / total) * 100));
+            }, {
+              body: formData,
+              headers: supabaseHeaders,
+              skipContentType: true,
+              fallbackTotalBytes: file.size
+            });
+          } else {
+            await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
+              setUploadBytesUploaded(loaded)
+              setUploadBytesTotal(total)
+              setUploadProgress(Math.round((loaded / total) * 100))
+            }, { fallbackTotalBytes: file.size })
+          }
         } catch (err) {
           console.warn('Direct upload failed, falling back to proxy', err)
           await uploadViaProxy()
@@ -13763,7 +13818,8 @@ const Editor = () => {
     let previewBlobUrl: string | null = null;
     const jobId = activeJob?.id || "";
     const baseUrl = String(previewOutputUrl || "").trim();
-    if (!activeJobReadyForDownload || (!jobId && !baseUrl)) {
+    const shouldAttemptPreview = Boolean(baseUrl) || (jobId && normalizedActiveStatus === "ready");
+    if (!shouldAttemptPreview) {
       setResolvedPreviewOutputUrl("");
       return () => {};
     }
@@ -13792,7 +13848,7 @@ const Editor = () => {
         return;
       }
       if (!accessToken) {
-        if (!canceled) setResolvedPreviewOutputUrl("");
+        if (!canceled) setResolvedPreviewOutputUrl(resolvedSourceUrl);
         return;
       }
       try {
@@ -13808,7 +13864,7 @@ const Editor = () => {
         setResolvedPreviewOutputUrl(previewBlobUrl);
       } catch (error) {
         if (canceled) return;
-        setResolvedPreviewOutputUrl("");
+        setResolvedPreviewOutputUrl(resolvedSourceUrl);
       }
     };
     void resolveAuthorizedPreview();
@@ -13819,7 +13875,6 @@ const Editor = () => {
   }, [
     accessToken,
     activeJob?.id,
-    activeJobReadyForDownload,
     activePreviewCacheKey,
     activePreviewRefreshNonce,
     normalizedActiveStatus,
@@ -13878,10 +13933,6 @@ const Editor = () => {
 
       resolvedSourceUrl = String(resolvedSourceUrl || "").trim();
       if (!resolvedSourceUrl) return "";
-      if (!isAuthRequiredDownloadUrl(resolvedSourceUrl)) return resolvedSourceUrl;
-      if (!accessToken) return "";
-      if (!shouldHydrateAuthClip) return "";
-
       const sourceIdentity = buildPreviewUrlIdentity(resolvedSourceUrl);
       const cachedBlobUrl = verticalClipPreviewBlobUrlByClipRef.current[clipIndex];
       const cachedBlobIdentity = verticalClipPreviewBlobIdentityByClipRef.current[clipIndex];
@@ -13890,12 +13941,33 @@ const Editor = () => {
       }
 
       try {
+        if (!isAuthRequiredDownloadUrl(resolvedSourceUrl)) {
+          if (!shouldHydrateAuthClip) return resolvedSourceUrl;
+          const response = await fetch(resolvedSourceUrl);
+          if (!response.ok) return resolvedSourceUrl;
+          const blob = await response.blob();
+          if (canceled) return "";
+          const blobUrl = window.URL.createObjectURL(blob);
+          const priorBlobUrl = verticalClipPreviewBlobUrlByClipRef.current[clipIndex];
+          if (priorBlobUrl && priorBlobUrl !== blobUrl) {
+            try {
+              window.URL.revokeObjectURL(priorBlobUrl);
+            } catch {
+              // Ignore URL revoke failures for stale or already-released blobs.
+            }
+          }
+          verticalClipPreviewBlobUrlByClipRef.current[clipIndex] = blobUrl;
+          verticalClipPreviewBlobIdentityByClipRef.current[clipIndex] = sourceIdentity;
+          return blobUrl;
+        }
+        if (!accessToken) return resolvedSourceUrl;
+        if (!shouldHydrateAuthClip) return "";
         const response = await fetch(resolvedSourceUrl, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
         });
-        if (!response.ok) return "";
+        if (!response.ok) return resolvedSourceUrl;
         const blob = await response.blob();
         if (canceled) return "";
         const blobUrl = window.URL.createObjectURL(blob);
@@ -13911,7 +13983,7 @@ const Editor = () => {
         verticalClipPreviewBlobIdentityByClipRef.current[clipIndex] = sourceIdentity;
         return blobUrl;
       } catch {
-        return "";
+        return resolvedSourceUrl;
       }
     };
 
@@ -14066,27 +14138,38 @@ const Editor = () => {
     captionPreviewClipIndex,
     singleTargetedCaptionClipIndex,
   ]);
-  const captionPreviewSourceUrl = useMemo(() => {
+  const captionPreviewSourceMeta = useMemo(() => {
+    const clipLabel = resolvedCaptionPreviewClipIndex < 0
+      ? "Clip Preview"
+      : `Clip #${resolvedCaptionPreviewClipIndex + 1}`;
+    const sourcePreviewUrl = String(verticalPreviewUrl || "").trim();
+    const previewOutputFallback = String(resolvedPreviewOutputUrl || "").trim();
+
     if (resolvedCaptionPreviewClipIndex < 0) {
-      const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
-      if (sourceFallback) return sourceFallback;
-      return String(verticalPreviewUrl || "").trim();
+      const url = previewOutputFallback || sourcePreviewUrl;
+      return {
+        url,
+        label: sourcePreviewUrl && url === sourcePreviewUrl ? "Source Preview" : clipLabel,
+      };
     }
-    const resolvedClipUrl = resolvedCaptionPreviewClipIndex >= 0
-      ? String(resolvedVerticalVariantOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim()
-      : "";
-    if (resolvedClipUrl) return resolvedClipUrl;
-    const directClipUrl = resolvedCaptionPreviewClipIndex >= 0
-      ? String(activeOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim()
-      : "";
+
+    const resolvedClipUrl = String(resolvedVerticalVariantOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim();
+    if (resolvedClipUrl) return { url: resolvedClipUrl, label: clipLabel };
+
+    const directClipUrl = String(activeOutputUrls[resolvedCaptionPreviewClipIndex] || "").trim();
     const renderedClipUrl = directClipUrl && !isAuthRequiredDownloadUrl(directClipUrl) ? directClipUrl : "";
-    if (renderedClipUrl) return renderedClipUrl;
-    if (resolvedCaptionPreviewClipIndex === 0) {
-      const sourceFallback = String(resolvedPreviewOutputUrl || "").trim();
-      if (sourceFallback) return sourceFallback;
+    if (renderedClipUrl) return { url: renderedClipUrl, label: clipLabel };
+
+    if (resolvedCaptionPreviewClipIndex === 0 && previewOutputFallback) {
+      return { url: previewOutputFallback, label: clipLabel };
     }
-    // Do not silently switch to another clip source when a specific clip is selected.
-    return "";
+
+    // If the selected clip isn't ready, fall back to the source upload for preview.
+    if (sourcePreviewUrl) {
+      return { url: sourcePreviewUrl, label: "Source Preview" };
+    }
+
+    return { url: "", label: clipLabel };
   }, [
     activeOutputUrls,
     resolvedCaptionPreviewClipIndex,
@@ -14094,10 +14177,8 @@ const Editor = () => {
     resolvedVerticalVariantOutputUrls,
     verticalPreviewUrl,
   ]);
-  const captionPreviewSourceLabel = useMemo(() => {
-    if (resolvedCaptionPreviewClipIndex < 0) return "Clip Preview";
-    return `Clip #${resolvedCaptionPreviewClipIndex + 1}`;
-  }, [resolvedCaptionPreviewClipIndex]);
+  const captionPreviewSourceUrl = captionPreviewSourceMeta.url;
+  const captionPreviewSourceLabel = captionPreviewSourceMeta.label;
   useEffect(() => {
     captionPreviewDrawFailureCountRef.current = 0;
     setCaptionPreviewDrawFallback(false);
@@ -14159,27 +14240,58 @@ const Editor = () => {
   }, [captionPopupClipIndexes]);
   const handleDownloadCaptionPreview = useCallback(async () => {
     if (captionPreviewDownloading) return;
-    const canvas = verticalCompositionCanvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) {
-      toast({
-        title: "Preview not ready",
-        description: "Wait for the caption preview to load before downloading.",
-      });
-      return;
-    }
-    if (captionPreviewDrawFallback) {
-      toast({
-        title: "Preview unavailable",
-        description: "Live caption preview is disabled for this clip. Try reloading the preview or rendering again.",
-      });
-      return;
-    }
-
     const baseName = activeJob ? displayName(activeJob).replace(/\.[^/.]+$/, "") : "caption-preview";
     const clipLabel = resolvedCaptionPreviewClipIndex >= 0 ? `clip-${resolvedCaptionPreviewClipIndex + 1}` : "preview";
     const safeBase = baseName.trim() || "caption-preview";
+    const sourceUrl = String(captionPreviewSourceUrl || "").trim();
+    const inferSourceExtension = (value: string) => {
+      const cleaned = String(value || "").split(/[?#]/)[0] ?? "";
+      const lastDot = cleaned.lastIndexOf(".");
+      if (lastDot <= cleaned.lastIndexOf("/")) return "mp4";
+      const ext = cleaned.slice(lastDot + 1);
+      if (!ext || ext.length > 5 || !/^[a-z0-9]+$/i.test(ext)) return "mp4";
+      return ext.toLowerCase();
+    };
+    const sourceFileName = `${safeBase}-${clipLabel}-preview-source.${inferSourceExtension(sourceUrl)}`;
+    const downloadSourcePreview = async (description: string, options?: { skipLoading?: boolean }) => {
+      if (!sourceUrl) {
+        toast({
+          title: "Preview not ready",
+          description: "Wait for the caption preview to load before downloading.",
+        });
+        return false;
+      }
+      if (!options?.skipLoading) setCaptionPreviewDownloading(true);
+      try {
+        await triggerFileDownload(sourceUrl, sourceFileName);
+        toast({
+          title: "Preview downloaded",
+          description,
+        });
+        return true;
+      } catch (err: any) {
+        toast({
+          title: "Preview download failed",
+          description: err?.message || "Could not download the preview video.",
+        });
+        return false;
+      } finally {
+        if (!options?.skipLoading) setCaptionPreviewDownloading(false);
+      }
+    };
+
+    const canvas = verticalCompositionCanvasRef.current;
+    if (!canvas || !canvas.width || !canvas.height) {
+      await downloadSourcePreview("Caption overlay isn't ready yet. Downloaded the preview video instead.");
+      return;
+    }
+    if (captionPreviewDrawFallback) {
+      await downloadSourcePreview("Live caption overlay is unavailable. Downloaded the preview video instead.");
+      return;
+    }
 
     if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+      setCaptionPreviewDownloading(true);
       try {
         const blob = await new Promise<Blob | null>((resolve) => {
           if (typeof canvas.toBlob === "function") {
@@ -14204,10 +14316,12 @@ const Editor = () => {
           description: "Animated capture is not supported in this browser. Saved a still frame instead.",
         });
       } catch {
-        toast({
-          title: "Preview download failed",
-          description: "This browser cannot capture animated previews yet.",
-        });
+        await downloadSourcePreview(
+          "Animated capture isn't supported here. Downloaded the preview video instead.",
+          { skipLoading: true },
+        );
+      } finally {
+        setCaptionPreviewDownloading(false);
       }
       return;
     }
@@ -14268,11 +14382,11 @@ const Editor = () => {
         title: "Preview downloaded",
         description: `Saved animated caption preview (${Math.round(durationSec)}s).`,
       });
-    } catch (err: any) {
-      toast({
-        title: "Preview download failed",
-        description: err?.message || "Could not capture the animated preview.",
-      });
+    } catch {
+      await downloadSourcePreview(
+        "Could not capture the animated overlay. Downloaded the preview video instead.",
+        { skipLoading: true },
+      );
     } finally {
       setCaptionPreviewDownloading(false);
     }
@@ -14280,9 +14394,11 @@ const Editor = () => {
     activeJob,
     captionPreviewDownloading,
     captionPreviewDrawFallback,
+    captionPreviewSourceUrl,
     performanceConstrained,
     resolvedCaptionPreviewClipIndex,
     toast,
+    triggerFileDownload,
     verticalClipDurationSeconds,
   ]);
   const selectedCaptionClipIndex = useMemo(
@@ -14503,7 +14619,7 @@ const Editor = () => {
       description: `${clipIndexes.length} clip caption${clipIndexes.length > 1 ? "s" : ""} updated.`,
     });
   }, [verticalClipCaptionGenerateSelectedBySlot, verticalClipCaptionPromptBySlot, verticalClipCount, toast]);
-  const showVideo = Boolean(activeJobReadyForDownload && resolvedPreviewOutputUrl);
+  const showVideo = Boolean(resolvedPreviewOutputUrl);
   const transcriptSeekEnabled = activeTranscriptTimelineMode === "edited" && showVideo;
   const previewTranscriptCaptionsEnabled = showVideo && activeTranscriptCues.length > 0;
   const shouldSyncPreviewClock = showVideo && (
@@ -15695,6 +15811,7 @@ const Editor = () => {
     SHORTS_AUTO_VERTICAL_ONLY
       ? "vertical"
       : (pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal"));
+  const isVerticalUploadPrompt = pendingUploadMode === "vertical";
   const activeAdvancedLearningModeLabels = useMemo(() => {
     const labels: string[] = [];
     if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
@@ -16344,6 +16461,12 @@ const Editor = () => {
         ? "border-primary/60 bg-[linear-gradient(145deg,rgba(59,130,246,0.2),rgba(16,185,129,0.14))] shadow-[0_24px_44px_-30px_hsl(var(--primary)/0.95)] ring-1 ring-primary/45"
         : "border-border/60 bg-background/35 hover:border-primary/40 hover:bg-primary/8"
     }`;
+  const captionPreviewCardClass = (active: boolean) =>
+    `rounded-xl border px-3 py-2 text-left transition-all ${
+      active
+        ? "border-primary/55 bg-primary/12 text-foreground shadow-sm"
+        : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:bg-primary/5"
+    }`;
   const verticalModeChipClass = (active: boolean) =>
     `vertical-opus-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
   const activeVerticalUploadModePreset = useMemo(
@@ -16496,6 +16619,14 @@ const Editor = () => {
     });
   }, [autoCaptionsEnabled, applyVerticalCaptionPreset, setSubtitleStyleDirty, trackEditorEvent]);
 
+  const maybeEnableVerticalCaptions = useCallback((nextMode: "horizontal" | "vertical") => {
+    if (nextMode !== "vertical") return;
+    if (captionsToggleDisabled) return;
+    if (autoCaptionsEnabled) return;
+    setAutoCaptionsEnabled(true);
+    setSubtitleStyleDirty(true);
+  }, [autoCaptionsEnabled, captionsToggleDisabled, setAutoCaptionsEnabled, setSubtitleStyleDirty]);
+
   const selectUploadFormatMode = useCallback((
     mode: "horizontal" | "vertical",
     source: "upload_zone" | "upload_mode_modal" = "upload_zone",
@@ -16512,10 +16643,15 @@ const Editor = () => {
     });
     if (resolvedMode === "vertical") {
       setSkipManualWebcamCrop(false);
+      if (!isVerticalMode) {
+        maybeEnableVerticalCaptions(resolvedMode);
+      }
     }
     setRenderMode(resolvedMode);
   }, [
     activeSubtitlePreset,
+    isVerticalMode,
+    maybeEnableVerticalCaptions,
     retentionStrategyProfile,
     retentionTargetPlatform,
     setRenderMode,
@@ -16634,6 +16770,9 @@ const Editor = () => {
                     captionStyle: activeSubtitlePreset,
                     metadata: { mode: "vertical" },
                   });
+                  if (!isVerticalMode) {
+                    maybeEnableVerticalCaptions("vertical");
+                  }
                   setRenderMode("vertical");
                 }}
                 aria-pressed={isVerticalMode}
@@ -18462,33 +18601,6 @@ const Editor = () => {
 
               {isVerticalMode && (
                 <div className="vertical-reboot-shell">
-                  {!hasVerticalVariantWorkspace && (
-                    <div className="vertical-reboot-empty">
-                      <p className="vertical-mode-note text-xs text-muted-foreground">
-                        Upload a video to start your vertical clip gallery.
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-8 rounded-full px-3 text-[11px]"
-                          onClick={handlePickFile}
-                        >
-                          Upload source
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-8 rounded-full border-border/60 bg-background/60 px-3 text-[11px] text-foreground"
-                          onClick={() => navigate(verticalExtrasHref)}
-                        >
-                          Vertical Extras
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
                   {hasVerticalVariantWorkspace && (
                     <div className="vertical-reboot-gallery-shell space-y-4">
                       {verticalPreviewUrl ? (
@@ -20292,9 +20404,13 @@ const Editor = () => {
                 <Badge className="border-primary/40 bg-primary/12 text-primary">Upload Studio</Badge>
                 <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Premium Workflow</span>
               </div>
-              <DialogTitle className="text-xl font-display text-foreground">Choose Upload Mode</DialogTitle>
+              <DialogTitle className="text-xl font-display text-foreground">
+                {isVerticalUploadPrompt ? "Vertical Upload Mode" : "Choose Upload Mode"}
+              </DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Choose your render profile, quick setup, and AI placement behavior before processing starts.
+                {isVerticalUploadPrompt
+                  ? "Pick an animated caption look and vertical mode before the upload starts."
+                  : "Choose your render profile, quick setup, and AI placement behavior before processing starts."}
               </DialogDescription>
             </DialogHeader>
 
@@ -20305,6 +20421,158 @@ const Editor = () => {
               </div>
             ) : null}
 
+            {isVerticalUploadPrompt ? (
+              <>
+                <div className="relative z-10 mt-4 rounded-2xl border border-primary/35 bg-[linear-gradient(148deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.64))] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Animated Captions</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Pick a caption animation preview before the upload starts.</p>
+                    </div>
+                    <Badge className="border-primary/40 bg-primary/12 text-primary">
+                      {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => {
+                      const active = verticalCaptionPreset === option.id;
+                      const defaults =
+                        VERTICAL_CAPTION_PRESET_DEFAULTS[option.id] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+                      const palette =
+                        VERTICAL_CAPTION_PREVIEW_PALETTE[option.id] ?? VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+                      const hints =
+                        VERTICAL_CAPTION_PRESET_RENDER_HINTS[option.id] ?? VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+                      const variantId = DEFAULT_VERTICAL_CAPTION_FONT_VARIANT_BY_RENDER_FONT[defaults.fontId];
+                      const variant = VERTICAL_CAPTION_FONT_VARIANT_BY_ID[variantId] ?? VERTICAL_CAPTION_FONT_VARIANT_OPTIONS[0];
+                      const animationId = normalizeVerticalCaptionAnimation(defaults.animation);
+                      const isAnimated = animationId !== "none";
+                      const animationBaseMs =
+                        animationId === "slide"
+                          ? 2200
+                          : animationId === "fade"
+                            ? 2000
+                            : animationId === "bounce"
+                              ? 1800
+                              : animationId === "glitch"
+                                ? 1200
+                                : 1600;
+                      const animationDurationMs = Math.round(
+                        animationBaseMs / clampVerticalCaptionAnimationSpeed(defaults.animationSpeed),
+                      );
+                      const outlineColor = normalizeCaptionCssColor(defaults.outlineColor, "000000");
+                      const shadowOpacity = clamp(defaults.shadowStrength / 100, 0, 1);
+                      const previewText = option.label;
+                      const previewStyle = {
+                        color: palette.textColor,
+                        fontFamily: variant.previewFamily ?? VERTICAL_CAPTION_FONT_FAMILY[defaults.fontId],
+                        fontWeight: variant.fontWeight ?? 900,
+                        letterSpacing: `${variant.letterSpacing ?? 0.02}em`,
+                        textTransform: hints.uppercase ? "uppercase" : "none",
+                        WebkitTextStroke: `${Math.max(1, Math.round(defaults.outlineWidth * 0.6))}px ${outlineColor}`,
+                        textShadow: `0 ${Math.max(1, Math.round(2 + shadowOpacity * 4))}px ${Math.max(3, Math.round(6 + shadowOpacity * 8))}px ${palette.glowColor}`,
+                        backgroundColor: hints.boxEnabled ? palette.boxColor : "transparent",
+                        border: hints.boxEnabled ? `1px solid ${palette.borderColor}` : "none",
+                        borderRadius: hints.boxEnabled ? "0.55rem" : "0.25rem",
+                        padding: hints.boxEnabled ? "0.24rem 0.5rem" : "0.08rem 0.2rem",
+                        display: "inline-block",
+                        animationDuration: isAnimated ? `${animationDurationMs}ms` : undefined,
+                      };
+                      const animationLabel =
+                        VERTICAL_CAPTION_ANIMATION_OPTIONS.find((entry) => entry.id === animationId)?.label ?? "Animated";
+                      return (
+                        <button
+                          key={`vertical-caption-option-${option.id}`}
+                          type="button"
+                          className={captionPreviewCardClass(active)}
+                          onClick={() => {
+                            applyVerticalCaptionPreset(option.id);
+                            if (!autoCaptionsEnabled) setAutoCaptionsEnabled(true);
+                            setSubtitleStyleDirty(true);
+                          }}
+                          aria-pressed={active}
+                          aria-label={`Select ${option.label} caption style`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-foreground">{option.label}</span>
+                            <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                              {option.platformHint || animationLabel}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex min-h-[44px] items-center justify-center rounded-lg border border-border/50 bg-background/40 px-2 py-2">
+                            <span
+                              className={`vertical-variant-preview-caption-text ${isAnimated ? `is-animated is-${animationId}` : ""}`.trim()}
+                              style={previewStyle}
+                            >
+                              {previewText}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-muted-foreground">{option.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="relative z-10 mt-3 rounded-2xl border border-primary/35 bg-[linear-gradient(148deg,hsl(var(--card)/0.86),hsl(var(--card)/0.6))] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Vertical Mode</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Choose the pacing + clip selection profile for this upload.</p>
+                    </div>
+                    <Badge className="border-primary/40 bg-primary/12 text-primary">
+                      {activeVerticalShortFormPreset.label}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => {
+                      const active = verticalSelectionMode === preset.id;
+                      return (
+                        <button
+                          key={`vertical-mode-${preset.id}`}
+                          type="button"
+                          className={captionPreviewCardClass(active)}
+                          onClick={() => {
+                            const currentCaptionPreset = verticalCaptionPreset;
+                            applyVerticalShortFormPreset(preset.id);
+                            applyVerticalCaptionPreset(currentCaptionPreset);
+                          }}
+                          aria-pressed={active}
+                          aria-label={`Select ${preset.label} vertical mode`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-foreground">{preset.label}</span>
+                            <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] text-muted-foreground">
+                              {preset.platform.replace("_", " ")}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-muted-foreground">{preset.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-background/35 px-3 py-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                    onClick={() => setVerticalUploadPresetPromptOpen(true)}
+                    aria-label="Open vertical layout presets"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Layout + Webcam</p>
+                      <p className="text-xs text-muted-foreground">
+                        {activeVerticalUploadModePreset.label} · {activeVerticalUploadModePreset.tagline}
+                      </p>
+                    </div>
+                    <Badge className="border-primary/40 bg-primary/12 text-primary">
+                      {activeVerticalUploadModePreset.premiumLabel}
+                    </Badge>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -20886,20 +21154,43 @@ const Editor = () => {
             </div>
               </>
             ) : null}
+              </>
+            )}
 
-            <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-[11px] text-muted-foreground">
-                {premiumModesAvailabilityCopy}
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                className="hero-cta-button hero-cta-secondary w-full rounded-full sm:w-auto"
-                onClick={closeUploadModePrompt}
-              >
-                Cancel Upload
-              </Button>
-            </div>
+            {isVerticalUploadPrompt ? (
+              <div className="relative z-10 mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Button
+                  type="button"
+                  className="hero-cta-button w-full rounded-full sm:w-auto"
+                  onClick={() => handleSelectUploadModePrompt(uploadModePromptActiveSelection)}
+                  disabled={!pendingUploadSelection}
+                >
+                  Save & Upload
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="hero-cta-button hero-cta-secondary w-full rounded-full sm:w-auto"
+                  onClick={closeUploadModePrompt}
+                >
+                  Cancel Upload
+                </Button>
+              </div>
+            ) : (
+              <div className="relative z-10 mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[11px] text-muted-foreground">
+                  {premiumModesAvailabilityCopy}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="hero-cta-button hero-cta-secondary w-full rounded-full sm:w-auto"
+                  onClick={closeUploadModePrompt}
+                >
+                  Cancel Upload
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       ) : null}
@@ -21239,7 +21530,7 @@ const Editor = () => {
                             variant="outline"
                             className="h-7 rounded-md px-2.5 text-[10px]"
                             onClick={handleDownloadCaptionPreview}
-                            disabled={!captionPreviewSourceUrl || captionPreviewDownloading || captionPreviewDrawFallback}
+                            disabled={!captionPreviewSourceUrl || captionPreviewDownloading}
                           >
                             {captionPreviewDownloading ? "Exporting..." : "Download Preview"}
                           </Button>
@@ -21299,174 +21590,178 @@ const Editor = () => {
                               <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
                                 Clip-linked
                               </Badge>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 rounded-md px-2.5 text-[10px]"
-                                onClick={toggleTikTokStylePicker}
-                                aria-expanded={tikTokStylePickerOpen}
-                                aria-haspopup="dialog"
-                              >
-                                {tikTokStylePickerOpen ? "Hide TikTok Styles" : "TikTok Styles Popup"}
-                              </Button>
-                              {tikTokStylePickerOpen ? (
-                                <div className="absolute right-0 top-[calc(100%+0.35rem)] z-30 w-[min(21rem,calc(100vw-2.75rem))] rounded-lg border border-border/60 bg-background/95 p-2.5 shadow-[0_16px_40px_-20px_rgba(2,6,23,0.8)] backdrop-blur-md">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
-                                      TikTok caption styles
-                                    </p>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      className="h-7 rounded-md px-2.5 text-[10px]"
-                                      onClick={applySelectedTikTokCaptionStyle}
-                                      disabled={pendingTikTokCaptionPresetId === verticalCaptionPreset}
-                                    >
-                                      Apply
-                                    </Button>
-                                  </div>
-                                  <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                                    {TIKTOK_CAPTION_STYLE_OPTIONS.map((styleOption) => {
-                                      const picked = pendingTikTokCaptionPresetId === styleOption.id;
-                                      const active = verticalCaptionPreset === styleOption.id;
-                                      return (
-                                        <button
-                                          key={`tiktok-caption-style-${styleOption.id}`}
-                                          type="button"
-                                          className={`rounded-lg border px-2 py-2 text-left transition-all ${
-                                            picked
-                                              ? "border-primary/65 bg-primary/15 text-foreground"
-                                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
-                                          }`}
-                                          onClick={() => setPendingTikTokCaptionPresetId(styleOption.id)}
-                                          aria-pressed={picked}
-                                        >
-                                          <div className="flex items-center justify-between gap-1.5">
-                                            <span className="text-[11px] font-medium">{styleOption.label}</span>
-                                            {active ? (
-                                              <span className="rounded-full border border-primary/40 bg-primary/15 px-1.5 py-[1px] text-[9px] text-primary">
-                                                Active
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                          <p className="mt-1 text-[10px] leading-relaxed">{styleOption.description}</p>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="mt-2 rounded-md border border-border/55 bg-muted/25 p-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/85">
-                                        Style depth
-                                      </p>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-6 rounded-md px-2 text-[10px] text-muted-foreground hover:text-foreground"
-                                        onClick={() => {
-                                          const defaults =
-                                            VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ??
-                                            VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
-                                          setVerticalCaptionOutlineWidth(defaults.outlineWidth);
-                                          setVerticalCaptionShadowStrength(defaults.shadowStrength);
-                                        }}
-                                      >
-                                        Reset
-                                      </Button>
-                                    </div>
-                                    <div className="mt-2 space-y-2">
-                                      <label className="space-y-1">
-                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                          <span>Outline</span>
-                                          <span>
-                                            {Math.round(
-                                              clamp(
-                                                verticalCaptionOutlineWidth,
-                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
-                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
-                                              ),
-                                            )} px
-                                          </span>
-                                        </div>
-                                        <Slider
-                                          min={VERTICAL_CAPTION_OUTLINE_WIDTH_MIN}
-                                          max={VERTICAL_CAPTION_OUTLINE_WIDTH_MAX}
-                                          step={1}
-                                          className="editor-settings-slider"
-                                          value={[Math.round(
-                                            clamp(
-                                              verticalCaptionOutlineWidth,
-                                              VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
-                                              VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
-                                            ),
-                                          )]}
-                                          onValueChange={(values) => {
-                                            const next = Number(values?.[0] ?? verticalCaptionOutlineWidth);
-                                            if (!Number.isFinite(next)) return;
-                                            setVerticalCaptionOutlineWidth(
-                                              clamp(
-                                                Math.round(next),
-                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
-                                                VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
-                                              ),
-                                            );
-                                          }}
-                                        />
-                                      </label>
-                                      <label className="space-y-1">
-                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                          <span>Drop Shadow</span>
-                                          <span>{Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))}%</span>
-                                        </div>
-                                        <Slider
-                                          min={VERTICAL_CAPTION_SHADOW_MIN}
-                                          max={VERTICAL_CAPTION_SHADOW_MAX}
-                                          step={1}
-                                          className="editor-settings-slider"
-                                          value={[Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))]}
-                                          onValueChange={(values) => {
-                                            const next = Number(values?.[0] ?? verticalCaptionShadowStrength);
-                                            if (!Number.isFinite(next)) return;
-                                            setVerticalCaptionShadowStrength(
-                                              clamp(Math.round(next), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX),
-                                            );
-                                          }}
-                                        />
-                                      </label>
-                                      <div className="space-y-1.5">
-                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                          <span>Motion profile</span>
-                                          <span>{activeVerticalCaptionMotionProfile.label}</span>
-                                        </div>
-                                        <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
-                                          {VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.map((profile) => {
-                                            const active = verticalCaptionMotionProfile === profile.id;
-                                            return (
-                                              <button
-                                                key={`caption-motion-profile-${profile.id}`}
-                                                type="button"
-                                                className={`rounded-md border px-2 py-1.5 text-[10px] transition ${
-                                                  active
-                                                    ? "border-primary/65 bg-primary/15 text-foreground"
-                                                    : "border-border/55 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
-                                                }`}
-                                                onClick={() => setVerticalCaptionMotionProfile(profile.id)}
-                                                aria-pressed={active}
-                                              >
-                                                {profile.label}
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                        <p className="text-[10px] leading-relaxed text-muted-foreground">
-                                          {activeVerticalCaptionMotionProfile.description}
+                              {SHOW_CAPTION_STYLE_OPTIONS ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-[10px]"
+                                    onClick={toggleTikTokStylePicker}
+                                    aria-expanded={tikTokStylePickerOpen}
+                                    aria-haspopup="dialog"
+                                  >
+                                    {tikTokStylePickerOpen ? "Hide TikTok Styles" : "TikTok Styles Popup"}
+                                  </Button>
+                                  {tikTokStylePickerOpen ? (
+                                    <div className="absolute right-0 top-[calc(100%+0.35rem)] z-30 w-[min(21rem,calc(100vw-2.75rem))] rounded-lg border border-border/60 bg-background/95 p-2.5 shadow-[0_16px_40px_-20px_rgba(2,6,23,0.8)] backdrop-blur-md">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
+                                          TikTok caption styles
                                         </p>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="h-7 rounded-md px-2.5 text-[10px]"
+                                          onClick={applySelectedTikTokCaptionStyle}
+                                          disabled={pendingTikTokCaptionPresetId === verticalCaptionPreset}
+                                        >
+                                          Apply
+                                        </Button>
+                                      </div>
+                                      <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                        {TIKTOK_CAPTION_STYLE_OPTIONS.map((styleOption) => {
+                                          const picked = pendingTikTokCaptionPresetId === styleOption.id;
+                                          const active = verticalCaptionPreset === styleOption.id;
+                                          return (
+                                            <button
+                                              key={`tiktok-caption-style-${styleOption.id}`}
+                                              type="button"
+                                              className={`rounded-lg border px-2 py-2 text-left transition-all ${
+                                                picked
+                                                  ? "border-primary/65 bg-primary/15 text-foreground"
+                                                  : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                              }`}
+                                              onClick={() => setPendingTikTokCaptionPresetId(styleOption.id)}
+                                              aria-pressed={picked}
+                                            >
+                                              <div className="flex items-center justify-between gap-1.5">
+                                                <span className="text-[11px] font-medium">{styleOption.label}</span>
+                                                {active ? (
+                                                  <span className="rounded-full border border-primary/40 bg-primary/15 px-1.5 py-[1px] text-[9px] text-primary">
+                                                    Active
+                                                  </span>
+                                                ) : null}
+                                              </div>
+                                              <p className="mt-1 text-[10px] leading-relaxed">{styleOption.description}</p>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                      <div className="mt-2 rounded-md border border-border/55 bg-muted/25 p-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/85">
+                                            Style depth
+                                          </p>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-6 rounded-md px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                            onClick={() => {
+                                              const defaults =
+                                                VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ??
+                                                VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+                                              setVerticalCaptionOutlineWidth(defaults.outlineWidth);
+                                              setVerticalCaptionShadowStrength(defaults.shadowStrength);
+                                            }}
+                                          >
+                                            Reset
+                                          </Button>
+                                        </div>
+                                        <div className="mt-2 space-y-2">
+                                          <label className="space-y-1">
+                                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                              <span>Outline</span>
+                                              <span>
+                                                {Math.round(
+                                                  clamp(
+                                                    verticalCaptionOutlineWidth,
+                                                    VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                                    VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                                  ),
+                                                )} px
+                                              </span>
+                                            </div>
+                                            <Slider
+                                              min={VERTICAL_CAPTION_OUTLINE_WIDTH_MIN}
+                                              max={VERTICAL_CAPTION_OUTLINE_WIDTH_MAX}
+                                              step={1}
+                                              className="editor-settings-slider"
+                                              value={[Math.round(
+                                                clamp(
+                                                  verticalCaptionOutlineWidth,
+                                                  VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                                  VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                                ),
+                                              )]}
+                                              onValueChange={(values) => {
+                                                const next = Number(values?.[0] ?? verticalCaptionOutlineWidth);
+                                                if (!Number.isFinite(next)) return;
+                                                setVerticalCaptionOutlineWidth(
+                                                  clamp(
+                                                    Math.round(next),
+                                                    VERTICAL_CAPTION_OUTLINE_WIDTH_MIN,
+                                                    VERTICAL_CAPTION_OUTLINE_WIDTH_MAX,
+                                                  ),
+                                                );
+                                              }}
+                                            />
+                                          </label>
+                                          <label className="space-y-1">
+                                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                              <span>Drop Shadow</span>
+                                              <span>{Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))}%</span>
+                                            </div>
+                                            <Slider
+                                              min={VERTICAL_CAPTION_SHADOW_MIN}
+                                              max={VERTICAL_CAPTION_SHADOW_MAX}
+                                              step={1}
+                                              className="editor-settings-slider"
+                                              value={[Math.round(clamp(verticalCaptionShadowStrength, VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX))]}
+                                              onValueChange={(values) => {
+                                                const next = Number(values?.[0] ?? verticalCaptionShadowStrength);
+                                                if (!Number.isFinite(next)) return;
+                                                setVerticalCaptionShadowStrength(
+                                                  clamp(Math.round(next), VERTICAL_CAPTION_SHADOW_MIN, VERTICAL_CAPTION_SHADOW_MAX),
+                                                );
+                                              }}
+                                            />
+                                          </label>
+                                          <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                              <span>Motion profile</span>
+                                              <span>{activeVerticalCaptionMotionProfile.label}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+                                              {VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.map((profile) => {
+                                                const active = verticalCaptionMotionProfile === profile.id;
+                                                return (
+                                                  <button
+                                                    key={`caption-motion-profile-${profile.id}`}
+                                                    type="button"
+                                                    className={`rounded-md border px-2 py-1.5 text-[10px] transition ${
+                                                      active
+                                                        ? "border-primary/65 bg-primary/15 text-foreground"
+                                                        : "border-border/55 bg-background/35 text-muted-foreground hover:border-primary/45 hover:text-foreground"
+                                                    }`}
+                                                    onClick={() => setVerticalCaptionMotionProfile(profile.id)}
+                                                    aria-pressed={active}
+                                                  >
+                                                    {profile.label}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                            <p className="text-[10px] leading-relaxed text-muted-foreground">
+                                              {activeVerticalCaptionMotionProfile.description}
+                                            </p>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                </div>
+                                  ) : null}
+                                </>
                               ) : null}
                             </div>
                           </div>
@@ -21507,6 +21802,7 @@ const Editor = () => {
                               Clear Override
                             </Button>
                           </div>
+                          {SHOW_CAPTION_STYLE_OPTIONS ? (
                           <div className="mt-3 space-y-2 rounded-lg border border-border/55 bg-background/45 p-2.5">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
@@ -21703,6 +21999,7 @@ const Editor = () => {
                               </label>
                             </div>
                           </div>
+                          ) : null}
                           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <Button
                               type="button"
@@ -22467,6 +22764,9 @@ const Editor = () => {
                   onClick={() => {
                     setExportFeedbackOpen(false);
                     setExportOpen(false);
+                    if (!isVerticalMode) {
+                      maybeEnableVerticalCaptions("vertical");
+                    }
                     setRenderMode("vertical");
                   }}
                 >
