@@ -149,6 +149,14 @@ export type CommandCenterResponse = {
     activeJobsInQueue: number
     avgProcessingTimeSec: number
     failedRenders: Array<{ reason: string; count: number }>
+    queueRuntime?: {
+      maxPipelines: number
+      targetConcurrency: number | null
+      workerReplicas: number
+      jobConcurrencyOverride: number | null
+      queueDepth: number
+      priorityDistribution: Array<{ label: string; count: number; level: number }>
+    }
     workerHealth: { online: boolean; status: string; uptimeSeconds: number }
     r2UploadStatus: { ok: boolean; provider: string; failedUploads24h: number; note: string }
     storageUsage: { gb: number; pct: number; objects: number; estimated: boolean }

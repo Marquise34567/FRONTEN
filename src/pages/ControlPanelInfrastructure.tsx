@@ -51,6 +51,9 @@ const ControlPanelInfrastructure = () => {
   const systemHealth = commandCenterQuery.data?.systemHealth
   const costControl = commandCenterQuery.data?.costControlPanel
   const scaling = commandCenterQuery.data?.futureScalingPanel
+  const queueRuntime = renderInfra?.queueRuntime
+  const priorityRows = queueRuntime?.priorityDistribution || []
+  const priorityMax = priorityRows.reduce((max, row) => Math.max(max, row.count), 1)
   const health = healthQuery.data
 
   return (
@@ -141,6 +144,63 @@ const ControlPanelInfrastructure = () => {
         </section>
 
         <section className="mt-4 grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Queue Runtime</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="text-muted-foreground">Effective concurrency</p>
+                  <p className="text-xl font-semibold">{queueRuntime?.maxPipelines || 0}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="text-muted-foreground">Worker replicas</p>
+                  <p className="text-xl font-semibold">{queueRuntime?.workerReplicas || 1}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="text-muted-foreground">Target concurrency</p>
+                  <p className="text-sm font-semibold">{queueRuntime?.targetConcurrency ?? "auto"}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-card/40 p-2">
+                  <p className="text-muted-foreground">JOB_CONCURRENCY override</p>
+                  <p className="text-sm font-semibold">{queueRuntime?.jobConcurrencyOverride ?? "none"}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Queue depth snapshot: {queueRuntime?.queueDepth ?? renderInfra?.activeJobsInQueue ?? systemHealth?.renderQueueLength ?? 0}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="text-sm">Priority Distribution</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              {priorityRows.length ? (
+                <div className="space-y-3">
+                  {priorityRows.map((row) => {
+                    const widthPct = priorityMax > 0 ? Math.max(4, Math.round((row.count / priorityMax) * 100)) : 0
+                    return (
+                      <div key={`queue-priority-${row.label}`} className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="uppercase tracking-[0.18em]">{row.label}</span>
+                          <span className="text-foreground">{row.count}</span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted/35">
+                          <div className="h-full rounded-full bg-primary/70" style={{ width: `${widthPct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyStateNote text="No queued jobs right now." />
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="glass-card border-border/60">
             <CardHeader>
               <CardTitle className="text-sm">Failed Render Reasons</CardTitle>

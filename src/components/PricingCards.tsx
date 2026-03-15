@@ -105,6 +105,7 @@ const PricingCards = ({
         const resolutionLabel = plan.exportQuality === "4k" ? "4K exports" : `${plan.exportQuality} exports`;
         const rerenderLabel = `${plan.maxRerendersPerDay} rerenders/day`;
         const queueLabel = plan.priority ? "Priority queue" : "Standard queue";
+        const powerModesLabel = tier === "free" ? "Standard mode" : "Standard + Ultra + Retention King";
         const minuteCapLabel =
           plan.maxMinutesPerMonth === null ? "No minute cap" : `${plan.maxMinutesPerMonth} min / month`;
         const billingNote = isLifetime
@@ -119,6 +120,9 @@ const PricingCards = ({
         const renderLimitLabel = tier === "free"
           ? "10 renders / month"
           : `${plan.maxRendersPerMonth} renders / month`;
+        const previousTier = tierIndex > 0 ? PLAN_TIERS[tierIndex - 1] : null;
+        const previousFeatures = previousTier ? PLAN_CONFIG[previousTier].features : [];
+        const planUnlocks = plan.features.filter((feature) => !previousFeatures.includes(feature)).slice(0, 3);
 
         return (
           <motion.article
@@ -211,6 +215,10 @@ const PricingCards = ({
                 {rerenderLabel}
               </span>
               <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
+                <Zap className="w-3 h-3 text-amber-300" />
+                {powerModesLabel}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
                 <Film className="w-3 h-3 text-emerald-300" />
                 {queueLabel}
               </span>
@@ -218,6 +226,16 @@ const PricingCards = ({
             <p className="relative z-10 mb-4 text-xs leading-relaxed text-muted-foreground">
               Best for {PLAN_PERSONA[tier]}. {minuteCapLabel}.
             </p>
+            {planUnlocks.length ? (
+              <div className="relative z-10 mb-4 rounded-xl border border-white/10 bg-white/5 p-2">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Plan unlocks</p>
+                <div className="mt-1 space-y-1 text-[11px] text-foreground/90">
+                  {planUnlocks.map((feature) => (
+                    <p key={`${tier}-unlock-${feature}`}>+ {feature}</p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <motion.ul className="mb-5 max-h-36 space-y-2 overflow-auto pr-1 text-sm text-foreground hide-scrollbar" variants={gridVariants}>
               {plan.features.map((feature) => (
                 <motion.li key={feature} className="flex items-center gap-2" variants={featureVariants}>
