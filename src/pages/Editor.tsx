@@ -356,7 +356,7 @@ const clampCaptionPosition = (value: number) =>
   Number(clamp(value, VERTICAL_CAPTION_POSITION_MIN, VERTICAL_CAPTION_POSITION_MAX).toFixed(4));
 const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
-const DEFAULT_MAX_CUTS = 12;
+const DEFAULT_MAX_CUTS = 9;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
 const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 30;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
@@ -786,11 +786,11 @@ const resolveEffectiveRetentionAggressionLevel = ({
   return "high";
 };
 const AUTO_MODE_V3_DEFAULTS = {
-  strategyProfile: "viral" as RetentionStrategyProfile,
-  aggressionLevel: "high" as RetentionAggressionLevel,
-  longFormPreset: "aggressive" as LongFormPreset,
-  longFormAggression: 88,
-  longFormClarityVsSpeed: 44,
+  strategyProfile: "balanced" as RetentionStrategyProfile,
+  aggressionLevel: "medium" as RetentionAggressionLevel,
+  longFormPreset: "balanced" as LongFormPreset,
+  longFormAggression: 60,
+  longFormClarityVsSpeed: 78,
 };
 const resolveAutoModeV3Defaults = ({
   editorMode,
@@ -828,8 +828,8 @@ const resolveAutoModeV3Defaults = ({
     aggressionLevel: legacyAutoBaseline ? AUTO_MODE_V3_DEFAULTS.aggressionLevel : aggressionLevel,
     maxCuts: null,
     longFormPreset: longFormPreset === "auto" ? AUTO_MODE_V3_DEFAULTS.longFormPreset : longFormPreset,
-    longFormAggression: Math.max(longFormAggression, AUTO_MODE_V3_DEFAULTS.longFormAggression),
-    longFormClarityVsSpeed: Math.min(longFormClarityVsSpeed, AUTO_MODE_V3_DEFAULTS.longFormClarityVsSpeed),
+    longFormAggression: Math.min(longFormAggression, AUTO_MODE_V3_DEFAULTS.longFormAggression),
+    longFormClarityVsSpeed: Math.max(longFormClarityVsSpeed, AUTO_MODE_V3_DEFAULTS.longFormClarityVsSpeed),
   };
 };
 const RETENTION_PROFILE_OPTIONS: Array<{ value: RetentionStrategyProfile; label: string; description: string }> = [
@@ -1928,10 +1928,10 @@ const X264_PRESET_OPTIONS: Array<{ value: X264Preset; label: string }> = [
 ];
 const VIDEO_CRF_MIN = 16;
 const VIDEO_CRF_MAX = 35;
-const DEFAULT_VIDEO_PRESET: X264Preset = "superfast";
-const DEFAULT_VIDEO_CRF = 21;
+const DEFAULT_VIDEO_PRESET: X264Preset = "medium";
+const DEFAULT_VIDEO_CRF = 19;
 const AUDIO_BITRATE_KBPS_OPTIONS = [96, 128, 160, 192, 256, 320] as const;
-const DEFAULT_AUDIO_BITRATE_KBPS = 192;
+const DEFAULT_AUDIO_BITRATE_KBPS = 256;
 type WebcamCrop = { x: number; y: number; w: number; h: number };
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type CropInteraction = {
@@ -4678,7 +4678,7 @@ const Editor = () => {
   const [pipelinePowerMode, setPipelinePowerMode] = useState<PipelinePowerMode>("retention_king");
   const [creativeVariant, setCreativeVariant] = useState<CreativeVariant>("balanced");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
-  const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(false);
+  const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(true);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
   const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
@@ -4690,9 +4690,9 @@ const Editor = () => {
   const [fullAutoYoutubeProfile, setFullAutoYoutubeProfile] = useState<FullAutoYoutubeProfilePayload>(null);
   const [fullAutoYoutubeLoading, setFullAutoYoutubeLoading] = useState(false);
   const [defaultHookSelectionMode, setDefaultHookSelectionMode] = useState<HookSelectionMode>("auto");
-  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("aggressive");
-  const [longFormAggression, setLongFormAggression] = useState(88);
-  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(44);
+  const [longFormPreset, setLongFormPreset] = useState<LongFormPreset>("balanced");
+  const [longFormAggression, setLongFormAggression] = useState(AUTO_MODE_V3_DEFAULTS.longFormAggression);
+  const [longFormClarityVsSpeed, setLongFormClarityVsSpeed] = useState(AUTO_MODE_V3_DEFAULTS.longFormClarityVsSpeed);
   const [tangentKiller, setTangentKiller] = useState(true);
   const [videoPreset, setVideoPreset] = useState<X264Preset>(DEFAULT_VIDEO_PRESET);
   const [videoCrf, setVideoCrf] = useState<number>(DEFAULT_VIDEO_CRF);
@@ -4722,7 +4722,7 @@ const Editor = () => {
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [captionPreviewDrawFallback, setCaptionPreviewDrawFallback] = useState(false);
   const [captionPreviewDownloading, setCaptionPreviewDownloading] = useState(false);
-  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("viral");
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
     isVerticalMode ? "tiktok" : "youtube",
   );
@@ -5091,6 +5091,10 @@ const Editor = () => {
   const analyzeUnlockStorageKey = me?.user?.id ? `${ANALYZE_UNLOCKED_JOBS_KEY}_${me.user.id}` : null;
   const [hideSubscriptionCard, setHideSubscriptionCard] = useState(false);
   const maxQuality = (PLAN_CONFIG[entitlementTier] ?? PLAN_CONFIG.free).exportQuality;
+  const defaultQuality = useMemo(() => {
+    const baseline: ExportQuality = entitlementTier === "free" ? "720p" : "1080p";
+    return clampQualityForTier(baseline, entitlementTier);
+  }, [entitlementTier]);
   const subtitleFeatureTier: PlanTier = entitlementTier;
   const allowedSubtitlePresets = (PLAN_CONFIG[subtitleFeatureTier] ?? PLAN_CONFIG.free).allowedSubtitlePresets;
   const subtitlesEnabled = allowedSubtitlePresets === "ALL" || allowedSubtitlePresets.length > 0;
@@ -7023,19 +7027,22 @@ const Editor = () => {
     if (!activeJob) return;
     setQualityByJob((prev) => {
       if (prev[activeJob.id]) return prev;
-      const requested = normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality);
+      const requested = normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || defaultQuality);
       const clamped = clampQualityForTier(requested, entitlementTier);
       return { ...prev, [activeJob.id]: clamped };
     });
-  }, [activeJob, entitlementTier, maxQuality]);
+  }, [activeJob, entitlementTier, defaultQuality]);
 
   const selectedQuality = useMemo(() => {
-    if (!activeJob) return clampQualityForTier(maxQuality, entitlementTier);
+    if (!activeJob) return defaultQuality;
     return (
       qualityByJob[activeJob.id] ??
-      clampQualityForTier(normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || maxQuality), entitlementTier)
+      clampQualityForTier(
+        normalizeQuality(activeJob.requestedQuality || activeJob.finalQuality || defaultQuality),
+        entitlementTier,
+      )
     );
-  }, [activeJob, entitlementTier, maxQuality, qualityByJob]);
+  }, [activeJob, defaultQuality, entitlementTier, qualityByJob]);
 
   const qualityButtons = useMemo(() => {
     return QUALITY_ORDER.map((quality) => {
@@ -9318,7 +9325,9 @@ const Editor = () => {
         );
         const fastModeForJob = isUltraPipelineMode(pipelinePowerModeForRequest);
         const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
-        const selectedQuality = normalizeQuality(qualityByJob[job.id] || job.requestedQuality || "720p");
+        const selectedQuality = normalizeQuality(
+          qualityByJob[job.id] || job.requestedQuality || defaultQuality,
+        );
         const preferredHook = selectedHookByJob[job.id] || null;
         const directorNotesForJob = directorNotesUnlocked ? normalizedDirectorNotesPrompt : "";
         const hookSelectionModeForJob =
@@ -9576,6 +9585,7 @@ const Editor = () => {
       creativeVariant,
       creatorStyleLockPercent,
       directorNotesUnlocked,
+      defaultQuality,
       normalizedDirectorNotesPrompt,
       editorMode,
       exploreX3Enabled,
