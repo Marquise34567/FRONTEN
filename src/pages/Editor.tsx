@@ -928,7 +928,7 @@ const VERTICAL_SHORT_FORM_MODE_PRESETS: Array<{
     platform: "tiktok",
     editorMode: "reaction",
     creativeVariant: "curiosity_first",
-    captionPreset: "mrbeast_animated",
+    captionPreset: "rage_mode",
   },
 ];
 type VerticalUploadModePreset = {
@@ -1211,7 +1211,7 @@ const VERTICAL_CAPTION_PRESET_DEFAULTS: Record<
     dynamicMode: "classic", animationSpeed: 1, highlightWords: false, autoEmphasis: false, autoEmoji: false, removeFillers: true,
   },
   rage_mode: {
-    fontId: "impact", outlineColor: "000000", outlineWidth: 6, animation: "pop", shadowStrength: 28,
+    fontId: "impact", outlineColor: "000000", outlineWidth: 4, animation: "pop", shadowStrength: 22,
     dynamicMode: "karaoke_word", animationSpeed: 1, highlightWords: true, autoEmphasis: true, autoEmoji: false, removeFillers: true,
   },
   ice_pop: {
@@ -7768,6 +7768,7 @@ const Editor = () => {
 
   useEffect(() => {
     if (!isVerticalMode) return;
+    if (!VERTICAL_CAPTIONS_TEMP_DISABLED) return;
     if (!autoCaptionsEnabled) return;
     setAutoCaptionsEnabled(false);
   }, [autoCaptionsEnabled, isVerticalMode]);
@@ -8044,6 +8045,7 @@ const Editor = () => {
   const correctedEffectiveWebcamCrop = useMemo(() => {
     if (!effectiveWebcamCrop || !sourceVideoMeta) return effectiveWebcamCrop;
     if (verticalWebcamPlacement !== "top") return effectiveWebcamCrop;
+    if (webcamCropWasAdjusted || webcamPaddingPx > 0) return effectiveWebcamCrop;
     const topSafeThreshold = sourceVideoMeta.height * 0.42;
     if (effectiveWebcamCrop.y <= topSafeThreshold) return effectiveWebcamCrop;
     const fallbackTopCrop = buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
@@ -8054,6 +8056,8 @@ const Editor = () => {
     normalizeWebcamCrop,
     sourceVideoMeta,
     verticalWebcamPlacement,
+    webcamCropWasAdjusted,
+    webcamPaddingPx,
   ]);
 
   const webcamCropStyle = useMemo(() => {
@@ -8632,11 +8636,16 @@ const Editor = () => {
             { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
           );
         } else {
+          const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
           const drewTop = drawVideoRegion(
             correctedEffectiveWebcamCrop,
             { x: 0, y: 0, w: canvasWidth, h: topHeight },
             "cover",
-            { sourceInsetXRatio: 0.018, sourceInsetYRatio: 0.01, destBleedPx: 2 },
+            {
+              sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
+              sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
+              destBleedPx: 2,
+            },
           );
           const drewBottom = drawVideoRegion(
             { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
@@ -8921,6 +8930,8 @@ const Editor = () => {
     effectiveVerticalBottomFitMode,
     topHeightPx,
     skipManualWebcamCrop,
+    webcamCropWasAdjusted,
+    webcamPaddingPx,
     autoCaptionsEnabled,
     verticalCaptionAnimation,
     resolvedVerticalCaptionAnimationSpeed,
@@ -9874,7 +9885,11 @@ const Editor = () => {
     activeVerticalJobReadyForDownload ||
     (isActiveVerticalJob && activeOutputUrls.length > 0),
   );
-  const showVerticalGalleryOnlyLayout = Boolean(isVerticalMode && !verticalExtrasModeEnabled);
+  const showVerticalGalleryOnlyLayout = Boolean(
+    isVerticalMode &&
+    !verticalExtrasModeEnabled &&
+    hasVerticalVariantWorkspace,
+  );
   const showUploadDropzone = !showVerticalGalleryOnlyLayout && (isVerticalMode || (!activeJob && !uploadingJobId));
   const showModeInsightsInline = searchParams.get("modePageInline") === "1";
   const verticalExtrasHref = useMemo(() => {
@@ -16489,17 +16504,10 @@ const Editor = () => {
       VERTICAL_UPLOAD_MODE_PRESETS.find((entry) => entry.id === presetId) ??
       DEFAULT_VERTICAL_UPLOAD_MODE_PRESET;
     const autoCaptionPreset: VerticalCaptionPresetOptionId =
-      retentionTargetPlatform === "youtube"
-        ? "cinema_punch"
-        : retentionTargetPlatform === "instagram_reels"
-          ? "bold_clean_box"
-          : "mrbeast_animated";
+      PLATFORM_VERTICAL_CAPTION_PRESET[retentionTargetPlatform] ?? DEFAULT_VERTICAL_CAPTION_STYLE;
     const autoFontId: VerticalCaptionFontOptionId =
-      autoCaptionPreset === "cinema_punch"
-        ? "serif_bold"
-        : autoCaptionPreset === "bold_clean_box"
-          ? "sans_bold"
-          : "display_black";
+      VERTICAL_CAPTION_PRESET_DEFAULTS[autoCaptionPreset]?.fontId ??
+      VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId;
     const autoPlacement: VerticalWebcamPlacementOption =
       editorMode === "gaming" || editorMode === "reaction" || editorMode === "sports"
         ? "bottom"
@@ -17827,6 +17835,37 @@ const Editor = () => {
       </div>
     );
   };
+  const exportReadyCard = activeJob && normalizeStatus(activeJob.status) === "ready" ? (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
+    >
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
+      <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-emerald-100 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
+            ? `Vertical clips are ready (${activeOutputUrls.length}).`
+            : "Export is ready. Download your final cut."}
+        </p>
+        <Button
+          className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+          onClick={() => {
+            if (activeJob.renderMode === "vertical") {
+              setExportOpen(true);
+              return;
+            }
+            void handleDownload(0);
+          }}
+        >
+          <Download className="h-4 w-4" />
+          {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
+        </Button>
+      </div>
+    </motion.div>
+  ) : null;
 
   return (
     <Suspense fallback={<Fragment />}><GlowBackdrop>
@@ -17896,7 +17935,7 @@ const Editor = () => {
             ) : null}
           </AnimatePresence>
 
-          {!showVerticalGalleryOnlyLayout ? (
+          {!showVerticalGalleryOnlyLayout && !isVerticalMode ? (
             <>
           <div className="editor-premium-hero mb-6 p-4 sm:p-5">
             <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -18754,11 +18793,20 @@ const Editor = () => {
                                         VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset]?.outlineColor ?? "000000",
                                       );
                                       const clipPreviewCaptionStrokePx = Number(
-                                        clamp(verticalCaptionOutlineWidth * 0.1, 1, 3.2).toFixed(2),
+                                        clamp(verticalCaptionOutlineWidth * 0.06, 0.6, 1.8).toFixed(2),
                                       );
                                       const clipPreviewCaptionShadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
                                       const clipPreviewCaptionBoxEnabled =
                                         clipPreviewCaptionHints.boxEnabled || clipPreviewOverlayTone !== "none";
+                                      const clipPreviewCaptionFontPx = Math.round(
+                                        clamp(verticalCaptionFontSize * 0.22, 14, 24),
+                                      );
+                                      const clipPreviewShadowBlur = clipPreviewCaptionBoxEnabled
+                                        ? Math.max(1, Math.round(1 + clipPreviewCaptionShadowOpacity * 3))
+                                        : Math.max(2, Math.round(2 + clipPreviewCaptionShadowOpacity * 5));
+                                      const clipPreviewShadowY = clipPreviewCaptionBoxEnabled
+                                        ? 1
+                                        : Math.max(1, Math.round(1 + clipPreviewCaptionShadowOpacity * 2));
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
                                       const showPreviewCaptionOverlay = Boolean(clipPreviewCaption) && (clipReady || showVerticalGalleryOnlyLayout);
@@ -18798,9 +18846,11 @@ const Editor = () => {
                                           ?? VERTICAL_CAPTION_FONT_FAMILY.impact,
                                         fontWeight: selectedVerticalCaptionFontVariant?.fontWeight ?? 900,
                                         letterSpacing: `${selectedVerticalCaptionFontVariant?.letterSpacing ?? 0.02}em`,
+                                        fontSize: `${clipPreviewCaptionFontPx}px`,
+                                        lineHeight: 1.1,
                                         textTransform: clipPreviewCaptionForceUppercase ? "uppercase" : "none",
                                         WebkitTextStroke: `${clipPreviewCaptionStrokePx}px #${clipPreviewCaptionOutline}`,
-                                        textShadow: `0 ${Math.max(1, Math.round(2 + clipPreviewCaptionShadowOpacity * 4))}px ${Math.max(3, Math.round(8 + clipPreviewCaptionShadowOpacity * 12))}px ${clipPreviewCaptionEffectivePalette.glowColor}`,
+                                        textShadow: `0 ${clipPreviewShadowY}px ${clipPreviewShadowBlur}px rgba(0, 0, 0, 0.65)`,
                                         backgroundColor: clipPreviewCaptionBoxEnabled
                                           ? clipPreviewCaptionEffectivePalette.boxColor
                                           : "transparent",
@@ -19501,8 +19551,8 @@ const Editor = () => {
               </div>
               )}
 
-              {!showVerticalGalleryOnlyLayout ? (
-              <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
+          {!showVerticalGalleryOnlyLayout && !isVerticalMode ? (
+          <div className={`glass-card p-4 sm:p-5 space-y-4 ${mobilePipeline ? "mobile" : ""}`}>
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
                 <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
                   {activeJob
@@ -19623,6 +19673,7 @@ const Editor = () => {
                         </ol>
                       </div>
                     </div>
+                    {!isVerticalMode ? exportReadyCard : null}
                     {showModeInsightsInline ? (
                       <>
                     <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
@@ -19926,37 +19977,7 @@ const Editor = () => {
                         </div>
                       </div>
                     )}
-                    {normalizeStatus(activeJob.status) === "ready" && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
-                      >
-                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
-                        <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
-                        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-sm text-emerald-100 flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4" />
-                            {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
-                              ? `Vertical clips are ready (${activeOutputUrls.length}).`
-                              : "Export is ready. Download your final cut."}
-                          </p>
-                          <Button
-                            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-                            onClick={() => {
-                              if (activeJob.renderMode === "vertical") {
-                                setExportOpen(true);
-                                return;
-                              }
-                              void handleDownload(0);
-                            }}
-                          >
-                            <Download className="h-4 w-4" />
-                            {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
-                          </Button>
-                        </div>
-                      </motion.div>
-                    )}
+                    {isVerticalMode ? exportReadyCard : null}
                     {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-muted-foreground">
@@ -20409,7 +20430,7 @@ const Editor = () => {
               </DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
                 {isVerticalUploadPrompt
-                  ? "Pick an animated caption look and vertical mode before the upload starts."
+                  ? "Pick a TikTok animated text look and vertical mode before the upload starts."
                   : "Choose your render profile, quick setup, and AI placement behavior before processing starts."}
               </DialogDescription>
             </DialogHeader>
@@ -20426,15 +20447,15 @@ const Editor = () => {
                 <div className="relative z-10 mt-4 rounded-2xl border border-primary/35 bg-[linear-gradient(148deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.64))] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Animated Captions</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Pick a caption animation preview before the upload starts.</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">TikTok Animated Text</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Pick a TikTok-style animated text preview before the upload starts.</p>
                     </div>
                     <Badge className="border-primary/40 bg-primary/12 text-primary">
                       {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
                     </Badge>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {VERTICAL_CAPTION_STYLE_OPTIONS.map((option) => {
+                    {TIKTOK_CAPTION_STYLE_OPTIONS.map((option) => {
                       const active = verticalCaptionPreset === option.id;
                       const defaults =
                         VERTICAL_CAPTION_PRESET_DEFAULTS[option.id] ?? VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
@@ -20461,17 +20482,25 @@ const Editor = () => {
                       );
                       const outlineColor = normalizeCaptionCssColor(defaults.outlineColor, "000000");
                       const shadowOpacity = clamp(defaults.shadowStrength / 100, 0, 1);
+                      const previewStrokePx = Number(
+                        clamp(defaults.outlineWidth * 0.22, 0.6, 1.8).toFixed(2),
+                      );
+                      const previewFontSizeRem = defaults.outlineWidth >= 7 ? 0.98 : 0.92;
+                      const previewShadowY = Math.max(1, Math.round(1 + shadowOpacity * 2));
+                      const previewShadowBlur = Math.max(3, Math.round(4 + shadowOpacity * 6));
+                      const previewBackground = hints.boxEnabled ? palette.boxColor : "rgba(0, 0, 0, 0.38)";
                       const previewText = option.label;
                       const previewStyle = {
                         color: palette.textColor,
                         fontFamily: variant.previewFamily ?? VERTICAL_CAPTION_FONT_FAMILY[defaults.fontId],
                         fontWeight: variant.fontWeight ?? 900,
+                        fontSize: `${previewFontSizeRem}rem`,
                         letterSpacing: `${variant.letterSpacing ?? 0.02}em`,
                         textTransform: hints.uppercase ? "uppercase" : "none",
-                        WebkitTextStroke: `${Math.max(1, Math.round(defaults.outlineWidth * 0.6))}px ${outlineColor}`,
-                        textShadow: `0 ${Math.max(1, Math.round(2 + shadowOpacity * 4))}px ${Math.max(3, Math.round(6 + shadowOpacity * 8))}px ${palette.glowColor}`,
-                        backgroundColor: hints.boxEnabled ? palette.boxColor : "transparent",
-                        border: hints.boxEnabled ? `1px solid ${palette.borderColor}` : "none",
+                        WebkitTextStroke: `${previewStrokePx}px ${outlineColor}`,
+                        textShadow: `0 ${previewShadowY}px ${previewShadowBlur}px rgba(0, 0, 0, 0.65)`,
+                        backgroundColor: previewBackground,
+                        border: hints.boxEnabled ? `1px solid ${palette.borderColor}` : "1px solid rgba(255, 255, 255, 0.08)",
                         borderRadius: hints.boxEnabled ? "0.55rem" : "0.25rem",
                         padding: hints.boxEnabled ? "0.24rem 0.5rem" : "0.08rem 0.2rem",
                         display: "inline-block",
@@ -20479,6 +20508,7 @@ const Editor = () => {
                       };
                       const animationLabel =
                         VERTICAL_CAPTION_ANIMATION_OPTIONS.find((entry) => entry.id === animationId)?.label ?? "Animated";
+                      const badgeLabel = `TikTok${animationLabel ? ` · ${animationLabel}` : ""}`;
                       return (
                         <button
                           key={`vertical-caption-option-${option.id}`}
@@ -20490,15 +20520,15 @@ const Editor = () => {
                             setSubtitleStyleDirty(true);
                           }}
                           aria-pressed={active}
-                          aria-label={`Select ${option.label} caption style`}
+                          aria-label={`Select ${option.label} TikTok text style`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-semibold text-foreground">{option.label}</span>
                             <span className="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
-                              {option.platformHint || animationLabel}
+                              {badgeLabel}
                             </span>
                           </div>
-                          <div className="mt-2 flex min-h-[44px] items-center justify-center rounded-lg border border-border/50 bg-background/40 px-2 py-2">
+                          <div className="mt-2 flex min-h-[54px] items-center justify-center rounded-lg border border-border/50 bg-background/40 px-2 py-2">
                             <span
                               className={`vertical-variant-preview-caption-text ${isAnimated ? `is-animated is-${animationId}` : ""}`.trim()}
                               style={previewStyle}
