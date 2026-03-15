@@ -4917,6 +4917,7 @@ const Editor = () => {
   const realtimeBugFixCooldownRef = useRef<Record<string, number>>({});
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [resolvedVerticalVariantOutputUrls, setResolvedVerticalVariantOutputUrls] = useState<string[]>([]);
+  const [previewVideoDurationSec, setPreviewVideoDurationSec] = useState<number | null>(null);
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
   const [previewTipAppliedIdsByJob, setPreviewTipAppliedIdsByJob] = useState<Record<string, string[]>>({});
@@ -11426,6 +11427,7 @@ const Editor = () => {
     return synthetic;
   }, [energyMomentsFromAnalysis, fallbackEnergyAnchorSec]);
   const estimatedTimelineDurationSec = useMemo(() => {
+    const fromPreview = previewVideoDurationSec !== null ? Math.max(1, previewVideoDurationSec) : null;
     const fromDuration = estimatedDurationSec !== null ? Math.max(1, estimatedDurationSec) : null;
     const maxMomentSec = energyTimelineMoments.length > 0
       ? energyTimelineMoments[energyTimelineMoments.length - 1].timestampSec + 45
@@ -11433,8 +11435,8 @@ const Editor = () => {
     const hookTail = selectedHookCandidate
       ? selectedHookCandidate.start + selectedHookCandidate.duration + 90
       : 0;
-    return Math.max(60, Math.round(fromDuration ?? maxMomentSec ?? hookTail ?? 360));
-  }, [estimatedDurationSec, energyTimelineMoments, selectedHookCandidate]);
+    return Math.max(60, Math.round(fromPreview ?? fromDuration ?? maxMomentSec ?? hookTail ?? 360));
+  }, [estimatedDurationSec, energyTimelineMoments, previewVideoDurationSec, selectedHookCandidate]);
   const timelineEnergyMoments = useMemo<EnergyMomentWithEmotion[]>(() => (
     energyTimelineMoments.slice(0, 12).map((moment) => {
       const emotionKey = classifyEmotionProfile(moment);
@@ -13909,6 +13911,7 @@ const Editor = () => {
   ]);
   useEffect(() => {
     setPreviewCurrentTimeSec(0);
+    setPreviewVideoDurationSec(null);
     previewTimeSyncRef.current = { atMs: 0, timeSec: 0 };
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   useEffect(() => {
@@ -15458,6 +15461,7 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    setPreviewVideoDurationSec((prev) => (prev === duration ? prev : duration));
     video.playbackRate = clamp(activePreviewPlaybackRate, 0.75, 1.35);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
     ensurePlaybackTelemetry(activeJob.id, duration, currentTime);
