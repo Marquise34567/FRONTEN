@@ -18669,6 +18669,12 @@ const Editor = () => {
                         <div className="vertical-reboot-overview-metrics">
                           <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
                           <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
+                          {activeVerticalJobProcessing ? (
+                            <span className="vertical-reboot-mini-pill text-[10px]">Stage: {activeStageLabel}</span>
+                          ) : null}
+                          {activeVerticalJobProcessing ? (
+                            <span className="vertical-reboot-mini-pill text-[10px]">ETA {etaLabel}</span>
+                          ) : null}
                           <span className="vertical-reboot-mini-pill text-[10px]">
                             {Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}
                           </span>
