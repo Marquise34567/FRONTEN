@@ -3366,7 +3366,6 @@ const isLikelyVideoUrl = (value: unknown) => {
   if (BLOCKED_URL_EXTENSION_PATTERN.test(lowerRaw)) return false;
   if (VIDEO_URL_EXTENSION_PATTERN.test(lowerRaw)) return true;
   if (lowerRaw.includes("/local-output")) return true;
-  if (lowerRaw.includes("/output-url")) return true;
   if (lowerRaw.includes("video/mp4")) return true;
   if (lowerRaw.includes("response-content-type=video")) return true;
   if (lowerRaw.includes("content-type=video")) return true;
@@ -3378,7 +3377,6 @@ const isLikelyVideoUrl = (value: unknown) => {
     if (BLOCKED_URL_EXTENSION_PATTERN.test(pathname)) return false;
     if (VIDEO_URL_EXTENSION_PATTERN.test(pathname)) return true;
     if (pathname.includes("/local-output")) return true;
-    if (pathname.includes("/output-url")) return true;
     const search = parsed.search.toLowerCase();
     if (search.includes("response-content-type=video") || search.includes("content-type=video")) return true;
   } catch {
