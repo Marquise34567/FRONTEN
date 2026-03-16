@@ -55,6 +55,16 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "video/x-matroska",
 ]);
 const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
+const AUTO_IMPORT_POLL_INTERVAL_MS = 2500;
+const AUTO_IMPORT_STABLE_AGE_MS = 1500;
+const AUTO_IMPORT_STABLE_PASSES = 2;
+const AUTO_IMPORT_LOCK_MS = 9000;
+const AUTO_DOWNLOAD_CLIP_DELAY_MS = 1200;
+const AUTO_DOWNLOAD_ENABLED_KEY = "editor_auto_download_enabled_v1";
+const AUTO_DOWNLOAD_VERTICAL_MODE_KEY = "editor_auto_download_vertical_mode_v1";
+const AUTO_DOWNLOAD_LONGFORM_ONLY_KEY = "editor_auto_download_longform_only_v1";
+const AUTO_IMPORT_ENABLED_KEY = "editor_auto_import_enabled_v1";
+const MOBILE_IMPORT_WAITLIST_KEY = "editor_mobile_auto_import_waitlist_v1";
 const CAPTIONS_PIPELINE_ENABLED = (() => {
   const raw = String(import.meta.env.VITE_CAPTIONS_PIPELINE_ENABLED ?? "true").trim().toLowerCase();
   if (!raw) return true;
@@ -88,6 +98,41 @@ const isAllowedUploadFile = (file: File) => {
   const normalizedType = String(file.type || "").toLowerCase();
   return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
 };
+const isAllowedUploadName = (name: string) => {
+  const lowerName = String(name || "").toLowerCase();
+  return ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+};
+
+const readLocalStorageFlag = (key: string, fallback = false) => {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === "true";
+};
+
+const writeLocalStorageFlag = (key: string, value: boolean) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value ? "true" : "false");
+};
+
+const sanitizeFileStem = (value: string) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "")
+    .slice(0, 120) || "edited-video";
+
+const inferFileExtension = (value: string, fallback = "mp4") => {
+  const match = /\.([a-z0-9]{2,5})$/i.exec(String(value || ""));
+  return match ? match[1].toLowerCase() : fallback;
+};
+
+const isMobileUserAgent = () => {
+  if (typeof navigator === "undefined") return false;
+  return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
+};
 
 type ConnectionLike = {
   effectiveType?: string;
@@ -106,6 +151,19 @@ type RuntimeProfile = {
   reducedMotion: boolean;
   lowBandwidth: boolean;
   lowPowerDevice: boolean;
+};
+
+type AutoImportCandidate = {
+  file: File;
+  key: string;
+  name: string;
+  lastModified: number;
+};
+
+type AutoImportScanState = {
+  size: number;
+  lastModified: number;
+  stablePasses: number;
 };
 
 const LOW_BANDWIDTH_TYPES = new Set(["slow-2g", "2g", "3g"]);
@@ -4539,6 +4597,23 @@ const Editor = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(
+    () => readLocalStorageFlag(AUTO_DOWNLOAD_ENABLED_KEY, false),
+  );
+  const [autoDownloadVerticalMode, setAutoDownloadVerticalMode] = useState<"all" | "top">(
+    () => (readLocalStorageFlag(AUTO_DOWNLOAD_VERTICAL_MODE_KEY, true) ? "all" : "top"),
+  );
+  const [autoDownloadLongFormOnly, setAutoDownloadLongFormOnly] = useState(
+    () => readLocalStorageFlag(AUTO_DOWNLOAD_LONGFORM_ONLY_KEY, false),
+  );
+  const [autoImportEnabled, setAutoImportEnabled] = useState(
+    () => readLocalStorageFlag(AUTO_IMPORT_ENABLED_KEY, false),
+  );
+  const [autoImportDirectoryHandle, setAutoImportDirectoryHandle] = useState<any>(null);
+  const [autoImportStatus, setAutoImportStatus] = useState<"idle" | "picking" | "watching" | "error">("idle");
+  const [mobileImportWaitlistJoined, setMobileImportWaitlistJoined] = useState(
+    () => readLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, false),
+  );
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -4550,6 +4625,12 @@ const Editor = () => {
   const etaMonotonicRef = useRef<Record<string, { status: string; etaSeconds: number; progress: number }>>({});
   const lastKnownJobIdRef = useRef<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
+  const autoImportScanStateRef = useRef<Map<string, AutoImportScanState>>(new Map());
+  const autoImportProcessedRef = useRef<Set<string>>(new Set());
+  const autoImportLockUntilRef = useRef(0);
+  const autoDownloadTriggeredRef = useRef<Record<string, boolean>>({});
+  const autoDownloadBatchRef = useRef<Set<string>>(new Set());
+  const autoImportPromptedRef = useRef(false);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -4570,6 +4651,10 @@ const Editor = () => {
     playSound: true,
     flashTitle: true,
   });
+  const supportsAutoImport = typeof window !== "undefined" && "showDirectoryPicker" in window;
+  const isMobileDevice = useMemo(() => isMobileUserAgent(), []);
+  const autoImportActive = autoImportEnabled && Boolean(autoImportDirectoryHandle);
+  const autoImportNeedsFolder = autoImportEnabled && !autoImportDirectoryHandle;
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
   const verticalExtrasModeEnabled = searchParams.get("verticalExtras") === "1";
@@ -4582,6 +4667,36 @@ const Editor = () => {
     MAX_CUTS_MIN,
     MAX_CUTS_MAX,
   );
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_ENABLED_KEY, autoDownloadEnabled);
+  }, [autoDownloadEnabled]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_VERTICAL_MODE_KEY, autoDownloadVerticalMode === "all");
+  }, [autoDownloadVerticalMode]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_LONGFORM_ONLY_KEY, autoDownloadLongFormOnly);
+  }, [autoDownloadLongFormOnly]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_IMPORT_ENABLED_KEY, autoImportEnabled);
+  }, [autoImportEnabled]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, mobileImportWaitlistJoined);
+  }, [mobileImportWaitlistJoined]);
+
+  useEffect(() => {
+    if (!autoImportEnabled) {
+      setAutoImportStatus("idle");
+      return;
+    }
+    if (!autoImportDirectoryHandle) {
+      setAutoImportStatus("idle");
+      return;
+    }
+  }, [autoImportDirectoryHandle, autoImportEnabled]);
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("best_moments");
@@ -4921,7 +5036,13 @@ const Editor = () => {
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const captionPreviewDrawFailureCountRef = useRef(0);
   const verticalCaptionSyncJobRef = useRef<string | null>(null);
-  const pendingDownloadAfterRenderRef = useRef<{ jobId: string; clipIndex: number } | null>(null);
+  const pendingDownloadAfterRenderRef = useRef<{
+    jobId: string;
+    clipIndex: number;
+    fileNameOverride?: string;
+    notifyOnCompletion?: boolean;
+    notifyTitle?: string;
+  } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
   const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
@@ -6989,6 +7110,7 @@ const Editor = () => {
               title: normalizedTitle || "edited video",
               downloadUrl: url || null,
               editorUrl,
+              event: "ready",
             });
 
           } catch (e) {
@@ -9114,6 +9236,103 @@ const Editor = () => {
     trackEditorEvent,
   ]);
 
+  const handlePickAutoImportFolder = useCallback(async () => {
+    if (!supportsAutoImport) {
+      toast({
+        title: "Folder access not supported",
+        description: "Use Chrome or Edge to enable auto-import from a recording folder.",
+      });
+      return;
+    }
+    setAutoImportStatus("picking");
+    try {
+      const handle = await (window as any).showDirectoryPicker({
+        id: "auto-editor-recording-folder",
+        mode: "read",
+      });
+      if (!handle) {
+        setAutoImportStatus("idle");
+        return;
+      }
+      if (typeof handle.requestPermission === "function") {
+        const permission = await handle.requestPermission({ mode: "read" });
+        if (permission && permission !== "granted") {
+          setAutoImportStatus("error");
+          toast({
+            title: "Permission required",
+            description: "Please allow folder access to auto-import recordings.",
+          });
+          return;
+        }
+      }
+      autoImportScanStateRef.current.clear();
+      autoImportProcessedRef.current.clear();
+      autoImportLockUntilRef.current = 0;
+      setAutoImportDirectoryHandle(handle);
+      setAutoImportEnabled(true);
+      setAutoImportStatus("watching");
+      toast({
+        title: "Recording folder linked",
+        description: `Watching ${handle.name || "your folder"} for new videos.`,
+      });
+    } catch (err: any) {
+      setAutoImportStatus("error");
+      toast({
+        title: "Folder access failed",
+        description: err?.message || "Couldn't access that folder.",
+      });
+    }
+  }, [supportsAutoImport, toast]);
+
+  const handleStopAutoImport = useCallback(() => {
+    setAutoImportEnabled(false);
+    setAutoImportDirectoryHandle(null);
+    setAutoImportStatus("idle");
+    autoImportScanStateRef.current.clear();
+    autoImportProcessedRef.current.clear();
+    autoImportLockUntilRef.current = 0;
+    autoImportPromptedRef.current = false;
+  }, []);
+
+  const handleJoinMobileImportWaitlist = useCallback(() => {
+    setMobileImportWaitlistJoined(true);
+    toast({
+      title: "Mobile auto-import saved",
+      description: "We saved your interest on this device.",
+    });
+  }, [toast]);
+
+  useEffect(() => {
+    if (!autoImportEnabled || autoImportDirectoryHandle) return;
+    if (autoImportPromptedRef.current) return;
+    autoImportPromptedRef.current = true;
+    const mobileFallback = !supportsAutoImport || isMobileDevice;
+    const title = mobileFallback ? "Tap to import a recording" : "Tap to connect a recording folder";
+    const description = mobileFallback
+      ? "Mobile browsers can’t auto-scan files. Tap anywhere to choose a video from Photos/Files."
+      : "Tap anywhere to pick the folder you save recordings into.";
+    toast({ title, description });
+
+    if (typeof window === "undefined") return;
+    const handleGesture = () => {
+      if (mobileFallback) {
+        handlePickFile();
+      } else {
+        void handlePickAutoImportFolder();
+      }
+    };
+    window.addEventListener("pointerdown", handleGesture, { once: true });
+    return () => window.removeEventListener("pointerdown", handleGesture);
+  }, [
+    autoImportDirectoryHandle,
+    autoImportEnabled,
+    handlePickAutoImportFolder,
+    handlePickFile,
+    isMobileDevice,
+    supportsAutoImport,
+    toast,
+  ]);
+
   const continueWithSelectedFile = useCallback((
     file: File,
     fileCount = 1,
@@ -9137,6 +9356,118 @@ const Editor = () => {
     }
     void handleFile(file, { mode: "horizontal", uploadModeOverride });
   }, [handleFile, isVerticalMode, prepareVerticalFile, toast]);
+
+  const scanAutoImportDirectory = useCallback(async (directoryHandle: any): Promise<AutoImportCandidate | null> => {
+    if (!directoryHandle || typeof directoryHandle.values !== "function") return null;
+    const now = Date.now();
+    const candidates: AutoImportCandidate[] = [];
+
+    for await (const entry of directoryHandle.values()) {
+      if (!entry || entry.kind !== "file") continue;
+      const name = String(entry.name || "");
+      if (!isAllowedUploadName(name)) continue;
+      let file: File;
+      try {
+        file = await entry.getFile();
+      } catch {
+        continue;
+      }
+      if (!isAllowedUploadFile(file) || file.size <= 0) continue;
+      const key = `${name}|${file.size}|${file.lastModified}`;
+      if (autoImportProcessedRef.current.has(key)) continue;
+      const prev = autoImportScanStateRef.current.get(name);
+      const stablePasses =
+        prev && prev.size === file.size && prev.lastModified === file.lastModified
+          ? prev.stablePasses + 1
+          : 0;
+      autoImportScanStateRef.current.set(name, {
+        size: file.size,
+        lastModified: file.lastModified,
+        stablePasses,
+      });
+      if (stablePasses < AUTO_IMPORT_STABLE_PASSES) continue;
+      if (now - file.lastModified < AUTO_IMPORT_STABLE_AGE_MS) continue;
+      candidates.push({
+        file,
+        key,
+        name,
+        lastModified: file.lastModified,
+      });
+    }
+
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.lastModified - a.lastModified);
+    return candidates[0] ?? null;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!autoImportEnabled || !autoImportDirectoryHandle) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const schedule = (delay = AUTO_IMPORT_POLL_INTERVAL_MS) => {
+      if (cancelled) return;
+      timer = window.setTimeout(runScan, delay);
+    };
+
+    const runScan = async () => {
+      if (cancelled) return;
+      if (uploadingJobId || uploadModePromptOpen || pendingUploadSelection) {
+        schedule();
+        return;
+      }
+      if (autoImportLockUntilRef.current > Date.now()) {
+        schedule();
+        return;
+      }
+      try {
+        if (typeof autoImportDirectoryHandle.queryPermission === "function") {
+          const permission = await autoImportDirectoryHandle.queryPermission({ mode: "read" });
+          if (permission && permission !== "granted") {
+            const request = await autoImportDirectoryHandle.requestPermission?.({ mode: "read" });
+            if (request && request !== "granted") {
+              setAutoImportStatus("error");
+              schedule(AUTO_IMPORT_POLL_INTERVAL_MS * 2);
+              return;
+            }
+          }
+        }
+        const candidate = await scanAutoImportDirectory(autoImportDirectoryHandle);
+        if (candidate) {
+          autoImportProcessedRef.current.add(candidate.key);
+          autoImportLockUntilRef.current = Date.now() + AUTO_IMPORT_LOCK_MS;
+          setAutoImportStatus("watching");
+          continueWithSelectedFile(candidate.file, 1, isVerticalMode ? "vertical" : "horizontal");
+          toast({
+            title: "Recording imported",
+            description: `${candidate.name} added to the editor.`,
+          });
+        }
+      } catch (err) {
+        console.warn("auto import scan failed", err);
+        setAutoImportStatus("error");
+      } finally {
+        schedule();
+      }
+    };
+
+    schedule(900);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [
+    autoImportDirectoryHandle,
+    autoImportEnabled,
+    continueWithSelectedFile,
+    isVerticalMode,
+    pendingUploadSelection,
+    scanAutoImportDirectory,
+    toast,
+    uploadModePromptOpen,
+    uploadingJobId,
+  ]);
 
   const handleSelectedFile = useCallback((file: File, fileCount = 1) => {
     setPendingUploadSelection({
@@ -9679,7 +10010,15 @@ const Editor = () => {
     ],
   );
 
-  const handleDownload = async (clipIndex = 0, options?: { skipRerenderCheck?: boolean }) => {
+  const handleDownload = async (
+    clipIndex = 0,
+    options?: {
+      skipRerenderCheck?: boolean;
+      fileNameOverride?: string;
+      notifyOnCompletion?: boolean;
+      notifyTitle?: string;
+    },
+  ) => {
     if (!accessToken || !activeJob) return false;
     try {
       const skipRerenderCheck = Boolean(options?.skipRerenderCheck);
@@ -9695,7 +10034,13 @@ const Editor = () => {
         }
         const queued = await handleRedoRender(activeJob, { clipIndex });
         if (queued) {
-          pendingDownloadAfterRenderRef.current = { jobId: activeJob.id, clipIndex };
+          pendingDownloadAfterRenderRef.current = {
+            jobId: activeJob.id,
+            clipIndex,
+            fileNameOverride: options?.fileNameOverride,
+            notifyOnCompletion: options?.notifyOnCompletion,
+            notifyTitle: options?.notifyTitle,
+          };
           toast({
             title: "Rendering caption updates",
             description: "Download will start automatically once the new render is ready.",
@@ -9706,14 +10051,29 @@ const Editor = () => {
       const clipParam = clipIndex + 1;
       const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
       const fallbackFileName =
-        activeJob.renderMode === "vertical"
+        options?.fileNameOverride ??
+        (activeJob.renderMode === "vertical"
           ? `${baseName}-clip-${clipParam}.mp4`
-          : `${baseName}.mp4`;
+          : `${baseName}.mp4`);
+      const shouldNotifyDownload = Boolean(options?.notifyOnCompletion);
+      const notifyDownload = () => {
+        if (!shouldNotifyDownload) return;
+        const editorUrl = typeof window !== "undefined"
+          ? `${window.location.origin}/editor?jobId=${encodeURIComponent(activeJob.id)}`
+          : null;
+        notifyExportComplete({
+          jobId: activeJob.id,
+          title: options?.notifyTitle || baseName,
+          editorUrl,
+          event: "downloaded",
+        });
+      };
       const previewDownloadCandidate = clipIndex === 0 ? String(resolvedPreviewOutputUrl || "").trim() : "";
       if (previewDownloadCandidate) {
         try {
           await triggerFileDownload(previewDownloadCandidate, fallbackFileName);
           submitDownloadFeedback(activeJob, clipIndex, "frontend_preview_download");
+          notifyDownload();
           return true;
         } catch {
           // Fall back to fresh backend signed URL resolution.
@@ -9754,6 +10114,7 @@ const Editor = () => {
       });
       await triggerFileDownload(downloadUrl, fallbackFileName);
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
+      notifyDownload();
       return true;
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
@@ -9766,7 +10127,12 @@ const Editor = () => {
     if (!pending || !activeJob?.id || pending.jobId !== activeJob.id) return;
     if (normalizeStatus(activeJob.status) !== "ready") return;
     pendingDownloadAfterRenderRef.current = null;
-    void handleDownload(pending.clipIndex, { skipRerenderCheck: true });
+    void handleDownload(pending.clipIndex, {
+      skipRerenderCheck: true,
+      fileNameOverride: pending.fileNameOverride,
+      notifyOnCompletion: pending.notifyOnCompletion,
+      notifyTitle: pending.notifyTitle,
+    });
   }, [activeJob?.id, activeJob?.status]);
 
   const handleExportXml = useCallback(() => {
@@ -10896,6 +11262,116 @@ const Editor = () => {
         fullAutoAppliedSettings
       ),
   );
+  const autoDownloadTitleBase = useMemo(() => {
+    if (!activeJob) return "edited-video";
+    const candidates = [
+      metadataSummary?.title,
+      metadataSummary?.videoTitle,
+      metadataSummary?.topic,
+      metadataSummary?.niche,
+      activeAnalysis?.title,
+      activeAnalysis?.videoTitle,
+      activeAnalysis?.topic,
+    ];
+    const fallback = displayName(activeJob).replace(/\.[^/.]+$/, "");
+    const raw =
+      candidates.find((value) => typeof value === "string" && value.trim().length > 0) ??
+      fallback;
+    const cleaned = cleanPackagingText(raw);
+    return sanitizeFileStem(cleaned);
+  }, [activeAnalysis, activeJob, metadataSummary]);
+
+  const autoDownloadFileName = useCallback((clipIndex = 0) => {
+    if (!activeJob) return "edited-video.mp4";
+    const jobRecord = activeJob as any;
+    const extension = inferFileExtension(
+      jobRecord.outputFiles?.[clipIndex]?.fileName ??
+      jobRecord.fileName ??
+      activeOutputUrls[clipIndex] ??
+      activeJob.outputUrl ??
+      "mp4",
+      "mp4",
+    );
+    const baseName = autoDownloadTitleBase || "edited-video";
+    if (activeJob.renderMode === "vertical") {
+      return `${baseName}-clip-${clipIndex + 1}.${extension}`;
+    }
+    return `${baseName}.${extension}`;
+  }, [activeJob, activeOutputUrls, autoDownloadTitleBase]);
+
+  const bestVerticalClipIndex = useMemo(() => {
+    if (!verticalClipPredictions.length) return 0;
+    const best = verticalClipPredictions.reduce((leader, item) =>
+      item.predictedCompletion > leader.predictedCompletion ? item : leader,
+    );
+    const index = Math.round(best.clip) - 1;
+    return clamp(index, 0, Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1));
+  }, [verticalClipPredictions]);
+
+  useEffect(() => {
+    if (!autoDownloadEnabled) return;
+    if (!activeJob || normalizeStatus(activeJob.status) !== "ready") return;
+    const jobId = activeJob.id;
+    const isVerticalJob = activeJob.renderMode === "vertical";
+
+    if (autoDownloadLongFormOnly && isVerticalJob) return;
+
+    if (isVerticalJob) {
+      if (autoDownloadBatchRef.current.has(jobId)) return;
+      autoDownloadBatchRef.current.add(jobId);
+      const totalClips = VERTICAL_VARIANT_TOTAL_CLIPS;
+      const clipIndexes = autoDownloadVerticalMode === "top"
+        ? [bestVerticalClipIndex]
+        : Array.from({ length: totalClips }, (_, idx) => idx);
+      clipIndexes.forEach((clipIndex, orderIndex) => {
+        const key = `${jobId}:${clipIndex}`;
+        if (autoDownloadTriggeredRef.current[key]) return;
+        autoDownloadTriggeredRef.current[key] = true;
+        const delay = orderIndex * AUTO_DOWNLOAD_CLIP_DELAY_MS;
+        if (typeof window === "undefined") return;
+        window.setTimeout(() => {
+          void handleDownload(clipIndex, {
+            fileNameOverride: autoDownloadFileName(clipIndex),
+            notifyOnCompletion: orderIndex === clipIndexes.length - 1,
+            notifyTitle: autoDownloadTitleBase,
+          });
+        }, delay);
+      });
+      return;
+    }
+
+    const clipIndex = 0;
+    const key = `${jobId}:${clipIndex}`;
+    if (autoDownloadTriggeredRef.current[key]) return;
+    autoDownloadTriggeredRef.current[key] = true;
+    const fileName = autoDownloadFileName(clipIndex);
+    void handleDownload(clipIndex, {
+      fileNameOverride: fileName,
+      notifyOnCompletion: true,
+      notifyTitle: autoDownloadTitleBase,
+    });
+  }, [
+    activeJob,
+    autoDownloadEnabled,
+    autoDownloadFileName,
+    autoDownloadLongFormOnly,
+    autoDownloadTitleBase,
+    autoDownloadVerticalMode,
+    bestVerticalClipIndex,
+    handleDownload,
+  ]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (normalizeStatus(activeJob.status) === "ready") return;
+    const prefix = `${activeJob.id}:`;
+    for (const key of Object.keys(autoDownloadTriggeredRef.current)) {
+      if (key.startsWith(prefix)) {
+        delete autoDownloadTriggeredRef.current[key];
+      }
+    }
+    autoDownloadBatchRef.current.delete(activeJob.id);
+  }, [activeJob?.id, activeJob?.status]);
   const fullAutoEditorAddedSummary = (() => {
     if (!fullAutoEnabledForActiveJob) return null;
     const labels: string[] = [];
@@ -18626,58 +19102,176 @@ const Editor = () => {
 
             <section className="min-w-0 space-y-6">
               {showUploadDropzone ? (
-              <div
-                ref={uploadDropZoneRef}
-                data-vertical={isVerticalMode ? "true" : "false"}
-                className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
-                  isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
-                }`}
-                onClick={handlePickFile}
-                onDragEnter={handleDropZoneDragEnter}
-                onDragOver={handleDropZoneDragOver}
-                onDragLeave={handleDropZoneDragLeave}
-                onDrop={handleDrop}
-                onKeyDown={handleDropZoneKeyDown}
-                role="button"
-                tabIndex={0}
-                aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
-              >
-                <div className="flex flex-col items-center gap-3 relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                    <Upload className="w-7 h-7 text-primary" />
-                  </div>
-                  <p className="font-medium text-foreground">
-                    {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {isVerticalMode
-                      ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
-                      : "MP4, M4V, or MKV up to 2GB"}
-                  </p>
-                  {performanceConstrained && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
-                    </p>
-                  )}
-                  {ultraPipelineMode ? (
-                    <p className="text-[11px] text-primary">
-                      Fast mode active: accelerated upload with transcript still required.
-                    </p>
-                  ) : retentionKingPipelineMode ? (
-                    <p className="text-[11px] text-primary">
-                      Quality mode active: transcript-guided hook analysis with cleaner long-form continuity.
-                    </p>
-                  ) : null}
-                  {uploadingJobId && (
-                    <div className="w-full max-w-sm mt-4">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                        <span>Uploading...</span>
-                        <span>{uploadProgress}%</span>
-                      </div>
-                      <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+              <div className="space-y-3">
+                <div
+                  ref={uploadDropZoneRef}
+                  data-vertical={isVerticalMode ? "true" : "false"}
+                  className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
+                    isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
+                  }`}
+                  onClick={handlePickFile}
+                  onDragEnter={handleDropZoneDragEnter}
+                  onDragOver={handleDropZoneDragOver}
+                  onDragLeave={handleDropZoneDragLeave}
+                  onDrop={handleDrop}
+                  onKeyDown={handleDropZoneKeyDown}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
+                >
+                  <div className="flex flex-col items-center gap-3 relative z-10">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                      <Upload className="w-7 h-7 text-primary" />
                     </div>
-                  )}
+                    <p className="font-medium text-foreground">
+                      {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {isVerticalMode
+                        ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
+                        : "MP4, M4V, or MKV up to 2GB"}
+                    </p>
+                    {performanceConstrained && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
+                      </p>
+                    )}
+                    {ultraPipelineMode ? (
+                      <p className="text-[11px] text-primary">
+                        Fast mode active: accelerated upload with transcript still required.
+                      </p>
+                    ) : retentionKingPipelineMode ? (
+                      <p className="text-[11px] text-primary">
+                        Quality mode active: transcript-guided hook analysis with cleaner long-form continuity.
+                      </p>
+                    ) : null}
+                    {uploadingJobId && (
+                      <div className="w-full max-w-sm mt-4">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                          <span>Uploading...</span>
+                          <span>{uploadProgress}%</span>
+                        </div>
+                        <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+                      </div>
+                    )}
+                  </div>
                 </div>
+                <div className="flex flex-wrap items-center justify-center gap-3 rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-[11px] text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-2"
+                      onClick={autoImportActive ? handleStopAutoImport : handlePickAutoImportFolder}
+                      disabled={!supportsAutoImport || autoImportStatus === "picking"}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      {autoImportActive
+                        ? "Stop Auto-Import"
+                        : autoImportNeedsFolder
+                          ? "Reconnect Folder"
+                          : "Watch Recording Folder"}
+                    </Button>
+                    {autoImportActive ? (
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Watching {autoImportDirectoryHandle.name || "folder"}
+                      </Badge>
+                    ) : autoImportNeedsFolder ? (
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Reconnect folder access
+                      </Badge>
+                    ) : supportsAutoImport ? (
+                      <span className="text-[10px] text-muted-foreground">Pick a folder to auto-import new recordings.</span>
+                    ) : isMobileDevice ? (
+                      <span className="text-[10px] text-muted-foreground">Mobile auto-import needs a native app. Tap upload to pick from Photos/Files.</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Folder auto-import needs Chrome or Edge.</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2">
+                      <Switch
+                        checked={autoDownloadEnabled}
+                        onCheckedChange={setAutoDownloadEnabled}
+                        aria-label="Toggle auto download"
+                      />
+                      <span>Auto-download when ready</span>
+                    </label>
+                    {autoDownloadEnabled ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Vertical clips</span>
+                          <button
+                            type="button"
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                              autoDownloadVerticalMode === "all"
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border/50 bg-background/40 text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => setAutoDownloadVerticalMode("all")}
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                              autoDownloadVerticalMode === "top"
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border/50 bg-background/40 text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => setAutoDownloadVerticalMode("top")}
+                          >
+                            Top only
+                          </button>
+                        </div>
+                        <label className="flex items-center gap-2">
+                          <Switch
+                            checked={autoDownloadLongFormOnly}
+                            onCheckedChange={setAutoDownloadLongFormOnly}
+                            aria-label="Toggle long-form only"
+                          />
+                          <span>Long-form only</span>
+                        </label>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                {isMobileDevice ? (
+                  <div className="rounded-xl border border-border/50 bg-background/35 px-4 py-3 text-[11px] text-muted-foreground">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Mobile Auto-Import Plan</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Mobile browsers can’t auto-scan Photos in the background. A native app is required.
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Native app
+                      </Badge>
+                    </div>
+                    <div className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                      <p>Step 1: Install the AutoEditor mobile app.</p>
+                      <p>Step 2: Connect your Camera Roll.</p>
+                      <p>Step 3: Auto-upload, edit, and save back to Photos.</p>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={mobileImportWaitlistJoined ? "secondary" : "outline"}
+                        className="h-8"
+                        onClick={handleJoinMobileImportWaitlist}
+                        disabled={mobileImportWaitlistJoined}
+                      >
+                        {mobileImportWaitlistJoined ? "Waitlist saved" : "Join waitlist"}
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground">
+                        Saves your interest on this device.
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               ) : null}
 
