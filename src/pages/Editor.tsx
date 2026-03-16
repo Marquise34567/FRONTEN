@@ -518,7 +518,12 @@ type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
-type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3" | "top_human_guard";
+type CreatorLearningMode =
+  | "cold_start_autopilot"
+  | "continuity_first"
+  | "explore_x3"
+  | "top_human_guard"
+  | "human_review";
 type AchievementSignal = {
   id: "retention_beast" | "hook_master" | "post_now";
   title: string;
@@ -2034,6 +2039,7 @@ type JobStatus =
   | "subtitling"
   | "audio"
   | "retention"
+  | "review"
   | "rendering"
   | "completed"
   | "failed"
@@ -2452,6 +2458,7 @@ const PIPELINE_STEPS = [
   { key: "hooking", label: "Hook" },
   { key: "cutting", label: "Cut" },
   { key: "pacing", label: "Binge Optimize" },
+  { key: "review", label: "Human Review" },
   { key: "ready", label: "Download Ready" },
 ] as const;
 const RETENTION_GOAL_PERCENT = 70;
@@ -2490,6 +2497,7 @@ const STATUS_LABELS: Record<string, string> = {
   subtitling: "Binge Optimize",
   audio: "Binge Optimize",
   retention: "Binge Optimize",
+  review: "Human Review",
   rendering: "Binge Optimize",
   completed: "Download Ready",
   ready: "Download Ready",
@@ -2507,6 +2515,7 @@ const STAGE_ETA_BASE_SECONDS: Record<string, number> = {
   subtitling: 60,
   audio: 35,
   retention: 30,
+  review: 300,
   rendering: 120,
 };
 
@@ -2559,6 +2568,7 @@ const stepKeyForStatus = (status?: JobStatus | string | null) => {
   ) {
     return "pacing";
   }
+  if (normalized === "review") return "review";
   return normalized;
 };
 
@@ -2567,6 +2577,7 @@ const statusBadgeClass = (status?: JobStatus | string | null) => {
   if (normalized === "ready") return "bg-primary/12 text-primary border-primary/35";
   if (normalized === "failed") return "bg-destructive/10 text-destructive border-destructive/30";
   if (normalized === "uploading") return "bg-warning/10 text-warning border-warning/30";
+  if (normalized === "review") return "bg-amber-500/15 text-amber-200 border-amber-400/40";
   return "bg-primary/8 text-muted-foreground border-primary/20";
 };
 
@@ -4805,6 +4816,7 @@ const Editor = () => {
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(true);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(true);
   const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
+  const [humanReviewEnabled, setHumanReviewEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -4826,6 +4838,10 @@ const Editor = () => {
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [captionSettingsDialogOpen, setCaptionSettingsDialogOpen] = useState(false);
+  const [reviewPreviewUrl, setReviewPreviewUrl] = useState<string | null>(null);
+  const [reviewPreviewLoading, setReviewPreviewLoading] = useState(false);
+  const [reviewApproving, setReviewApproving] = useState(false);
+  const [reviewRedoing, setReviewRedoing] = useState(false);
   const [verticalCaptionLookId, setVerticalCaptionLookId] = useState<string>(`${DEFAULT_VERTICAL_CAPTION_STYLE}_pop`);
   const [tikTokStylePickerOpen, setTikTokStylePickerOpen] = useState(false);
   const [pendingTikTokCaptionPresetId, setPendingTikTokCaptionPresetId] = useState<VerticalCaptionPresetOptionId>(
@@ -7045,6 +7061,7 @@ const Editor = () => {
     const prev = prevJobStatusRef.current;
     const next = new Map<string, JobStatus>();
     const transitioned: string[] = [];
+    const reviewTransitioned: string[] = [];
     for (const job of jobs) {
       next.set(job.id, job.status);
       const prevStatus = prev.get(job.id);
@@ -7052,6 +7069,9 @@ const Editor = () => {
       const newNorm = normalizeStatus(job.status);
       if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
         transitioned.push(job.id);
+      }
+      if (prevStatus && prevNorm !== "review" && newNorm === "review") {
+        reviewTransitioned.push(job.id);
       }
     }
     prevJobStatusRef.current = next;
@@ -7119,6 +7139,29 @@ const Editor = () => {
         })();
       }
     }
+    if (reviewTransitioned.length > 0) {
+      for (const id of reviewTransitioned) {
+        ;(async () => {
+          try {
+            const summaryJob = jobs.find((x) => x.id === id);
+            const normalizedTitle = summaryJob
+              ? displayName(summaryJob).replace(/\.[^/.]+$/, "").trim()
+              : "";
+            const editorUrl = typeof window !== "undefined"
+              ? `${window.location.origin}/editor?jobId=${encodeURIComponent(id)}`
+              : null;
+            await notifyExportComplete({
+              jobId: id,
+              title: normalizedTitle || "edited video",
+              editorUrl,
+              event: "review",
+            });
+          } catch {
+            // ignore
+          }
+        })();
+      }
+    }
   }, [jobs, refetchMe, accessToken, notifyExportComplete]);
 
   useEffect(() => {
@@ -7139,6 +7182,7 @@ const Editor = () => {
   useEffect(() => {
     setShowAdvancedDebug(false);
   }, [activeJob?.id]);
+
 
   useEffect(() => {
     return () => {
@@ -7326,6 +7370,7 @@ const Editor = () => {
       continuityFirstMode: boostedContinuityFirstMode,
       exploreX3Mode: boostedExploreX3Mode,
       topHumanGuardMode: boostedTopHumanGuardMode,
+      humanReviewRequired: humanReviewEnabled,
       creatorStyleLock: creatorStyleLockForJob,
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
@@ -9652,7 +9697,7 @@ const Editor = () => {
   );
 
   const handleRedoRender = useCallback(
-    async (job: JobDetail, options?: { clipIndex?: number }) => {
+    async (job: JobDetail, options?: { clipIndex?: number; overrides?: Record<string, unknown> }) => {
       if (!accessToken || !job?.id) return false;
       void ensureNotificationPermission("export_start");
       setReprocessingJobId(job.id);
@@ -9726,6 +9771,7 @@ const Editor = () => {
           continuityFirstMode: continuityFirstEnabled,
           exploreX3Mode: exploreX3Enabled,
           topHumanGuardMode: topHumanGuardEnabled,
+          humanReviewRequired: humanReviewEnabled,
           creatorStyleLock: creatorStyleLockForJob,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
@@ -9850,6 +9896,9 @@ const Editor = () => {
             duration: preferredHook.duration,
           };
         }
+        if (options?.overrides && typeof options.overrides === "object") {
+          Object.assign(payload, options.overrides);
+        }
 
         const result = await apiFetch<{
           ok: boolean;
@@ -9949,6 +9998,7 @@ const Editor = () => {
       editorMode,
       exploreX3Enabled,
       topHumanGuardEnabled,
+      humanReviewEnabled,
       fetchJob,
       fetchJobs,
       fullAutoYoutubeEnabled,
@@ -10236,7 +10286,122 @@ const Editor = () => {
     }
   };
 
+  const handleFetchReviewPreviewUrl = useCallback(
+    async (jobId: string) => {
+      if (!accessToken || !jobId) return null;
+      setReviewPreviewLoading(true);
+      try {
+        const result = await apiFetch<{ url: string }>(`/api/jobs/${jobId}/review-preview-url`, {
+          method: "POST",
+          token: accessToken,
+        });
+        const url = String(result?.url || "").trim();
+        if (!url) {
+          toast({ title: "Preview unavailable", description: "Preview link is not ready yet." });
+          return null;
+        }
+        setReviewPreviewUrl(url);
+        return url;
+      } catch (err: any) {
+        const message = err?.message || "Preview link could not be loaded.";
+        toast({ title: "Preview unavailable", description: message });
+        return null;
+      } finally {
+        setReviewPreviewLoading(false);
+      }
+    },
+    [accessToken, toast],
+  );
+
+  const handleApproveReview = useCallback(
+    async () => {
+      if (!accessToken || !activeJob?.id) return false;
+      setReviewApproving(true);
+      try {
+        await apiFetch<{ ok: boolean }>(`/api/jobs/${activeJob.id}/review/approve`, {
+          method: "POST",
+          token: accessToken,
+        });
+        setJobs((prev) =>
+          prev.map((entry) =>
+            entry.id === activeJob.id
+              ? { ...entry, status: "queued", progress: 1 }
+              : entry,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== activeJob.id) return prev;
+          return {
+            ...prev,
+            status: "queued",
+            progress: 1,
+            error: null,
+          };
+        });
+        setReviewPreviewUrl(null);
+        await Promise.allSettled([fetchJobs(), fetchJob(activeJob.id)]);
+        toast({ title: "Review approved", description: "Render resumed in the queue." });
+        return true;
+      } catch (err: any) {
+        toast({
+          title: "Approval failed",
+          description: err?.message || "Please try again.",
+        });
+        return false;
+      } finally {
+        setReviewApproving(false);
+      }
+    },
+    [accessToken, activeJob?.id, fetchJob, fetchJobs, toast],
+  );
+
+  const handleRedoReview = useCallback(
+    async () => {
+      if (!activeJob) return false;
+      setReviewRedoing(true);
+      try {
+        const creativeVariantOrder: CreativeVariant[] = ["balanced", "punchy", "dramatic", "curiosity_first"];
+        const currentIndex = Math.max(0, creativeVariantOrder.indexOf(creativeVariant));
+        const nextVariant = creativeVariantOrder[(currentIndex + 1) % creativeVariantOrder.length];
+        setCreativeVariant(nextVariant);
+        if (!humanReviewEnabled) setHumanReviewEnabled(true);
+        const queued = await handleRedoRender(activeJob, {
+          overrides: {
+            creativeVariant: nextVariant,
+            exploreX3Mode: true,
+            humanReviewRequired: true,
+          },
+        });
+        if (queued) {
+          toast({
+            title: "Redo queued",
+            description: "Exploring a new variant before final render.",
+          });
+        }
+        return queued;
+      } catch (err: any) {
+        toast({ title: "Redo failed", description: err?.message || "Please try again." });
+        return false;
+      } finally {
+        setReviewRedoing(false);
+      }
+    },
+    [activeJob, creativeVariant, handleRedoRender, humanReviewEnabled, toast],
+  );
+
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const activeReviewState = useMemo(() => {
+    const review = activeJob?.analysis?.human_review ?? activeJob?.analysis?.humanReview;
+    if (!review || typeof review !== "object") return null;
+    return review as Record<string, any>;
+  }, [activeJob?.analysis]);
+  const reviewPending = normalizedActiveStatus === "review";
+  useEffect(() => {
+    if (!activeJob?.id || !reviewPending) {
+      setReviewPreviewUrl(null);
+      return;
+    }
+  }, [activeJob?.id, reviewPending]);
   const activeStatusLabel = activeJob
     ? normalizeStatus(activeJob.status) === "failed" && activeJob.error === "queue_canceled_by_user"
       ? "Canceled"
@@ -15593,6 +15758,12 @@ const Editor = () => {
       activeAnalysis?.topHumanGuardMode ??
       activeAnalysis?.top_human_guard_mode,
     );
+    const humanReview = parseBooleanLike(
+      activeRenderSettings?.humanReviewRequired ??
+      activeRenderSettings?.human_review_required ??
+      activeAnalysis?.humanReviewRequired ??
+      activeAnalysis?.human_review_required,
+    );
     const styleLockPercent = parseCreatorStyleLockPercent(
       activeRenderSettings?.creatorStyleLock ??
       activeRenderSettings?.creator_style_lock ??
@@ -15604,6 +15775,7 @@ const Editor = () => {
     setContinuityFirstEnabled(continuityFirst ?? false);
     setExploreX3Enabled(exploreX3 ?? false);
     setTopHumanGuardEnabled(topHumanGuard ?? false);
+    setHumanReviewEnabled(humanReview ?? false);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
@@ -16352,12 +16524,14 @@ const Editor = () => {
     if (continuityFirstEnabled) labels.push("Continuity-First");
     if (exploreX3Enabled) labels.push("Explore x3");
     if (topHumanGuardEnabled) labels.push("Top-Human Guard");
+    if (humanReviewEnabled) labels.push("Human Review");
     return labels;
   }, [
     coldStartAutopilotEnabled,
     continuityFirstEnabled,
     exploreX3Enabled,
     topHumanGuardEnabled,
+    humanReviewEnabled,
   ]);
   const liveOutcomeModeSubtitle = isVerticalMode
     ? "Vertical Live Agent mode optimizes short-form loops for TikTok + IG Reels, with YouTube Shorts context."
@@ -17536,7 +17710,7 @@ const Editor = () => {
                 {activeAdvancedLearningModeLabels.length} active
               </Badge>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-5">
               {([
                 {
                   id: "cold_start_autopilot" as CreatorLearningMode,
@@ -17569,6 +17743,14 @@ const Editor = () => {
                   active: topHumanGuardEnabled,
                   onToggle: () => setTopHumanGuardEnabled((prev) => !prev),
                   Icon: Crown,
+                },
+                {
+                  id: "human_review" as CreatorLearningMode,
+                  label: "Human Review",
+                  description: "Pause before final render until a reviewer approves.",
+                  active: humanReviewEnabled,
+                  onToggle: () => setHumanReviewEnabled((prev) => !prev),
+                  Icon: Clock,
                 },
               ]).map((mode) => (
                 <button
@@ -18338,7 +18520,7 @@ const Editor = () => {
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
+              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · {humanReviewEnabled ? "human review on" : "auto-approve"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
             </p>
           </div>
         ) : null}
@@ -18382,6 +18564,70 @@ const Editor = () => {
           <Download className="h-4 w-4" />
           {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
         </Button>
+      </div>
+    </motion.div>
+  ) : null;
+  const reviewPendingCard = activeJob && normalizedActiveStatus === "review" ? (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-xl border border-amber-400/40 bg-amber-500/10 p-3"
+    >
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-400/10 via-primary/10 to-orange-300/10" />
+      <div className="relative flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-amber-100 flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Human review required before final render.
+          </p>
+          <Badge variant="outline" className="border-amber-400/40 bg-amber-500/10 text-[11px] text-amber-200">
+            Awaiting approval
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {activeReviewState?.previewPath
+            ? "Download the preview and approve to continue rendering."
+            : "Preview is still generating. It will appear here when ready."}
+        </p>
+        {activeReviewState?.previewError ? (
+          <p className="text-[11px] text-destructive">
+            Preview error: {String(activeReviewState.previewError)}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            className="min-h-10 w-full gap-2 sm:w-auto"
+            disabled={reviewPreviewLoading || !activeReviewState?.previewPath}
+            onClick={async () => {
+              if (!activeJob?.id) return;
+              const url = reviewPreviewUrl || await handleFetchReviewPreviewUrl(activeJob.id);
+              if (url) {
+                window.open(url, "_blank", "noopener,noreferrer");
+              }
+            }}
+          >
+            {reviewPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {reviewPreviewLoading ? "Loading Preview" : "Download Preview"}
+          </Button>
+          <Button
+            className="min-h-10 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+            disabled={reviewApproving}
+            onClick={() => void handleApproveReview()}
+          >
+            {reviewApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {reviewApproving ? "Approving..." : "Approve & Render"}
+          </Button>
+          <Button
+            variant="ghost"
+            className="min-h-10 w-full gap-2 sm:w-auto"
+            disabled={reviewRedoing}
+            onClick={() => void handleRedoReview()}
+          >
+            {reviewRedoing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            {reviewRedoing ? "Redoing..." : "Redo Variant"}
+          </Button>
+        </div>
       </div>
     </motion.div>
   ) : null;
@@ -20321,6 +20567,7 @@ const Editor = () => {
                         </ol>
                       </div>
                     </div>
+                    {!isVerticalMode ? reviewPendingCard : null}
                     {!isVerticalMode ? exportReadyCard : null}
                     {showModeInsightsInline ? (
                       <>
@@ -20625,6 +20872,7 @@ const Editor = () => {
                         </div>
                       </div>
                     )}
+                    {isVerticalMode ? reviewPendingCard : null}
                     {isVerticalMode ? exportReadyCard : null}
                     {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

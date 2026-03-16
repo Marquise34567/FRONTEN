@@ -10,7 +10,7 @@ export type ExportCompleteNotificationPayload = {
   title?: string | null;
   downloadUrl?: string | null;
   editorUrl?: string | null;
-  event?: "ready" | "downloaded";
+  event?: "ready" | "downloaded" | "review";
 };
 
 type ToastInvoker = (payload: {
@@ -147,7 +147,7 @@ export const useExportNotification = ({
 
   const openExportTarget = useCallback((payload: ExportCompleteNotificationPayload) => {
     if (typeof window === "undefined") return;
-    const prefersEditor = payload.event === "downloaded";
+    const prefersEditor = payload.event === "downloaded" || payload.event === "review";
     const destination = prefersEditor
       ? (payload.editorUrl || payload.downloadUrl)
       : (payload.downloadUrl || payload.editorUrl);
@@ -167,10 +167,14 @@ export const useExportNotification = ({
     const event = payload.event ?? "ready";
     const toastHeading = event === "downloaded"
       ? "Download complete"
-      : "Your video is ready! Download now";
+      : event === "review"
+        ? "Human review needed"
+        : "Your video is ready! Download now";
     const toastDescription = event === "downloaded"
       ? `${displayTitle} is saved to your device.`
-      : `${displayTitle} is ready to ${hasDownload ? "download" : "open"} now.`;
+      : event === "review"
+        ? `${displayTitle} is ready for approval. Open the editor to review.`
+        : `${displayTitle} is ready to ${hasDownload ? "download" : "open"} now.`;
     const shouldShowAction = Boolean(payload.downloadUrl || payload.editorUrl);
 
     toast({
@@ -255,10 +259,14 @@ export const useExportNotification = ({
     const event = payload.event ?? "ready";
     const notificationTitle = event === "downloaded"
       ? `Download Complete – ${appName}`
-      : `Video Export Complete – ${appName}`;
+      : event === "review"
+        ? `Human Review Needed – ${appName}`
+        : `Video Export Complete – ${appName}`;
     const body = event === "downloaded"
       ? `Your ${videoTitle} is saved to your device. Click to return to the editor.`
-      : `Your ${videoTitle} is ready to download! Click to return to the editor.`;
+      : event === "review"
+        ? `Your ${videoTitle} is ready for approval. Click to open the editor.`
+        : `Your ${videoTitle} is ready to download! Click to return to the editor.`;
     const tag = `autoeditor-export-${event}-${payload.jobId}`;
 
     const options: NotificationOptions & { badge?: string; vibrate?: number[] } = {
