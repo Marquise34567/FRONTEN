@@ -23688,7 +23688,7 @@ const Editor = () => {
       >
         {exportOpen && activeJob?.renderMode !== "vertical" ? (
           <DialogContent
-            className="relative max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+            className="max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
             onInteractOutside={(event) => event.preventDefault()}
             onEscapeKeyDown={(event) => event.preventDefault()}
           >
