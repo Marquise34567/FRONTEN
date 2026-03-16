@@ -5,6 +5,11 @@ const BASE_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
+const rawRealtimeUrl =
+  import.meta.env.VITE_WS_URL ||
+  import.meta.env.VITE_REALTIME_URL ||
+  "";
+
 const buildRealtimeSocketUrls = (token: string) => {
   const params = new URLSearchParams({ token });
   const out: string[] = [];
@@ -23,7 +28,18 @@ const buildRealtimeSocketUrls = (token: string) => {
       // ignore malformed base URL
     }
   };
+  const addFromRealtimeEnv = (value: string) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    const asHttp = normalized.replace(/^wss?:\/\//i, (match) =>
+      match.toLowerCase() === "wss://" ? "https://" : "http://"
+    );
+    addFromBase(asHttp);
+  };
   const runtimeOriginBase = getRuntimeOriginBase();
+  if (rawRealtimeUrl) {
+    addFromRealtimeEnv(rawRealtimeUrl);
+  }
   if (API_URL && shouldIncludeApiBase(API_URL, runtimeOriginBase)) {
     addFromBase(API_URL);
   }
