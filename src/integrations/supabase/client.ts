@@ -10,6 +10,60 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // using `export` inside a block (which causes a syntax error).
 export let supabase: any;
 
+const REALTIME_RECONNECT_COOLDOWN_MS = 5000;
+let lastRealtimeReconnectAt = 0;
+
+const handleRealtimeHeartbeat = (status: string) => {
+  if (status !== "disconnected") return;
+  const realtime = supabase?.realtime;
+  if (!realtime || typeof realtime.connect !== "function" || typeof realtime.isConnected !== "function") return;
+  if (realtime.isConnected()) return;
+  const now = Date.now();
+  if (now - lastRealtimeReconnectAt < REALTIME_RECONNECT_COOLDOWN_MS) return;
+  lastRealtimeReconnectAt = now;
+  try {
+    realtime.connect();
+  } catch (error) {
+    console.warn("[supabase realtime] reconnect failed", error);
+  }
+};
+
+const attachRealtimeSubscribeLogging = (client: any) => {
+  if (!client || typeof client.channel !== "function") return;
+  const flag = "__realtimeSubscribeLoggingAttached";
+  if (client[flag]) return;
+  client[flag] = true;
+
+  const originalChannel = client.channel.bind(client);
+  client.channel = (name: string, opts?: any) => {
+    const channel = originalChannel(name, opts);
+    if (!channel || typeof channel.subscribe !== "function") return channel;
+
+    const originalSubscribe = channel.subscribe.bind(channel);
+    channel.subscribe = (callbackOrTimeout?: any, maybeTimeout?: number) => {
+      const callback = typeof callbackOrTimeout === "function" ? callbackOrTimeout : undefined;
+      const timeout = typeof callbackOrTimeout === "number" ? callbackOrTimeout : maybeTimeout;
+
+      return originalSubscribe((status: any, err?: any) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          const reason =
+            err instanceof Error
+              ? { message: err.message, name: err.name, stack: err.stack }
+              : err ?? "unknown";
+          console.error("[supabase realtime] channel subscribe issue", {
+            status,
+            topic: channel?.topic,
+            reason,
+          });
+        }
+        callback?.(status, err);
+      }, timeout);
+    };
+
+    return channel;
+  };
+};
+
 if (SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
   supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
@@ -17,7 +71,12 @@ if (SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
       persistSession: true,
       autoRefreshToken: true,
     },
+    realtime: {
+      worker: true,
+      heartbeatCallback: (status) => handleRealtimeHeartbeat(status),
+    },
   });
+  attachRealtimeSubscribeLogging(supabase);
 } else {
   // Minimal fallback implementation used in development when env is missing.
   supabase = {
