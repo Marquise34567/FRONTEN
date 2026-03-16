@@ -10,45 +10,6 @@ import { Progress } from "@/components/ui/progress";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
-const timelineSeries = [
-  { stamp: "0:00", energy: 84, emotion: 69, retention: 91 },
-  { stamp: "0:18", energy: 78, emotion: 74, retention: 86 },
-  { stamp: "0:36", energy: 88, emotion: 76, retention: 90 },
-  { stamp: "0:54", energy: 93, emotion: 81, retention: 92 },
-  { stamp: "1:12", energy: 86, emotion: 84, retention: 88 },
-  { stamp: "1:30", energy: 82, emotion: 79, retention: 84 },
-  { stamp: "1:48", energy: 89, emotion: 86, retention: 87 },
-  { stamp: "2:06", energy: 91, emotion: 83, retention: 89 },
-] as const;
-
-const facialZones = [
-  { label: "Face Zone 1", at: "0:24", intensity: 93, detail: "Eye contact lock + high motion sync" },
-  { label: "Face Zone 2", at: "0:38", intensity: 81, detail: "Expression confidence spike" },
-  { label: "Face Zone 3", at: "1:03", intensity: 87, detail: "Facial clarity + vocal emphasis" },
-  { label: "Face Zone 4", at: "1:28", intensity: 76, detail: "Re-hook expression reset" },
-] as const;
-
-const platformForecast = [
-  { label: "YouTube Long-Form", before: 71, after: 83, lift: "+12" },
-  { label: "TikTok", before: 65, after: 88, lift: "+23" },
-  { label: "IG Reels", before: 67, after: 86, lift: "+19" },
-] as const;
-
-const storyMapRows = [
-  { phase: "Hook", range: "0:00-0:18", score: 91, note: "Pattern interrupt locked." },
-  { phase: "Build-up", range: "0:18-1:03", score: 84, note: "Curiosity tension stabilized." },
-  { phase: "Payoff", range: "1:03-1:48", score: 89, note: "Reward delivered with high clarity." },
-  { phase: "Cliffhanger", range: "1:48-2:06", score: 86, note: "Loop handoff secured for replay." },
-] as const;
-
-const autonomousNotes = [
-  "Payoff pressure improved after moving reveal 8.2s earlier in the opener.",
-  "Boundary critic flagged two rough joins; both were softened by continuity-first pacing.",
-  "Hook candidate #3 won the global faceoff with stronger curiosity carryover.",
-  "Emotion-anchored re-hooks are now inserted every 42s based on drop-off trend.",
-  "Adaptive style lock is running at 78% from 24 feedback samples.",
-] as const;
-
 const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "energy" | "emotion") => (
   rows
     .map((row, index) => {
@@ -59,10 +20,17 @@ const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "en
     .join(" ")
 );
 const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
-const readPercentParam = (params: URLSearchParams, key: string, fallback: number) => {
+const normalizePercent = (value: unknown) => {
+  if (value === null || value === undefined) return null;
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return null;
+  const scaled = Math.abs(raw) <= 1 ? raw * 100 : raw;
+  return clampPercent(Math.round(scaled));
+};
+const readOptionalPercentParam = (params: URLSearchParams, key: string) => {
   const raw = Number(params.get(key));
-  if (!Number.isFinite(raw)) return clampPercent(fallback);
-  return clampPercent(raw);
+  if (!Number.isFinite(raw)) return null;
+  return normalizePercent(raw);
 };
 const readCountParam = (params: URLSearchParams, key: string, fallback: number) => {
   const raw = Number(params.get(key));
@@ -112,6 +80,27 @@ const formatOptionalDateTime = (value: unknown) => {
     minute: "2-digit",
   });
 };
+const formatOptionalShortDate = (value: unknown) => {
+  if (!value) return "";
+  const date = new Date(value as any);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+};
+const formatTimelineStamp = (seconds: number | null) => {
+  if (seconds === null || !Number.isFinite(seconds)) return "";
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+};
+const formatRangeLabel = (start: number | null, end: number | null) => {
+  const startLabel = formatTimelineStamp(start);
+  const endLabel = formatTimelineStamp(end);
+  if (!startLabel && !endLabel) return "--";
+  if (!startLabel) return `---${endLabel}`;
+  if (!endLabel) return `${startLabel}-??`;
+  return `${startLabel}-${endLabel}`;
+};
 const clampScore = (value: number | null) => {
   if (value === null) return null;
   if (!Number.isFinite(value)) return null;
@@ -135,23 +124,15 @@ const EditorAMode = () => {
   const [jobDetail, setJobDetail] = useState<Record<string, any> | null>(null);
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
-  const avgRetention = useMemo(() => (
-    Math.round(timelineSeries.reduce((sum, row) => sum + row.retention, 0) / timelineSeries.length)
-  ), []);
-  const avgEmotion = useMemo(() => (
-    Math.round(timelineSeries.reduce((sum, row) => sum + row.emotion, 0) / timelineSeries.length)
-  ), []);
-  const peakEnergyPoint = useMemo(() => (
-    timelineSeries.reduce((best, current) => (current.energy > best.energy ? current : best), timelineSeries[0])
-  ), []);
   const fullVideoScanProgress = useMemo(() => {
     const raw = Number(searchParams.get("fullScanProgress"));
     if (Number.isFinite(raw)) return Math.max(0, Math.min(100, raw));
-    return 100;
+    return null;
   }, [searchParams]);
   const fullVideoScanLabel = useMemo(() => {
     const raw = String(searchParams.get("fullScanLabel") || "").trim();
     if (raw) return raw.slice(0, 120);
+    if (fullVideoScanProgress === null) return "Awaiting scan signal";
     if (fullVideoScanProgress >= 100) return "Full scan complete";
     return `Full scan ${Math.round(fullVideoScanProgress)}% complete`;
   }, [searchParams, fullVideoScanProgress]);
@@ -190,18 +171,18 @@ const EditorAMode = () => {
   }, [activeJobId]);
   const rateDecisionReady = useMemo(() => {
     const raw = String(searchParams.get("rateDecisionReady") || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes";
-  }, [searchParams]);
+    if (raw === "1" || raw === "true" || raw === "yes") return true;
+    const status = String(jobDetail?.status || "").trim().toLowerCase();
+    return status === "ready";
+  }, [jobDetail?.status, searchParams]);
   const rateOverallScore = useMemo(() => {
-    const raw = Number(searchParams.get("rateOverall"));
-    if (!Number.isFinite(raw)) return null;
-    return clampPercent(Math.round(raw));
+    return normalizePercent(searchParams.get("rateOverall"));
   }, [searchParams]);
-  const rateAverageScore = useMemo(() => readPercentParam(searchParams, "rateAverage", 79), [searchParams]);
+  const rateAverageScore = useMemo(() => readOptionalPercentParam(searchParams, "rateAverage"), [searchParams]);
   const rateByPlatform = useMemo(() => ({
-    youtube: readPercentParam(searchParams, "rateYoutube", 80),
-    tiktok: readPercentParam(searchParams, "rateTiktok", 84),
-    instagramReels: readPercentParam(searchParams, "rateInstagram", 82),
+    youtube: readOptionalPercentParam(searchParams, "rateYoutube"),
+    tiktok: readOptionalPercentParam(searchParams, "rateTiktok"),
+    instagramReels: readOptionalPercentParam(searchParams, "rateInstagram"),
   }), [searchParams]);
   const rateTopLabel = useMemo(() => {
     const explicit = String(searchParams.get("rateTopLabel") || "").trim();
@@ -210,13 +191,18 @@ const EditorAMode = () => {
       { label: "YouTube", score: rateByPlatform.youtube },
       { label: "TikTok", score: rateByPlatform.tiktok },
       { label: "IG Reels", score: rateByPlatform.instagramReels },
-    ];
-    return rows.reduce((best, row) => (row.score > best.score ? row : best), rows[0]).label;
+    ].filter((row) => row.score !== null);
+    if (!rows.length) return "Pending";
+    return rows.reduce((best, row) => ((row.score ?? 0) > (best.score ?? 0) ? row : best), rows[0]).label;
   }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
   const rateTopScore = useMemo(() => {
-    const raw = Number(searchParams.get("rateTopScore"));
-    if (Number.isFinite(raw)) return clampPercent(Math.round(raw));
-    return Math.max(rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels);
+    const raw = normalizePercent(searchParams.get("rateTopScore"));
+    if (raw !== null) return raw;
+    const scores = [rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels].filter(
+      (score): score is number => score !== null,
+    );
+    if (!scores.length) return null;
+    return Math.max(...scores);
   }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
   const rateSelectedCount = useMemo(() => readCountParam(searchParams, "rateSelected", 0), [searchParams]);
   const rateSuggestionCount = useMemo(
@@ -248,8 +234,10 @@ const EditorAMode = () => {
       barClassName: "from-fuchsia-300/85 to-pink-400/85",
     },
   ]), [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
-  const energyPoints = useMemo(() => toPoints(timelineSeries, "energy"), []);
-  const emotionPoints = useMemo(() => toPoints(timelineSeries, "emotion"), []);
+  const hasRateCard = useMemo(
+    () => rateAverageScore !== null || rateTopScore !== null || rateOverallScore !== null,
+    [rateAverageScore, rateOverallScore, rateTopScore],
+  );
   const jobAnalysis = useMemo(() => {
     const raw = jobDetail?.analysis;
     if (!raw || typeof raw !== "object") return null;
@@ -263,6 +251,184 @@ const EditorAMode = () => {
     if (!nested || typeof nested !== "object") return null;
     return nested as Record<string, any>;
   }, [jobAnalysis, jobDetail]);
+  const timelineSeries = useMemo(() => {
+    if (!jobAnalysis) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+    const pickArray = (...values: unknown[]) => values.find((value) => Array.isArray(value)) as unknown[] | undefined;
+    const parseObjectSeries = (series: unknown[]) => {
+      const points: { stamp: string; energy: number; emotion: number; retention?: number }[] = [];
+      series.forEach((entry, index) => {
+        if (!entry || typeof entry !== "object") return;
+        const energy = normalizePercent((entry as any).energy ?? (entry as any).energyScore ?? (entry as any).energy_score);
+        const emotion = normalizePercent((entry as any).emotion ?? (entry as any).emotionScore ?? (entry as any).emotion_score);
+        if (energy === null || emotion === null) return;
+        const retention = normalizePercent(
+          (entry as any).retention ?? (entry as any).retentionScore ?? (entry as any).retention_score,
+        );
+        const stampValue =
+          (entry as any).stamp ??
+          (entry as any).t ??
+          (entry as any).time ??
+          (entry as any).second ??
+          (entry as any).seconds ??
+          index;
+        const stampNumber = Number(stampValue);
+        const stamp = Number.isFinite(stampNumber)
+          ? formatTimelineStamp(stampNumber)
+          : String((entry as any).stamp || "").trim();
+        points.push({
+          stamp: stamp || formatTimelineStamp(index),
+          energy,
+          emotion,
+          retention: retention ?? undefined,
+        });
+      });
+      return points;
+    };
+    let points = parseObjectSeries(pickArray(
+      jobAnalysis.energyEmotionTimeline,
+      jobAnalysis.energy_emotion_timeline,
+      jobAnalysis.timeline,
+      jobAnalysis.energyTimeline,
+      jobAnalysis.energy_timeline,
+      jobAnalysis.emotionTimeline,
+      jobAnalysis.emotion_timeline,
+    ) || []);
+    if (!points.length) {
+      const energySeries = pickArray(jobAnalysis.energyTimeline, jobAnalysis.energy_timeline);
+      const emotionSeries = pickArray(jobAnalysis.emotionTimeline, jobAnalysis.emotion_timeline);
+      if (energySeries && emotionSeries) {
+        const length = Math.min(energySeries.length, emotionSeries.length);
+        points = Array.from({ length }, (_, index) => {
+          const energy = normalizePercent(energySeries[index]);
+          const emotion = normalizePercent(emotionSeries[index]);
+          if (energy === null || emotion === null) return null;
+          return {
+            stamp: formatTimelineStamp(index),
+            energy,
+            emotion,
+          };
+        }).filter((point): point is { stamp: string; energy: number; emotion: number } => Boolean(point));
+      }
+    }
+    return points.slice(0, 24);
+  }, [jobAnalysis]);
+  const hasTimeline = timelineSeries.length > 0;
+  const avgEmotion = useMemo(() => {
+    if (!timelineSeries.length) return null;
+    const total = timelineSeries.reduce((sum, row) => sum + row.emotion, 0);
+    return Math.round(total / timelineSeries.length);
+  }, [timelineSeries]);
+  const peakEnergyPoint = useMemo(() => {
+    if (!timelineSeries.length) return null;
+    return timelineSeries.reduce((best, current) => (current.energy > best.energy ? current : best), timelineSeries[0]);
+  }, [timelineSeries]);
+  const energyPoints = useMemo(
+    () => (timelineSeries.length ? toPoints(timelineSeries, "energy") : ""),
+    [timelineSeries],
+  );
+  const emotionPoints = useMemo(
+    () => (timelineSeries.length ? toPoints(timelineSeries, "emotion") : ""),
+    [timelineSeries],
+  );
+  const platformForecast = useMemo(() => {
+    if (!jobAnalysis) return [] as { label: string; before: number | null; after: number | null; lift: string }[];
+    const raw =
+      jobAnalysis.platform_forecast ??
+      jobAnalysis.platformForecast ??
+      jobAnalysis.platform_outcome_forecast ??
+      jobAnalysis.platformOutcomeForecast;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry: any, index: number) => {
+        if (!entry || typeof entry !== "object") return null;
+        const labelRaw = String(entry.label ?? entry.platform ?? entry.name ?? "").trim();
+        const label = labelRaw || `Platform ${index + 1}`;
+        const before = normalizePercent(entry.before ?? entry.baseline ?? entry.current ?? entry.score_before);
+        const after = normalizePercent(entry.after ?? entry.projected ?? entry.score_after ?? entry.predicted);
+        let lift = "";
+        if (typeof entry.lift === "string" && entry.lift.trim()) {
+          lift = entry.lift.trim();
+        } else {
+          const liftValue = normalizePercent(entry.lift);
+          if (liftValue !== null) lift = `${liftValue >= 0 ? "+" : ""}${liftValue}`;
+          else if (before !== null && after !== null) {
+            const diff = Math.round(after - before);
+            lift = `${diff >= 0 ? "+" : ""}${diff}`;
+          }
+        }
+        return { label, before, after, lift };
+      })
+      .filter((entry): entry is { label: string; before: number | null; after: number | null; lift: string } => Boolean(entry))
+      .slice(0, 5);
+  }, [jobAnalysis]);
+  const facialZones = useMemo(() => {
+    if (!jobAnalysis) return [] as { label: string; at: string; intensity: number; detail: string }[];
+    const raw =
+      jobAnalysis.facialZones ??
+      jobAnalysis.facial_zones ??
+      jobAnalysis.faceZones ??
+      jobAnalysis.face_zones ??
+      jobAnalysis.face_heatmap;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry: any, index: number) => {
+        if (!entry || typeof entry !== "object") return null;
+        const label = String(entry.label ?? entry.zone ?? `Face Zone ${index + 1}`).trim();
+        const atValue = Number(entry.at ?? entry.time ?? entry.t ?? entry.second ?? entry.seconds);
+        const at = Number.isFinite(atValue) ? formatTimelineStamp(atValue) : String(entry.at ?? "").trim();
+        const intensity = normalizePercent(entry.intensity ?? entry.score ?? entry.value);
+        if (intensity === null) return null;
+        const detail = String(entry.detail ?? entry.note ?? entry.reason ?? "").trim();
+        return { label: label || `Face Zone ${index + 1}`, at, intensity, detail };
+      })
+      .filter((entry): entry is { label: string; at: string; intensity: number; detail: string } => Boolean(entry))
+      .slice(0, 6);
+  }, [jobAnalysis]);
+  const storyMapRows = useMemo(() => {
+    if (!jobAnalysis) return [] as { phase: string; range: string; score: number | null; note: string }[];
+    const graph = jobAnalysis.story_beat_graph ?? jobAnalysis.storyBeatGraph ?? jobAnalysis.story_map ?? jobAnalysis.storyMap;
+    const nodes = Array.isArray(graph?.nodes) ? graph.nodes : Array.isArray(graph) ? graph : null;
+    if (!Array.isArray(nodes)) return [];
+    return nodes
+      .map((node: any) => {
+        if (!node || typeof node !== "object") return null;
+        const phaseRaw = String(node.role ?? node.phase ?? node.label ?? "Beat").trim();
+        const phase = phaseRaw ? phaseRaw.replace(/_/g, " ") : "Beat";
+        const start = Number(node.start ?? node.start_time ?? node.t0);
+        const end = Number(node.end ?? node.end_time ?? node.t1);
+        const range = formatRangeLabel(Number.isFinite(start) ? start : null, Number.isFinite(end) ? end : null);
+        const score = normalizePercent(node.strength ?? node.score ?? node.weight);
+        const note = String(node.summary ?? node.note ?? node.detail ?? "").trim();
+        return { phase, range, score, note };
+      })
+      .filter((entry): entry is { phase: string; range: string; score: number | null; note: string } => Boolean(entry))
+      .slice(0, 4);
+  }, [jobAnalysis]);
+  const cutQualityPercent = useMemo(() => {
+    const fromGate = readNumberFrom(jobAutonomous?.qualityGate as Record<string, any> | null, [
+      "cutQualityScore",
+      "cut_quality_score",
+      "cutQuality",
+    ]);
+    const fromAnalysis = readNumberFrom(jobAnalysis, ["cut_quality_score", "cutQualityScore"]);
+    return normalizePercent(fromGate ?? fromAnalysis);
+  }, [jobAnalysis, jobAutonomous?.qualityGate]);
+  const decisionLogDateLabel = useMemo(() => {
+    const raw = jobAutonomous?.learning?.recordedAt ??
+      jobAutonomous?.learning?.updatedAt ??
+      jobAnalysis?.editor_last_updated_at ??
+      jobAnalysis?.editorLastUpdatedAt;
+    return formatOptionalShortDate(raw);
+  }, [jobAnalysis?.editorLastUpdatedAt, jobAnalysis?.editor_last_updated_at, jobAutonomous?.learning]);
+  const decisionNotes = useMemo(() => {
+    if (Array.isArray(jobAutonomous?.notes) && jobAutonomous?.notes.length > 0) {
+      return normalizeTextList(jobAutonomous.notes);
+    }
+    if (Array.isArray(jobAutonomous?.learning?.notes) && jobAutonomous?.learning?.notes.length > 0) {
+      return normalizeTextList(jobAutonomous.learning.notes);
+    }
+    return [] as string[];
+  }, [jobAutonomous]);
   const retentionScoreAfter = useMemo(
     () => clampScore(
       readNumberFrom(jobAnalysis, [
@@ -371,16 +537,6 @@ const EditorAMode = () => {
     ]);
     return normalizeTextList([...(fromPlan || []), ...fromReview]);
   }, [editorInstructionPlan?.notes, humanReviewState]);
-  const decisionNotes = useMemo(() => {
-    if (Array.isArray(jobAutonomous?.notes) && jobAutonomous?.notes.length > 0) {
-      return normalizeTextList(jobAutonomous.notes);
-    }
-    if (Array.isArray(jobAutonomous?.learning?.notes) && jobAutonomous?.learning?.notes.length > 0) {
-      return normalizeTextList(jobAutonomous.learning.notes);
-    }
-    return autonomousNotes;
-  }, [jobAutonomous]);
-
   return (
     <GlowBackdrop>
       <Navbar />
@@ -443,41 +599,61 @@ const EditorAMode = () => {
           transition={{ delay: 0.05, duration: 0.4 }}
         >
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Avg retention</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionScoreAfter ?? avgRetention}%</p>
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention score</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">
+              {retentionScoreAfter !== null ? `${retentionScoreAfter}%` : "--"}
+            </p>
             <p className="text-[11px] text-muted-foreground">
-              {retentionScoreAfter !== null ? "Latest retention score" : "Target 70%+ sustained"}
+              {retentionScoreAfter !== null ? "Latest retention score" : "Awaiting retention score"}
             </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Peak energy</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{peakEnergyPoint.energy}</p>
-            <p className="text-[11px] text-muted-foreground">At {peakEnergyPoint.stamp}</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">
+              {peakEnergyPoint ? peakEnergyPoint.energy : "--"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {peakEnergyPoint ? `At ${peakEnergyPoint.stamp}` : "Awaiting energy scan"}
+            </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Emotion sync</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{avgEmotion}</p>
-            <p className="text-[11px] text-muted-foreground">Facial + audio weighted</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{avgEmotion ?? "--"}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {avgEmotion !== null ? "Facial + audio weighted" : "Awaiting emotion scan"}
+            </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Quality gate</p>
-            <p className={`mt-1 text-2xl font-semibold ${qualityGatePassed === false ? "text-rose-200" : "text-emerald-200"}`}>
-              {qualityGateScore ?? "7/7"}
+            <p
+              className={`mt-1 text-2xl font-semibold ${
+                qualityGatePassed === false
+                  ? "text-rose-200"
+                  : qualityGatePassed === true
+                    ? "text-emerald-200"
+                    : "text-foreground"
+              }`}
+            >
+              {qualityGateScore ?? "--"}
             </p>
             <p className="text-[11px] text-muted-foreground">
               {qualityGatePassed === false
                 ? "Gate needs attention"
-                : qualityGateScore
+                : qualityGatePassed === true
                   ? "All hard checks passed"
                   : "Quality gate awaiting signal"}
             </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Rate Card Winner</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{rateTopScore}</p>
-            <p className="text-[11px] text-muted-foreground">{rateTopLabel}</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{rateTopScore ?? "--"}</p>
+            <p className="text-[11px] text-muted-foreground">{rateTopScore !== null ? rateTopLabel : "Pending"}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {rateDecisionReady ? "Locked on ready render" : "Live estimate"}
+              {rateDecisionReady && hasRateCard
+                ? "Locked on ready render"
+                : hasRateCard
+                  ? "Live estimate"
+                  : "Awaiting rate data"}
             </p>
           </article>
         </motion.section>
@@ -538,13 +714,15 @@ const EditorAMode = () => {
                 <p className="font-display text-5xl font-bold leading-none text-foreground">
                   {rateOverallScore ?? "--"}
                 </p>
-                <span className="pb-1 text-sm text-muted-foreground">{rateDecisionReady ? "/100" : "pending"}</span>
+                <span className="pb-1 text-sm text-muted-foreground">{rateOverallScore !== null ? "/100" : "pending"}</span>
               </div>
               <p className="mt-1 text-xs text-foreground/90">
-                Top platform: {rateTopLabel} {rateDecisionReady ? `${rateTopScore}/100` : "(estimating)"}
+                {rateTopScore !== null
+                  ? `Top platform: ${rateTopLabel} ${rateDecisionReady ? `${rateTopScore}/100` : "(estimating)"}`
+                  : "Top platform: Pending"}
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Avg score {rateAverageScore}/100 · Updated {rateUpdatedLabel}
+                {rateAverageScore !== null ? `Avg score ${rateAverageScore}/100` : "Avg score pending"} · Updated {rateUpdatedLabel}
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Suggestions selected {rateSelectedCount}/{rateSuggestionCount}
@@ -554,10 +732,13 @@ const EditorAMode = () => {
                   <div key={row.key} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">{row.label}</p>
-                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{row.score}</Badge>
+                      <Badge className="border-primary/35 bg-primary/10 text-foreground">{row.score ?? "--"}</Badge>
                     </div>
                     <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted/65">
-                      <div className={`h-full rounded-full bg-gradient-to-r ${row.barClassName}`} style={{ width: `${row.score}%` }} />
+                      <div
+                        className={`h-full rounded-full bg-gradient-to-r ${row.barClassName}`}
+                        style={{ width: `${row.score ?? 0}%` }}
+                      />
                     </div>
                   </div>
                 ))}
@@ -572,12 +753,18 @@ const EditorAMode = () => {
                 Full Video Scan Progress
               </p>
               <Badge className="border-cyan-300/35 bg-cyan-400/10 text-cyan-100">
-                {fullVideoScanProgress >= 100 ? "Scan complete" : "Scan running"}
+                {fullVideoScanProgress === null
+                  ? "Scan pending"
+                  : fullVideoScanProgress >= 100
+                    ? "Scan complete"
+                    : "Scan running"}
               </Badge>
             </div>
-            <p className="mt-3 font-display text-5xl font-bold leading-none text-foreground">{Math.round(fullVideoScanProgress)}%</p>
+            <p className="mt-3 font-display text-5xl font-bold leading-none text-foreground">
+              {fullVideoScanProgress === null ? "--" : `${Math.round(fullVideoScanProgress)}%`}
+            </p>
             <Progress
-              value={fullVideoScanProgress}
+              value={fullVideoScanProgress ?? 0}
               className="mt-3 h-2.5 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
             />
             <p className="mt-2 text-sm text-foreground/90">{fullVideoScanLabel}</p>
@@ -608,30 +795,38 @@ const EditorAMode = () => {
               </p>
               <Badge className="border-primary/35 bg-primary/10 text-foreground">Premium graph</Badge>
             </div>
-            <div className="mt-3 h-44 rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] p-3">
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-                <defs>
-                  <linearGradient id="a-mode-energy" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="rgba(56,189,248,0.95)" />
-                    <stop offset="100%" stopColor="rgba(16,185,129,0.95)" />
-                  </linearGradient>
-                  <linearGradient id="a-mode-emotion" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="rgba(244,114,182,0.95)" />
-                    <stop offset="100%" stopColor="rgba(251,146,60,0.95)" />
-                  </linearGradient>
-                </defs>
-                <polyline points={energyPoints} fill="none" stroke="url(#a-mode-energy)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
-                <polyline points={emotionPoints} fill="none" stroke="url(#a-mode-emotion)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <div className="mt-3 grid grid-cols-4 gap-1.5">
-              {timelineSeries.map((row) => (
-                <div key={row.stamp} className="rounded-md border border-border/50 bg-background/45 px-2 py-1.5">
-                  <p className="text-[10px] text-muted-foreground">{row.stamp}</p>
-                  <p className="text-[11px] font-medium text-foreground">E {row.energy} · M {row.emotion}</p>
+            {hasTimeline ? (
+              <>
+                <div className="mt-3 h-44 rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] p-3">
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                    <defs>
+                      <linearGradient id="a-mode-energy" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="rgba(56,189,248,0.95)" />
+                        <stop offset="100%" stopColor="rgba(16,185,129,0.95)" />
+                      </linearGradient>
+                      <linearGradient id="a-mode-emotion" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="rgba(244,114,182,0.95)" />
+                        <stop offset="100%" stopColor="rgba(251,146,60,0.95)" />
+                      </linearGradient>
+                    </defs>
+                    <polyline points={energyPoints} fill="none" stroke="url(#a-mode-energy)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                    <polyline points={emotionPoints} fill="none" stroke="url(#a-mode-emotion)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </div>
-              ))}
-            </div>
+                <div className="mt-3 grid grid-cols-4 gap-1.5">
+                  {timelineSeries.map((row) => (
+                    <div key={row.stamp} className="rounded-md border border-border/50 bg-background/45 px-2 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">{row.stamp}</p>
+                      <p className="text-[11px] font-medium text-foreground">E {row.energy} · M {row.emotion}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mt-3 flex h-44 items-center justify-center rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] text-xs text-muted-foreground">
+                No energy/emotion timeline available yet.
+              </div>
+            )}
           </article>
 
           <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
@@ -640,38 +835,48 @@ const EditorAMode = () => {
                 <BarChart3 className="h-3.5 w-3.5 text-primary" />
                 Platform Outcome Forecast
               </p>
-              <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">Live uplift deck</Badge>
+              <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
+                {platformForecast.length > 0 ? "Live uplift deck" : "Forecast pending"}
+              </Badge>
             </div>
-            <div className="mt-3 space-y-2">
-              {platformForecast.map((row) => (
-                <div key={row.label} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-foreground">{row.label}</p>
-                    <Badge className="border-primary/35 bg-primary/10 text-primary">Lift {row.lift}</Badge>
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    <div>
-                      <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>Before</span>
-                        <span>{row.before}</span>
+            {platformForecast.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {platformForecast.map((row) => (
+                  <div key={row.label} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{row.label}</p>
+                      <Badge className="border-primary/35 bg-primary/10 text-primary">
+                        {row.lift ? `Lift ${row.lift}` : "Lift pending"}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      <div>
+                        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>Before</span>
+                          <span>{row.before ?? "--"}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted/70">
+                          <div className="h-full rounded-full bg-slate-400/75" style={{ width: `${row.before ?? 0}%` }} />
+                        </div>
                       </div>
-                      <div className="h-2 rounded-full bg-muted/70">
-                        <div className="h-full rounded-full bg-slate-400/75" style={{ width: `${row.before}%` }} />
+                      <div>
+                        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>After</span>
+                          <span>{row.after ?? "--"}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted/70">
+                          <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-300/80" style={{ width: `${row.after ?? 0}%` }} />
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>After</span>
-                        <span>{row.after}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted/70">
-                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-300/80" style={{ width: `${row.after}%` }} />
-                      </div>
-                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-border/55 bg-background/45 p-3 text-xs text-muted-foreground">
+                No platform forecast available yet.
+              </div>
+            )}
           </article>
 
           <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
@@ -680,22 +885,32 @@ const EditorAMode = () => {
                 <ScanFace className="h-3.5 w-3.5 text-primary" />
                 Facial Signal Heatmap
               </p>
-              <Badge className="border-primary/35 bg-primary/10 text-foreground">+15% est. lift</Badge>
+              <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                {facialZones.length > 0 ? "Signal active" : "Signal pending"}
+              </Badge>
             </div>
-            <div className="mt-3 space-y-2">
-              {facialZones.map((zone) => (
-                <div key={zone.label} className="rounded-lg border border-border/60 bg-background/60 p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-foreground">{zone.label} · {zone.at}</p>
-                    <Badge className="border-border/55 bg-background/55 text-foreground">{zone.intensity}</Badge>
+            {facialZones.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {facialZones.map((zone) => (
+                  <div key={`${zone.label}-${zone.at}`} className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{zone.label}{zone.at ? ` · ${zone.at}` : ""}</p>
+                      <Badge className="border-border/55 bg-background/55 text-foreground">{zone.intensity}</Badge>
+                    </div>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-muted/70">
+                      <div className="h-full rounded-full bg-gradient-to-r from-cyan-300/90 to-primary/90" style={{ width: `${zone.intensity}%` }} />
+                    </div>
+                    {zone.detail ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{zone.detail}</p>
+                    ) : null}
                   </div>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-muted/70">
-                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-300/90 to-primary/90" style={{ width: `${zone.intensity}%` }} />
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{zone.detail}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+                No facial signal data available yet.
+              </div>
+            )}
           </article>
 
           <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
@@ -704,24 +919,37 @@ const EditorAMode = () => {
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
                 Editor Agent Story Map
               </p>
-              <Badge className="border-amber-400/35 bg-amber-500/10 text-amber-200">Narrative tuned</Badge>
+              <Badge className="border-amber-400/35 bg-amber-500/10 text-amber-200">
+                {storyMapRows.length > 0 ? "Narrative tuned" : "Narrative pending"}
+              </Badge>
             </div>
-            <div className="mt-3 space-y-2">
-              {storyMapRows.map((row) => (
-                <div key={row.phase} className="rounded-lg border border-border/60 bg-background/50 p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-foreground">{row.phase}</p>
-                    <Badge variant="outline" className="border-border/55 bg-background/45 text-[10px] text-muted-foreground">
-                      {row.range}
-                    </Badge>
+            {storyMapRows.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {storyMapRows.map((row, index) => (
+                  <div key={`${row.phase}-${row.range}-${index}`} className="rounded-lg border border-border/60 bg-background/50 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{row.phase}</p>
+                      <Badge variant="outline" className="border-border/55 bg-background/45 text-[10px] text-muted-foreground">
+                        {row.range}
+                      </Badge>
+                    </div>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-muted/70">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-primary/90 to-emerald-300/85"
+                        style={{ width: `${row.score ?? 0}%` }}
+                      />
+                    </div>
+                    {row.note ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p>
+                    ) : null}
                   </div>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-muted/70">
-                    <div className="h-full rounded-full bg-gradient-to-r from-primary/90 to-emerald-300/85" style={{ width: `${row.score}%` }} />
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-border/60 bg-background/50 p-3 text-xs text-muted-foreground">
+                No story map data available yet.
+              </div>
+            )}
           </article>
         </motion.section>
 
@@ -837,25 +1065,35 @@ const EditorAMode = () => {
             <div className="flex flex-wrap gap-1.5">
               <Badge className="border-primary/35 bg-primary/10 text-foreground">
                 <Gauge className="mr-1 h-3.5 w-3.5" />
-                Cut quality 56%
+                {cutQualityPercent !== null ? `Cut quality ${cutQualityPercent}%` : "Cut quality pending"}
               </Badge>
               <Badge className="border-emerald-400/35 bg-emerald-500/10 text-emerald-200">
                 <Target className="mr-1 h-3.5 w-3.5" />
-                Goal line active
+                {qualityGatePassed === true
+                  ? "Goal line active"
+                  : qualityGatePassed === false
+                    ? "Goal line missed"
+                    : "Goal line pending"}
               </Badge>
-              <Badge className="border-sky-400/35 bg-sky-500/10 text-sky-100">
-                <Wand2 className="mr-1 h-3.5 w-3.5" />
-                Refined Mar 10
-              </Badge>
+              {decisionLogDateLabel ? (
+                <Badge className="border-sky-400/35 bg-sky-500/10 text-sky-100">
+                  <Wand2 className="mr-1 h-3.5 w-3.5" />
+                  Refined {decisionLogDateLabel}
+                </Badge>
+              ) : null}
             </div>
           </div>
-          <div className="mt-3 space-y-2">
-            {decisionNotes.map((note) => (
-              <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
-                {note}
-              </div>
-            ))}
-          </div>
+          {decisionNotes.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {decisionNotes.map((note) => (
+                <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                  {note}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">No decision log entries yet.</p>
+          )}
         </motion.section>
 
         <div className="mx-auto mt-6 flex max-w-6xl justify-end">
