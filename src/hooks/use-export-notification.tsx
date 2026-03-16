@@ -10,6 +10,7 @@ export type ExportCompleteNotificationPayload = {
   title?: string | null;
   downloadUrl?: string | null;
   editorUrl?: string | null;
+  event?: "ready" | "downloaded" | "review";
 };
 
 type ToastInvoker = (payload: {
@@ -146,7 +147,10 @@ export const useExportNotification = ({
 
   const openExportTarget = useCallback((payload: ExportCompleteNotificationPayload) => {
     if (typeof window === "undefined") return;
-    const destination = payload.downloadUrl || payload.editorUrl;
+    const prefersEditor = payload.event === "downloaded" || payload.event === "review";
+    const destination = prefersEditor
+      ? (payload.editorUrl || payload.downloadUrl)
+      : (payload.downloadUrl || payload.editorUrl);
     if (!destination) return;
     window.focus();
     const opened = window.open(destination, "_blank", "noopener,noreferrer");
@@ -160,6 +164,18 @@ export const useExportNotification = ({
     const trimmedTitle = String(payload.title || "").trim();
     const displayTitle = trimmedTitle || fallbackTitle;
     const hasDownload = Boolean(payload.downloadUrl);
+    const event = payload.event ?? "ready";
+    const toastHeading = event === "downloaded"
+      ? "Download complete"
+      : event === "review"
+        ? "Human review needed"
+        : "Your video is ready! Download now";
+    const toastDescription = event === "downloaded"
+      ? `${displayTitle} is saved to your device.`
+      : event === "review"
+        ? `${displayTitle} is ready for approval. Open the editor to review.`
+        : `${displayTitle} is ready to ${hasDownload ? "download" : "open"} now.`;
+    const shouldShowAction = Boolean(payload.downloadUrl || payload.editorUrl);
 
     toast({
       duration: 14_000,
@@ -177,11 +193,11 @@ export const useExportNotification = ({
               }
             }}
           />
-          <span>Your video is ready! Download now</span>
+          <span>{toastHeading}</span>
         </div>
       ),
-      description: `${displayTitle} is ready to ${hasDownload ? "download" : "open"} now.`,
-      action: (
+      description: toastDescription,
+      action: shouldShowAction ? (
         <ToastAction
           altText={hasDownload ? "Download exported video" : "Open editor"}
           onClick={(event) => {
@@ -191,7 +207,7 @@ export const useExportNotification = ({
         >
           {hasDownload ? "Download" : "Open editor"}
         </ToastAction>
-      ),
+      ) : undefined,
     });
   }, [appName, logoUrl, openExportTarget, resolvedFallbackLogoUrl, toast]);
 
@@ -240,9 +256,18 @@ export const useExportNotification = ({
     if (!canUseNotificationApi() || Notification.permission !== "granted") return false;
     const trimmedTitle = String(payload.title || "").trim();
     const videoTitle = trimmedTitle || "edited video";
-    const notificationTitle = `Video Export Complete – ${appName}`;
-    const body = `Your ${videoTitle} is ready to download! Click to return to the editor.`;
-    const tag = `autoeditor-export-${payload.jobId}`;
+    const event = payload.event ?? "ready";
+    const notificationTitle = event === "downloaded"
+      ? `Download Complete – ${appName}`
+      : event === "review"
+        ? `Human Review Needed – ${appName}`
+        : `Video Export Complete – ${appName}`;
+    const body = event === "downloaded"
+      ? `Your ${videoTitle} is saved to your device. Click to return to the editor.`
+      : event === "review"
+        ? `Your ${videoTitle} is ready for approval. Click to open the editor.`
+        : `Your ${videoTitle} is ready to download! Click to return to the editor.`;
+    const tag = `autoeditor-export-${event}-${payload.jobId}`;
 
     const options: NotificationOptions & { badge?: string; vibrate?: number[] } = {
       body,
@@ -344,7 +369,9 @@ export const useExportNotification = ({
   }, []);
 
   const notifyExportComplete = useCallback(async (payload: ExportCompleteNotificationPayload) => {
-    const key = String(payload.jobId || payload.downloadUrl || payload.editorUrl || "").trim();
+    const baseKey = String(payload.jobId || payload.downloadUrl || payload.editorUrl || "").trim();
+    const eventKey = payload.event ?? "ready";
+    const key = baseKey ? `${eventKey}:${baseKey}` : "";
     if (!key || notifiedKeysRef.current.has(key)) return;
     notifiedKeysRef.current.add(key);
 

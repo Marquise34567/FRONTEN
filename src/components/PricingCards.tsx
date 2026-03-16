@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Clock3, Film, Sparkles, Star, Zap } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PLAN_CONFIG, PLAN_TIERS, type PlanTier } from "@shared/planConfig";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -68,6 +68,7 @@ const PricingCards = ({
   billingInterval = "monthly",
   founderSlotsRemaining = 0,
 }: PricingCardsProps) => {
+  const navigate = useNavigate();
   const currentPlan = currentTier && PLAN_TIERS.includes(currentTier as PlanTier) ? (currentTier as PlanTier) : "free";
   const currentIndex = PLAN_TIERS.indexOf(currentPlan);
   const founderSlots = Math.max(0, founderSlotsRemaining ?? 0);
@@ -123,6 +124,35 @@ const PricingCards = ({
         const previousTier = tierIndex > 0 ? PLAN_TIERS[tierIndex - 1] : null;
         const previousFeatures = previousTier ? PLAN_CONFIG[previousTier].features : [];
         const planUnlocks = plan.features.filter((feature) => !previousFeatures.includes(feature)).slice(0, 3);
+        const isCardClickable = showUpgrade || showManage || showSubscribe || showSignup;
+        const isCardLoading = loading && actionTier === tier && actionKind === "subscribe";
+        const triggerCardAction = () => {
+          if (!isCardClickable || isCardLoading) return;
+          if (showUpgrade) {
+            onCheckout(tier);
+            return;
+          }
+          if (showManage) {
+            onPortal();
+            return;
+          }
+          if (showSubscribe || showSignup) {
+            navigate("/signup");
+          }
+        };
+        const handleCardClick = (event: React.MouseEvent<HTMLElement>) => {
+          if (!isCardClickable) return;
+          const target = event.target as HTMLElement | null;
+          if (target?.closest("a, button, [role='button']")) return;
+          triggerCardAction();
+        };
+        const handleCardKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+          if (!isCardClickable) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            triggerCardAction();
+          }
+        };
 
         return (
           <motion.article
@@ -133,9 +163,15 @@ const PricingCards = ({
             transition={{ type: "spring", stiffness: 320, damping: 22 }}
             className={cn(
               "group relative flex h-full min-h-[320px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
+              isCardClickable ? "cursor-pointer" : "cursor-default",
               isPopular && "ring-1 ring-primary/45 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
               isFounder && "ring-1 ring-amber-400/55 shadow-[0_25px_80px_rgba(251,191,36,0.2)]"
             )}
+            onClick={handleCardClick}
+            onKeyDown={handleCardKeyDown}
+            role={isCardClickable ? "button" : undefined}
+            tabIndex={isCardClickable ? 0 : -1}
+            aria-disabled={isCardLoading ? true : undefined}
           >
             <div
               className={cn(

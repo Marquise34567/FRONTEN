@@ -1615,7 +1615,7 @@ const Index = () => {
                     className="group w-full gap-2 rounded-full bg-primary px-7 text-primary-foreground glow-sm hover:bg-primary/90 sm:w-auto"
                   >
                     <SquarePlay className="h-4 w-4" />
-                    Shorts Mode
+                    Vertical Mode
                   </Button>
                 </Link>
                 <Link to="/pricing" className="w-full sm:w-auto">

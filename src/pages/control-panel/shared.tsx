@@ -163,6 +163,23 @@ export type CommandCenterResponse = {
     costPerRenderEstimateUsd: number
     cpuUtilizationPct: number
     gpuUtilizationPct: number
+    gpuWorker?: {
+      status: "enabled" | "partial" | "disabled"
+      enabled: boolean
+      url: string | null
+      transferMode: "shared" | "urls"
+      sharedDir: string | null
+      sharedDirRemote: string | null
+      urlTmpDir: string | null
+      urlExpiresSec: number
+      parallelSegments: number
+      timeoutMs: number
+      pollIntervalMs: number
+      fallbackEnabled: boolean
+      forceEnabled: boolean
+      keepShared: boolean
+      issues: string[]
+    }
     processingTimeSpikeAlert: {
       active: boolean
       severity: "normal" | "elevated" | "critical"

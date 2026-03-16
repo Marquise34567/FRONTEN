@@ -23,6 +23,7 @@ import { API_URL, apiFetch, ApiError, getRuntimeOriginBase, shouldIncludeApiBase
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
 import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
+import { createWebGpuVideoRenderer, type WebGpuVideoDraw, type WebGpuVideoRenderer } from "@/lib/webgpu";
 import {
   DIRECTOR_NOTES_MAX_LENGTH,
   DIRECTOR_NOTES_REQUIRED_PLAN,
@@ -55,6 +56,16 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "video/x-matroska",
 ]);
 const FILE_INPUT_ACCEPT = ".mp4,.m4v,.mkv,video/mp4,application/mp4,video/m4v,video/x-m4v,video/x-matroska";
+const AUTO_IMPORT_POLL_INTERVAL_MS = 2500;
+const AUTO_IMPORT_STABLE_AGE_MS = 1500;
+const AUTO_IMPORT_STABLE_PASSES = 2;
+const AUTO_IMPORT_LOCK_MS = 9000;
+const AUTO_DOWNLOAD_CLIP_DELAY_MS = 1200;
+const AUTO_DOWNLOAD_ENABLED_KEY = "editor_auto_download_enabled_v1";
+const AUTO_DOWNLOAD_VERTICAL_MODE_KEY = "editor_auto_download_vertical_mode_v1";
+const AUTO_DOWNLOAD_LONGFORM_ONLY_KEY = "editor_auto_download_longform_only_v1";
+const AUTO_IMPORT_ENABLED_KEY = "editor_auto_import_enabled_v1";
+const MOBILE_IMPORT_WAITLIST_KEY = "editor_mobile_auto_import_waitlist_v1";
 const CAPTIONS_PIPELINE_ENABLED = (() => {
   const raw = String(import.meta.env.VITE_CAPTIONS_PIPELINE_ENABLED ?? "true").trim().toLowerCase();
   if (!raw) return true;
@@ -88,6 +99,41 @@ const isAllowedUploadFile = (file: File) => {
   const normalizedType = String(file.type || "").toLowerCase();
   return normalizedType.length > 0 && ALLOWED_UPLOAD_MIME_TYPES.has(normalizedType);
 };
+const isAllowedUploadName = (name: string) => {
+  const lowerName = String(name || "").toLowerCase();
+  return ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+};
+
+const readLocalStorageFlag = (key: string, fallback = false) => {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === "true";
+};
+
+const writeLocalStorageFlag = (key: string, value: boolean) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value ? "true" : "false");
+};
+
+const sanitizeFileStem = (value: string) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "")
+    .slice(0, 120) || "edited-video";
+
+const inferFileExtension = (value: string, fallback = "mp4") => {
+  const match = /\.([a-z0-9]{2,5})$/i.exec(String(value || ""));
+  return match ? match[1].toLowerCase() : fallback;
+};
+
+const isMobileUserAgent = () => {
+  if (typeof navigator === "undefined") return false;
+  return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
+};
 
 type ConnectionLike = {
   effectiveType?: string;
@@ -106,6 +152,19 @@ type RuntimeProfile = {
   reducedMotion: boolean;
   lowBandwidth: boolean;
   lowPowerDevice: boolean;
+};
+
+type AutoImportCandidate = {
+  file: File;
+  key: string;
+  name: string;
+  lastModified: number;
+};
+
+type AutoImportScanState = {
+  size: number;
+  lastModified: number;
+  stablePasses: number;
 };
 
 const LOW_BANDWIDTH_TYPES = new Set(["slow-2g", "2g", "3g"]);
@@ -460,7 +519,12 @@ type LongFormPreset = "auto" | "balanced" | "aggressive" | "ultra";
 type EditorSettingsSection = "format" | "vibe" | "cuts" | "captions";
 type OutcomeAutomationPlatform = RetentionTargetPlatform | "auto";
 type OutcomeAutomationEditorMode = Exclude<EditorModeSelection, "auto"> | null;
-type CreatorLearningMode = "cold_start_autopilot" | "continuity_first" | "explore_x3" | "top_human_guard";
+type CreatorLearningMode =
+  | "cold_start_autopilot"
+  | "continuity_first"
+  | "explore_x3"
+  | "top_human_guard"
+  | "human_review";
 type AchievementSignal = {
   id: "retention_beast" | "hook_master" | "post_now";
   title: string;
@@ -1976,6 +2040,7 @@ type JobStatus =
   | "subtitling"
   | "audio"
   | "retention"
+  | "review"
   | "rendering"
   | "completed"
   | "failed"
@@ -2394,6 +2459,7 @@ const PIPELINE_STEPS = [
   { key: "hooking", label: "Hook" },
   { key: "cutting", label: "Cut" },
   { key: "pacing", label: "Binge Optimize" },
+  { key: "review", label: "Human Review" },
   { key: "ready", label: "Download Ready" },
 ] as const;
 const RETENTION_GOAL_PERCENT = 70;
@@ -2432,6 +2498,7 @@ const STATUS_LABELS: Record<string, string> = {
   subtitling: "Binge Optimize",
   audio: "Binge Optimize",
   retention: "Binge Optimize",
+  review: "Human Review",
   rendering: "Binge Optimize",
   completed: "Download Ready",
   ready: "Download Ready",
@@ -2449,6 +2516,7 @@ const STAGE_ETA_BASE_SECONDS: Record<string, number> = {
   subtitling: 60,
   audio: 35,
   retention: 30,
+  review: 300,
   rendering: 120,
 };
 
@@ -2501,6 +2569,7 @@ const stepKeyForStatus = (status?: JobStatus | string | null) => {
   ) {
     return "pacing";
   }
+  if (normalized === "review") return "review";
   return normalized;
 };
 
@@ -2509,6 +2578,7 @@ const statusBadgeClass = (status?: JobStatus | string | null) => {
   if (normalized === "ready") return "bg-primary/12 text-primary border-primary/35";
   if (normalized === "failed") return "bg-destructive/10 text-destructive border-destructive/30";
   if (normalized === "uploading") return "bg-warning/10 text-warning border-warning/30";
+  if (normalized === "review") return "bg-amber-500/15 text-amber-200 border-amber-400/40";
   return "bg-primary/8 text-muted-foreground border-primary/20";
 };
 
@@ -4539,6 +4609,23 @@ const Editor = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(
+    () => readLocalStorageFlag(AUTO_DOWNLOAD_ENABLED_KEY, false),
+  );
+  const [autoDownloadVerticalMode, setAutoDownloadVerticalMode] = useState<"all" | "top">(
+    () => (readLocalStorageFlag(AUTO_DOWNLOAD_VERTICAL_MODE_KEY, true) ? "all" : "top"),
+  );
+  const [autoDownloadLongFormOnly, setAutoDownloadLongFormOnly] = useState(
+    () => readLocalStorageFlag(AUTO_DOWNLOAD_LONGFORM_ONLY_KEY, false),
+  );
+  const [autoImportEnabled, setAutoImportEnabled] = useState(
+    () => readLocalStorageFlag(AUTO_IMPORT_ENABLED_KEY, false),
+  );
+  const [autoImportDirectoryHandle, setAutoImportDirectoryHandle] = useState<any>(null);
+  const [autoImportStatus, setAutoImportStatus] = useState<"idle" | "picking" | "watching" | "error">("idle");
+  const [mobileImportWaitlistJoined, setMobileImportWaitlistJoined] = useState(
+    () => readLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, false),
+  );
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -4550,6 +4637,12 @@ const Editor = () => {
   const etaMonotonicRef = useRef<Record<string, { status: string; etaSeconds: number; progress: number }>>({});
   const lastKnownJobIdRef = useRef<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
+  const autoImportScanStateRef = useRef<Map<string, AutoImportScanState>>(new Map());
+  const autoImportProcessedRef = useRef<Set<string>>(new Set());
+  const autoImportLockUntilRef = useRef(0);
+  const autoDownloadTriggeredRef = useRef<Record<string, boolean>>({});
+  const autoDownloadBatchRef = useRef<Set<string>>(new Set());
+  const autoImportPromptedRef = useRef(false);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -4570,9 +4663,52 @@ const Editor = () => {
     playSound: true,
     flashTitle: true,
   });
+  const supportsAutoImport = typeof window !== "undefined" && "showDirectoryPicker" in window;
+  const isMobileDevice = useMemo(() => isMobileUserAgent(), []);
+  const autoImportActive = autoImportEnabled && Boolean(autoImportDirectoryHandle);
+  const autoImportNeedsFolder = autoImportEnabled && !autoImportDirectoryHandle;
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
   const verticalExtrasModeEnabled = searchParams.get("verticalExtras") === "1";
+  const defaultRetentionTargetPlatform: RetentionTargetPlatform = isVerticalMode ? "tiktok" : "youtube";
+  const defaultPlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[defaultRetentionTargetPlatform];
+  const defaultRetentionStrategyProfile: RetentionStrategyProfile =
+    defaultPlatformRecommendation?.profile ?? "balanced";
+  const defaultMaxCutsRequested = clamp(
+    defaultPlatformRecommendation?.suggestedCuts ?? DEFAULT_MAX_CUTS,
+    MAX_CUTS_MIN,
+    MAX_CUTS_MAX,
+  );
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_ENABLED_KEY, autoDownloadEnabled);
+  }, [autoDownloadEnabled]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_VERTICAL_MODE_KEY, autoDownloadVerticalMode === "all");
+  }, [autoDownloadVerticalMode]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_DOWNLOAD_LONGFORM_ONLY_KEY, autoDownloadLongFormOnly);
+  }, [autoDownloadLongFormOnly]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(AUTO_IMPORT_ENABLED_KEY, autoImportEnabled);
+  }, [autoImportEnabled]);
+
+  useEffect(() => {
+    writeLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, mobileImportWaitlistJoined);
+  }, [mobileImportWaitlistJoined]);
+
+  useEffect(() => {
+    if (!autoImportEnabled) {
+      setAutoImportStatus("idle");
+      return;
+    }
+    if (!autoImportDirectoryHandle) {
+      setAutoImportStatus("idle");
+      return;
+    }
+  }, [autoImportDirectoryHandle, autoImportEnabled]);
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("best_moments");
@@ -4669,7 +4805,7 @@ const Editor = () => {
     DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomIntensity,
   );
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
-  const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [maxCutsRequested, setMaxCutsRequested] = useState(defaultMaxCutsRequested);
   const [curseFilterLevel, setCurseFilterLevel] = useState<CurseFilterLevel>("low");
   const [curseFilterEnabled, setCurseFilterEnabled] = useState(false);
   const [curseFilterPopoverOpen, setCurseFilterPopoverOpen] = useState(false);
@@ -4679,8 +4815,9 @@ const Editor = () => {
   const [creativeVariant, setCreativeVariant] = useState<CreativeVariant>("balanced");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(true);
-  const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
-  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
+  const [exploreX3Enabled, setExploreX3Enabled] = useState(true);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
+  const [humanReviewEnabled, setHumanReviewEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -4702,6 +4839,10 @@ const Editor = () => {
   const [hideEditorControlsPanel, setHideEditorControlsPanel] = useState(true);
   const [editorSettingsSection, setEditorSettingsSection] = useState<EditorSettingsSection>("format");
   const [captionSettingsDialogOpen, setCaptionSettingsDialogOpen] = useState(false);
+  const [reviewPreviewUrl, setReviewPreviewUrl] = useState<string | null>(null);
+  const [reviewPreviewLoading, setReviewPreviewLoading] = useState(false);
+  const [reviewApproving, setReviewApproving] = useState(false);
+  const [reviewRedoing, setReviewRedoing] = useState(false);
   const [verticalCaptionLookId, setVerticalCaptionLookId] = useState<string>(`${DEFAULT_VERTICAL_CAPTION_STYLE}_pop`);
   const [tikTokStylePickerOpen, setTikTokStylePickerOpen] = useState(false);
   const [pendingTikTokCaptionPresetId, setPendingTikTokCaptionPresetId] = useState<VerticalCaptionPresetOptionId>(
@@ -4722,9 +4863,11 @@ const Editor = () => {
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [captionPreviewDrawFallback, setCaptionPreviewDrawFallback] = useState(false);
   const [captionPreviewDownloading, setCaptionPreviewDownloading] = useState(false);
-  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>(
+    defaultRetentionStrategyProfile,
+  );
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
-    isVerticalMode ? "tiktok" : "youtube",
+    defaultRetentionTargetPlatform,
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
@@ -4899,6 +5042,14 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalCompositionVideoCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalPreviewCaptureCanvasRef = useRef<{
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+  } | null>(null);
+  const webGpuPreviewRendererRef = useRef<WebGpuVideoRenderer | null>(null);
+  const webGpuPreviewFailedRef = useRef(false);
+  const webGpuPreviewActiveRef = useRef(false);
   const verticalClipPreviewBlobUrlByClipRef = useRef<Record<number, string>>({});
   const verticalClipPreviewBlobIdentityByClipRef = useRef<Record<number, string>>({});
   const verticalAutoRenderRequestedRef = useRef(false);
@@ -4910,13 +5061,20 @@ const Editor = () => {
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const captionPreviewDrawFailureCountRef = useRef(0);
   const verticalCaptionSyncJobRef = useRef<string | null>(null);
-  const pendingDownloadAfterRenderRef = useRef<{ jobId: string; clipIndex: number } | null>(null);
+  const pendingDownloadAfterRenderRef = useRef<{
+    jobId: string;
+    clipIndex: number;
+    fileNameOverride?: string;
+    notifyOnCompletion?: boolean;
+    notifyTitle?: string;
+  } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const youtubePackagingFrameImageByKeyRef = useRef<Record<string, string>>({});
   const youtubePackagingCaptureStartedAtRef = useRef<number | null>(null);
   const realtimeBugFixCooldownRef = useRef<Record<string, number>>({});
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [resolvedVerticalVariantOutputUrls, setResolvedVerticalVariantOutputUrls] = useState<string[]>([]);
+  const [previewVideoDurationSec, setPreviewVideoDurationSec] = useState<number | null>(null);
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
   const [previewTipAppliedIdsByJob, setPreviewTipAppliedIdsByJob] = useState<Record<string, string[]>>({});
@@ -4948,6 +5106,10 @@ const Editor = () => {
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
+  const supportsWebGpu = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return Boolean((navigator as Navigator & { gpu?: GPU }).gpu);
+  }, []);
   const lowBandwidthMode = runtimeProfile.lowBandwidth;
   const lowPowerMode = runtimeProfile.lowPowerDevice;
   const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
@@ -6912,6 +7074,7 @@ const Editor = () => {
     const prev = prevJobStatusRef.current;
     const next = new Map<string, JobStatus>();
     const transitioned: string[] = [];
+    const reviewTransitioned: string[] = [];
     for (const job of jobs) {
       next.set(job.id, job.status);
       const prevStatus = prev.get(job.id);
@@ -6919,6 +7082,9 @@ const Editor = () => {
       const newNorm = normalizeStatus(job.status);
       if (prevStatus && !isTerminalStatus(prevStatus) && newNorm === "ready") {
         transitioned.push(job.id);
+      }
+      if (prevStatus && prevNorm !== "review" && newNorm === "review") {
+        reviewTransitioned.push(job.id);
       }
     }
     prevJobStatusRef.current = next;
@@ -6977,9 +7143,33 @@ const Editor = () => {
               title: normalizedTitle || "edited video",
               downloadUrl: url || null,
               editorUrl,
+              event: "ready",
             });
 
           } catch (e) {
+            // ignore
+          }
+        })();
+      }
+    }
+    if (reviewTransitioned.length > 0) {
+      for (const id of reviewTransitioned) {
+        ;(async () => {
+          try {
+            const summaryJob = jobs.find((x) => x.id === id);
+            const normalizedTitle = summaryJob
+              ? displayName(summaryJob).replace(/\.[^/.]+$/, "").trim()
+              : "";
+            const editorUrl = typeof window !== "undefined"
+              ? `${window.location.origin}/editor?jobId=${encodeURIComponent(id)}`
+              : null;
+            await notifyExportComplete({
+              jobId: id,
+              title: normalizedTitle || "edited video",
+              editorUrl,
+              event: "review",
+            });
+          } catch {
             // ignore
           }
         })();
@@ -7005,6 +7195,7 @@ const Editor = () => {
   useEffect(() => {
     setShowAdvancedDebug(false);
   }, [activeJob?.id]);
+
 
   useEffect(() => {
     return () => {
@@ -7153,7 +7344,23 @@ const Editor = () => {
     const resolvedContinuityFirstMode = typeof renderOptions?.uploadModeOverride?.continuityFirstMode === "boolean"
       ? renderOptions.uploadModeOverride.continuityFirstMode
       : continuityFirstEnabled;
-    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+    const qualityBoostEnabled = resolvedPipelinePowerMode === "retention_king";
+    const platformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
+    const boostedRetentionStrategyProfile: RetentionStrategyProfile =
+      qualityBoostEnabled && platformRecommendation
+        ? platformRecommendation.profile
+        : retentionStrategyProfile;
+    const boostedMaxCutsRequested =
+      qualityBoostEnabled && platformRecommendation
+        ? Math.max(
+            maxCutsRequested,
+            clamp(platformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX),
+          )
+        : maxCutsRequested;
+    const boostedContinuityFirstMode = qualityBoostEnabled ? true : resolvedContinuityFirstMode;
+    const boostedExploreX3Mode = qualityBoostEnabled ? true : exploreX3Enabled;
+    const boostedTopHumanGuardMode = qualityBoostEnabled ? true : topHumanGuardEnabled;
+    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = boostedRetentionStrategyProfile;
     const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
       strategyProfile: effectiveRetentionStrategyProfile,
       longFormPreset,
@@ -7164,7 +7371,7 @@ const Editor = () => {
       pipelinePowerMode: pipelinePowerModeForRequest,
       strategyProfile: effectiveRetentionStrategyProfile,
       aggressionLevel: effectiveRetentionAggressionLevel,
-      maxCuts: maxCutsRequested,
+      maxCuts: boostedMaxCutsRequested,
       longFormPreset,
       longFormAggression,
       longFormClarityVsSpeed,
@@ -7173,9 +7380,10 @@ const Editor = () => {
     const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
     const adaptiveLearningPayload = {
       coldStartAutopilot: coldStartAutopilotEnabled,
-      continuityFirstMode: resolvedContinuityFirstMode,
-      exploreX3Mode: exploreX3Enabled,
-      topHumanGuardMode: topHumanGuardEnabled,
+      continuityFirstMode: boostedContinuityFirstMode,
+      exploreX3Mode: boostedExploreX3Mode,
+      topHumanGuardMode: boostedTopHumanGuardMode,
+      humanReviewRequired: humanReviewEnabled,
       creatorStyleLock: creatorStyleLockForJob,
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
@@ -8086,13 +8294,43 @@ const Editor = () => {
     skipManualWebcamCrop ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode;
 
   const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta);
+  const verticalCaptionPreviewActive = captionSettingsDialogOpen && isVerticalMode && !captionPreviewDrawFallback;
 
   useEffect(() => {
-    const previewActive = captionSettingsDialogOpen && isVerticalMode;
+    if (!verticalCaptionPreviewActive || !supportsWebGpu || webGpuPreviewFailedRef.current) return;
+    const canvas = verticalCompositionVideoCanvasRef.current;
+    if (!canvas || webGpuPreviewRendererRef.current) return;
+    let canceled = false;
+    void createWebGpuVideoRenderer(canvas)
+      .then((renderer) => {
+        if (canceled) {
+          renderer?.dispose();
+          return;
+        }
+        if (!renderer) {
+          webGpuPreviewFailedRef.current = true;
+          return;
+        }
+        webGpuPreviewRendererRef.current = renderer;
+      })
+      .catch(() => {
+        webGpuPreviewFailedRef.current = true;
+      });
+    return () => {
+      canceled = true;
+      if (webGpuPreviewRendererRef.current) {
+        webGpuPreviewRendererRef.current.dispose();
+        webGpuPreviewRendererRef.current = null;
+      }
+    };
+  }, [verticalCaptionPreviewActive, supportsWebGpu]);
+
+  useEffect(() => {
+    const previewActive = verticalCaptionPreviewActive;
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
-    if (!previewActive || !video || !canvas || !previewSourceUrl || captionPreviewDrawFallback) return;
+    if (!previewActive || !video || !canvas || !previewSourceUrl) return;
     const resolvedSourceMeta = sourceVideoMeta ?? {
       width: Math.max(1, video.videoWidth || DEFAULT_VERTICAL_OUTPUT.width),
       height: Math.max(1, video.videoHeight || DEFAULT_VERTICAL_OUTPUT.height),
@@ -8391,6 +8629,83 @@ const Editor = () => {
       highlightColor: captionHighlightColor,
     };
 
+    const computeVideoDraw = (
+      src: WebcamCrop,
+      dst: { x: number; y: number; w: number; h: number },
+      fit: VerticalFitMode,
+      options?: {
+        sourceInsetRatio?: number;
+        sourceInsetXRatio?: number;
+        sourceInsetYRatio?: number;
+        destBleedPx?: number;
+      },
+    ): WebGpuVideoDraw | null => {
+      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return null;
+      const srcAspect = src.w / src.h;
+      const dstAspect = dst.w / dst.h;
+      const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
+      const sourceInsetXRatio = Math.max(0, Number(options?.sourceInsetXRatio ?? 0));
+      const sourceInsetYRatio = Math.max(0, Number(options?.sourceInsetYRatio ?? 0));
+      const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
+      if (fit === "contain") {
+        let drawWidth = dst.w;
+        let drawHeight = dst.h;
+        let drawX = dst.x;
+        let drawY = dst.y;
+        if (srcAspect > dstAspect) {
+          drawHeight = dst.w / srcAspect;
+          drawY += (dst.h - drawHeight) / 2;
+        } else {
+          drawWidth = dst.h * srcAspect;
+          drawX += (dst.w - drawWidth) / 2;
+        }
+        return {
+          src: { x: src.x, y: src.y, w: src.w, h: src.h },
+          dst: {
+            x: drawX - destBleedPx,
+            y: drawY - destBleedPx,
+            w: drawWidth + destBleedPx * 2,
+            h: drawHeight + destBleedPx * 2,
+          },
+        };
+      }
+      let sx = src.x;
+      let sy = src.y;
+      let sw = src.w;
+      let sh = src.h;
+      if (srcAspect > dstAspect) {
+        const narrowed = sh * dstAspect;
+        sx += (sw - narrowed) / 2;
+        sw = narrowed;
+      } else {
+        const trimmed = sw / dstAspect;
+        sy += (sh - trimmed) / 2;
+        sh = trimmed;
+      }
+      const baseInsetRatio = fit === "cover" ? 0.004 : 0;
+      const overscanXRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetXRatio);
+      const overscanYRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetYRatio);
+      if (overscanXRatio > 0 || overscanYRatio > 0) {
+        const insetX = sw * overscanXRatio;
+        const insetY = sh * overscanYRatio;
+        if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
+          sx += insetX;
+          sy += insetY;
+          sw -= insetX * 2;
+          sh -= insetY * 2;
+        }
+      }
+      return {
+        src: { x: sx, y: sy, w: sw, h: sh },
+        dst: {
+          x: dst.x - destBleedPx,
+          y: dst.y - destBleedPx,
+          w: dst.w + destBleedPx * 2,
+          h: dst.h + destBleedPx * 2,
+        },
+      };
+    };
+
     const safeDrawImage = (
       sx: number,
       sy: number,
@@ -8419,73 +8734,21 @@ const Editor = () => {
         destBleedPx?: number;
       },
     ) => {
-      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
-      const srcAspect = src.w / src.h;
-      const dstAspect = dst.w / dst.h;
-      const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
-      const sourceInsetXRatio = Math.max(0, Number(options?.sourceInsetXRatio ?? 0));
-      const sourceInsetYRatio = Math.max(0, Number(options?.sourceInsetYRatio ?? 0));
-      const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
+      const draw = computeVideoDraw(src, dst, fit, options);
+      if (!draw) return false;
       if (fit === "contain") {
-        let drawWidth = dst.w;
-        let drawHeight = dst.h;
-        let drawX = dst.x;
-        let drawY = dst.y;
-        if (srcAspect > dstAspect) {
-          drawHeight = dst.w / srcAspect;
-          drawY += (dst.h - drawHeight) / 2;
-        } else {
-          drawWidth = dst.h * srcAspect;
-          drawX += (dst.w - drawWidth) / 2;
-        }
         ctx.fillStyle = "#050505";
         ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
-        return safeDrawImage(
-          src.x,
-          src.y,
-          src.w,
-          src.h,
-          drawX - destBleedPx,
-          drawY - destBleedPx,
-          drawWidth + destBleedPx * 2,
-          drawHeight + destBleedPx * 2,
-        );
-      }
-      let sx = src.x;
-      let sy = src.y;
-      let sw = src.w;
-      let sh = src.h;
-      if (srcAspect > dstAspect) {
-        const narrowed = sh * dstAspect;
-        sx += (sw - narrowed) / 2;
-        sw = narrowed;
-      } else {
-        const trimmed = sw / dstAspect;
-        sy += (sh - trimmed) / 2;
-        sh = trimmed;
-      }
-      const baseInsetRatio = fit === "cover" ? 0.004 : 0;
-      const overscanXRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetXRatio);
-      const overscanYRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetYRatio);
-      if (overscanXRatio > 0 || overscanYRatio > 0) {
-        const insetX = sw * overscanXRatio;
-        const insetY = sh * overscanYRatio;
-        if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
-          sx += insetX;
-          sy += insetY;
-          sw -= insetX * 2;
-          sh -= insetY * 2;
-        }
       }
       return safeDrawImage(
-        sx,
-        sy,
-        sw,
-        sh,
-        dst.x - destBleedPx,
-        dst.y - destBleedPx,
-        dst.w + destBleedPx * 2,
-        dst.h + destBleedPx * 2,
+        draw.src.x,
+        draw.src.y,
+        draw.src.w,
+        draw.src.h,
+        draw.dst.x,
+        draw.dst.y,
+        draw.dst.w,
+        draw.dst.h,
       );
     };
     const fontPx = Math.round(
@@ -8604,6 +8867,8 @@ const Editor = () => {
     let raf = 0;
     const render = () => {
       try {
+        webGpuPreviewActiveRef.current = false;
+        const videoCanvas = verticalCompositionVideoCanvasRef.current;
         if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
           verticalCaptionHitboxRef.current = null;
           return;
@@ -8612,70 +8877,149 @@ const Editor = () => {
           video.playbackRate = 1;
           video.defaultPlaybackRate = 1;
         }
-        let canDrawFrame = false;
-        try {
-          ctx.drawImage(video, 0, 0, 1, 1, 0, 0, 1, 1);
-          canDrawFrame = true;
-        } catch {
-          canDrawFrame = false;
-        }
-        if (!canDrawFrame) {
-          verticalCaptionHitboxRef.current = null;
-          registerDrawFailure();
-          return;
-        }
-        ctx.fillStyle = "#040404";
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
         let drewVideoFrame = false;
-        if (singleLayout) {
-          const singleLayoutSource = renderedClipPreviewActive
-            ? {
-                x: 0,
-                y: 0,
-                w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
-                h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
-              }
-            : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
-          drewVideoFrame = drawVideoRegion(
-            singleLayoutSource,
-            { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
-            singleLayoutFit,
-            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
-          );
-        } else {
-          const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
-          const drewTop = drawVideoRegion(
-            correctedEffectiveWebcamCrop,
-            { x: 0, y: 0, w: canvasWidth, h: topHeight },
-            "cover",
-            {
-              sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
-              sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
-              destBleedPx: 2,
-            },
-          );
-          const drewBottom = drawVideoRegion(
-            { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
-            { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
-            effectiveVerticalBottomFitMode,
-            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
-          );
-          drewVideoFrame = drewTop || drewBottom;
-          if (drewTop && drewBottom) {
-            ctx.strokeStyle = "rgba(255,255,255,0.35)";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, topHeight + 0.5);
-            ctx.lineTo(canvasWidth, topHeight + 0.5);
-            ctx.stroke();
+        let drewTop = false;
+        let drewBottom = false;
+        let usedWebGpu = false;
+        const liveWebGpuRenderer = webGpuPreviewFailedRef.current ? null : webGpuPreviewRendererRef.current;
+        const canUseGpuThisFrame = Boolean(liveWebGpuRenderer && videoCanvas);
+
+        if (canUseGpuThisFrame && videoCanvas) {
+          if (videoCanvas.width !== canvasWidth) videoCanvas.width = canvasWidth;
+          if (videoCanvas.height !== canvasHeight) videoCanvas.height = canvasHeight;
+          liveWebGpuRenderer?.resize(canvasWidth, canvasHeight);
+          const videoSize = {
+            width: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+            height: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+          };
+          const draws: WebGpuVideoDraw[] = [];
+          if (singleLayout) {
+            const singleLayoutSource = renderedClipPreviewActive
+              ? {
+                  x: 0,
+                  y: 0,
+                  w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+                  h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+                }
+              : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
+            const singleDraw = computeVideoDraw(
+              singleLayoutSource,
+              { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+              singleLayoutFit,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            if (singleDraw) draws.push(singleDraw);
+          } else {
+            const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
+            const topDraw = correctedEffectiveWebcamCrop
+              ? computeVideoDraw(
+                correctedEffectiveWebcamCrop,
+                { x: 0, y: 0, w: canvasWidth, h: topHeight },
+                "cover",
+                {
+                  sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
+                  sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
+                  destBleedPx: 2,
+                },
+              )
+              : null;
+            if (topDraw) {
+              draws.push(topDraw);
+              drewTop = true;
+            }
+            const bottomDraw = computeVideoDraw(
+              { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
+              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              effectiveVerticalBottomFitMode,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            if (bottomDraw) {
+              draws.push(bottomDraw);
+              drewBottom = true;
+            }
+          }
+          if (draws.length > 0) {
+            try {
+              usedWebGpu = Boolean(liveWebGpuRenderer?.draw(video, draws, videoSize));
+            } catch {
+              usedWebGpu = false;
+              webGpuPreviewFailedRef.current = true;
+            }
+          }
+          drewVideoFrame = usedWebGpu;
+        }
+
+        if (!drewVideoFrame) {
+          let canDrawFrame = false;
+          try {
+            ctx.drawImage(video, 0, 0, 1, 1, 0, 0, 1, 1);
+            canDrawFrame = true;
+          } catch {
+            canDrawFrame = false;
+          }
+          if (!canDrawFrame) {
+            verticalCaptionHitboxRef.current = null;
+            registerDrawFailure();
+            return;
+          }
+          ctx.fillStyle = "#040404";
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          if (singleLayout) {
+            const singleLayoutSource = renderedClipPreviewActive
+              ? {
+                  x: 0,
+                  y: 0,
+                  w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+                  h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+                }
+              : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
+            drewVideoFrame = drawVideoRegion(
+              singleLayoutSource,
+              { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+              singleLayoutFit,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+          } else {
+            const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
+            drewTop = drawVideoRegion(
+              correctedEffectiveWebcamCrop,
+              { x: 0, y: 0, w: canvasWidth, h: topHeight },
+              "cover",
+              {
+                sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
+                sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
+                destBleedPx: 2,
+              },
+            );
+            drewBottom = drawVideoRegion(
+              { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
+              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              effectiveVerticalBottomFitMode,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            drewVideoFrame = drewTop || drewBottom;
           }
         }
+
+        webGpuPreviewActiveRef.current = usedWebGpu;
         if (!drewVideoFrame) {
           verticalCaptionHitboxRef.current = null;
           registerDrawFailure();
           return;
         }
         clearDrawFailure();
+
+        if (!singleLayout && drewTop && drewBottom) {
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, topHeight + 0.5);
+          ctx.lineTo(canvasWidth, topHeight + 0.5);
+          ctx.stroke();
+        }
 
         if (autoCaptionsEnabled && (editableSourcePreviewActive || renderedClipPreviewActive)) {
           const now = performance.now();
@@ -8878,6 +9222,18 @@ const Editor = () => {
           ctx.restore();
         } else {
           verticalCaptionHitboxRef.current = null;
+        }
+
+        const captureTarget = verticalPreviewCaptureCanvasRef.current;
+        if (captureTarget) {
+          const { canvas: captureCanvas, ctx: captureCtx } = captureTarget;
+          if (captureCanvas.width !== canvasWidth) captureCanvas.width = canvasWidth;
+          if (captureCanvas.height !== canvasHeight) captureCanvas.height = canvasHeight;
+          captureCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+          if (webGpuPreviewActiveRef.current && videoCanvas) {
+            captureCtx.drawImage(videoCanvas, 0, 0, canvasWidth, canvasHeight);
+          }
+          captureCtx.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
         }
       } catch {
         verticalCaptionHitboxRef.current = null;
@@ -9086,6 +9442,103 @@ const Editor = () => {
     trackEditorEvent,
   ]);
 
+  const handlePickAutoImportFolder = useCallback(async () => {
+    if (!supportsAutoImport) {
+      toast({
+        title: "Folder access not supported",
+        description: "Use Chrome or Edge to enable auto-import from a recording folder.",
+      });
+      return;
+    }
+    setAutoImportStatus("picking");
+    try {
+      const handle = await (window as any).showDirectoryPicker({
+        id: "auto-editor-recording-folder",
+        mode: "read",
+      });
+      if (!handle) {
+        setAutoImportStatus("idle");
+        return;
+      }
+      if (typeof handle.requestPermission === "function") {
+        const permission = await handle.requestPermission({ mode: "read" });
+        if (permission && permission !== "granted") {
+          setAutoImportStatus("error");
+          toast({
+            title: "Permission required",
+            description: "Please allow folder access to auto-import recordings.",
+          });
+          return;
+        }
+      }
+      autoImportScanStateRef.current.clear();
+      autoImportProcessedRef.current.clear();
+      autoImportLockUntilRef.current = 0;
+      setAutoImportDirectoryHandle(handle);
+      setAutoImportEnabled(true);
+      setAutoImportStatus("watching");
+      toast({
+        title: "Recording folder linked",
+        description: `Watching ${handle.name || "your folder"} for new videos.`,
+      });
+    } catch (err: any) {
+      setAutoImportStatus("error");
+      toast({
+        title: "Folder access failed",
+        description: err?.message || "Couldn't access that folder.",
+      });
+    }
+  }, [supportsAutoImport, toast]);
+
+  const handleStopAutoImport = useCallback(() => {
+    setAutoImportEnabled(false);
+    setAutoImportDirectoryHandle(null);
+    setAutoImportStatus("idle");
+    autoImportScanStateRef.current.clear();
+    autoImportProcessedRef.current.clear();
+    autoImportLockUntilRef.current = 0;
+    autoImportPromptedRef.current = false;
+  }, []);
+
+  const handleJoinMobileImportWaitlist = useCallback(() => {
+    setMobileImportWaitlistJoined(true);
+    toast({
+      title: "Mobile auto-import saved",
+      description: "We saved your interest on this device.",
+    });
+  }, [toast]);
+
+  useEffect(() => {
+    if (!autoImportEnabled || autoImportDirectoryHandle) return;
+    if (autoImportPromptedRef.current) return;
+    autoImportPromptedRef.current = true;
+    const mobileFallback = !supportsAutoImport || isMobileDevice;
+    const title = mobileFallback ? "Tap to import a recording" : "Tap to connect a recording folder";
+    const description = mobileFallback
+      ? "Mobile browsers can’t auto-scan files. Tap anywhere to choose a video from Photos/Files."
+      : "Tap anywhere to pick the folder you save recordings into.";
+    toast({ title, description });
+
+    if (typeof window === "undefined") return;
+    const handleGesture = () => {
+      if (mobileFallback) {
+        handlePickFile();
+      } else {
+        void handlePickAutoImportFolder();
+      }
+    };
+    window.addEventListener("pointerdown", handleGesture, { once: true });
+    return () => window.removeEventListener("pointerdown", handleGesture);
+  }, [
+    autoImportDirectoryHandle,
+    autoImportEnabled,
+    handlePickAutoImportFolder,
+    handlePickFile,
+    isMobileDevice,
+    supportsAutoImport,
+    toast,
+  ]);
+
   const continueWithSelectedFile = useCallback((
     file: File,
     fileCount = 1,
@@ -9109,6 +9562,118 @@ const Editor = () => {
     }
     void handleFile(file, { mode: "horizontal", uploadModeOverride });
   }, [handleFile, isVerticalMode, prepareVerticalFile, toast]);
+
+  const scanAutoImportDirectory = useCallback(async (directoryHandle: any): Promise<AutoImportCandidate | null> => {
+    if (!directoryHandle || typeof directoryHandle.values !== "function") return null;
+    const now = Date.now();
+    const candidates: AutoImportCandidate[] = [];
+
+    for await (const entry of directoryHandle.values()) {
+      if (!entry || entry.kind !== "file") continue;
+      const name = String(entry.name || "");
+      if (!isAllowedUploadName(name)) continue;
+      let file: File;
+      try {
+        file = await entry.getFile();
+      } catch {
+        continue;
+      }
+      if (!isAllowedUploadFile(file) || file.size <= 0) continue;
+      const key = `${name}|${file.size}|${file.lastModified}`;
+      if (autoImportProcessedRef.current.has(key)) continue;
+      const prev = autoImportScanStateRef.current.get(name);
+      const stablePasses =
+        prev && prev.size === file.size && prev.lastModified === file.lastModified
+          ? prev.stablePasses + 1
+          : 0;
+      autoImportScanStateRef.current.set(name, {
+        size: file.size,
+        lastModified: file.lastModified,
+        stablePasses,
+      });
+      if (stablePasses < AUTO_IMPORT_STABLE_PASSES) continue;
+      if (now - file.lastModified < AUTO_IMPORT_STABLE_AGE_MS) continue;
+      candidates.push({
+        file,
+        key,
+        name,
+        lastModified: file.lastModified,
+      });
+    }
+
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.lastModified - a.lastModified);
+    return candidates[0] ?? null;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!autoImportEnabled || !autoImportDirectoryHandle) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const schedule = (delay = AUTO_IMPORT_POLL_INTERVAL_MS) => {
+      if (cancelled) return;
+      timer = window.setTimeout(runScan, delay);
+    };
+
+    const runScan = async () => {
+      if (cancelled) return;
+      if (uploadingJobId || uploadModePromptOpen || pendingUploadSelection) {
+        schedule();
+        return;
+      }
+      if (autoImportLockUntilRef.current > Date.now()) {
+        schedule();
+        return;
+      }
+      try {
+        if (typeof autoImportDirectoryHandle.queryPermission === "function") {
+          const permission = await autoImportDirectoryHandle.queryPermission({ mode: "read" });
+          if (permission && permission !== "granted") {
+            const request = await autoImportDirectoryHandle.requestPermission?.({ mode: "read" });
+            if (request && request !== "granted") {
+              setAutoImportStatus("error");
+              schedule(AUTO_IMPORT_POLL_INTERVAL_MS * 2);
+              return;
+            }
+          }
+        }
+        const candidate = await scanAutoImportDirectory(autoImportDirectoryHandle);
+        if (candidate) {
+          autoImportProcessedRef.current.add(candidate.key);
+          autoImportLockUntilRef.current = Date.now() + AUTO_IMPORT_LOCK_MS;
+          setAutoImportStatus("watching");
+          continueWithSelectedFile(candidate.file, 1, isVerticalMode ? "vertical" : "horizontal");
+          toast({
+            title: "Recording imported",
+            description: `${candidate.name} added to the editor.`,
+          });
+        }
+      } catch (err) {
+        console.warn("auto import scan failed", err);
+        setAutoImportStatus("error");
+      } finally {
+        schedule();
+      }
+    };
+
+    schedule(900);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [
+    autoImportDirectoryHandle,
+    autoImportEnabled,
+    continueWithSelectedFile,
+    isVerticalMode,
+    pendingUploadSelection,
+    scanAutoImportDirectory,
+    toast,
+    uploadModePromptOpen,
+    uploadingJobId,
+  ]);
 
   const handleSelectedFile = useCallback((file: File, fileCount = 1) => {
     setPendingUploadSelection({
@@ -9293,7 +9858,7 @@ const Editor = () => {
   );
 
   const handleRedoRender = useCallback(
-    async (job: JobDetail, options?: { clipIndex?: number }) => {
+    async (job: JobDetail, options?: { clipIndex?: number; overrides?: Record<string, unknown> }) => {
       if (!accessToken || !job?.id) return false;
       void ensureNotificationPermission("export_start");
       setReprocessingJobId(job.id);
@@ -9367,6 +9932,7 @@ const Editor = () => {
           continuityFirstMode: continuityFirstEnabled,
           exploreX3Mode: exploreX3Enabled,
           topHumanGuardMode: topHumanGuardEnabled,
+          humanReviewRequired: humanReviewEnabled,
           creatorStyleLock: creatorStyleLockForJob,
           autoCaptions: captionsEnabledForJob,
           subtitleStyle: subtitleStyleForJob,
@@ -9491,6 +10057,9 @@ const Editor = () => {
             duration: preferredHook.duration,
           };
         }
+        if (options?.overrides && typeof options.overrides === "object") {
+          Object.assign(payload, options.overrides);
+        }
 
         const result = await apiFetch<{
           ok: boolean;
@@ -9590,6 +10159,7 @@ const Editor = () => {
       editorMode,
       exploreX3Enabled,
       topHumanGuardEnabled,
+      humanReviewEnabled,
       fetchJob,
       fetchJobs,
       fullAutoYoutubeEnabled,
@@ -9651,7 +10221,15 @@ const Editor = () => {
     ],
   );
 
-  const handleDownload = async (clipIndex = 0, options?: { skipRerenderCheck?: boolean }) => {
+  const handleDownload = async (
+    clipIndex = 0,
+    options?: {
+      skipRerenderCheck?: boolean;
+      fileNameOverride?: string;
+      notifyOnCompletion?: boolean;
+      notifyTitle?: string;
+    },
+  ) => {
     if (!accessToken || !activeJob) return false;
     try {
       const skipRerenderCheck = Boolean(options?.skipRerenderCheck);
@@ -9667,7 +10245,13 @@ const Editor = () => {
         }
         const queued = await handleRedoRender(activeJob, { clipIndex });
         if (queued) {
-          pendingDownloadAfterRenderRef.current = { jobId: activeJob.id, clipIndex };
+          pendingDownloadAfterRenderRef.current = {
+            jobId: activeJob.id,
+            clipIndex,
+            fileNameOverride: options?.fileNameOverride,
+            notifyOnCompletion: options?.notifyOnCompletion,
+            notifyTitle: options?.notifyTitle,
+          };
           toast({
             title: "Rendering caption updates",
             description: "Download will start automatically once the new render is ready.",
@@ -9678,14 +10262,29 @@ const Editor = () => {
       const clipParam = clipIndex + 1;
       const baseName = displayName(activeJob).replace(/\.[^/.]+$/, "") || "export";
       const fallbackFileName =
-        activeJob.renderMode === "vertical"
+        options?.fileNameOverride ??
+        (activeJob.renderMode === "vertical"
           ? `${baseName}-clip-${clipParam}.mp4`
-          : `${baseName}.mp4`;
+          : `${baseName}.mp4`);
+      const shouldNotifyDownload = Boolean(options?.notifyOnCompletion);
+      const notifyDownload = () => {
+        if (!shouldNotifyDownload) return;
+        const editorUrl = typeof window !== "undefined"
+          ? `${window.location.origin}/editor?jobId=${encodeURIComponent(activeJob.id)}`
+          : null;
+        notifyExportComplete({
+          jobId: activeJob.id,
+          title: options?.notifyTitle || baseName,
+          editorUrl,
+          event: "downloaded",
+        });
+      };
       const previewDownloadCandidate = clipIndex === 0 ? String(resolvedPreviewOutputUrl || "").trim() : "";
       if (previewDownloadCandidate) {
         try {
           await triggerFileDownload(previewDownloadCandidate, fallbackFileName);
           submitDownloadFeedback(activeJob, clipIndex, "frontend_preview_download");
+          notifyDownload();
           return true;
         } catch {
           // Fall back to fresh backend signed URL resolution.
@@ -9726,6 +10325,7 @@ const Editor = () => {
       });
       await triggerFileDownload(downloadUrl, fallbackFileName);
       submitDownloadFeedback(activeJob, clipIndex, "frontend_manual_download");
+      notifyDownload();
       return true;
     } catch (err: any) {
       toast({ title: "Download failed", description: err?.message || "Please try again." });
@@ -9738,7 +10338,12 @@ const Editor = () => {
     if (!pending || !activeJob?.id || pending.jobId !== activeJob.id) return;
     if (normalizeStatus(activeJob.status) !== "ready") return;
     pendingDownloadAfterRenderRef.current = null;
-    void handleDownload(pending.clipIndex, { skipRerenderCheck: true });
+    void handleDownload(pending.clipIndex, {
+      skipRerenderCheck: true,
+      fileNameOverride: pending.fileNameOverride,
+      notifyOnCompletion: pending.notifyOnCompletion,
+      notifyTitle: pending.notifyTitle,
+    });
   }, [activeJob?.id, activeJob?.status]);
 
   const handleExportXml = useCallback(() => {
@@ -9842,7 +10447,122 @@ const Editor = () => {
     }
   };
 
+  const handleFetchReviewPreviewUrl = useCallback(
+    async (jobId: string) => {
+      if (!accessToken || !jobId) return null;
+      setReviewPreviewLoading(true);
+      try {
+        const result = await apiFetch<{ url: string }>(`/api/jobs/${jobId}/review-preview-url`, {
+          method: "POST",
+          token: accessToken,
+        });
+        const url = String(result?.url || "").trim();
+        if (!url) {
+          toast({ title: "Preview unavailable", description: "Preview link is not ready yet." });
+          return null;
+        }
+        setReviewPreviewUrl(url);
+        return url;
+      } catch (err: any) {
+        const message = err?.message || "Preview link could not be loaded.";
+        toast({ title: "Preview unavailable", description: message });
+        return null;
+      } finally {
+        setReviewPreviewLoading(false);
+      }
+    },
+    [accessToken, toast],
+  );
+
+  const handleApproveReview = useCallback(
+    async () => {
+      if (!accessToken || !activeJob?.id) return false;
+      setReviewApproving(true);
+      try {
+        await apiFetch<{ ok: boolean }>(`/api/jobs/${activeJob.id}/review/approve`, {
+          method: "POST",
+          token: accessToken,
+        });
+        setJobs((prev) =>
+          prev.map((entry) =>
+            entry.id === activeJob.id
+              ? { ...entry, status: "queued", progress: 1 }
+              : entry,
+          ),
+        );
+        setActiveJob((prev) => {
+          if (!prev || prev.id !== activeJob.id) return prev;
+          return {
+            ...prev,
+            status: "queued",
+            progress: 1,
+            error: null,
+          };
+        });
+        setReviewPreviewUrl(null);
+        await Promise.allSettled([fetchJobs(), fetchJob(activeJob.id)]);
+        toast({ title: "Review approved", description: "Render resumed in the queue." });
+        return true;
+      } catch (err: any) {
+        toast({
+          title: "Approval failed",
+          description: err?.message || "Please try again.",
+        });
+        return false;
+      } finally {
+        setReviewApproving(false);
+      }
+    },
+    [accessToken, activeJob?.id, fetchJob, fetchJobs, toast],
+  );
+
+  const handleRedoReview = useCallback(
+    async () => {
+      if (!activeJob) return false;
+      setReviewRedoing(true);
+      try {
+        const creativeVariantOrder: CreativeVariant[] = ["balanced", "punchy", "dramatic", "curiosity_first"];
+        const currentIndex = Math.max(0, creativeVariantOrder.indexOf(creativeVariant));
+        const nextVariant = creativeVariantOrder[(currentIndex + 1) % creativeVariantOrder.length];
+        setCreativeVariant(nextVariant);
+        if (!humanReviewEnabled) setHumanReviewEnabled(true);
+        const queued = await handleRedoRender(activeJob, {
+          overrides: {
+            creativeVariant: nextVariant,
+            exploreX3Mode: true,
+            humanReviewRequired: true,
+          },
+        });
+        if (queued) {
+          toast({
+            title: "Redo queued",
+            description: "Exploring a new variant before final render.",
+          });
+        }
+        return queued;
+      } catch (err: any) {
+        toast({ title: "Redo failed", description: err?.message || "Please try again." });
+        return false;
+      } finally {
+        setReviewRedoing(false);
+      }
+    },
+    [activeJob, creativeVariant, handleRedoRender, humanReviewEnabled, toast],
+  );
+
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const activeReviewState = useMemo(() => {
+    const review = activeJob?.analysis?.human_review ?? activeJob?.analysis?.humanReview;
+    if (!review || typeof review !== "object") return null;
+    return review as Record<string, any>;
+  }, [activeJob?.analysis]);
+  const reviewPending = normalizedActiveStatus === "review";
+  useEffect(() => {
+    if (!activeJob?.id || !reviewPending) {
+      setReviewPreviewUrl(null);
+      return;
+    }
+  }, [activeJob?.id, reviewPending]);
   const activeStatusLabel = activeJob
     ? normalizeStatus(activeJob.status) === "failed" && activeJob.error === "queue_canceled_by_user"
       ? "Canceled"
@@ -10868,6 +11588,116 @@ const Editor = () => {
         fullAutoAppliedSettings
       ),
   );
+  const autoDownloadTitleBase = useMemo(() => {
+    if (!activeJob) return "edited-video";
+    const candidates = [
+      metadataSummary?.title,
+      metadataSummary?.videoTitle,
+      metadataSummary?.topic,
+      metadataSummary?.niche,
+      activeAnalysis?.title,
+      activeAnalysis?.videoTitle,
+      activeAnalysis?.topic,
+    ];
+    const fallback = displayName(activeJob).replace(/\.[^/.]+$/, "");
+    const raw =
+      candidates.find((value) => typeof value === "string" && value.trim().length > 0) ??
+      fallback;
+    const cleaned = cleanPackagingText(raw);
+    return sanitizeFileStem(cleaned);
+  }, [activeAnalysis, activeJob, metadataSummary]);
+
+  const autoDownloadFileName = useCallback((clipIndex = 0) => {
+    if (!activeJob) return "edited-video.mp4";
+    const jobRecord = activeJob as any;
+    const extension = inferFileExtension(
+      jobRecord.outputFiles?.[clipIndex]?.fileName ??
+      jobRecord.fileName ??
+      activeOutputUrls[clipIndex] ??
+      activeJob.outputUrl ??
+      "mp4",
+      "mp4",
+    );
+    const baseName = autoDownloadTitleBase || "edited-video";
+    if (activeJob.renderMode === "vertical") {
+      return `${baseName}-clip-${clipIndex + 1}.${extension}`;
+    }
+    return `${baseName}.${extension}`;
+  }, [activeJob, activeOutputUrls, autoDownloadTitleBase]);
+
+  const bestVerticalClipIndex = useMemo(() => {
+    if (!verticalClipPredictions.length) return 0;
+    const best = verticalClipPredictions.reduce((leader, item) =>
+      item.predictedCompletion > leader.predictedCompletion ? item : leader,
+    );
+    const index = Math.round(best.clip) - 1;
+    return clamp(index, 0, Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1));
+  }, [verticalClipPredictions]);
+
+  useEffect(() => {
+    if (!autoDownloadEnabled) return;
+    if (!activeJob || normalizeStatus(activeJob.status) !== "ready") return;
+    const jobId = activeJob.id;
+    const isVerticalJob = activeJob.renderMode === "vertical";
+
+    if (autoDownloadLongFormOnly && isVerticalJob) return;
+
+    if (isVerticalJob) {
+      if (autoDownloadBatchRef.current.has(jobId)) return;
+      autoDownloadBatchRef.current.add(jobId);
+      const totalClips = VERTICAL_VARIANT_TOTAL_CLIPS;
+      const clipIndexes = autoDownloadVerticalMode === "top"
+        ? [bestVerticalClipIndex]
+        : Array.from({ length: totalClips }, (_, idx) => idx);
+      clipIndexes.forEach((clipIndex, orderIndex) => {
+        const key = `${jobId}:${clipIndex}`;
+        if (autoDownloadTriggeredRef.current[key]) return;
+        autoDownloadTriggeredRef.current[key] = true;
+        const delay = orderIndex * AUTO_DOWNLOAD_CLIP_DELAY_MS;
+        if (typeof window === "undefined") return;
+        window.setTimeout(() => {
+          void handleDownload(clipIndex, {
+            fileNameOverride: autoDownloadFileName(clipIndex),
+            notifyOnCompletion: orderIndex === clipIndexes.length - 1,
+            notifyTitle: autoDownloadTitleBase,
+          });
+        }, delay);
+      });
+      return;
+    }
+
+    const clipIndex = 0;
+    const key = `${jobId}:${clipIndex}`;
+    if (autoDownloadTriggeredRef.current[key]) return;
+    autoDownloadTriggeredRef.current[key] = true;
+    const fileName = autoDownloadFileName(clipIndex);
+    void handleDownload(clipIndex, {
+      fileNameOverride: fileName,
+      notifyOnCompletion: true,
+      notifyTitle: autoDownloadTitleBase,
+    });
+  }, [
+    activeJob,
+    autoDownloadEnabled,
+    autoDownloadFileName,
+    autoDownloadLongFormOnly,
+    autoDownloadTitleBase,
+    autoDownloadVerticalMode,
+    bestVerticalClipIndex,
+    handleDownload,
+  ]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (normalizeStatus(activeJob.status) === "ready") return;
+    const prefix = `${activeJob.id}:`;
+    for (const key of Object.keys(autoDownloadTriggeredRef.current)) {
+      if (key.startsWith(prefix)) {
+        delete autoDownloadTriggeredRef.current[key];
+      }
+    }
+    autoDownloadBatchRef.current.delete(activeJob.id);
+  }, [activeJob?.id, activeJob?.status]);
   const fullAutoEditorAddedSummary = (() => {
     if (!fullAutoEnabledForActiveJob) return null;
     const labels: string[] = [];
@@ -11426,6 +12256,7 @@ const Editor = () => {
     return synthetic;
   }, [energyMomentsFromAnalysis, fallbackEnergyAnchorSec]);
   const estimatedTimelineDurationSec = useMemo(() => {
+    const fromPreview = previewVideoDurationSec !== null ? Math.max(1, previewVideoDurationSec) : null;
     const fromDuration = estimatedDurationSec !== null ? Math.max(1, estimatedDurationSec) : null;
     const maxMomentSec = energyTimelineMoments.length > 0
       ? energyTimelineMoments[energyTimelineMoments.length - 1].timestampSec + 45
@@ -11433,8 +12264,8 @@ const Editor = () => {
     const hookTail = selectedHookCandidate
       ? selectedHookCandidate.start + selectedHookCandidate.duration + 90
       : 0;
-    return Math.max(60, Math.round(fromDuration ?? maxMomentSec ?? hookTail ?? 360));
-  }, [estimatedDurationSec, energyTimelineMoments, selectedHookCandidate]);
+    return Math.max(60, Math.round(fromPreview ?? fromDuration ?? maxMomentSec ?? hookTail ?? 360));
+  }, [estimatedDurationSec, energyTimelineMoments, previewVideoDurationSec, selectedHookCandidate]);
   const timelineEnergyMoments = useMemo<EnergyMomentWithEmotion[]>(() => (
     energyTimelineMoments.slice(0, 12).map((moment) => {
       const emotionKey = classifyEmotionProfile(moment);
@@ -13176,15 +14007,24 @@ const Editor = () => {
     100,
   );
   const previewImprovementTips = useMemo<PreviewImprovementTip[]>(() => {
-    if (!activeJob || !activeJobReadyForDownload) return [];
+    if (!activeJob) return [];
     const tips: PreviewImprovementTip[] = [];
     const topSkipSegment = skipRiskRetentionSegments[0] ?? weakRetentionSegments[0] ?? null;
+    const renderModeLabel = activeJob.renderMode === "vertical" ? "short-form" : "long-form";
+    const platformLabel = retentionTargetPlatform === "instagram_reels"
+      ? "IG Reels"
+      : retentionTargetPlatform === "tiktok"
+        ? "TikTok"
+        : retentionTargetPlatform === "youtube"
+          ? "YouTube"
+          : "auto";
+    const momentumScore = Math.min(timelineMomentumScore, previewStoryMapMomentumScore);
 
     if (retentionGoalGap !== null && retentionGoalGap >= 1.2) {
       tips.push({
         id: "raise-retention-goal",
         title: `Recover ${retentionGoalGap.toFixed(1)} retention points`,
-        detail: "Tighten weak sections and improve the opening promise to close the current goal gap.",
+        detail: `Tighten weak sections and sharpen the opener to close the ${retentionGoalGap.toFixed(1)}pt gap.`,
         tone: "boost",
         icon: "target",
         action: "raise_retention_goal",
@@ -13217,7 +14057,7 @@ const Editor = () => {
       tips.push({
         id: "momentum-pace",
         title: "Increase pacing contrast",
-        detail: "Add tighter cuts before payoff and use faster setup-to-reveal transitions.",
+        detail: `Momentum ${Number.isFinite(momentumScore) ? Math.round(momentumScore) : "signal"} needs a lift. Add tighter cuts before payoff.`,
         tone: "fix",
         icon: "pace",
         action: "increase_pacing",
@@ -13227,7 +14067,7 @@ const Editor = () => {
       tips.push({
         id: "filler-pass",
         title: "Run a stronger filler pass",
-        detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Removing more dead-air should help completion.`,
+        detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Push higher for ${renderModeLabel} completion.`,
         tone: "warning",
         icon: "trim",
         action: "stronger_filler_pass",
@@ -13237,7 +14077,7 @@ const Editor = () => {
       tips.push({
         id: "steady-upgrade",
         title: "Push for stronger replay moments",
-        detail: "Add one stronger visual payoff beat and tighten micro-pauses to improve hold rate.",
+        detail: `Add one stronger visual payoff beat to lift ${platformLabel} rewatch potential.`,
         tone: "boost",
         icon: "pace",
         action: "steady_upgrade",
@@ -13245,7 +14085,7 @@ const Editor = () => {
       tips.push({
         id: "hook-polish-default",
         title: "Polish the opener text punch",
-        detail: "Try a clearer first-line promise in the first 2-3 seconds to raise scroll-stop strength.",
+        detail: `Use a clearer 2-3s promise for ${renderModeLabel} scroll-stop strength.`,
         tone: "fix",
         icon: "hook",
         action: "hook_polish",
@@ -13253,10 +14093,10 @@ const Editor = () => {
     }
     return tips.slice(0, 6);
   }, [
-    activeJobReadyForDownload,
     activeJob,
     autoCutBoringEnabled,
     hookConfidenceScore,
+    retentionTargetPlatform,
     previewStoryMapMomentumScore,
     removedFillerPercent,
     retentionGoalGap,
@@ -13909,6 +14749,7 @@ const Editor = () => {
   ]);
   useEffect(() => {
     setPreviewCurrentTimeSec(0);
+    setPreviewVideoDurationSec(null);
     previewTimeSyncRef.current = { atMs: 0, timeSec: 0 };
   }, [activeJob?.id, resolvedPreviewOutputUrl]);
   useEffect(() => {
@@ -14307,8 +15148,8 @@ const Editor = () => {
       }
     };
 
-    const canvas = verticalCompositionCanvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) {
+    const overlayCanvas = verticalCompositionCanvasRef.current;
+    if (!overlayCanvas || !overlayCanvas.width || !overlayCanvas.height) {
       await downloadSourcePreview("Caption overlay isn't ready yet. Downloaded the preview video instead.");
       return;
     }
@@ -14317,12 +15158,36 @@ const Editor = () => {
       return;
     }
 
-    if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+    const captureCanvas = document.createElement("canvas");
+    const captureCtx = captureCanvas.getContext("2d");
+    if (!captureCtx) {
+      await downloadSourcePreview("Animated capture is unavailable here. Downloaded the preview video instead.");
+      return;
+    }
+    const composeFrame = () => {
+      const width = overlayCanvas.width;
+      const height = overlayCanvas.height;
+      if (!width || !height) return false;
+      if (captureCanvas.width !== width) captureCanvas.width = width;
+      if (captureCanvas.height !== height) captureCanvas.height = height;
+      captureCtx.clearRect(0, 0, width, height);
+      if (webGpuPreviewActiveRef.current) {
+        const videoCanvas = verticalCompositionVideoCanvasRef.current;
+        if (videoCanvas) {
+          captureCtx.drawImage(videoCanvas, 0, 0, width, height);
+        }
+      }
+      captureCtx.drawImage(overlayCanvas, 0, 0, width, height);
+      return true;
+    };
+
+    if (typeof MediaRecorder === "undefined" || typeof captureCanvas.captureStream !== "function") {
       setCaptionPreviewDownloading(true);
       try {
+        if (!composeFrame()) throw new Error("preview_capture_unavailable");
         const blob = await new Promise<Blob | null>((resolve) => {
-          if (typeof canvas.toBlob === "function") {
-            canvas.toBlob(resolve, "image/png");
+          if (typeof captureCanvas.toBlob === "function") {
+            captureCanvas.toBlob(resolve, "image/png");
           } else {
             resolve(null);
           }
@@ -14355,8 +15220,11 @@ const Editor = () => {
 
     setCaptionPreviewDownloading(true);
     try {
+      verticalPreviewCaptureCanvasRef.current = { canvas: captureCanvas, ctx: captureCtx };
+      if (!composeFrame()) throw new Error("preview_capture_unavailable");
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
       const fps = performanceConstrained ? 24 : 30;
-      const stream = canvas.captureStream(fps);
+      const stream = captureCanvas.captureStream(fps);
       const video = verticalCompositionVideoRef.current;
       try {
         const audioStream = video?.captureStream?.();
@@ -14415,6 +15283,7 @@ const Editor = () => {
         { skipLoading: true },
       );
     } finally {
+      verticalPreviewCaptureCanvasRef.current = null;
       setCaptionPreviewDownloading(false);
     }
   }, [
@@ -14660,7 +15529,7 @@ const Editor = () => {
   const sidePreviewImprovementTip = previewImprovementTips.length > 1
     ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
     : null;
-  const shouldShowPreviewImprovementPopups = Boolean(showVideo && activePreviewImprovementTip);
+  const shouldShowPreviewImprovementPopups = Boolean(activePreviewImprovementTip);
   const activePreviewTipAppliedIds = activeJob?.id
     ? (previewTipAppliedIdsByJob[activeJob.id] || [])
     : [];
@@ -14683,6 +15552,9 @@ const Editor = () => {
   const canApplyLiveSettingsInCurrentStage = Boolean(
     activeJob && LIVE_SETTINGS_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
+  const previewTipApplyLabel = canApplyLiveSettingsInCurrentStage
+    ? "Click to apply live"
+    : "Apply for next pass";
   const handleApplyPreviewImprovementTip = useCallback(async (tip: PreviewImprovementTip) => {
     if (!activeJob?.id) return;
     const jobId = activeJob.id;
@@ -14710,12 +15582,14 @@ const Editor = () => {
       setAModeEnabled(true);
       setBingeModeEnabled(true);
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       setAutoTransitionsEnabled(true);
       setRetentionStrategyProfile("viral");
       applyMaxCutsDelta(3);
       patchPayload.onlyCuts = false;
       patchPayload.transitions = true;
       patchPayload.retentionStrategyProfile = "viral";
+      patchPayload.tangentKiller = true;
     } else if (tip.action === "tighten_hook") {
       actionHandled = true;
       menuTouchedRef.current.strategy = true;
@@ -14732,8 +15606,10 @@ const Editor = () => {
     } else if (tip.action === "skip_segment") {
       actionHandled = true;
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       applyMaxCutsDelta(1);
       patchPayload.onlyCuts = false;
+      patchPayload.tangentKiller = true;
       if (
         typeof tip.segmentId === "string" &&
         Number.isFinite(tip.segmentStartSec) &&
@@ -14766,8 +15642,10 @@ const Editor = () => {
     } else if (tip.action === "stronger_filler_pass") {
       actionHandled = true;
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       applyMaxCutsDelta(2);
       patchPayload.onlyCuts = false;
+      patchPayload.tangentKiller = true;
       setPreviewTipPlaybackRateByJob((prev) => ({
         ...prev,
         [jobId]: Math.max(1.03, prev[jobId] || 1),
@@ -14804,8 +15682,9 @@ const Editor = () => {
       setPreviewImprovementTipIndex((current) => (current + 1) % previewImprovementTips.length);
     }
 
-    let toastDescription = `${tip.title} applied to live preview controls.`;
-    if (canApplyLiveSettingsInCurrentStage && accessToken && Object.keys(patchPayload).length > 0) {
+    const hasPatchPayload = Object.keys(patchPayload).length > 0;
+    let toastDescription = "Applied to preview controls.";
+    if (canApplyLiveSettingsInCurrentStage && accessToken && hasPatchPayload) {
       try {
         await apiFetch(`/api/jobs/${jobId}/live-settings`, {
           method: "PATCH",
@@ -14820,8 +15699,10 @@ const Editor = () => {
           toastDescription = `${tip.title} applied to preview controls. Live sync failed, but you can still download the current preview output.`;
         }
       }
-    } else if (Object.keys(patchPayload).length > 0) {
-      toastDescription = "Applied to preview controls. Download uses the current preview output as shown.";
+    } else if (hasPatchPayload) {
+      toastDescription = canApplyLiveSettingsInCurrentStage
+        ? "Applied to preview controls. Live sync needs an active session."
+        : "Render has already locked, so this tip applies to preview controls and the next pass.";
     }
     setPreviewTipAppliedIdsByJob((prev) => {
       const existing = prev[jobId] || [];
@@ -15087,6 +15968,12 @@ const Editor = () => {
       activeAnalysis?.topHumanGuardMode ??
       activeAnalysis?.top_human_guard_mode,
     );
+    const humanReview = parseBooleanLike(
+      activeRenderSettings?.humanReviewRequired ??
+      activeRenderSettings?.human_review_required ??
+      activeAnalysis?.humanReviewRequired ??
+      activeAnalysis?.human_review_required,
+    );
     const styleLockPercent = parseCreatorStyleLockPercent(
       activeRenderSettings?.creatorStyleLock ??
       activeRenderSettings?.creator_style_lock ??
@@ -15098,6 +15985,7 @@ const Editor = () => {
     setContinuityFirstEnabled(continuityFirst ?? false);
     setExploreX3Enabled(exploreX3 ?? false);
     setTopHumanGuardEnabled(topHumanGuard ?? false);
+    setHumanReviewEnabled(humanReview ?? false);
     setCreatorStyleLockPercent(styleLockPercent ?? DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   }, [activeAnalysis, activeJob?.id, activeRenderSettings]);
   useEffect(() => {
@@ -15458,6 +16346,7 @@ const Editor = () => {
     if (!activeJob || !video) return;
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) return;
+    setPreviewVideoDurationSec((prev) => (prev === duration ? prev : duration));
     video.playbackRate = clamp(activePreviewPlaybackRate, 0.75, 1.35);
     const currentTime = clamp(Number(video.currentTime || 0), 0, duration);
     ensurePlaybackTelemetry(activeJob.id, duration, currentTime);
@@ -15845,12 +16734,14 @@ const Editor = () => {
     if (continuityFirstEnabled) labels.push("Continuity-First");
     if (exploreX3Enabled) labels.push("Explore x3");
     if (topHumanGuardEnabled) labels.push("Top-Human Guard");
+    if (humanReviewEnabled) labels.push("Human Review");
     return labels;
   }, [
     coldStartAutopilotEnabled,
     continuityFirstEnabled,
     exploreX3Enabled,
     topHumanGuardEnabled,
+    humanReviewEnabled,
   ]);
   const liveOutcomeModeSubtitle = isVerticalMode
     ? "Vertical Live Agent mode optimizes short-form loops for TikTok + IG Reels, with YouTube Shorts context."
@@ -17029,7 +17920,7 @@ const Editor = () => {
                 {activeAdvancedLearningModeLabels.length} active
               </Badge>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-5">
               {([
                 {
                   id: "cold_start_autopilot" as CreatorLearningMode,
@@ -17062,6 +17953,14 @@ const Editor = () => {
                   active: topHumanGuardEnabled,
                   onToggle: () => setTopHumanGuardEnabled((prev) => !prev),
                   Icon: Crown,
+                },
+                {
+                  id: "human_review" as CreatorLearningMode,
+                  label: "Human Review",
+                  description: "Pause before final render until a reviewer approves.",
+                  active: humanReviewEnabled,
+                  onToggle: () => setHumanReviewEnabled((prev) => !prev),
+                  Icon: Clock,
                 },
               ]).map((mode) => (
                 <button
@@ -17831,7 +18730,7 @@ const Editor = () => {
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
+              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · {humanReviewEnabled ? "human review on" : "auto-approve"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
             </p>
           </div>
         ) : null}
@@ -17875,6 +18774,70 @@ const Editor = () => {
           <Download className="h-4 w-4" />
           {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
         </Button>
+      </div>
+    </motion.div>
+  ) : null;
+  const reviewPendingCard = activeJob && normalizedActiveStatus === "review" ? (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-xl border border-amber-400/40 bg-amber-500/10 p-3"
+    >
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-400/10 via-primary/10 to-orange-300/10" />
+      <div className="relative flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-amber-100 flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Human review required before final render.
+          </p>
+          <Badge variant="outline" className="border-amber-400/40 bg-amber-500/10 text-[11px] text-amber-200">
+            Awaiting approval
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {activeReviewState?.previewPath
+            ? "Download the preview and approve to continue rendering."
+            : "Preview is still generating. It will appear here when ready."}
+        </p>
+        {activeReviewState?.previewError ? (
+          <p className="text-[11px] text-destructive">
+            Preview error: {String(activeReviewState.previewError)}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            className="min-h-10 w-full gap-2 sm:w-auto"
+            disabled={reviewPreviewLoading || !activeReviewState?.previewPath}
+            onClick={async () => {
+              if (!activeJob?.id) return;
+              const url = reviewPreviewUrl || await handleFetchReviewPreviewUrl(activeJob.id);
+              if (url) {
+                window.open(url, "_blank", "noopener,noreferrer");
+              }
+            }}
+          >
+            {reviewPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {reviewPreviewLoading ? "Loading Preview" : "Download Preview"}
+          </Button>
+          <Button
+            className="min-h-10 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+            disabled={reviewApproving}
+            onClick={() => void handleApproveReview()}
+          >
+            {reviewApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {reviewApproving ? "Approving..." : "Approve & Render"}
+          </Button>
+          <Button
+            variant="ghost"
+            className="min-h-10 w-full gap-2 sm:w-auto"
+            disabled={reviewRedoing}
+            onClick={() => void handleRedoReview()}
+          >
+            {reviewRedoing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            {reviewRedoing ? "Redoing..." : "Redo Variant"}
+          </Button>
+        </div>
       </div>
     </motion.div>
   ) : null;
@@ -18595,58 +19558,176 @@ const Editor = () => {
 
             <section className="min-w-0 space-y-6">
               {showUploadDropzone ? (
-              <div
-                ref={uploadDropZoneRef}
-                data-vertical={isVerticalMode ? "true" : "false"}
-                className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
-                  isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
-                }`}
-                onClick={handlePickFile}
-                onDragEnter={handleDropZoneDragEnter}
-                onDragOver={handleDropZoneDragOver}
-                onDragLeave={handleDropZoneDragLeave}
-                onDrop={handleDrop}
-                onKeyDown={handleDropZoneKeyDown}
-                role="button"
-                tabIndex={0}
-                aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
-              >
-                <div className="flex flex-col items-center gap-3 relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                    <Upload className="w-7 h-7 text-primary" />
-                  </div>
-                  <p className="font-medium text-foreground">
-                    {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {isVerticalMode
-                      ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
-                      : "MP4, M4V, or MKV up to 2GB"}
-                  </p>
-                  {performanceConstrained && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
-                    </p>
-                  )}
-                  {ultraPipelineMode ? (
-                    <p className="text-[11px] text-primary">
-                      Fast mode active: accelerated upload with transcript still required.
-                    </p>
-                  ) : retentionKingPipelineMode ? (
-                    <p className="text-[11px] text-primary">
-                      Quality mode active: transcript-guided hook analysis with cleaner long-form continuity.
-                    </p>
-                  ) : null}
-                  {uploadingJobId && (
-                    <div className="w-full max-w-sm mt-4">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                        <span>Uploading...</span>
-                        <span>{uploadProgress}%</span>
-                      </div>
-                      <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+              <div className="space-y-3">
+                <div
+                  ref={uploadDropZoneRef}
+                  data-vertical={isVerticalMode ? "true" : "false"}
+                  className={`glass-card editor-upload-dropzone p-8 border-2 border-dashed transition-colors cursor-pointer text-center relative overflow-hidden ${
+                    isDragging ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
+                  }`}
+                  onClick={handlePickFile}
+                  onDragEnter={handleDropZoneDragEnter}
+                  onDragOver={handleDropZoneDragOver}
+                  onDragLeave={handleDropZoneDragLeave}
+                  onDrop={handleDrop}
+                  onKeyDown={handleDropZoneKeyDown}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={isVerticalMode ? "Drop a source video for vertical editing" : "Drop a video file to upload"}
+                >
+                  <div className="flex flex-col items-center gap-3 relative z-10">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                      <Upload className="w-7 h-7 text-primary" />
                     </div>
-                  )}
+                    <p className="font-medium text-foreground">
+                      {isVerticalMode ? "Upload a video for vertical editing" : "Drop your video here or click to upload"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {isVerticalMode
+                        ? "Auto-converts to 9:16 Shorts. Use the Auto Webcam toggle to turn top-strip webcam layout on or off."
+                        : "MP4, M4V, or MKV up to 2GB"}
+                    </p>
+                    {performanceConstrained && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Adaptive mode enabled for this device/network to prioritize stability on mobile and slower internet.
+                      </p>
+                    )}
+                    {ultraPipelineMode ? (
+                      <p className="text-[11px] text-primary">
+                        Fast mode active: accelerated upload with transcript still required.
+                      </p>
+                    ) : retentionKingPipelineMode ? (
+                      <p className="text-[11px] text-primary">
+                        Quality mode active: transcript-guided hook analysis with cleaner long-form continuity.
+                      </p>
+                    ) : null}
+                    {uploadingJobId && (
+                      <div className="w-full max-w-sm mt-4">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                          <span>Uploading...</span>
+                          <span>{uploadProgress}%</span>
+                        </div>
+                        <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+                      </div>
+                    )}
+                  </div>
                 </div>
+                <div className="flex flex-wrap items-center justify-center gap-3 rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-[11px] text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-2"
+                      onClick={autoImportActive ? handleStopAutoImport : handlePickAutoImportFolder}
+                      disabled={!supportsAutoImport || autoImportStatus === "picking"}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      {autoImportActive
+                        ? "Stop Auto-Import"
+                        : autoImportNeedsFolder
+                          ? "Reconnect Folder"
+                          : "Watch Recording Folder"}
+                    </Button>
+                    {autoImportActive ? (
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Watching {autoImportDirectoryHandle.name || "folder"}
+                      </Badge>
+                    ) : autoImportNeedsFolder ? (
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Reconnect folder access
+                      </Badge>
+                    ) : supportsAutoImport ? (
+                      <span className="text-[10px] text-muted-foreground">Pick a folder to auto-import new recordings.</span>
+                    ) : isMobileDevice ? (
+                      <span className="text-[10px] text-muted-foreground">Mobile auto-import needs a native app. Tap upload to pick from Photos/Files.</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Folder auto-import needs Chrome or Edge.</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2">
+                      <Switch
+                        checked={autoDownloadEnabled}
+                        onCheckedChange={setAutoDownloadEnabled}
+                        aria-label="Toggle auto download"
+                      />
+                      <span>Auto-download when ready</span>
+                    </label>
+                    {autoDownloadEnabled ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Vertical clips</span>
+                          <button
+                            type="button"
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                              autoDownloadVerticalMode === "all"
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border/50 bg-background/40 text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => setAutoDownloadVerticalMode("all")}
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                              autoDownloadVerticalMode === "top"
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border/50 bg-background/40 text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => setAutoDownloadVerticalMode("top")}
+                          >
+                            Top only
+                          </button>
+                        </div>
+                        <label className="flex items-center gap-2">
+                          <Switch
+                            checked={autoDownloadLongFormOnly}
+                            onCheckedChange={setAutoDownloadLongFormOnly}
+                            aria-label="Toggle long-form only"
+                          />
+                          <span>Long-form only</span>
+                        </label>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                {isMobileDevice ? (
+                  <div className="rounded-xl border border-border/50 bg-background/35 px-4 py-3 text-[11px] text-muted-foreground">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Mobile Auto-Import Plan</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Mobile browsers can’t auto-scan Photos in the background. A native app is required.
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                        Native app
+                      </Badge>
+                    </div>
+                    <div className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                      <p>Step 1: Install the AutoEditor mobile app.</p>
+                      <p>Step 2: Connect your Camera Roll.</p>
+                      <p>Step 3: Auto-upload, edit, and save back to Photos.</p>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={mobileImportWaitlistJoined ? "secondary" : "outline"}
+                        className="h-8"
+                        onClick={handleJoinMobileImportWaitlist}
+                        disabled={mobileImportWaitlistJoined}
+                      >
+                        {mobileImportWaitlistJoined ? "Waitlist saved" : "Join waitlist"}
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground">
+                        Saves your interest on this device.
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               ) : null}
 
@@ -19290,7 +20371,7 @@ const Editor = () => {
                                     <p className="text-[11px] font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                     <p className="mt-1 text-[10px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                     <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                      {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply live"}
+                                      {activePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                     </p>
                                   </div>
                                 </div>
@@ -19484,7 +20565,7 @@ const Editor = () => {
                   ) : null}
                 </div>
                 <AnimatePresence>
-                  {showVideo && activePreviewImprovementTip ? (
+                  {activePreviewImprovementTip ? (
                     <motion.aside
                       key={`preview-side-primary-${activePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
                       initial={{ opacity: 0, x: -18, scale: 0.98 }}
@@ -19517,7 +20598,7 @@ const Editor = () => {
                                 <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                  {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                  {activePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                 </p>
                               </div>
                             </div>
@@ -19528,7 +20609,7 @@ const Editor = () => {
                   ) : null}
                 </AnimatePresence>
                 <AnimatePresence>
-                  {showVideo && sidePreviewImprovementTip ? (
+                  {sidePreviewImprovementTip ? (
                     <motion.aside
                       key={`preview-side-secondary-${sidePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
                       initial={{ opacity: 0, x: 18, scale: 0.98 }}
@@ -19561,7 +20642,7 @@ const Editor = () => {
                                 <p className="text-xs font-semibold leading-snug text-foreground">{sidePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                  {sidePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                  {sidePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                 </p>
                               </div>
                             </div>
@@ -19696,6 +20777,7 @@ const Editor = () => {
                         </ol>
                       </div>
                     </div>
+                    {!isVerticalMode ? reviewPendingCard : null}
                     {!isVerticalMode ? exportReadyCard : null}
                     {showModeInsightsInline ? (
                       <>
@@ -20000,6 +21082,7 @@ const Editor = () => {
                         </div>
                       </div>
                     )}
+                    {isVerticalMode ? reviewPendingCard : null}
                     {isVerticalMode ? exportReadyCard : null}
                     {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -21607,25 +22690,31 @@ const Editor = () => {
                         <div className="self-start overflow-hidden rounded-xl border border-border/60 bg-black/45 p-2">
                           <div className="mx-auto w-[min(190px,100%)] sm:w-[min(220px,100%)]">
                             <div className="relative aspect-[9/16] overflow-hidden rounded-lg border border-border/50 bg-black/75">
-                              {captionPreviewSourceUrl ? (
-                                captionPreviewDrawFallback ? (
-                                  <video
-                                    src={captionPreviewSourceUrl}
-                                    preload="metadata"
-                                    muted
+                                {captionPreviewSourceUrl ? (
+                                  captionPreviewDrawFallback ? (
+                                    <video
+                                      src={captionPreviewSourceUrl}
+                                      preload="metadata"
+                                      muted
                                     playsInline
                                     autoPlay
-                                    loop
-                                    className="h-full w-full bg-black/75 object-cover"
-                                  />
+                                      loop
+                                      className="h-full w-full bg-black/75 object-cover"
+                                    />
+                                  ) : (
+                                  <>
+                                    <canvas
+                                      ref={verticalCompositionVideoCanvasRef}
+                                      className="absolute inset-0 h-full w-full pointer-events-none"
+                                    />
+                                    <canvas
+                                      ref={verticalCompositionCanvasRef}
+                                      onPointerDown={beginVerticalCaptionDrag}
+                                      className="absolute inset-0 h-full w-full touch-none"
+                                    />
+                                  </>
+                                  )
                                 ) : (
-                                  <canvas
-                                    ref={verticalCompositionCanvasRef}
-                                    onPointerDown={beginVerticalCaptionDrag}
-                                    className="h-full w-full touch-none bg-black/75"
-                                  />
-                                )
-                              ) : (
                                 <div className="flex h-full items-center justify-center border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
                                   {selectedCaptionClipIndex >= 0
                                     ? `Clip #${selectedCaptionClipIndex + 1} preview is still loading.`
@@ -22599,7 +23688,7 @@ const Editor = () => {
       >
         {exportOpen && activeJob?.renderMode !== "vertical" ? (
           <DialogContent
-            className="relative max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+            className="max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
             onInteractOutside={(event) => event.preventDefault()}
             onEscapeKeyDown={(event) => event.preventDefault()}
           >
