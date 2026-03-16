@@ -25,6 +25,12 @@ import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
 import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
 import { createWebGpuVideoRenderer, type WebGpuVideoDraw, type WebGpuVideoRenderer } from "@/lib/webgpu";
 import {
+  clearRecordingFolderHandle,
+  loadRecordingFolderHandle,
+  saveRecordingFolderHandle,
+  supportsRecordingFolderAccess,
+} from "@/lib/recordingFolder";
+import {
   DIRECTOR_NOTES_MAX_LENGTH,
   DIRECTOR_NOTES_REQUIRED_PLAN,
   appendDirectorNotesTemplate,
@@ -4661,7 +4667,7 @@ const Editor = () => {
     playSound: true,
     flashTitle: true,
   });
-  const supportsAutoImport = typeof window !== "undefined" && "showDirectoryPicker" in window;
+  const supportsAutoImport = supportsRecordingFolderAccess();
   const isMobileDevice = useMemo(() => isMobileUserAgent(), []);
   const autoImportActive = autoImportEnabled && Boolean(autoImportDirectoryHandle);
   const autoImportNeedsFolder = autoImportEnabled && !autoImportDirectoryHandle;
@@ -4706,6 +4712,30 @@ const Editor = () => {
       setAutoImportStatus("idle");
       return;
     }
+  }, [autoImportDirectoryHandle, autoImportEnabled]);
+
+  useEffect(() => {
+    if (!autoImportEnabled || autoImportDirectoryHandle) return;
+    let cancelled = false;
+
+    const loadHandle = async () => {
+      const handle = await loadRecordingFolderHandle();
+      if (cancelled || !handle) return;
+      if (typeof handle.queryPermission === "function") {
+        const permission = await handle.queryPermission({ mode: "read" });
+        if (permission && permission !== "granted") return;
+      }
+      autoImportScanStateRef.current.clear();
+      autoImportProcessedRef.current.clear();
+      autoImportLockUntilRef.current = 0;
+      setAutoImportDirectoryHandle(handle);
+      setAutoImportStatus("watching");
+    };
+
+    void loadHandle();
+    return () => {
+      cancelled = true;
+    };
   }, [autoImportDirectoryHandle, autoImportEnabled]);
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
@@ -9469,6 +9499,7 @@ const Editor = () => {
           return;
         }
       }
+      void saveRecordingFolderHandle(handle);
       autoImportScanStateRef.current.clear();
       autoImportProcessedRef.current.clear();
       autoImportLockUntilRef.current = 0;
@@ -9496,6 +9527,7 @@ const Editor = () => {
     autoImportProcessedRef.current.clear();
     autoImportLockUntilRef.current = 0;
     autoImportPromptedRef.current = false;
+    void clearRecordingFolderHandle();
   }, []);
 
   const handleJoinMobileImportWaitlist = useCallback(() => {
@@ -22291,6 +22323,34 @@ const Editor = () => {
             ) : null}
               </>
             )}
+
+            <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Human Review</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Pause before final render until a reviewer approves.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={humanReviewEnabled
+                      ? "border-primary/45 bg-primary/15 text-primary"
+                      : "border-border/50 bg-background/45 text-muted-foreground"}
+                  >
+                    {humanReviewEnabled ? "Enabled" : "Off"}
+                  </Badge>
+                  <Switch
+                    checked={humanReviewEnabled}
+                    onCheckedChange={setHumanReviewEnabled}
+                    aria-label="Toggle human review"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                When enabled, uploads pause in the review stage before export.
+              </p>
+            </div>
 
             {isVerticalUploadPrompt ? (
               <div className="relative z-10 mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
