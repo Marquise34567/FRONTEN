@@ -251,9 +251,48 @@ const EditorAMode = () => {
     if (!nested || typeof nested !== "object") return null;
     return nested as Record<string, any>;
   }, [jobAnalysis, jobDetail]);
+  const engagementWindows = useMemo(() => {
+    if (!jobAnalysis) return [] as Record<string, any>[];
+    const raw =
+      jobAnalysis?.editPlan?.engagementWindows ??
+      jobAnalysis?.edit_plan?.engagement_windows ??
+      jobAnalysis?.engagementWindows ??
+      jobAnalysis?.engagement_windows;
+    if (!Array.isArray(raw)) return [] as Record<string, any>[];
+    return raw.filter((entry) => entry && typeof entry === "object") as Record<string, any>[];
+  }, [jobAnalysis]);
   const timelineSeries = useMemo(() => {
     if (!jobAnalysis) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
     const pickArray = (...values: unknown[]) => values.find((value) => Array.isArray(value)) as unknown[] | undefined;
+    const buildFromEngagement = (windows: Record<string, any>[]) => {
+      if (!windows.length) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+      const usable = windows
+        .map((entry) => {
+          const time = Number(entry.time ?? entry.t ?? entry.second ?? entry.seconds);
+          return Number.isFinite(time) ? { ...entry, time } : null;
+        })
+        .filter((entry): entry is Record<string, any> & { time: number } => Boolean(entry));
+      if (!usable.length) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+      const targetCount = Math.min(12, Math.max(6, Math.round(usable.length / 90)));
+      const maxIndex = usable.length - 1;
+      const points: { stamp: string; energy: number; emotion: number; retention?: number }[] = [];
+      for (let i = 0; i < targetCount; i += 1) {
+        const idx = Math.round((i / Math.max(1, targetCount - 1)) * maxIndex);
+        const entry = usable[idx];
+        if (!entry) continue;
+        const energy = normalizePercent(entry.audioEnergy ?? entry.motionScore ?? entry.visualImpact);
+        const emotion = normalizePercent(entry.emotionIntensity ?? entry.emotionalSpike ?? entry.transcriptEmotion);
+        if (energy === null || emotion === null) continue;
+        const retention = normalizePercent(entry.score ?? entry.hookScore);
+        points.push({
+          stamp: formatTimelineStamp(entry.time),
+          energy,
+          emotion,
+          retention: retention ?? undefined,
+        });
+      }
+      return points;
+    };
     const parseObjectSeries = (series: unknown[]) => {
       const points: { stamp: string; energy: number; emotion: number; retention?: number }[] = [];
       series.forEach((entry, index) => {
@@ -310,8 +349,11 @@ const EditorAMode = () => {
         }).filter((point): point is { stamp: string; energy: number; emotion: number } => Boolean(point));
       }
     }
+    if (!points.length && engagementWindows.length) {
+      points = buildFromEngagement(engagementWindows);
+    }
     return points.slice(0, 24);
-  }, [jobAnalysis]);
+  }, [engagementWindows, jobAnalysis]);
   const hasTimeline = timelineSeries.length > 0;
   const avgEmotion = useMemo(() => {
     if (!timelineSeries.length) return null;
@@ -369,21 +411,60 @@ const EditorAMode = () => {
       jobAnalysis.faceZones ??
       jobAnalysis.face_zones ??
       jobAnalysis.face_heatmap;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((entry: any, index: number) => {
-        if (!entry || typeof entry !== "object") return null;
-        const label = String(entry.label ?? entry.zone ?? `Face Zone ${index + 1}`).trim();
-        const atValue = Number(entry.at ?? entry.time ?? entry.t ?? entry.second ?? entry.seconds);
-        const at = Number.isFinite(atValue) ? formatTimelineStamp(atValue) : String(entry.at ?? "").trim();
-        const intensity = normalizePercent(entry.intensity ?? entry.score ?? entry.value);
-        if (intensity === null) return null;
-        const detail = String(entry.detail ?? entry.note ?? entry.reason ?? "").trim();
-        return { label: label || `Face Zone ${index + 1}`, at, intensity, detail };
+    if (Array.isArray(raw)) {
+      return raw
+        .map((entry: any, index: number) => {
+          if (!entry || typeof entry !== "object") return null;
+          const label = String(entry.label ?? entry.zone ?? `Face Zone ${index + 1}`).trim();
+          const atValue = Number(entry.at ?? entry.time ?? entry.t ?? entry.second ?? entry.seconds);
+          const at = Number.isFinite(atValue) ? formatTimelineStamp(atValue) : String(entry.at ?? "").trim();
+          const intensity = normalizePercent(entry.intensity ?? entry.score ?? entry.value);
+          if (intensity === null) return null;
+          const detail = String(entry.detail ?? entry.note ?? entry.reason ?? "").trim();
+          return { label: label || `Face Zone ${index + 1}`, at, intensity, detail };
+        })
+        .filter((entry): entry is { label: string; at: string; intensity: number; detail: string } => Boolean(entry))
+        .slice(0, 6);
+    }
+    if (!engagementWindows.length) return [];
+    const candidates = engagementWindows
+      .map((entry) => {
+        const time = Number(entry.time ?? entry.t ?? entry.second ?? entry.seconds);
+        if (!Number.isFinite(time)) return null;
+        const intensity = normalizePercent(entry.faceIntensity ?? entry.facePresence);
+        if (intensity === null || intensity <= 0) return null;
+        const presence = normalizePercent(entry.facePresence);
+        const emotion = normalizePercent(entry.emotionIntensity ?? entry.emotionalSpike ?? entry.transcriptEmotion);
+        const audioEnergy = normalizePercent(entry.audioEnergy ?? entry.motionScore);
+        const detailParts = [];
+        if (presence !== null) detailParts.push(`Presence ${presence}%`);
+        if (emotion !== null) detailParts.push(`Emotion ${emotion}%`);
+        if (audioEnergy !== null) detailParts.push(`Audio ${audioEnergy}%`);
+        return {
+          time,
+          intensity,
+          detail: detailParts.join(" · "),
+        };
       })
-      .filter((entry): entry is { label: string; at: string; intensity: number; detail: string } => Boolean(entry))
-      .slice(0, 6);
-  }, [jobAnalysis]);
+      .filter((entry): entry is { time: number; intensity: number; detail: string } => Boolean(entry))
+      .sort((a, b) => b.intensity - a.intensity);
+    if (!candidates.length) return [];
+    const zones: { label: string; at: string; intensity: number; detail: string }[] = [];
+    const usedBuckets = new Set<number>();
+    for (const candidate of candidates) {
+      const bucket = Math.round(candidate.time);
+      if (usedBuckets.has(bucket)) continue;
+      zones.push({
+        label: `Face Zone ${zones.length + 1}`,
+        at: formatTimelineStamp(candidate.time),
+        intensity: candidate.intensity,
+        detail: candidate.detail,
+      });
+      usedBuckets.add(bucket);
+      if (zones.length >= 4) break;
+    }
+    return zones;
+  }, [engagementWindows, jobAnalysis]);
   const storyMapRows = useMemo(() => {
     if (!jobAnalysis) return [] as { phase: string; range: string; score: number | null; note: string }[];
     const graph = jobAnalysis.story_beat_graph ?? jobAnalysis.storyBeatGraph ?? jobAnalysis.story_map ?? jobAnalysis.storyMap;
