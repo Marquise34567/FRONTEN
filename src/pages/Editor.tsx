@@ -10549,6 +10549,7 @@ const Editor = () => {
   );
 
   const normalizedActiveStatus = activeJob ? normalizeStatus(activeJob.status) : null;
+  const previewIsVertical = Boolean(activeJob?.renderMode === "vertical");
   const activeReviewState = useMemo(() => {
     const review = activeJob?.analysis?.human_review ?? activeJob?.analysis?.humanReview;
     if (!review || typeof review !== "object") return null;
@@ -19396,7 +19397,7 @@ const Editor = () => {
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 px-2 text-[11px] text-muted-foreground"
+                className="h-6 px-2 text-[10px] text-muted-foreground"
                 onClick={handleShowSubscriptionCard}
               >
                 Show subscription card
@@ -19405,34 +19406,34 @@ const Editor = () => {
           )}
 
           {trialActive && !hideSubscriptionCard && (
-            <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-emerald-100">Free trial unlocked</p>
-                  <p className="text-xs text-emerald-200/80">
+                  <p className="text-[13px] font-semibold text-emerald-100">Free trial unlocked</p>
+                  <p className="text-[11px] text-emerald-200/80">
                     {trialEndsAtLabel
                       ? `Full ${PLAN_CONFIG[trialUnlockTier].name} access until ${trialEndsAtLabel}.`
                       : `Full ${PLAN_CONFIG[trialUnlockTier].name} access is active.`}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="bg-emerald-500/20 text-emerald-100 border border-emerald-300/40">
+                  <Badge className="bg-emerald-500/20 text-[10px] text-emerald-100 border border-emerald-300/40">
                     Trial {Math.max(1, trialDaysRemaining)}d left
                   </Badge>
                   <Button
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-[11px] text-emerald-100/80 hover:text-emerald-100"
+                    className="h-6 px-2 text-[10px] text-emerald-100/80 hover:text-emerald-100"
                     onClick={handleHideSubscriptionCard}
                   >
                     Hide
                   </Button>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
                 {trialUnlockedFeatures.map((feature) => (
-                  <p key={`trial-feature-${feature}`} className="text-xs text-emerald-100/90">
+                  <p key={`trial-feature-${feature}`} className="text-[11px] text-emerald-100/90">
                     - {feature}
                   </p>
                 ))}
@@ -19452,21 +19453,21 @@ const Editor = () => {
 
           <div className={`grid grid-cols-1 gap-6 ${(showVerticalGalleryOnlyLayout || hideJobsPanel) ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
             {!showVerticalGalleryOnlyLayout && !hideJobsPanel ? (
-              <aside className="editor-job-list-shell min-w-0 space-y-4 p-4">
+              <aside className="editor-job-list-shell min-w-0 space-y-3 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-sm font-semibold text-foreground">Pipeline Jobs</h2>
-                    <p className="text-[11px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
+                    <h2 className="text-[13px] font-semibold text-foreground">Pipeline Jobs</h2>
+                    <p className="text-[10px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
                   </div>
-                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-muted-foreground">
+                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[11px] text-muted-foreground">
                     {jobs.length}
                   </Badge>
                 </div>
-                {loadingJobs && <p className="text-xs text-muted-foreground">Loading jobs...</p>}
+                {loadingJobs && <p className="text-[11px] text-muted-foreground">Loading jobs...</p>}
                 {!loadingJobs && jobs.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+                  <p className="text-[11px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
                 )}
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {jobs.map((job) => {
                     const normalizedJobStatus = normalizeStatus(job.status);
                     const ready = normalizedJobStatus === "ready";
@@ -19485,36 +19486,36 @@ const Editor = () => {
                         data-selected={selectedJobId === job.id ? "true" : "false"}
                         data-ready={ready ? "true" : "false"}
                         data-highlighted={highlightedJobId === job.id ? "true" : "false"}
-                        className="editor-job-card w-full text-left px-3 py-3"
+                        className="editor-job-card w-full text-left px-2.5 py-2"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className={`truncate text-sm font-semibold ${ready ? "text-success" : "text-foreground"}`}>
+                            <p className={`truncate text-[13px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
                               {displayName(job)}
                             </p>
-                            <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                            <p className="mt-0.5 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/80">
                               Job {job.id.slice(0, 8)}
                             </p>
                           </div>
                           {inFlight ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
                               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                               Live
                             </span>
                           ) : null}
                         </div>
 
-                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                          <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(job.status)}`}>
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[9px] ${statusBadgeClass(job.status)}`}>
                             {STATUS_LABELS[normalizedJobStatus] || "Queued"}
                           </Badge>
-                          <Badge variant="outline" className="border-border/60 bg-muted/20 text-[10px] text-muted-foreground">
+                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[9px] text-muted-foreground">
                             Stage: {stageLabel}
                           </Badge>
-                          <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
+                          <span className="ml-auto text-[9px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
                         </div>
 
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/70">
+                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-background/70">
                           <div
                             className={`h-full rounded-full transition-all ${
                               normalizedJobStatus === "failed"
@@ -19527,7 +19528,7 @@ const Editor = () => {
                           />
                         </div>
 
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <div className="mt-2 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground">
                           <span className="truncate">
                             {new Date(job.createdAt).toLocaleString([], {
                               month: "short",
@@ -19536,7 +19537,7 @@ const Editor = () => {
                               minute: "2-digit",
                             })}
                           </span>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-2 py-0.5">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[9px]">
                             {job.renderMode === "vertical" ? (
                               <>
                                 <ScissorsSquare className="h-3 w-3 text-primary" />
@@ -20263,7 +20264,7 @@ const Editor = () => {
               {!isVerticalMode && (
               <div className="relative">
                 <div className="glass-card overflow-hidden">
-                  <div className={`${isVerticalMode ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
+                  <div className={`${previewIsVertical ? "aspect-[9/16] max-w-[360px] mx-auto" : "aspect-video"} bg-muted/30 flex items-center justify-center relative`}>
                     {showVideo ? (
                       <video
                         ref={previewVideoRef}
@@ -20275,7 +20276,7 @@ const Editor = () => {
                         onPause={handlePreviewPause}
                         onEnded={handlePreviewEnded}
                         onError={handlePreviewVideoError}
-                        className={`w-full h-full ${isVerticalMode ? "object-contain bg-black" : "object-cover"}`}
+                        className="w-full h-full object-contain bg-black"
                       />
                     ) : (
                       <>
