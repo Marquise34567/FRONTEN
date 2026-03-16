@@ -23,6 +23,7 @@ import { API_URL, apiFetch, ApiError, getRuntimeOriginBase, shouldIncludeApiBase
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
 import { isLocalhostLoopbackRuntime } from "@/lib/localhostAuthBypass";
 import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
+import { createWebGpuVideoRenderer, type WebGpuVideoDraw, type WebGpuVideoRenderer } from "@/lib/webgpu";
 import {
   DIRECTOR_NOTES_MAX_LENGTH,
   DIRECTOR_NOTES_REQUIRED_PLAN,
@@ -5041,6 +5042,14 @@ const Editor = () => {
   const verticalSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionVideoRef = useRef<HTMLVideoElement | null>(null);
   const verticalCompositionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalCompositionVideoCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const verticalPreviewCaptureCanvasRef = useRef<{
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+  } | null>(null);
+  const webGpuPreviewRendererRef = useRef<WebGpuVideoRenderer | null>(null);
+  const webGpuPreviewFailedRef = useRef(false);
+  const webGpuPreviewActiveRef = useRef(false);
   const verticalClipPreviewBlobUrlByClipRef = useRef<Record<number, string>>({});
   const verticalClipPreviewBlobIdentityByClipRef = useRef<Record<number, string>>({});
   const verticalAutoRenderRequestedRef = useRef(false);
@@ -5097,6 +5106,10 @@ const Editor = () => {
   const pageViewTrackedRef = useRef(false);
   const editorGuidePromptedRef = useRef(false);
   const analyticsSessionId = useMemo(() => getAnalyticsSessionId(), []);
+  const supportsWebGpu = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return Boolean((navigator as Navigator & { gpu?: GPU }).gpu);
+  }, []);
   const lowBandwidthMode = runtimeProfile.lowBandwidth;
   const lowPowerMode = runtimeProfile.lowPowerDevice;
   const performanceConstrained = lowBandwidthMode || lowPowerMode || runtimeProfile.reducedMotion;
@@ -8281,13 +8294,43 @@ const Editor = () => {
     skipManualWebcamCrop ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode;
 
   const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta);
+  const verticalCaptionPreviewActive = captionSettingsDialogOpen && isVerticalMode && !captionPreviewDrawFallback;
 
   useEffect(() => {
-    const previewActive = captionSettingsDialogOpen && isVerticalMode;
+    if (!verticalCaptionPreviewActive || !supportsWebGpu || webGpuPreviewFailedRef.current) return;
+    const canvas = verticalCompositionVideoCanvasRef.current;
+    if (!canvas || webGpuPreviewRendererRef.current) return;
+    let canceled = false;
+    void createWebGpuVideoRenderer(canvas)
+      .then((renderer) => {
+        if (canceled) {
+          renderer?.dispose();
+          return;
+        }
+        if (!renderer) {
+          webGpuPreviewFailedRef.current = true;
+          return;
+        }
+        webGpuPreviewRendererRef.current = renderer;
+      })
+      .catch(() => {
+        webGpuPreviewFailedRef.current = true;
+      });
+    return () => {
+      canceled = true;
+      if (webGpuPreviewRendererRef.current) {
+        webGpuPreviewRendererRef.current.dispose();
+        webGpuPreviewRendererRef.current = null;
+      }
+    };
+  }, [verticalCaptionPreviewActive, supportsWebGpu]);
+
+  useEffect(() => {
+    const previewActive = verticalCaptionPreviewActive;
     const video = verticalCompositionVideoRef.current;
     const canvas = verticalCompositionCanvasRef.current;
     const previewSourceUrl = String(video?.currentSrc || video?.src || "").trim();
-    if (!previewActive || !video || !canvas || !previewSourceUrl || captionPreviewDrawFallback) return;
+    if (!previewActive || !video || !canvas || !previewSourceUrl) return;
     const resolvedSourceMeta = sourceVideoMeta ?? {
       width: Math.max(1, video.videoWidth || DEFAULT_VERTICAL_OUTPUT.width),
       height: Math.max(1, video.videoHeight || DEFAULT_VERTICAL_OUTPUT.height),
@@ -8586,6 +8629,83 @@ const Editor = () => {
       highlightColor: captionHighlightColor,
     };
 
+    const computeVideoDraw = (
+      src: WebcamCrop,
+      dst: { x: number; y: number; w: number; h: number },
+      fit: VerticalFitMode,
+      options?: {
+        sourceInsetRatio?: number;
+        sourceInsetXRatio?: number;
+        sourceInsetYRatio?: number;
+        destBleedPx?: number;
+      },
+    ): WebGpuVideoDraw | null => {
+      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return null;
+      const srcAspect = src.w / src.h;
+      const dstAspect = dst.w / dst.h;
+      const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
+      const sourceInsetXRatio = Math.max(0, Number(options?.sourceInsetXRatio ?? 0));
+      const sourceInsetYRatio = Math.max(0, Number(options?.sourceInsetYRatio ?? 0));
+      const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
+      if (fit === "contain") {
+        let drawWidth = dst.w;
+        let drawHeight = dst.h;
+        let drawX = dst.x;
+        let drawY = dst.y;
+        if (srcAspect > dstAspect) {
+          drawHeight = dst.w / srcAspect;
+          drawY += (dst.h - drawHeight) / 2;
+        } else {
+          drawWidth = dst.h * srcAspect;
+          drawX += (dst.w - drawWidth) / 2;
+        }
+        return {
+          src: { x: src.x, y: src.y, w: src.w, h: src.h },
+          dst: {
+            x: drawX - destBleedPx,
+            y: drawY - destBleedPx,
+            w: drawWidth + destBleedPx * 2,
+            h: drawHeight + destBleedPx * 2,
+          },
+        };
+      }
+      let sx = src.x;
+      let sy = src.y;
+      let sw = src.w;
+      let sh = src.h;
+      if (srcAspect > dstAspect) {
+        const narrowed = sh * dstAspect;
+        sx += (sw - narrowed) / 2;
+        sw = narrowed;
+      } else {
+        const trimmed = sw / dstAspect;
+        sy += (sh - trimmed) / 2;
+        sh = trimmed;
+      }
+      const baseInsetRatio = fit === "cover" ? 0.004 : 0;
+      const overscanXRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetXRatio);
+      const overscanYRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetYRatio);
+      if (overscanXRatio > 0 || overscanYRatio > 0) {
+        const insetX = sw * overscanXRatio;
+        const insetY = sh * overscanYRatio;
+        if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
+          sx += insetX;
+          sy += insetY;
+          sw -= insetX * 2;
+          sh -= insetY * 2;
+        }
+      }
+      return {
+        src: { x: sx, y: sy, w: sw, h: sh },
+        dst: {
+          x: dst.x - destBleedPx,
+          y: dst.y - destBleedPx,
+          w: dst.w + destBleedPx * 2,
+          h: dst.h + destBleedPx * 2,
+        },
+      };
+    };
+
     const safeDrawImage = (
       sx: number,
       sy: number,
@@ -8614,73 +8734,21 @@ const Editor = () => {
         destBleedPx?: number;
       },
     ) => {
-      if (src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
-      const srcAspect = src.w / src.h;
-      const dstAspect = dst.w / dst.h;
-      const sourceInsetRatio = Math.max(0, Number(options?.sourceInsetRatio ?? 0));
-      const sourceInsetXRatio = Math.max(0, Number(options?.sourceInsetXRatio ?? 0));
-      const sourceInsetYRatio = Math.max(0, Number(options?.sourceInsetYRatio ?? 0));
-      const destBleedPx = Math.max(0, Number(options?.destBleedPx ?? 0));
+      const draw = computeVideoDraw(src, dst, fit, options);
+      if (!draw) return false;
       if (fit === "contain") {
-        let drawWidth = dst.w;
-        let drawHeight = dst.h;
-        let drawX = dst.x;
-        let drawY = dst.y;
-        if (srcAspect > dstAspect) {
-          drawHeight = dst.w / srcAspect;
-          drawY += (dst.h - drawHeight) / 2;
-        } else {
-          drawWidth = dst.h * srcAspect;
-          drawX += (dst.w - drawWidth) / 2;
-        }
         ctx.fillStyle = "#050505";
         ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
-        return safeDrawImage(
-          src.x,
-          src.y,
-          src.w,
-          src.h,
-          drawX - destBleedPx,
-          drawY - destBleedPx,
-          drawWidth + destBleedPx * 2,
-          drawHeight + destBleedPx * 2,
-        );
-      }
-      let sx = src.x;
-      let sy = src.y;
-      let sw = src.w;
-      let sh = src.h;
-      if (srcAspect > dstAspect) {
-        const narrowed = sh * dstAspect;
-        sx += (sw - narrowed) / 2;
-        sw = narrowed;
-      } else {
-        const trimmed = sw / dstAspect;
-        sy += (sh - trimmed) / 2;
-        sh = trimmed;
-      }
-      const baseInsetRatio = fit === "cover" ? 0.004 : 0;
-      const overscanXRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetXRatio);
-      const overscanYRatio = Math.max(baseInsetRatio, sourceInsetRatio, sourceInsetYRatio);
-      if (overscanXRatio > 0 || overscanYRatio > 0) {
-        const insetX = sw * overscanXRatio;
-        const insetY = sh * overscanYRatio;
-        if (sw - insetX * 2 > 1 && sh - insetY * 2 > 1) {
-          sx += insetX;
-          sy += insetY;
-          sw -= insetX * 2;
-          sh -= insetY * 2;
-        }
       }
       return safeDrawImage(
-        sx,
-        sy,
-        sw,
-        sh,
-        dst.x - destBleedPx,
-        dst.y - destBleedPx,
-        dst.w + destBleedPx * 2,
-        dst.h + destBleedPx * 2,
+        draw.src.x,
+        draw.src.y,
+        draw.src.w,
+        draw.src.h,
+        draw.dst.x,
+        draw.dst.y,
+        draw.dst.w,
+        draw.dst.h,
       );
     };
     const fontPx = Math.round(
@@ -8799,6 +8867,8 @@ const Editor = () => {
     let raf = 0;
     const render = () => {
       try {
+        webGpuPreviewActiveRef.current = false;
+        const videoCanvas = verticalCompositionVideoCanvasRef.current;
         if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
           verticalCaptionHitboxRef.current = null;
           return;
@@ -8807,70 +8877,149 @@ const Editor = () => {
           video.playbackRate = 1;
           video.defaultPlaybackRate = 1;
         }
-        let canDrawFrame = false;
-        try {
-          ctx.drawImage(video, 0, 0, 1, 1, 0, 0, 1, 1);
-          canDrawFrame = true;
-        } catch {
-          canDrawFrame = false;
-        }
-        if (!canDrawFrame) {
-          verticalCaptionHitboxRef.current = null;
-          registerDrawFailure();
-          return;
-        }
-        ctx.fillStyle = "#040404";
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
         let drewVideoFrame = false;
-        if (singleLayout) {
-          const singleLayoutSource = renderedClipPreviewActive
-            ? {
-                x: 0,
-                y: 0,
-                w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
-                h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
-              }
-            : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
-          drewVideoFrame = drawVideoRegion(
-            singleLayoutSource,
-            { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
-            singleLayoutFit,
-            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
-          );
-        } else {
-          const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
-          const drewTop = drawVideoRegion(
-            correctedEffectiveWebcamCrop,
-            { x: 0, y: 0, w: canvasWidth, h: topHeight },
-            "cover",
-            {
-              sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
-              sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
-              destBleedPx: 2,
-            },
-          );
-          const drewBottom = drawVideoRegion(
-            { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
-            { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
-            effectiveVerticalBottomFitMode,
-            { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
-          );
-          drewVideoFrame = drewTop || drewBottom;
-          if (drewTop && drewBottom) {
-            ctx.strokeStyle = "rgba(255,255,255,0.35)";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, topHeight + 0.5);
-            ctx.lineTo(canvasWidth, topHeight + 0.5);
-            ctx.stroke();
+        let drewTop = false;
+        let drewBottom = false;
+        let usedWebGpu = false;
+        const liveWebGpuRenderer = webGpuPreviewFailedRef.current ? null : webGpuPreviewRendererRef.current;
+        const canUseGpuThisFrame = Boolean(liveWebGpuRenderer && videoCanvas);
+
+        if (canUseGpuThisFrame && videoCanvas) {
+          if (videoCanvas.width !== canvasWidth) videoCanvas.width = canvasWidth;
+          if (videoCanvas.height !== canvasHeight) videoCanvas.height = canvasHeight;
+          liveWebGpuRenderer?.resize(canvasWidth, canvasHeight);
+          const videoSize = {
+            width: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+            height: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+          };
+          const draws: WebGpuVideoDraw[] = [];
+          if (singleLayout) {
+            const singleLayoutSource = renderedClipPreviewActive
+              ? {
+                  x: 0,
+                  y: 0,
+                  w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+                  h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+                }
+              : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
+            const singleDraw = computeVideoDraw(
+              singleLayoutSource,
+              { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+              singleLayoutFit,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            if (singleDraw) draws.push(singleDraw);
+          } else {
+            const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
+            const topDraw = correctedEffectiveWebcamCrop
+              ? computeVideoDraw(
+                correctedEffectiveWebcamCrop,
+                { x: 0, y: 0, w: canvasWidth, h: topHeight },
+                "cover",
+                {
+                  sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
+                  sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
+                  destBleedPx: 2,
+                },
+              )
+              : null;
+            if (topDraw) {
+              draws.push(topDraw);
+              drewTop = true;
+            }
+            const bottomDraw = computeVideoDraw(
+              { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
+              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              effectiveVerticalBottomFitMode,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            if (bottomDraw) {
+              draws.push(bottomDraw);
+              drewBottom = true;
+            }
+          }
+          if (draws.length > 0) {
+            try {
+              usedWebGpu = Boolean(liveWebGpuRenderer?.draw(video, draws, videoSize));
+            } catch {
+              usedWebGpu = false;
+              webGpuPreviewFailedRef.current = true;
+            }
+          }
+          drewVideoFrame = usedWebGpu;
+        }
+
+        if (!drewVideoFrame) {
+          let canDrawFrame = false;
+          try {
+            ctx.drawImage(video, 0, 0, 1, 1, 0, 0, 1, 1);
+            canDrawFrame = true;
+          } catch {
+            canDrawFrame = false;
+          }
+          if (!canDrawFrame) {
+            verticalCaptionHitboxRef.current = null;
+            registerDrawFailure();
+            return;
+          }
+          ctx.fillStyle = "#040404";
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          if (singleLayout) {
+            const singleLayoutSource = renderedClipPreviewActive
+              ? {
+                  x: 0,
+                  y: 0,
+                  w: Math.max(1, video.videoWidth || resolvedSourceMeta.width),
+                  h: Math.max(1, video.videoHeight || resolvedSourceMeta.height),
+                }
+              : { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height };
+            drewVideoFrame = drawVideoRegion(
+              singleLayoutSource,
+              { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+              singleLayoutFit,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+          } else {
+            const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
+            drewTop = drawVideoRegion(
+              correctedEffectiveWebcamCrop,
+              { x: 0, y: 0, w: canvasWidth, h: topHeight },
+              "cover",
+              {
+                sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
+                sourceInsetYRatio: useTightWebcamInset ? 0.01 : 0,
+                destBleedPx: 2,
+              },
+            );
+            drewBottom = drawVideoRegion(
+              { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
+              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              effectiveVerticalBottomFitMode,
+              { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
+            );
+            drewVideoFrame = drewTop || drewBottom;
           }
         }
+
+        webGpuPreviewActiveRef.current = usedWebGpu;
         if (!drewVideoFrame) {
           verticalCaptionHitboxRef.current = null;
           registerDrawFailure();
           return;
         }
         clearDrawFailure();
+
+        if (!singleLayout && drewTop && drewBottom) {
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, topHeight + 0.5);
+          ctx.lineTo(canvasWidth, topHeight + 0.5);
+          ctx.stroke();
+        }
 
         if (autoCaptionsEnabled && (editableSourcePreviewActive || renderedClipPreviewActive)) {
           const now = performance.now();
@@ -9073,6 +9222,18 @@ const Editor = () => {
           ctx.restore();
         } else {
           verticalCaptionHitboxRef.current = null;
+        }
+
+        const captureTarget = verticalPreviewCaptureCanvasRef.current;
+        if (captureTarget) {
+          const { canvas: captureCanvas, ctx: captureCtx } = captureTarget;
+          if (captureCanvas.width !== canvasWidth) captureCanvas.width = canvasWidth;
+          if (captureCanvas.height !== canvasHeight) captureCanvas.height = canvasHeight;
+          captureCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+          if (webGpuPreviewActiveRef.current && videoCanvas) {
+            captureCtx.drawImage(videoCanvas, 0, 0, canvasWidth, canvasHeight);
+          }
+          captureCtx.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
         }
       } catch {
         verticalCaptionHitboxRef.current = null;
@@ -14987,8 +15148,8 @@ const Editor = () => {
       }
     };
 
-    const canvas = verticalCompositionCanvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) {
+    const overlayCanvas = verticalCompositionCanvasRef.current;
+    if (!overlayCanvas || !overlayCanvas.width || !overlayCanvas.height) {
       await downloadSourcePreview("Caption overlay isn't ready yet. Downloaded the preview video instead.");
       return;
     }
@@ -14997,12 +15158,36 @@ const Editor = () => {
       return;
     }
 
-    if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+    const captureCanvas = document.createElement("canvas");
+    const captureCtx = captureCanvas.getContext("2d");
+    if (!captureCtx) {
+      await downloadSourcePreview("Animated capture is unavailable here. Downloaded the preview video instead.");
+      return;
+    }
+    const composeFrame = () => {
+      const width = overlayCanvas.width;
+      const height = overlayCanvas.height;
+      if (!width || !height) return false;
+      if (captureCanvas.width !== width) captureCanvas.width = width;
+      if (captureCanvas.height !== height) captureCanvas.height = height;
+      captureCtx.clearRect(0, 0, width, height);
+      if (webGpuPreviewActiveRef.current) {
+        const videoCanvas = verticalCompositionVideoCanvasRef.current;
+        if (videoCanvas) {
+          captureCtx.drawImage(videoCanvas, 0, 0, width, height);
+        }
+      }
+      captureCtx.drawImage(overlayCanvas, 0, 0, width, height);
+      return true;
+    };
+
+    if (typeof MediaRecorder === "undefined" || typeof captureCanvas.captureStream !== "function") {
       setCaptionPreviewDownloading(true);
       try {
+        if (!composeFrame()) throw new Error("preview_capture_unavailable");
         const blob = await new Promise<Blob | null>((resolve) => {
-          if (typeof canvas.toBlob === "function") {
-            canvas.toBlob(resolve, "image/png");
+          if (typeof captureCanvas.toBlob === "function") {
+            captureCanvas.toBlob(resolve, "image/png");
           } else {
             resolve(null);
           }
@@ -15035,8 +15220,11 @@ const Editor = () => {
 
     setCaptionPreviewDownloading(true);
     try {
+      verticalPreviewCaptureCanvasRef.current = { canvas: captureCanvas, ctx: captureCtx };
+      if (!composeFrame()) throw new Error("preview_capture_unavailable");
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
       const fps = performanceConstrained ? 24 : 30;
-      const stream = canvas.captureStream(fps);
+      const stream = captureCanvas.captureStream(fps);
       const video = verticalCompositionVideoRef.current;
       try {
         const audioStream = video?.captureStream?.();
@@ -15095,6 +15283,7 @@ const Editor = () => {
         { skipLoading: true },
       );
     } finally {
+      verticalPreviewCaptureCanvasRef.current = null;
       setCaptionPreviewDownloading(false);
     }
   }, [
@@ -22501,25 +22690,31 @@ const Editor = () => {
                         <div className="self-start overflow-hidden rounded-xl border border-border/60 bg-black/45 p-2">
                           <div className="mx-auto w-[min(190px,100%)] sm:w-[min(220px,100%)]">
                             <div className="relative aspect-[9/16] overflow-hidden rounded-lg border border-border/50 bg-black/75">
-                              {captionPreviewSourceUrl ? (
-                                captionPreviewDrawFallback ? (
-                                  <video
-                                    src={captionPreviewSourceUrl}
-                                    preload="metadata"
-                                    muted
+                                {captionPreviewSourceUrl ? (
+                                  captionPreviewDrawFallback ? (
+                                    <video
+                                      src={captionPreviewSourceUrl}
+                                      preload="metadata"
+                                      muted
                                     playsInline
                                     autoPlay
-                                    loop
-                                    className="h-full w-full bg-black/75 object-cover"
-                                  />
+                                      loop
+                                      className="h-full w-full bg-black/75 object-cover"
+                                    />
+                                  ) : (
+                                  <>
+                                    <canvas
+                                      ref={verticalCompositionVideoCanvasRef}
+                                      className="absolute inset-0 h-full w-full pointer-events-none"
+                                    />
+                                    <canvas
+                                      ref={verticalCompositionCanvasRef}
+                                      onPointerDown={beginVerticalCaptionDrag}
+                                      className="absolute inset-0 h-full w-full touch-none"
+                                    />
+                                  </>
+                                  )
                                 ) : (
-                                  <canvas
-                                    ref={verticalCompositionCanvasRef}
-                                    onPointerDown={beginVerticalCaptionDrag}
-                                    className="h-full w-full touch-none bg-black/75"
-                                  />
-                                )
-                              ) : (
                                 <div className="flex h-full items-center justify-center border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
                                   {selectedCaptionClipIndex >= 0
                                     ? `Clip #${selectedCaptionClipIndex + 1} preview is still loading.`
