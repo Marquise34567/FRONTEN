@@ -11624,79 +11624,6 @@ const Editor = () => {
     return `${baseName}.${extension}`;
   }, [activeJob, activeOutputUrls, autoDownloadTitleBase]);
 
-  const bestVerticalClipIndex = useMemo(() => {
-    if (!verticalClipPredictions.length) return 0;
-    const best = verticalClipPredictions.reduce((leader, item) =>
-      item.predictedCompletion > leader.predictedCompletion ? item : leader,
-    );
-    const index = Math.round(best.clip) - 1;
-    return clamp(index, 0, Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1));
-  }, [verticalClipPredictions]);
-
-  useEffect(() => {
-    if (!autoDownloadEnabled) return;
-    if (!activeJob || normalizeStatus(activeJob.status) !== "ready") return;
-    const jobId = activeJob.id;
-    const isVerticalJob = activeJob.renderMode === "vertical";
-
-    if (autoDownloadLongFormOnly && isVerticalJob) return;
-
-    if (isVerticalJob) {
-      if (autoDownloadBatchRef.current.has(jobId)) return;
-      autoDownloadBatchRef.current.add(jobId);
-      const totalClips = VERTICAL_VARIANT_TOTAL_CLIPS;
-      const clipIndexes = autoDownloadVerticalMode === "top"
-        ? [bestVerticalClipIndex]
-        : Array.from({ length: totalClips }, (_, idx) => idx);
-      clipIndexes.forEach((clipIndex, orderIndex) => {
-        const key = `${jobId}:${clipIndex}`;
-        if (autoDownloadTriggeredRef.current[key]) return;
-        autoDownloadTriggeredRef.current[key] = true;
-        const delay = orderIndex * AUTO_DOWNLOAD_CLIP_DELAY_MS;
-        if (typeof window === "undefined") return;
-        window.setTimeout(() => {
-          void handleDownload(clipIndex, {
-            fileNameOverride: autoDownloadFileName(clipIndex),
-            notifyOnCompletion: orderIndex === clipIndexes.length - 1,
-            notifyTitle: autoDownloadTitleBase,
-          });
-        }, delay);
-      });
-      return;
-    }
-
-    const clipIndex = 0;
-    const key = `${jobId}:${clipIndex}`;
-    if (autoDownloadTriggeredRef.current[key]) return;
-    autoDownloadTriggeredRef.current[key] = true;
-    const fileName = autoDownloadFileName(clipIndex);
-    void handleDownload(clipIndex, {
-      fileNameOverride: fileName,
-      notifyOnCompletion: true,
-      notifyTitle: autoDownloadTitleBase,
-    });
-  }, [
-    activeJob,
-    autoDownloadEnabled,
-    autoDownloadFileName,
-    autoDownloadLongFormOnly,
-    autoDownloadTitleBase,
-    autoDownloadVerticalMode,
-    bestVerticalClipIndex,
-    handleDownload,
-  ]);
-
-  useEffect(() => {
-    if (!activeJob) return;
-    if (normalizeStatus(activeJob.status) === "ready") return;
-    const prefix = `${activeJob.id}:`;
-    for (const key of Object.keys(autoDownloadTriggeredRef.current)) {
-      if (key.startsWith(prefix)) {
-        delete autoDownloadTriggeredRef.current[key];
-      }
-    }
-    autoDownloadBatchRef.current.delete(activeJob.id);
-  }, [activeJob?.id, activeJob?.status]);
   const fullAutoEditorAddedSummary = (() => {
     if (!fullAutoEnabledForActiveJob) return null;
     const labels: string[] = [];
@@ -11831,6 +11758,79 @@ const Editor = () => {
       ).toFixed(2),
     );
   })();
+  const bestVerticalClipIndex = useMemo(() => {
+    if (!verticalClipPredictions.length) return 0;
+    const best = verticalClipPredictions.reduce((leader, item) =>
+      item.predictedCompletion > leader.predictedCompletion ? item : leader,
+    );
+    const index = Math.round(best.clip) - 1;
+    return clamp(index, 0, Math.max(0, VERTICAL_VARIANT_TOTAL_CLIPS - 1));
+  }, [verticalClipPredictions]);
+
+  useEffect(() => {
+    if (!autoDownloadEnabled) return;
+    if (!activeJob || normalizeStatus(activeJob.status) !== "ready") return;
+    const jobId = activeJob.id;
+    const isVerticalJob = activeJob.renderMode === "vertical";
+
+    if (autoDownloadLongFormOnly && isVerticalJob) return;
+
+    if (isVerticalJob) {
+      if (autoDownloadBatchRef.current.has(jobId)) return;
+      autoDownloadBatchRef.current.add(jobId);
+      const totalClips = VERTICAL_VARIANT_TOTAL_CLIPS;
+      const clipIndexes = autoDownloadVerticalMode === "top"
+        ? [bestVerticalClipIndex]
+        : Array.from({ length: totalClips }, (_, idx) => idx);
+      clipIndexes.forEach((clipIndex, orderIndex) => {
+        const key = `${jobId}:${clipIndex}`;
+        if (autoDownloadTriggeredRef.current[key]) return;
+        autoDownloadTriggeredRef.current[key] = true;
+        const delay = orderIndex * AUTO_DOWNLOAD_CLIP_DELAY_MS;
+        if (typeof window === "undefined") return;
+        window.setTimeout(() => {
+          void handleDownload(clipIndex, {
+            fileNameOverride: autoDownloadFileName(clipIndex),
+            notifyOnCompletion: orderIndex === clipIndexes.length - 1,
+            notifyTitle: autoDownloadTitleBase,
+          });
+        }, delay);
+      });
+      return;
+    }
+
+    const clipIndex = 0;
+    const key = `${jobId}:${clipIndex}`;
+    if (autoDownloadTriggeredRef.current[key]) return;
+    autoDownloadTriggeredRef.current[key] = true;
+    const fileName = autoDownloadFileName(clipIndex);
+    void handleDownload(clipIndex, {
+      fileNameOverride: fileName,
+      notifyOnCompletion: true,
+      notifyTitle: autoDownloadTitleBase,
+    });
+  }, [
+    activeJob,
+    autoDownloadEnabled,
+    autoDownloadFileName,
+    autoDownloadLongFormOnly,
+    autoDownloadTitleBase,
+    autoDownloadVerticalMode,
+    bestVerticalClipIndex,
+    handleDownload,
+  ]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (normalizeStatus(activeJob.status) === "ready") return;
+    const prefix = `${activeJob.id}:`;
+    for (const key of Object.keys(autoDownloadTriggeredRef.current)) {
+      if (key.startsWith(prefix)) {
+        delete autoDownloadTriggeredRef.current[key];
+      }
+    }
+    autoDownloadBatchRef.current.delete(activeJob.id);
+  }, [activeJob?.id, activeJob?.status]);
   const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
     activeAnalysis?.hook_selection_mode ??
     activeAnalysis?.hookSelectionMode ??
