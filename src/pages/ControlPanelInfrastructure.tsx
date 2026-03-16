@@ -55,6 +55,48 @@ const ControlPanelInfrastructure = () => {
   const priorityRows = queueRuntime?.priorityDistribution || []
   const priorityMax = priorityRows.reduce((max, row) => Math.max(max, row.count), 1)
   const health = healthQuery.data
+  const gpuWorker = renderInfra?.gpuWorker
+  const gpuStatus = gpuWorker?.status ?? "disabled"
+  const gpuStatusLabel = gpuStatus === "enabled" ? "enabled" : gpuStatus === "partial" ? "needs config" : "disabled"
+  const gpuStatusTone =
+    gpuStatus === "enabled"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+      : gpuStatus === "partial"
+      ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+      : "border-border/50 bg-card/35 text-muted-foreground"
+  const gpuMode = gpuWorker?.transferMode === "urls" ? "urls" : "shared"
+  const gpuModeLabel = gpuMode === "urls" ? "signed URLs" : "shared dir"
+  const gpuIssueLabels: Record<string, string> = {
+    missing_url: "GPU_WORKER_URL not set",
+    missing_shared_dir: "GPU_WORKER_SHARED_DIR not set"
+  }
+  const gpuIssueText = (gpuWorker?.issues || [])
+    .map((issue) => gpuIssueLabels[issue] || issue)
+    .join(" • ")
+  const gpuConfigItems = gpuWorker
+    ? [
+        { label: "Worker URL", value: gpuWorker.url || "not set" },
+        { label: "Transfer Mode", value: gpuModeLabel },
+        {
+          label: gpuMode === "urls" ? "URL Temp Dir" : "Shared Dir",
+          value: gpuMode === "urls" ? gpuWorker.urlTmpDir || "not set" : gpuWorker.sharedDir || "not set"
+        },
+        gpuMode === "urls"
+          ? { label: "URL Expires", value: `${gpuWorker.urlExpiresSec}s` }
+          : { label: "Remote Shared Dir", value: gpuWorker.sharedDirRemote || "not set" }
+      ]
+    : []
+  const gpuTuningItems = gpuWorker
+    ? [
+        { label: "Utilization", value: `${(renderInfra?.gpuUtilizationPct || 0).toFixed(1)}%` },
+        { label: "Parallel Segments", value: String(gpuWorker.parallelSegments) },
+        { label: "Timeout", value: `${Math.round(gpuWorker.timeoutMs / 1000)}s` },
+        { label: "Poll Interval", value: `${gpuWorker.pollIntervalMs}ms` },
+        { label: "Fallback", value: gpuWorker.fallbackEnabled ? "enabled" : "disabled" },
+        { label: "Force", value: gpuWorker.forceEnabled ? "enabled" : "disabled" },
+        { label: "Keep Shared", value: gpuWorker.keepShared ? "enabled" : "disabled" }
+      ]
+    : []
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_120%_at_80%_-10%,hsl(36_100%_55%/0.13),transparent_42%),radial-gradient(120%_120%_at_16%_14%,hsl(201_95%_58%/0.14),transparent_46%),linear-gradient(180deg,hsl(210_30%_9%)_0%,hsl(223_34%_5%)_100%)]">
@@ -139,6 +181,49 @@ const ControlPanelInfrastructure = () => {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-semibold">{formatMoney(renderInfra?.costPerRenderEstimateUsd || costControl?.costPerRenderUsd || 0)}</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-4">
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Cpu className="h-4 w-4 text-emerald-200" />
+                GPU Offload
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs">
+              {!gpuWorker ? (
+                <EmptyStateNote text="GPU worker telemetry is not available yet." />
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-2">
+                    <p className={`rounded-md border p-2 ${gpuStatusTone}`}>GPU worker: {gpuStatusLabel}</p>
+                    {gpuIssueText ? (
+                      <p className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-[11px] text-amber-100">
+                        {gpuIssueText}
+                      </p>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-2">
+                      {gpuConfigItems.map((item) => (
+                        <div key={`gpu-config-${item.label}`} className="rounded-md border border-border/50 bg-card/40 p-2">
+                          <p className="text-muted-foreground">{item.label}</p>
+                          <p className="text-[12px] font-semibold text-foreground">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {gpuTuningItems.map((item) => (
+                      <div key={`gpu-tune-${item.label}`} className="rounded-md border border-border/50 bg-card/40 p-2">
+                        <p className="text-muted-foreground">{item.label}</p>
+                        <p className="text-[12px] font-semibold text-foreground">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </section>
