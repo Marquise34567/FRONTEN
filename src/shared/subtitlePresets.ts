@@ -35,10 +35,10 @@ export const MRBEAST_ANIMATION_OPTIONS: Array<{ id: SubtitleAnimationId; label: 
 const STYLE_CONFIG_DELIMITER = "::";
 const DEFAULT_STYLE: Omit<SubtitleStyleConfig, "preset"> = {
   fontId: "impact",
-  textColor: "FFFFFF",
-  accentColor: "00E5FF",
-  outlineColor: "111111",
-  outlineWidth: 6,
+  textColor: "222222", // dark gray text
+  accentColor: "FFFFFF", // lighter background
+  outlineColor: "FFFFFF", // lighter outline
+  outlineWidth: 2, // thinner outline
   animation: "pop",
 };
 

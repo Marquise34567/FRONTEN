@@ -4573,6 +4573,15 @@ const Editor = () => {
   const modeParam = searchParams.get("mode");
   const isVerticalMode = modeParam === "vertical" || SHORTS_AUTO_VERTICAL_ONLY;
   const verticalExtrasModeEnabled = searchParams.get("verticalExtras") === "1";
+  const defaultRetentionTargetPlatform: RetentionTargetPlatform = isVerticalMode ? "tiktok" : "youtube";
+  const defaultPlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[defaultRetentionTargetPlatform];
+  const defaultRetentionStrategyProfile: RetentionStrategyProfile =
+    defaultPlatformRecommendation?.profile ?? "balanced";
+  const defaultMaxCutsRequested = clamp(
+    defaultPlatformRecommendation?.suggestedCuts ?? DEFAULT_MAX_CUTS,
+    MAX_CUTS_MIN,
+    MAX_CUTS_MAX,
+  );
   const [verticalClipCount, setVerticalClipCount] = useState(VERTICAL_VARIANT_TOTAL_CLIPS);
   const [verticalClipDurationSeconds, setVerticalClipDurationSeconds] = useState<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const [verticalSelectionMode, setVerticalSelectionMode] = useState<VerticalSelectionMode>("best_moments");
@@ -4669,7 +4678,7 @@ const Editor = () => {
     DEFAULT_VERTICAL_UPLOAD_MODE_PRESET.zoomIntensity,
   );
   const [skipManualWebcamCrop, setSkipManualWebcamCrop] = useState(false);
-  const [maxCutsRequested, setMaxCutsRequested] = useState(DEFAULT_MAX_CUTS);
+  const [maxCutsRequested, setMaxCutsRequested] = useState(defaultMaxCutsRequested);
   const [curseFilterLevel, setCurseFilterLevel] = useState<CurseFilterLevel>("low");
   const [curseFilterEnabled, setCurseFilterEnabled] = useState(false);
   const [curseFilterPopoverOpen, setCurseFilterPopoverOpen] = useState(false);
@@ -4679,8 +4688,8 @@ const Editor = () => {
   const [creativeVariant, setCreativeVariant] = useState<CreativeVariant>("balanced");
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(true);
-  const [exploreX3Enabled, setExploreX3Enabled] = useState(false);
-  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
+  const [exploreX3Enabled, setExploreX3Enabled] = useState(true);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
   const [fullAutoYoutubeTarget, setFullAutoYoutubeTarget] = useState<FullAutoYoutubeTarget>(
@@ -4722,9 +4731,11 @@ const Editor = () => {
   const [verticalCaptionDragState, setVerticalCaptionDragState] = useState<VerticalCaptionDragState | null>(null);
   const [captionPreviewDrawFallback, setCaptionPreviewDrawFallback] = useState(false);
   const [captionPreviewDownloading, setCaptionPreviewDownloading] = useState(false);
-  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>("balanced");
+  const [retentionStrategyProfile, setRetentionStrategyProfile] = useState<RetentionStrategyProfile>(
+    defaultRetentionStrategyProfile,
+  );
   const [retentionTargetPlatform, setRetentionTargetPlatform] = useState<RetentionTargetPlatform>(
-    isVerticalMode ? "tiktok" : "youtube",
+    defaultRetentionTargetPlatform,
   );
   const [subtitleStyleDraft, setSubtitleStyleDraft] = useState<string>("basic_clean");
   const [subtitleStyleDirty, setSubtitleStyleDirty] = useState(false);
@@ -7154,7 +7165,23 @@ const Editor = () => {
     const resolvedContinuityFirstMode = typeof renderOptions?.uploadModeOverride?.continuityFirstMode === "boolean"
       ? renderOptions.uploadModeOverride.continuityFirstMode
       : continuityFirstEnabled;
-    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = retentionStrategyProfile;
+    const qualityBoostEnabled = resolvedPipelinePowerMode === "retention_king";
+    const platformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
+    const boostedRetentionStrategyProfile: RetentionStrategyProfile =
+      qualityBoostEnabled && platformRecommendation
+        ? platformRecommendation.profile
+        : retentionStrategyProfile;
+    const boostedMaxCutsRequested =
+      qualityBoostEnabled && platformRecommendation
+        ? Math.max(
+            maxCutsRequested,
+            clamp(platformRecommendation.suggestedCuts, MAX_CUTS_MIN, MAX_CUTS_MAX),
+          )
+        : maxCutsRequested;
+    const boostedContinuityFirstMode = qualityBoostEnabled ? true : resolvedContinuityFirstMode;
+    const boostedExploreX3Mode = qualityBoostEnabled ? true : exploreX3Enabled;
+    const boostedTopHumanGuardMode = qualityBoostEnabled ? true : topHumanGuardEnabled;
+    const effectiveRetentionStrategyProfile: RetentionStrategyProfile = boostedRetentionStrategyProfile;
     const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
       strategyProfile: effectiveRetentionStrategyProfile,
       longFormPreset,
@@ -7165,7 +7192,7 @@ const Editor = () => {
       pipelinePowerMode: pipelinePowerModeForRequest,
       strategyProfile: effectiveRetentionStrategyProfile,
       aggressionLevel: effectiveRetentionAggressionLevel,
-      maxCuts: maxCutsRequested,
+      maxCuts: boostedMaxCutsRequested,
       longFormPreset,
       longFormAggression,
       longFormClarityVsSpeed,
@@ -7174,9 +7201,9 @@ const Editor = () => {
     const creatorStyleLockForJob = clampCreatorStyleLockPercent(creatorStyleLockPercent);
     const adaptiveLearningPayload = {
       coldStartAutopilot: coldStartAutopilotEnabled,
-      continuityFirstMode: resolvedContinuityFirstMode,
-      exploreX3Mode: exploreX3Enabled,
-      topHumanGuardMode: topHumanGuardEnabled,
+      continuityFirstMode: boostedContinuityFirstMode,
+      exploreX3Mode: boostedExploreX3Mode,
+      topHumanGuardMode: boostedTopHumanGuardMode,
       creatorStyleLock: creatorStyleLockForJob,
     };
     const subtitleStyleForJob = normalizeSubtitleStyleFromSettings(subtitleStyleDraft);
