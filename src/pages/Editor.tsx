@@ -13846,15 +13846,24 @@ const Editor = () => {
     100,
   );
   const previewImprovementTips = useMemo<PreviewImprovementTip[]>(() => {
-    if (!activeJob || !activeJobReadyForDownload) return [];
+    if (!activeJob) return [];
     const tips: PreviewImprovementTip[] = [];
     const topSkipSegment = skipRiskRetentionSegments[0] ?? weakRetentionSegments[0] ?? null;
+    const renderModeLabel = activeJob.renderMode === "vertical" ? "short-form" : "long-form";
+    const platformLabel = retentionTargetPlatform === "instagram_reels"
+      ? "IG Reels"
+      : retentionTargetPlatform === "tiktok"
+        ? "TikTok"
+        : retentionTargetPlatform === "youtube"
+          ? "YouTube"
+          : "auto";
+    const momentumScore = Math.min(timelineMomentumScore, previewStoryMapMomentumScore);
 
     if (retentionGoalGap !== null && retentionGoalGap >= 1.2) {
       tips.push({
         id: "raise-retention-goal",
         title: `Recover ${retentionGoalGap.toFixed(1)} retention points`,
-        detail: "Tighten weak sections and improve the opening promise to close the current goal gap.",
+        detail: `Tighten weak sections and sharpen the opener to close the ${retentionGoalGap.toFixed(1)}pt gap.`,
         tone: "boost",
         icon: "target",
         action: "raise_retention_goal",
@@ -13887,7 +13896,7 @@ const Editor = () => {
       tips.push({
         id: "momentum-pace",
         title: "Increase pacing contrast",
-        detail: "Add tighter cuts before payoff and use faster setup-to-reveal transitions.",
+        detail: `Momentum ${Number.isFinite(momentumScore) ? Math.round(momentumScore) : "signal"} needs a lift. Add tighter cuts before payoff.`,
         tone: "fix",
         icon: "pace",
         action: "increase_pacing",
@@ -13897,7 +13906,7 @@ const Editor = () => {
       tips.push({
         id: "filler-pass",
         title: "Run a stronger filler pass",
-        detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Removing more dead-air should help completion.`,
+        detail: `Current filler removal is ${Math.round(removedFillerPercent)}%. Push higher for ${renderModeLabel} completion.`,
         tone: "warning",
         icon: "trim",
         action: "stronger_filler_pass",
@@ -13907,7 +13916,7 @@ const Editor = () => {
       tips.push({
         id: "steady-upgrade",
         title: "Push for stronger replay moments",
-        detail: "Add one stronger visual payoff beat and tighten micro-pauses to improve hold rate.",
+        detail: `Add one stronger visual payoff beat to lift ${platformLabel} rewatch potential.`,
         tone: "boost",
         icon: "pace",
         action: "steady_upgrade",
@@ -13915,7 +13924,7 @@ const Editor = () => {
       tips.push({
         id: "hook-polish-default",
         title: "Polish the opener text punch",
-        detail: "Try a clearer first-line promise in the first 2-3 seconds to raise scroll-stop strength.",
+        detail: `Use a clearer 2-3s promise for ${renderModeLabel} scroll-stop strength.`,
         tone: "fix",
         icon: "hook",
         action: "hook_polish",
@@ -13923,10 +13932,10 @@ const Editor = () => {
     }
     return tips.slice(0, 6);
   }, [
-    activeJobReadyForDownload,
     activeJob,
     autoCutBoringEnabled,
     hookConfidenceScore,
+    retentionTargetPlatform,
     previewStoryMapMomentumScore,
     removedFillerPercent,
     retentionGoalGap,
@@ -15331,7 +15340,7 @@ const Editor = () => {
   const sidePreviewImprovementTip = previewImprovementTips.length > 1
     ? previewImprovementTips[(previewImprovementTipIndex + 1) % previewImprovementTips.length]
     : null;
-  const shouldShowPreviewImprovementPopups = Boolean(showVideo && activePreviewImprovementTip);
+  const shouldShowPreviewImprovementPopups = Boolean(activePreviewImprovementTip);
   const activePreviewTipAppliedIds = activeJob?.id
     ? (previewTipAppliedIdsByJob[activeJob.id] || [])
     : [];
@@ -15354,6 +15363,9 @@ const Editor = () => {
   const canApplyLiveSettingsInCurrentStage = Boolean(
     activeJob && LIVE_SETTINGS_MUTABLE_STATUSES.has(normalizeStatus(activeJob.status)),
   );
+  const previewTipApplyLabel = canApplyLiveSettingsInCurrentStage
+    ? "Click to apply live"
+    : "Apply for next pass";
   const handleApplyPreviewImprovementTip = useCallback(async (tip: PreviewImprovementTip) => {
     if (!activeJob?.id) return;
     const jobId = activeJob.id;
@@ -15381,12 +15393,14 @@ const Editor = () => {
       setAModeEnabled(true);
       setBingeModeEnabled(true);
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       setAutoTransitionsEnabled(true);
       setRetentionStrategyProfile("viral");
       applyMaxCutsDelta(3);
       patchPayload.onlyCuts = false;
       patchPayload.transitions = true;
       patchPayload.retentionStrategyProfile = "viral";
+      patchPayload.tangentKiller = true;
     } else if (tip.action === "tighten_hook") {
       actionHandled = true;
       menuTouchedRef.current.strategy = true;
@@ -15403,8 +15417,10 @@ const Editor = () => {
     } else if (tip.action === "skip_segment") {
       actionHandled = true;
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       applyMaxCutsDelta(1);
       patchPayload.onlyCuts = false;
+      patchPayload.tangentKiller = true;
       if (
         typeof tip.segmentId === "string" &&
         Number.isFinite(tip.segmentStartSec) &&
@@ -15437,8 +15453,10 @@ const Editor = () => {
     } else if (tip.action === "stronger_filler_pass") {
       actionHandled = true;
       setAutoCutBoringEnabled(true);
+      setTangentKiller(true);
       applyMaxCutsDelta(2);
       patchPayload.onlyCuts = false;
+      patchPayload.tangentKiller = true;
       setPreviewTipPlaybackRateByJob((prev) => ({
         ...prev,
         [jobId]: Math.max(1.03, prev[jobId] || 1),
@@ -15475,8 +15493,9 @@ const Editor = () => {
       setPreviewImprovementTipIndex((current) => (current + 1) % previewImprovementTips.length);
     }
 
-    let toastDescription = `${tip.title} applied to live preview controls.`;
-    if (canApplyLiveSettingsInCurrentStage && accessToken && Object.keys(patchPayload).length > 0) {
+    const hasPatchPayload = Object.keys(patchPayload).length > 0;
+    let toastDescription = "Applied to preview controls.";
+    if (canApplyLiveSettingsInCurrentStage && accessToken && hasPatchPayload) {
       try {
         await apiFetch(`/api/jobs/${jobId}/live-settings`, {
           method: "PATCH",
@@ -15491,8 +15510,10 @@ const Editor = () => {
           toastDescription = `${tip.title} applied to preview controls. Live sync failed, but you can still download the current preview output.`;
         }
       }
-    } else if (Object.keys(patchPayload).length > 0) {
-      toastDescription = "Applied to preview controls. Download uses the current preview output as shown.";
+    } else if (hasPatchPayload) {
+      toastDescription = canApplyLiveSettingsInCurrentStage
+        ? "Applied to preview controls. Live sync needs an active session."
+        : "Render has already locked, so this tip applies to preview controls and the next pass.";
     }
     setPreviewTipAppliedIdsByJob((prev) => {
       const existing = prev[jobId] || [];
@@ -20161,7 +20182,7 @@ const Editor = () => {
                                     <p className="text-[11px] font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                     <p className="mt-1 text-[10px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                     <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                      {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply live"}
+                                      {activePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                     </p>
                                   </div>
                                 </div>
@@ -20355,7 +20376,7 @@ const Editor = () => {
                   ) : null}
                 </div>
                 <AnimatePresence>
-                  {showVideo && activePreviewImprovementTip ? (
+                  {activePreviewImprovementTip ? (
                     <motion.aside
                       key={`preview-side-primary-${activePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
                       initial={{ opacity: 0, x: -18, scale: 0.98 }}
@@ -20388,7 +20409,7 @@ const Editor = () => {
                                 <p className="text-xs font-semibold leading-snug text-foreground">{activePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{activePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                  {activePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                  {activePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                 </p>
                               </div>
                             </div>
@@ -20399,7 +20420,7 @@ const Editor = () => {
                   ) : null}
                 </AnimatePresence>
                 <AnimatePresence>
-                  {showVideo && sidePreviewImprovementTip ? (
+                  {sidePreviewImprovementTip ? (
                     <motion.aside
                       key={`preview-side-secondary-${sidePreviewImprovementTip.id}-${previewImprovementTipIndex}`}
                       initial={{ opacity: 0, x: 18, scale: 0.98 }}
@@ -20432,7 +20453,7 @@ const Editor = () => {
                                 <p className="text-xs font-semibold leading-snug text-foreground">{sidePreviewImprovementTip.title}</p>
                                 <p className="mt-1 text-[11px] leading-snug text-foreground/80">{sidePreviewTipDetailCompact}</p>
                                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/70">
-                                  {sidePreviewTipAlreadyApplied ? "Applied" : "Click to apply"}
+                                  {sidePreviewTipAlreadyApplied ? "Applied" : previewTipApplyLabel}
                                 </p>
                               </div>
                             </div>

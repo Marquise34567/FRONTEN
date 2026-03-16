@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, BarChart3, BrainCircuit, Gauge, ScanFace, Sparkles, Target, Wand2 } from "lucide-react";
@@ -7,6 +7,8 @@ import Navbar from "@/components/Navbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/providers/AuthProvider";
 
 const timelineSeries = [
   { stamp: "0:00", energy: 84, emotion: 69, retention: 91 },
@@ -67,9 +69,72 @@ const readCountParam = (params: URLSearchParams, key: string, fallback: number) 
   if (!Number.isFinite(raw)) return Math.max(0, Math.round(fallback));
   return Math.max(0, Math.round(raw));
 };
+const readNumberFrom = (source: Record<string, any> | null | undefined, keys: string[]) => {
+  if (!source) return null;
+  for (const key of keys) {
+    const raw = Number(source[key]);
+    if (Number.isFinite(raw)) return raw;
+  }
+  return null;
+};
+const readStringFrom = (source: Record<string, any> | null | undefined, keys: string[]) => {
+  if (!source) return "";
+  for (const key of keys) {
+    const raw = source[key];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return "";
+};
+const normalizeTextList = (values: unknown[]) => {
+  const list = values
+    .map((value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : ""))
+    .filter((value) => value.length > 0);
+  return Array.from(new Set(list)).slice(0, 8);
+};
+const extractTextList = (source: Record<string, any> | null | undefined, keys: string[]) => {
+  if (!source) return [] as string[];
+  const collected: unknown[] = [];
+  for (const key of keys) {
+    const value = source[key];
+    if (Array.isArray(value)) collected.push(...value);
+    else if (typeof value === "string") collected.push(value);
+  }
+  return normalizeTextList(collected);
+};
+const formatOptionalDateTime = (value: unknown) => {
+  if (!value) return "";
+  const date = new Date(value as any);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+const clampScore = (value: number | null) => {
+  if (value === null) return null;
+  if (!Number.isFinite(value)) return null;
+  const scaled = Math.abs(value) <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
+};
+const parseBooleanLike = (value: unknown) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes"].includes(normalized)) return true;
+    if (["0", "false", "no"].includes(normalized)) return false;
+  }
+  return null;
+};
 
 const EditorAMode = () => {
   const [searchParams] = useSearchParams();
+  const { accessToken } = useAuth();
+  const [jobDetail, setJobDetail] = useState<Record<string, any> | null>(null);
+  const [jobLoading, setJobLoading] = useState(false);
+  const [jobError, setJobError] = useState("");
   const avgRetention = useMemo(() => (
     Math.round(timelineSeries.reduce((sum, row) => sum + row.retention, 0) / timelineSeries.length)
   ), []);
@@ -91,6 +156,34 @@ const EditorAMode = () => {
     return `Full scan ${Math.round(fullVideoScanProgress)}% complete`;
   }, [searchParams, fullVideoScanProgress]);
   const activeJobId = useMemo(() => String(searchParams.get("jobId") || "").trim(), [searchParams]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!accessToken || !activeJobId) {
+      setJobDetail(null);
+      setJobLoading(false);
+      setJobError("");
+      return;
+    }
+    setJobLoading(true);
+    setJobError("");
+    apiFetch<{ job?: Record<string, any> }>(`/api/jobs/${activeJobId}`, { token: accessToken })
+      .then((data) => {
+        if (cancelled) return;
+        setJobDetail(data.job ?? null);
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setJobDetail(null);
+        setJobError(error?.message || "Unable to load job details.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setJobLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, activeJobId]);
   const backToEditorHref = useMemo(() => {
     if (!activeJobId) return "/editor";
     return `/editor?jobId=${encodeURIComponent(activeJobId)}`;
@@ -157,6 +250,136 @@ const EditorAMode = () => {
   ]), [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
   const energyPoints = useMemo(() => toPoints(timelineSeries, "energy"), []);
   const emotionPoints = useMemo(() => toPoints(timelineSeries, "emotion"), []);
+  const jobAnalysis = useMemo(() => {
+    const raw = jobDetail?.analysis;
+    if (!raw || typeof raw !== "object") return null;
+    return raw as Record<string, any>;
+  }, [jobDetail]);
+  const jobAutonomous = useMemo(() => {
+    if (jobDetail?.autonomousEditor && typeof jobDetail.autonomousEditor === "object") {
+      return jobDetail.autonomousEditor as Record<string, any>;
+    }
+    const nested = jobAnalysis?.autonomous_editor ?? jobAnalysis?.autonomousEditor;
+    if (!nested || typeof nested !== "object") return null;
+    return nested as Record<string, any>;
+  }, [jobAnalysis, jobDetail]);
+  const retentionScoreAfter = useMemo(
+    () => clampScore(
+      readNumberFrom(jobAnalysis, [
+        "retention_score_after",
+        "retentionScoreAfter",
+        "retentionScore",
+        "retention_score",
+      ]) ?? (jobDetail?.retentionScore ?? null),
+    ),
+    [jobAnalysis, jobDetail?.retentionScore],
+  );
+  const retentionScoreBefore = useMemo(
+    () => clampScore(readNumberFrom(jobAnalysis, ["retention_score_before", "retentionScoreBefore"])),
+    [jobAnalysis],
+  );
+  const retentionScoreDelta = useMemo(() => {
+    const raw = readNumberFrom(jobAnalysis, ["retention_score_delta", "retentionScoreDelta", "retentionDelta"]);
+    if (raw !== null && Number.isFinite(raw)) {
+      const scaled = Math.abs(raw) <= 1 ? raw * 100 : raw;
+      return Number(scaled.toFixed(1));
+    }
+    if (retentionScoreAfter !== null && retentionScoreBefore !== null) {
+      return Number((retentionScoreAfter - retentionScoreBefore).toFixed(1));
+    }
+    return null;
+  }, [jobAnalysis, retentionScoreAfter, retentionScoreBefore]);
+  const hookConfidence = useMemo(
+    () => clampScore(readNumberFrom(jobAnalysis, ["hook_audit_score", "hookAuditScore", "hook_score", "hookScore"])),
+    [jobAnalysis],
+  );
+  const retentionTargetPlatformLabel = useMemo(() => {
+    const raw = readStringFrom(jobAnalysis, [
+      "retentionTargetPlatform",
+      "retention_target_platform",
+      "retentionPlatform",
+      "targetPlatform",
+      "platform",
+    ])
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    if (!raw) return "Auto";
+    if (raw.includes("tiktok")) return "TikTok";
+    if (raw.includes("instagram")) return "IG Reels";
+    if (raw.includes("reels")) return "IG Reels";
+    if (raw.includes("youtube")) return "YouTube";
+    return raw.replace(/_/g, " ");
+  }, [jobAnalysis]);
+  const qualityGate = useMemo(() => {
+    const raw = jobAutonomous?.qualityGate ?? jobAnalysis?.qualityGate ?? jobAnalysis?.quality_gate;
+    if (!raw || typeof raw !== "object") return null;
+    return raw as Record<string, any>;
+  }, [jobAnalysis, jobAutonomous]);
+  const qualityGatePassed = parseBooleanLike(qualityGate?.passed);
+  const qualityGateScore = useMemo(() => {
+    const passedChecks = Number(qualityGate?.passedChecks ?? qualityGate?.passed_checks);
+    const totalChecks = Number(qualityGate?.totalChecks ?? qualityGate?.total_checks);
+    if (Number.isFinite(passedChecks) && Number.isFinite(totalChecks) && totalChecks > 0) {
+      return `${Math.round(passedChecks)}/${Math.round(totalChecks)}`;
+    }
+    return null;
+  }, [qualityGate?.passedChecks, qualityGate?.passed_checks, qualityGate?.totalChecks, qualityGate?.total_checks]);
+  const humanReviewRequired = useMemo(() => {
+    return parseBooleanLike(
+      jobAnalysis?.humanReviewRequired ??
+      jobAnalysis?.human_review_required,
+    );
+  }, [jobAnalysis]);
+  const humanReviewState = useMemo(() => {
+    const review = jobAnalysis?.human_review ?? jobAnalysis?.humanReview;
+    if (!review || typeof review !== "object") return null;
+    return review as Record<string, any>;
+  }, [jobAnalysis]);
+  const humanReviewNotes = useMemo(() => extractTextList(humanReviewState, [
+    "comments",
+    "reviewComments",
+    "review_comments",
+    "notes",
+    "todo",
+    "todo_list",
+    "actionItems",
+    "action_items",
+    "instructions",
+    "reviewerNotes",
+    "reviewer_notes",
+  ]), [humanReviewState]);
+  const editorInstructionPlan = useMemo(() => {
+    const plan = jobAnalysis?.editorInstructionPlan ?? jobAnalysis?.editor_instruction_plan;
+    if (!plan || typeof plan !== "object") return null;
+    return plan as Record<string, any>;
+  }, [jobAnalysis]);
+  const editorInstructionPrompt = useMemo(() => readStringFrom(jobAnalysis, [
+    "editorInstructionPrompt",
+    "editor_instruction_prompt",
+    "directorNotes",
+    "director_notes",
+  ]), [jobAnalysis]);
+  const agentTaskNotes = useMemo(() => {
+    const fromPlan = Array.isArray(editorInstructionPlan?.notes) ? editorInstructionPlan?.notes : [];
+    const fromReview = extractTextList(humanReviewState, [
+      "agentNotes",
+      "agent_notes",
+      "agentTasks",
+      "agent_tasks",
+      "aiTasks",
+      "ai_tasks",
+    ]);
+    return normalizeTextList([...(fromPlan || []), ...fromReview]);
+  }, [editorInstructionPlan?.notes, humanReviewState]);
+  const decisionNotes = useMemo(() => {
+    if (Array.isArray(jobAutonomous?.notes) && jobAutonomous?.notes.length > 0) {
+      return normalizeTextList(jobAutonomous.notes);
+    }
+    if (Array.isArray(jobAutonomous?.learning?.notes) && jobAutonomous?.learning?.notes.length > 0) {
+      return normalizeTextList(jobAutonomous.learning.notes);
+    }
+    return autonomousNotes;
+  }, [jobAutonomous]);
 
   return (
     <GlowBackdrop>
@@ -187,6 +410,28 @@ const EditorAMode = () => {
               <p className="mt-2 max-w-3xl text-sm text-foreground/85">
                 Expanded retention intelligence with richer data, modern graphing, and a premium decision dashboard.
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                {jobLoading ? (
+                  <Badge className="border-cyan-300/35 bg-cyan-400/10 text-cyan-100">Syncing job data...</Badge>
+                ) : null}
+                {jobError ? (
+                  <Badge className="border-rose-400/35 bg-rose-500/10 text-rose-200">{jobError}</Badge>
+                ) : null}
+                {jobDetail?.id ? (
+                  <Badge className="border-border/60 bg-background/60 text-foreground">Job {jobDetail.id.slice(0, 10)}</Badge>
+                ) : null}
+                {jobDetail?.status ? (
+                  <Badge className="border-border/60 bg-background/60 text-foreground">{String(jobDetail.status).toUpperCase()}</Badge>
+                ) : null}
+                {jobDetail?.renderMode ? (
+                  <Badge className="border-border/60 bg-background/60 text-foreground">
+                    {jobDetail.renderMode === "vertical" ? "Vertical render" : "Horizontal render"}
+                  </Badge>
+                ) : null}
+                {jobDetail?.createdAt ? (
+                  <span>Started {formatOptionalDateTime(jobDetail.createdAt)}</span>
+                ) : null}
+              </div>
             </div>
           </div>
         </motion.header>
@@ -199,8 +444,10 @@ const EditorAMode = () => {
         >
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Avg retention</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{avgRetention}%</p>
-            <p className="text-[11px] text-muted-foreground">Target 70%+ sustained</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionScoreAfter ?? avgRetention}%</p>
+            <p className="text-[11px] text-muted-foreground">
+              {retentionScoreAfter !== null ? "Latest retention score" : "Target 70%+ sustained"}
+            </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Peak energy</p>
@@ -214,8 +461,16 @@ const EditorAMode = () => {
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Quality gate</p>
-            <p className="mt-1 text-2xl font-semibold text-emerald-200">7/7</p>
-            <p className="text-[11px] text-muted-foreground">All hard checks passed</p>
+            <p className={`mt-1 text-2xl font-semibold ${qualityGatePassed === false ? "text-rose-200" : "text-emerald-200"}`}>
+              {qualityGateScore ?? "7/7"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {qualityGatePassed === false
+                ? "Gate needs attention"
+                : qualityGateScore
+                  ? "All hard checks passed"
+                  : "Quality gate awaiting signal"}
+            </p>
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Rate Card Winner</p>
@@ -224,6 +479,42 @@ const EditorAMode = () => {
             <p className="mt-1 text-[11px] text-muted-foreground">
               {rateDecisionReady ? "Locked on ready render" : "Live estimate"}
             </p>
+          </article>
+        </motion.section>
+
+        <motion.section
+          className="mx-auto mt-4 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.06, duration: 0.35 }}
+        >
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention before</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionScoreBefore ?? "--"}</p>
+            <p className="text-[11px] text-muted-foreground">Baseline signal</p>
+          </article>
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention delta</p>
+            <p className={`mt-1 text-2xl font-semibold ${
+              retentionScoreDelta === null
+                ? "text-foreground"
+                : retentionScoreDelta >= 0
+                  ? "text-emerald-200"
+                  : "text-rose-200"
+            }`}>
+              {retentionScoreDelta !== null ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta}` : "--"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">After - before</p>
+          </article>
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Hook confidence</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{hookConfidence ?? "--"}{hookConfidence !== null ? "%" : ""}</p>
+            <p className="text-[11px] text-muted-foreground">Opener signal</p>
+          </article>
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Target platform</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionTargetPlatformLabel}</p>
+            <p className="text-[11px] text-muted-foreground">Retention focus</p>
           </article>
         </motion.section>
 
@@ -435,6 +726,104 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
+          className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-2"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.38 }}
+        >
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <Activity className="h-3.5 w-3.5 text-primary" />
+                Human Review Details
+              </p>
+              <Badge className={humanReviewRequired ? "border-amber-300/40 bg-amber-500/12 text-amber-100" : "border-emerald-400/35 bg-emerald-500/12 text-emerald-200"}>
+                {humanReviewRequired ? "Review enabled" : "Auto-approve"}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Status</p>
+                <p className="mt-1 text-xs text-foreground">
+                  {humanReviewState?.status
+                    ? String(humanReviewState.status).replace(/_/g, " ")
+                    : humanReviewRequired
+                      ? "Awaiting review"
+                      : "Not required"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Preview</p>
+                <p className="mt-1 text-xs text-foreground">
+                  {humanReviewState?.previewDurationSeconds
+                    ? `${Math.round(Number(humanReviewState.previewDurationSeconds))}s`
+                    : "Pending"}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {humanReviewState?.previewMode ? `Mode ${humanReviewState.previewMode}` : "Preview not ready"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Requested</p>
+                <p className="mt-1 text-xs text-foreground">{formatOptionalDateTime(humanReviewState?.requestedAt) || "--"}</p>
+              </div>
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Approved</p>
+                <p className="mt-1 text-xs text-foreground">{formatOptionalDateTime(humanReviewState?.approvedAt) || "--"}</p>
+              </div>
+            </div>
+            {humanReviewState?.previewError ? (
+              <p className="mt-2 text-[11px] text-rose-200">Preview error: {String(humanReviewState.previewError)}</p>
+            ) : null}
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Reviewer notes</p>
+              {humanReviewNotes.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  {humanReviewNotes.map((note) => (
+                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                      {note}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">No human review notes yet.</p>
+              )}
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Agent Task Brief
+              </p>
+              <Badge className="border-primary/35 bg-primary/10 text-foreground">AI agent notes</Badge>
+            </div>
+            {editorInstructionPrompt ? (
+              <div className="mt-3 rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                {editorInstructionPrompt}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">No agent prompt attached yet.</p>
+            )}
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Action items</p>
+              {agentTaskNotes.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  {agentTaskNotes.map((note) => (
+                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                      {note}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">No agent action items found.</p>
+              )}
+            </div>
+          </article>
+        </motion.section>
+
+        <motion.section
           className="mx-auto mt-4 max-w-6xl rounded-2xl border border-primary/25 bg-background/55 p-4"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -461,7 +850,7 @@ const EditorAMode = () => {
             </div>
           </div>
           <div className="mt-3 space-y-2">
-            {autonomousNotes.map((note) => (
+            {decisionNotes.map((note) => (
               <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
                 {note}
               </div>
