@@ -80,7 +80,7 @@ const PricingCards = ({
 
   return (
     <motion.div
-      className={cn("grid grid-cols-1 gap-4 items-stretch sm:gap-6 md:grid-cols-2", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
+      className={cn("grid grid-cols-1 gap-3 items-stretch sm:gap-4 md:grid-cols-2", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
       variants={gridVariants}
       initial="hidden"
       animate="show"
@@ -162,7 +162,7 @@ const PricingCards = ({
             whileHover={{ y: -8, scale: 1.01 }}
             transition={{ type: "spring", stiffness: 320, damping: 22 }}
             className={cn(
-              "group relative flex h-full min-h-[320px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-4 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
+              "group relative flex h-full min-h-[285px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1020] via-[#10162b] to-[#121a30] p-3 shadow-[0_12px_36px_rgba(5,8,20,0.38)] backdrop-blur-sm",
               isCardClickable ? "cursor-pointer" : "cursor-default",
               isPopular && "ring-1 ring-primary/45 shadow-[0_25px_80px_rgba(56,189,248,0.18)]",
               isFounder && "ring-1 ring-amber-400/55 shadow-[0_25px_80px_rgba(251,191,36,0.2)]"
@@ -188,7 +188,7 @@ const PricingCards = ({
               <div className="absolute right-3 top-3 z-20 max-w-[calc(100%-1.5rem)]">
                 <span
                   className={cn(
-                    "inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase",
+                    "inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold tracking-wide uppercase",
                     isFounder ? "bg-amber-400/90 text-amber-950 animate-pulse" : "bg-primary/90 text-primary-foreground"
                   )}
                 >
@@ -201,10 +201,10 @@ const PricingCards = ({
                 </span>
               </div>
             )}
-            <div className="relative z-10 mb-4 flex items-center gap-2">
+            <div className="relative z-10 mb-3 flex items-center gap-2">
               <div
                 className={cn(
-                  "h-9 w-9 rounded-xl flex items-center justify-center",
+                  "h-8 w-8 rounded-lg flex items-center justify-center",
                   isFounder ? "bg-amber-400/15" : isPopular ? "bg-primary/20" : "bg-white/5"
                 )}
               >
@@ -217,68 +217,68 @@ const PricingCards = ({
                 )}
               </div>
               <div className="min-w-0">
-                <h3 className="break-words text-lg font-semibold font-display text-foreground">{plan.name}</h3>
-                <p className="break-words text-xs text-muted-foreground">{plan.description}</p>
+                <h3 className="break-words text-base font-semibold font-display text-foreground">{plan.name}</h3>
+                <p className="break-words text-[11px] text-muted-foreground">{plan.description}</p>
               </div>
             </div>
             {isFounder && (
-              <div className="relative z-10 mb-4 space-y-2">
-                <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+              <div className="relative z-10 mb-3 space-y-1.5">
+                <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
                   Limited to first 100 users
                 </span>
-                <div className="rounded-xl border border-amber-300/35 bg-amber-500/10 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-100">
+                <div className="rounded-lg border border-amber-300/35 bg-amber-500/10 px-2.5 py-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-100">
                     {founderSlots} lifetime slots remaining
                   </p>
                 </div>
               </div>
             )}
-            <div className="relative z-10 mb-4">
+            <div className="relative z-10 mb-3">
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold font-display text-foreground">{priceLabel}</span>
-                {cadenceLabel ? <span className="text-sm text-muted-foreground">{cadenceLabel}</span> : null}
+                <span className="text-2xl font-bold font-display text-foreground">{priceLabel}</span>
+                {cadenceLabel ? <span className="text-xs text-muted-foreground">{cadenceLabel}</span> : null}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">{billingNote}</p>
-              <p className="text-xs text-muted-foreground mt-1">{renderLimitLabel}</p>
+              <p className="text-[11px] text-muted-foreground mt-1">{billingNote}</p>
+              <p className="text-[11px] text-muted-foreground mt-1">{renderLimitLabel}</p>
             </div>
-            <div className="relative z-10 mb-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
+            <div className="relative z-10 mb-3 flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-foreground/90">
                 <Sparkles className="w-3 h-3 text-primary" />
                 {resolutionLabel}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-foreground/90">
                 <Clock3 className="w-3 h-3 text-sky-300" />
                 {rerenderLabel}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-foreground/90">
                 <Zap className="w-3 h-3 text-amber-300" />
                 {powerModesLabel}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-foreground/90">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-foreground/90">
                 <Film className="w-3 h-3 text-emerald-300" />
                 {queueLabel}
               </span>
             </div>
-            <p className="relative z-10 mb-4 text-xs leading-relaxed text-muted-foreground">
+            <p className="relative z-10 mb-3 text-[11px] leading-relaxed text-muted-foreground">
               Best for {PLAN_PERSONA[tier]}. {minuteCapLabel}.
             </p>
             {planUnlocks.length ? (
-              <div className="relative z-10 mb-4 rounded-xl border border-white/10 bg-white/5 p-2">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Plan unlocks</p>
-                <div className="mt-1 space-y-1 text-[11px] text-foreground/90">
+              <div className="relative z-10 mb-3 rounded-xl border border-white/10 bg-white/5 p-1.5">
+                <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Plan unlocks</p>
+                <div className="mt-1 space-y-1 text-[10px] text-foreground/90">
                   {planUnlocks.map((feature) => (
                     <p key={`${tier}-unlock-${feature}`}>+ {feature}</p>
                   ))}
                 </div>
               </div>
             ) : null}
-            <motion.ul className="mb-5 max-h-36 space-y-2 overflow-auto pr-1 text-sm text-foreground hide-scrollbar" variants={gridVariants}>
+            <motion.ul className="mb-4 max-h-28 space-y-1.5 overflow-auto pr-1 text-[12px] text-foreground hide-scrollbar" variants={gridVariants}>
               {plan.features.map((feature) => (
                 <motion.li key={feature} className="flex items-center gap-2" variants={featureVariants}>
-                  <span className="h-5 w-5 rounded-full bg-white/5 flex items-center justify-center">
+                  <span className="h-4 w-4 rounded-full bg-white/5 flex items-center justify-center">
                     <Check className="w-3 h-3 text-success" />
                   </span>
-                  <span className="break-words text-[13px]">{feature}</span>
+                  <span className="break-words text-[12px]">{feature}</span>
                 </motion.li>
               ))}
             </motion.ul>
