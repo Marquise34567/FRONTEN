@@ -2,6 +2,15 @@ import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts"
+import {
   Activity,
   AlertTriangle,
   ArrowRight,
@@ -28,7 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
 import { useAdminRealtimeStream } from "./control-panel/useAdminRealtimeStream"
-import { CommandCenterResponse, EmptyStateNote, formatCompactNumber, formatMoney, formatShortTime } from "./control-panel/shared"
+import { CommandCenterResponse, EmptyStateNote, chartTick, formatCompactNumber, formatMoney, formatShortTime } from "./control-panel/shared"
 
 type OverviewResponse = {
   summary: {
@@ -39,8 +48,23 @@ type OverviewResponse = {
     activeSubscriptions: number
     avgRenderTime: number
     successRate: number
+    usersTotal?: number
     websiteImpressions5m?: number
     websiteImpressions24h?: number
+  }
+  userMilestone?: {
+    threshold: number
+    rewardMonths: number
+    rewardTier: string
+    triggeredAt: string | null
+    endsAt: string | null
+    active: boolean
+    activeUsers: number
+    progressPct: number
+    remaining: number
+  }
+  graphs?: {
+    activeUsers?: Array<{ t: string; v: number }>
   }
   updatedAt: string
 }
@@ -159,6 +183,24 @@ const ControlPanel = () => {
   const effectiveFailed = live?.jobsFailed24h ?? summary?.jobsFailed24h ?? 0
   const effectiveImpressions5m = live?.websiteImpressions5m ?? summary?.websiteImpressions5m ?? 0
   const effectiveImpressions24h = live?.websiteImpressions24h ?? summary?.websiteImpressions24h ?? 0
+  const activeUsersSeries = overviewQuery.data?.graphs?.activeUsers || []
+  const allTimeUsers = summary?.usersTotal ?? 0
+  const milestone = overviewQuery.data?.userMilestone
+  const milestoneThreshold = milestone?.threshold ?? 500
+  const milestoneProgress = milestone?.progressPct ?? (milestoneThreshold > 0 ? Math.min(100, Math.round((effectiveActiveUsers / milestoneThreshold) * 100)) : 0)
+  const milestoneRemaining = milestone?.remaining ?? Math.max(0, milestoneThreshold - effectiveActiveUsers)
+  const milestoneActive = milestone?.active ?? false
+  const milestoneEndsAt = milestone?.endsAt ? formatShortTime(milestone.endsAt) : null
+  const milestoneTriggeredAt = milestone?.triggeredAt ? formatShortTime(milestone.triggeredAt) : null
+  const rewardMonths = milestone?.rewardMonths ?? 1
+  const rewardTier = milestone?.rewardTier ?? "creator"
+  const rewardLabel = `${rewardMonths} month${rewardMonths === 1 ? "" : "s"} ${rewardTier}`
+  const activeSeriesValues = activeUsersSeries.map((point) => Math.max(0, Number(point?.v || 0)))
+  const activeUsersPeak = activeSeriesValues.length ? Math.max(...activeSeriesValues) : effectiveActiveUsers
+  const activeSeriesTail = activeSeriesValues.slice(-2)
+  const activeDelta = activeSeriesTail.length === 2 ? activeSeriesTail[1] - activeSeriesTail[0] : 0
+  const activeDeltaLabel = activeDelta === 0 ? "flat" : activeDelta > 0 ? `+${activeDelta}` : `${activeDelta}`
+  const activeDeltaTone = activeDelta > 0 ? "text-emerald-200" : activeDelta < 0 ? "text-rose-200" : "text-muted-foreground"
 
   const healthStatus = useMemo(() => {
     const securityScore = commandCenterQuery.data?.securityAbuse?.suspiciousActivityScore ?? 0
@@ -307,6 +349,102 @@ const ControlPanel = () => {
               </div>
 
               {streamError ? <p className="text-[11px] text-amber-200">{streamError}</p> : null}
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <Card className="control-panel-feature-card glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4 text-sky-200" />
+                User Counter
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-border/60 bg-card/45 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Concurrent (Live)</p>
+                  <p className="text-2xl font-semibold text-foreground">{formatCompactNumber(effectiveActiveUsers)}</p>
+                  <p className={`text-[11px] ${activeDeltaTone}`}>Momentum {activeDeltaLabel}</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/45 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">All-Time Users</p>
+                  <p className="text-2xl font-semibold text-foreground">{formatCompactNumber(allTimeUsers)}</p>
+                  <p className="text-[11px] text-muted-foreground">Total accounts on record</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/45 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Peak (24h)</p>
+                  <p className="text-2xl font-semibold text-foreground">{formatCompactNumber(activeUsersPeak)}</p>
+                  <p className="text-[11px] text-muted-foreground">Highest concurrent in series</p>
+                </div>
+              </div>
+
+              <div className="h-48 rounded-xl border border-border/55 bg-card/35 p-2">
+                {activeUsersSeries.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={activeUsersSeries}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.3)" />
+                      <XAxis dataKey="t" tickFormatter={chartTick} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Area type="monotone" dataKey="v" stroke="hsl(197 92% 58%)" fill="hsl(197 92% 58% / 0.35)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyStateNote text="No concurrent user samples yet." />
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Last sync: {formatShortTime(overviewQuery.data?.updatedAt)} • Active window: 60s snapshots
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="control-panel-feature-card glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Sparkles className="h-4 w-4 text-emerald-200" />
+                Creator Unlock Milestone
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={milestoneActive ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-border/50 bg-card/40 text-muted-foreground"}>
+                  {milestoneActive ? "Unlock Live" : milestoneTriggeredAt ? "Unlocked" : "Pending"}
+                </Badge>
+                {milestoneEndsAt ? (
+                  <span className="text-[11px] text-muted-foreground">Ends {milestoneEndsAt}</span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">Target {milestoneThreshold} concurrent</span>
+                )}
+              </div>
+
+              <div>
+                <p className="text-3xl font-semibold text-foreground">
+                  {formatCompactNumber(effectiveActiveUsers)} / {formatCompactNumber(milestoneThreshold)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {milestoneActive
+                    ? `Reward active since ${milestoneTriggeredAt || "now"}`
+                    : `${formatCompactNumber(milestoneRemaining)} users to unlock ${rewardLabel} for everyone`}
+                </p>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-border/40">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-sky-300 to-indigo-300 transition-all"
+                  style={{ width: `${milestoneProgress}%` }}
+                />
+              </div>
+
+              <div className="rounded-xl border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm text-emerald-50">
+                <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">Reward Payload</p>
+                <p className="mt-1 font-semibold">{rewardLabel} access for every account</p>
+                <p className="text-[11px] text-emerald-100/80">Auto-applied when concurrent users hit the target.</p>
+              </div>
             </CardContent>
           </Card>
         </section>
