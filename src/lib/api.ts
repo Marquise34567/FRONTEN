@@ -57,7 +57,9 @@ export const shouldIncludeApiBase = (apiBase: string, runtimeOriginBase: string)
   if (!apiBase) return false;
   if (!runtimeOriginBase) return true;
   if (isSameOriginBase(apiBase, runtimeOriginBase)) return true;
-  if (isProtectedRuntimeOrigin(runtimeOriginBase)) return false;
+  if (isProtectedRuntimeOrigin(runtimeOriginBase)) {
+    return ALLOW_CROSS_ORIGIN_API_FALLBACK;
+  }
   return ALLOW_CROSS_ORIGIN_API_FALLBACK;
 };
 const isLoopbackHostname = (hostname: string) => (

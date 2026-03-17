@@ -11704,6 +11704,7 @@ const Editor = () => {
       normalizedActiveStatus === "ready" &&
       fullAutoEditorAddedSummary,
   );
+  let verticalClipPredictions: VerticalClipPrediction[] = [];
   const metadataClipSummaries: Array<{
     clip: number;
     predictedCompletion: number | null;
@@ -11740,7 +11741,7 @@ const Editor = () => {
     : typeof metadataSummary?.selection_mode === "string"
       ? metadataSummary.selection_mode
     : null;
-  const verticalClipPredictions: VerticalClipPrediction[] = metadataClipsRaw.length > 0
+  verticalClipPredictions = metadataClipsRaw.length > 0
     ? metadataClipsRaw
         .map((item: any) => {
           const clip = Number.isFinite(Number(item?.clip))
