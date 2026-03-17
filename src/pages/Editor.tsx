@@ -11625,6 +11625,93 @@ const Editor = () => {
     return `${baseName}.${extension}`;
   }, [activeJob, activeOutputUrls, autoDownloadTitleBase]);
 
+  const metadataClipSummaries: Array<{
+    clip: number;
+    predictedCompletion: number | null;
+    reason: string | null;
+  }> = metadataClipsRaw.length > 0
+    ? metadataClipsRaw
+        .map((entry: any, index: number) => {
+          const clipNumber = Number.isFinite(Number(entry?.clip))
+            ? Math.max(1, Math.round(Number(entry.clip)))
+            : index + 1;
+          const predictedCompletion = resolveClipPredictedCompletion(entry);
+          const reasonRaw = [entry?.reason, entry?.description, entry?.note, entry?.summary]
+            .find((item) => typeof item === "string" && item.trim().length > 0);
+          const reason = typeof reasonRaw === "string" ? reasonRaw.trim() : "";
+          return {
+            clip: clipNumber,
+            predictedCompletion,
+            reason: reason.length > 0 ? reason : null,
+          };
+        })
+        .sort((left, right) => left.clip - right.clip)
+        .slice(0, 6)
+    : [];
+  const metadataRetention =
+    toObjectRecord(metadataSummary?.retention) ??
+    toObjectRecord(metadataSummary?.retention_summary) ??
+    null;
+  const metadataNiche =
+    toObjectRecord(metadataSummary?.niche) ??
+    toObjectRecord(metadataSummary?.niche_profile) ??
+    null;
+  const verticalSelectionModeFromJob = typeof metadataSummary?.selectionMode === "string"
+    ? metadataSummary.selectionMode
+    : typeof metadataSummary?.selection_mode === "string"
+      ? metadataSummary.selection_mode
+    : null;
+  const verticalClipPredictions: VerticalClipPrediction[] = metadataClipsRaw.length > 0
+    ? metadataClipsRaw
+        .map((item: any) => {
+          const clip = Number.isFinite(Number(item?.clip))
+            ? Math.max(1, Math.round(Number(item.clip)))
+            : Number.isFinite(Number(item?.index))
+              ? Math.max(1, Math.round(Number(item.index)) + 1)
+              : null;
+          if (!Number.isFinite(clip)) return null;
+          const predictedCompletion = resolveClipPredictedCompletion(item);
+          if (predictedCompletion === null) return null;
+          const startRaw = firstFiniteNumber(item?.start, item?.startSec, item?.start_sec, item?.timeSec, item?.time);
+          const endRaw = firstFiniteNumber(item?.end, item?.endSec, item?.end_sec);
+          const durationRaw = firstFiniteNumber(item?.duration, item?.durationSec, item?.duration_sec);
+          const fallbackDuration = Math.max(1.2, 180 / Math.max(1, metadataClipsRaw.length));
+          const durationFromBounds =
+            startRaw !== null && endRaw !== null && endRaw > startRaw ? endRaw - startRaw : null;
+          const duration = Math.max(0.4, durationRaw ?? durationFromBounds ?? fallbackDuration);
+          const start = Math.max(0, startRaw ?? (endRaw !== null ? Math.max(0, endRaw - duration) : (clip - 1) * fallbackDuration));
+          const end = Math.max(start + 0.2, endRaw ?? (start + duration));
+          const reasonRaw = [item?.reason, item?.description, item?.note, item?.summary]
+            .find((entry) => typeof entry === "string" && entry.trim().length > 0);
+          return {
+            clip: clip,
+            start,
+            end,
+            duration: Math.max(0.2, end - start),
+            predictedCompletion: Math.max(0, Math.min(100, predictedCompletion)),
+            reason: typeof reasonRaw === "string" ? reasonRaw : "",
+          } as VerticalClipPrediction;
+        })
+        .filter((item: VerticalClipPrediction | null): item is VerticalClipPrediction => Boolean(item))
+        .sort((a, b) => a.clip - b.clip)
+    : [];
+  const verticalPredictedAverage = (() => {
+    const metadataAverage = firstFiniteNumber(
+      metadataSummary?.predictedAverage,
+      metadataSummary?.predicted_average,
+      metadataSummary?.predictedAverageRetention,
+      metadataSummary?.predicted_average_retention,
+    );
+    if (metadataAverage !== null) return Number(toPercent(metadataAverage, metadataAverage).toFixed(2));
+    if (verticalClipPredictions.length === 0) return null;
+    return Number(
+      (
+        verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
+        verticalClipPredictions.length
+      ).toFixed(2),
+    );
+  })();
+
   const bestVerticalClipIndex = useMemo(() => {
     if (!verticalClipPredictions.length) return 0;
     const best = verticalClipPredictions.reduce((leader, item) =>
@@ -11746,93 +11833,6 @@ const Editor = () => {
       normalizedActiveStatus === "ready" &&
       fullAutoEditorAddedSummary,
   );
-  let verticalClipPredictions: VerticalClipPrediction[] = [];
-  const metadataClipSummaries: Array<{
-    clip: number;
-    predictedCompletion: number | null;
-    reason: string | null;
-  }> = metadataClipsRaw.length > 0
-    ? metadataClipsRaw
-        .map((entry: any, index: number) => {
-          const clipNumber = Number.isFinite(Number(entry?.clip))
-            ? Math.max(1, Math.round(Number(entry.clip)))
-            : index + 1;
-          const predictedCompletion = resolveClipPredictedCompletion(entry);
-          const reasonRaw = [entry?.reason, entry?.description, entry?.note, entry?.summary]
-            .find((item) => typeof item === "string" && item.trim().length > 0);
-          const reason = typeof reasonRaw === "string" ? reasonRaw.trim() : "";
-          return {
-            clip: clipNumber,
-            predictedCompletion,
-            reason: reason.length > 0 ? reason : null,
-          };
-        })
-        .sort((left, right) => left.clip - right.clip)
-        .slice(0, 6)
-    : [];
-  const metadataRetention =
-    toObjectRecord(metadataSummary?.retention) ??
-    toObjectRecord(metadataSummary?.retention_summary) ??
-    null;
-  const metadataNiche =
-    toObjectRecord(metadataSummary?.niche) ??
-    toObjectRecord(metadataSummary?.niche_profile) ??
-    null;
-  const verticalSelectionModeFromJob = typeof metadataSummary?.selectionMode === "string"
-    ? metadataSummary.selectionMode
-    : typeof metadataSummary?.selection_mode === "string"
-      ? metadataSummary.selection_mode
-    : null;
-  verticalClipPredictions = metadataClipsRaw.length > 0
-    ? metadataClipsRaw
-        .map((item: any) => {
-          const clip = Number.isFinite(Number(item?.clip))
-            ? Math.max(1, Math.round(Number(item.clip)))
-            : Number.isFinite(Number(item?.index))
-              ? Math.max(1, Math.round(Number(item.index)) + 1)
-              : null;
-          if (!Number.isFinite(clip)) return null;
-          const predictedCompletion = resolveClipPredictedCompletion(item);
-          if (predictedCompletion === null) return null;
-          const startRaw = firstFiniteNumber(item?.start, item?.startSec, item?.start_sec, item?.timeSec, item?.time);
-          const endRaw = firstFiniteNumber(item?.end, item?.endSec, item?.end_sec);
-          const durationRaw = firstFiniteNumber(item?.duration, item?.durationSec, item?.duration_sec);
-          const fallbackDuration = Math.max(1.2, 180 / Math.max(1, metadataClipsRaw.length));
-          const durationFromBounds =
-            startRaw !== null && endRaw !== null && endRaw > startRaw ? endRaw - startRaw : null;
-          const duration = Math.max(0.4, durationRaw ?? durationFromBounds ?? fallbackDuration);
-          const start = Math.max(0, startRaw ?? (endRaw !== null ? Math.max(0, endRaw - duration) : (clip - 1) * fallbackDuration));
-          const end = Math.max(start + 0.2, endRaw ?? (start + duration));
-          const reasonRaw = [item?.reason, item?.description, item?.note, item?.summary]
-            .find((entry) => typeof entry === "string" && entry.trim().length > 0);
-          return {
-            clip: clip,
-            start,
-            end,
-            duration: Math.max(0.2, end - start),
-            predictedCompletion: Math.max(0, Math.min(100, predictedCompletion)),
-            reason: typeof reasonRaw === "string" ? reasonRaw : "",
-          } as VerticalClipPrediction;
-        })
-        .filter((item: VerticalClipPrediction | null): item is VerticalClipPrediction => Boolean(item))
-        .sort((a, b) => a.clip - b.clip)
-    : [];
-  const verticalPredictedAverage = (() => {
-    const metadataAverage = firstFiniteNumber(
-      metadataSummary?.predictedAverage,
-      metadataSummary?.predicted_average,
-      metadataSummary?.predictedAverageRetention,
-      metadataSummary?.predicted_average_retention,
-    );
-    if (metadataAverage !== null) return Number(toPercent(metadataAverage, metadataAverage).toFixed(2));
-    if (verticalClipPredictions.length === 0) return null;
-    return Number(
-      (
-        verticalClipPredictions.reduce((sum, item) => sum + item.predictedCompletion, 0) /
-        verticalClipPredictions.length
-      ).toFixed(2),
-    );
-  })();
   const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
     activeAnalysis?.hook_selection_mode ??
     activeAnalysis?.hookSelectionMode ??
