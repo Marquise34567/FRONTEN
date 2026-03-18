@@ -19056,19 +19056,29 @@ const Editor = () => {
             ? `Vertical clips are ready (${activeOutputUrls.length}).`
             : "Export is ready. Download your final cut."}
         </p>
-        <Button
-          className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-          onClick={() => {
-            if (activeJob.renderMode === "vertical") {
-              setExportOpen(true);
-              return;
-            }
-            void handleDownload(0);
-          }}
-        >
-          <Download className="h-4 w-4" />
-          {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Button
+            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+            onClick={() => {
+              if (activeJob.renderMode === "vertical") {
+                setExportOpen(true);
+                return;
+              }
+              void handleDownload(0);
+            }}
+          >
+            <Download className="h-4 w-4" />
+            {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
+          </Button>
+          <Button
+            variant="outline"
+            className="min-h-12 w-full gap-2 sm:w-auto"
+            onClick={handleExportXml}
+          >
+            <FileCode className="h-4 w-4" />
+            Export XML
+          </Button>
+        </div>
       </div>
     </motion.div>
   ) : null;
