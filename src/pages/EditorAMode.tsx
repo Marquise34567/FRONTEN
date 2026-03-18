@@ -1044,10 +1044,10 @@ const EditorAMode = () => {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Activity className="h-3.5 w-3.5 text-primary" />
-                Human Review Details
+                AI Review Details
               </p>
               <Badge className={humanReviewRequired ? "border-amber-300/40 bg-amber-500/12 text-amber-100" : "border-emerald-400/35 bg-emerald-500/12 text-emerald-200"}>
-                {humanReviewRequired ? "Review enabled" : "Auto-approve"}
+                {humanReviewRequired ? "AI review enabled" : "Auto-approve"}
               </Badge>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1095,7 +1095,7 @@ const EditorAMode = () => {
                   ))}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-muted-foreground">No human review notes yet.</p>
+                <p className="mt-2 text-xs text-muted-foreground">No AI review notes yet.</p>
               )}
             </div>
           </article>

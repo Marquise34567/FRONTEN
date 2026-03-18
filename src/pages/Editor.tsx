@@ -2465,7 +2465,7 @@ const PIPELINE_STEPS = [
   { key: "hooking", label: "Hook" },
   { key: "cutting", label: "Cut" },
   { key: "pacing", label: "Binge Optimize" },
-  { key: "review", label: "Human Review" },
+  { key: "review", label: "AI Review" },
   { key: "ready", label: "Download Ready" },
 ] as const;
 const RETENTION_GOAL_PERCENT = 70;
@@ -2504,7 +2504,7 @@ const STATUS_LABELS: Record<string, string> = {
   subtitling: "Binge Optimize",
   audio: "Binge Optimize",
   retention: "Binge Optimize",
-  review: "Human Review",
+  review: "AI Review",
   rendering: "Binge Optimize",
   completed: "Download Ready",
   ready: "Download Ready",
@@ -4844,7 +4844,7 @@ const Editor = () => {
   const [coldStartAutopilotEnabled, setColdStartAutopilotEnabled] = useState(false);
   const [continuityFirstEnabled, setContinuityFirstEnabled] = useState(true);
   const [exploreX3Enabled, setExploreX3Enabled] = useState(true);
-  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(true);
+  const [topHumanGuardEnabled, setTopHumanGuardEnabled] = useState(false);
   const [humanReviewEnabled, setHumanReviewEnabled] = useState(false);
   const [creatorStyleLockPercent, setCreatorStyleLockPercent] = useState(DEFAULT_CREATOR_STYLE_LOCK_PERCENT);
   const [fullAutoYoutubeEnabled, setFullAutoYoutubeEnabled] = useState(false);
@@ -7387,7 +7387,7 @@ const Editor = () => {
         : maxCutsRequested;
     const boostedContinuityFirstMode = qualityBoostEnabled ? true : resolvedContinuityFirstMode;
     const boostedExploreX3Mode = qualityBoostEnabled ? true : exploreX3Enabled;
-    const boostedTopHumanGuardMode = qualityBoostEnabled ? true : topHumanGuardEnabled;
+    const boostedTopHumanGuardMode = topHumanGuardEnabled;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = boostedRetentionStrategyProfile;
     const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
       strategyProfile: effectiveRetentionStrategyProfile,
@@ -10509,14 +10509,16 @@ const Editor = () => {
       if (!accessToken || !activeJob?.id) return false;
       setReviewApproving(true);
       try {
-        await apiFetch<{ ok: boolean }>(`/api/jobs/${activeJob.id}/review/approve`, {
+        const result = await apiFetch<{ ok: boolean; status?: string }>(`/api/jobs/${activeJob.id}/review/approve`, {
           method: "POST",
           token: accessToken,
         });
+        const nextStatus = result?.status === "queued" ? "queued" : "completed";
+        const nextProgress = nextStatus === "queued" ? 1 : 100;
         setJobs((prev) =>
           prev.map((entry) =>
             entry.id === activeJob.id
-              ? { ...entry, status: "queued", progress: 1 }
+              ? { ...entry, status: nextStatus, progress: nextProgress }
               : entry,
           ),
         );
@@ -10524,14 +10526,19 @@ const Editor = () => {
           if (!prev || prev.id !== activeJob.id) return prev;
           return {
             ...prev,
-            status: "queued",
-            progress: 1,
+            status: nextStatus,
+            progress: nextProgress,
             error: null,
           };
         });
         setReviewPreviewUrl(null);
         await Promise.allSettled([fetchJobs(), fetchJob(activeJob.id)]);
-        toast({ title: "Review approved", description: "Render resumed in the queue." });
+        toast({
+          title: "Review approved",
+          description: nextStatus === "queued"
+            ? "Re-render queued."
+            : "Download unlocked.",
+        });
         return true;
       } catch (err: any) {
         toast({
@@ -10587,6 +10594,26 @@ const Editor = () => {
     if (!review || typeof review !== "object") return null;
     return review as Record<string, any>;
   }, [activeJob?.analysis]);
+  const activeReviewSummary = useMemo(() => {
+    const summary = activeReviewState?.summary ?? activeReviewState?.reason ?? "";
+    return String(summary || "").trim();
+  }, [activeReviewState]);
+  const activeReviewNotes = useMemo(() => {
+    if (!activeReviewState) return [] as string[];
+    const raw =
+      activeReviewState.reviewComments ??
+      activeReviewState.review_comments ??
+      activeReviewState.reviewerNotes ??
+      activeReviewState.reviewer_notes ??
+      activeReviewState.notes ??
+      [];
+    const list = Array.isArray(raw)
+      ? raw
+      : typeof raw === "string"
+        ? [raw]
+        : [];
+    return list.map((item: any) => String(item || "").trim()).filter(Boolean).slice(0, 6);
+  }, [activeReviewState]);
   const reviewPending = normalizedActiveStatus === "review";
   useEffect(() => {
     if (!activeJob?.id || !reviewPending) {
@@ -16838,7 +16865,7 @@ const Editor = () => {
     if (continuityFirstEnabled) labels.push("Continuity-First");
     if (exploreX3Enabled) labels.push("Explore x3");
     if (topHumanGuardEnabled) labels.push("Top-Human Guard");
-    if (humanReviewEnabled) labels.push("Human Review");
+    if (humanReviewEnabled) labels.push("AI Review");
     return labels;
   }, [
     coldStartAutopilotEnabled,
@@ -18060,8 +18087,8 @@ const Editor = () => {
                 },
                 {
                   id: "human_review" as CreatorLearningMode,
-                  label: "Human Review",
-                  description: "Pause before final render until a reviewer approves.",
+                  label: "AI Review",
+                  description: "Hold download until AI review approves.",
                   active: humanReviewEnabled,
                   onToggle: () => setHumanReviewEnabled((prev) => !prev),
                   Icon: Clock,
@@ -18834,7 +18861,7 @@ const Editor = () => {
               YouTube trust weighting grows over time and personalizes future edits for this connected channel.
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · {humanReviewEnabled ? "human review on" : "auto-approve"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
+              Active now: {coldStartAutopilotEnabled ? "Cold-start autopilot" : "standard warm-start"} · {continuityFirstEnabled ? "Continuity-first" : "default continuity"} · {exploreX3Enabled ? "Explore x3 on" : "single winner"} · {topHumanGuardEnabled ? "top-human guard on" : "fallbacks allowed"} · {humanReviewEnabled ? "AI review on" : "auto-approve"} · style lock {clampCreatorStyleLockPercent(creatorStyleLockPercent)}%.
             </p>
           </div>
         ) : null}
@@ -18892,7 +18919,7 @@ const Editor = () => {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-amber-100 flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Human review required before final render.
+            AI review required before download.
           </p>
           <Badge variant="outline" className="border-amber-400/40 bg-amber-500/10 text-[11px] text-amber-200">
             Awaiting approval
@@ -18900,13 +18927,30 @@ const Editor = () => {
         </div>
         <p className="text-[11px] text-muted-foreground">
           {activeReviewState?.previewPath
-            ? "Download the preview and approve to continue rendering."
+            ? "Download the preview and approve to unlock the final export."
             : "Preview is still generating. It will appear here when ready."}
         </p>
         {activeReviewState?.previewError ? (
           <p className="text-[11px] text-destructive">
             Preview error: {String(activeReviewState.previewError)}
           </p>
+        ) : null}
+        {activeReviewSummary ? (
+          <p className="text-[11px] text-foreground/85">
+            Summary: {activeReviewSummary}
+          </p>
+        ) : null}
+        {activeReviewNotes.length > 0 ? (
+          <div className="rounded-md border border-amber-400/35 bg-amber-500/5 p-2">
+            <p className="text-[10px] uppercase tracking-[0.13em] text-amber-200">Suggested fixes</p>
+            <div className="mt-1 flex flex-col gap-1">
+              {activeReviewNotes.map((note, index) => (
+                <p key={`review-note-${index}`} className="text-[11px] text-foreground/85">
+                  {note}
+                </p>
+              ))}
+            </div>
+          </div>
         ) : null}
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
@@ -18930,7 +18974,7 @@ const Editor = () => {
             onClick={() => void handleApproveReview()}
           >
             {reviewApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {reviewApproving ? "Approving..." : "Approve & Render"}
+            {reviewApproving ? "Approving..." : "Approve & Release"}
           </Button>
           <Button
             variant="ghost"
@@ -22400,9 +22444,9 @@ const Editor = () => {
             <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Human Review</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">AI Review</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Pause before final render until a reviewer approves.
+                    Hold download until AI review approves.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -22416,12 +22460,12 @@ const Editor = () => {
                   <Switch
                     checked={humanReviewEnabled}
                     onCheckedChange={setHumanReviewEnabled}
-                    aria-label="Toggle human review"
+                    aria-label="Toggle AI review"
                   />
                 </div>
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                When enabled, uploads pause in the review stage before export.
+                When enabled, exports pause in AI review before download.
               </p>
             </div>
 

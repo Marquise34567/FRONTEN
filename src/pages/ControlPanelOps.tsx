@@ -1,9 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle, Mail, Power, Rocket, Send, Sparkles, Wand2 } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
 
@@ -56,6 +58,13 @@ type RestartServerResponse = {
   message: string
 }
 
+type MaintenanceStatusResponse = {
+  enabled: boolean
+  message: string
+  updatedAt: string
+  updatedBy: string | null
+}
+
 const formatShortTime = (iso?: string) => {
   if (!iso) return "-"
   const date = new Date(iso)
@@ -94,6 +103,9 @@ const ControlPanelOps = () => {
   const [grantSubscriptionDurationDays, setGrantSubscriptionDurationDays] = useState("30")
   const [grantSubscriptionReason, setGrantSubscriptionReason] = useState("manual_control_panel_grant")
   const [emergencyReason, setEmergencyReason] = useState("production_admin_emergency")
+  const [maintenanceMessage, setMaintenanceMessage] = useState("")
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false)
+  const [maintenanceDirty, setMaintenanceDirty] = useState(false)
 
   const canLoad = Boolean(accessToken)
   const weeklyReportsQuery = useQuery({
@@ -102,6 +114,17 @@ const ControlPanelOps = () => {
     enabled: canLoad,
     refetchInterval: 30000
   })
+  const maintenanceQuery = useQuery({
+    queryKey: ["control-panel-maintenance-status"],
+    queryFn: () => apiFetch<MaintenanceStatusResponse>("/api/admin/maintenance", { token: accessToken || "" }),
+    enabled: canLoad
+  })
+
+  useEffect(() => {
+    if (!maintenanceQuery.data || maintenanceDirty) return
+    setMaintenanceMessage(maintenanceQuery.data.message || "")
+    setMaintenanceEnabled(Boolean(maintenanceQuery.data.enabled))
+  }, [maintenanceQuery.data, maintenanceDirty])
 
   const runOpsAction = async (path: string, init: RequestInit, successMessage: string, refetchWeekly = false) => {
     if (!accessToken) return
@@ -343,6 +366,37 @@ const ControlPanelOps = () => {
     }
   }
 
+  const handleSaveMaintenance = async () => {
+    const message = maintenanceMessage.trim()
+    await runOpsAction(
+      "/api/admin/maintenance",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          enabled: maintenanceEnabled,
+          message
+        })
+      },
+      maintenanceEnabled ? "Maintenance message published." : "Maintenance message saved."
+    )
+    setMaintenanceDirty(false)
+    await maintenanceQuery.refetch()
+  }
+
+  const handleDisableMaintenance = async () => {
+    await runOpsAction(
+      "/api/admin/maintenance",
+      {
+        method: "POST",
+        body: JSON.stringify({ enabled: false })
+      },
+      "Maintenance message disabled."
+    )
+    setMaintenanceEnabled(false)
+    setMaintenanceDirty(false)
+    await maintenanceQuery.refetch()
+  }
+
   const weeklyProviderConfigured = Boolean(weeklyReportsQuery.data?.provider.configured)
   const weeklyProviderName = weeklyReportsQuery.data?.provider.provider || "unknown"
 
@@ -430,6 +484,63 @@ const ControlPanelOps = () => {
                   ) : null}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8">
+          <Card className="glass-card border-amber-300/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <AlertTriangle className="h-4 w-4 text-amber-200" />
+                Maintenance Message
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground">
+                Sends a live banner to the site and editor. Use this for outages, maintenance windows, or quick status
+                updates.
+              </p>
+              <Textarea
+                value={maintenanceMessage}
+                onChange={(e) => {
+                  setMaintenanceMessage(e.target.value)
+                  setMaintenanceDirty(true)
+                }}
+                placeholder="Example: We’re fixing the binge optimization job. The editor will be back soon."
+                className="min-h-[110px] bg-card/50 text-xs"
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <Switch
+                    checked={maintenanceEnabled}
+                    onCheckedChange={(checked) => {
+                      setMaintenanceEnabled(Boolean(checked))
+                      setMaintenanceDirty(true)
+                    }}
+                  />
+                  Maintenance banner enabled
+                </label>
+                <button
+                  disabled={actionLoading}
+                  onClick={handleSaveMaintenance}
+                  className="inline-flex h-9 items-center rounded-md border border-amber-300/50 bg-amber-300/10 px-3 text-xs text-amber-100 disabled:opacity-60"
+                >
+                  Publish Message
+                </button>
+                <button
+                  disabled={actionLoading}
+                  onClick={handleDisableMaintenance}
+                  className="inline-flex h-9 items-center rounded-md border border-border/60 px-3 text-xs text-muted-foreground disabled:opacity-60"
+                >
+                  Turn Off Banner
+                </button>
+              </div>
+              {maintenanceQuery.data?.updatedAt ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Last updated: {formatShortTime(maintenanceQuery.data.updatedAt)}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         </section>

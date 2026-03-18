@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { AlertTriangle, Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/AuthProvider";
 import { useMe } from "@/hooks/use-me";
 import LanguageDropdown from "@/components/LanguageDropdown";
 import { isControlPanelOwnerEmail } from "@/lib/controlPanelAccess";
+import { apiFetch } from "@/lib/api";
+
+type MaintenanceStatusPublic = {
+  enabled: boolean;
+  message: string;
+  updatedAt: string;
+};
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
@@ -19,6 +27,13 @@ const Navbar = () => {
   const [navHeightPx, setNavHeightPx] = useState(72);
   const navRef = useRef<HTMLElement | null>(null);
   const showControlPanel = isControlPanelOwnerEmail(user?.email ?? me?.user?.email);
+  const maintenanceQuery = useQuery({
+    queryKey: ["site-maintenance-status"],
+    queryFn: () => apiFetch<MaintenanceStatusPublic>("/api/public/maintenance"),
+    refetchInterval: 30000,
+  });
+  const maintenanceMessage = String(maintenanceQuery.data?.message || "").trim();
+  const showMaintenance = Boolean(maintenanceQuery.data?.enabled && maintenanceMessage);
 
   const handleLogout = async () => {
     await signOut();
@@ -63,6 +78,14 @@ const Navbar = () => {
             : "border-b border-border/30 bg-background/40 py-4")
         }
       >
+      {showMaintenance ? (
+        <div className="border-b border-amber-300/30 bg-amber-300/10">
+          <div className="mx-auto flex w-full max-w-6xl items-start gap-2 py-2 text-[11px] text-amber-100">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 text-amber-200" />
+            <p className="leading-relaxed">{maintenanceMessage}</p>
+          </div>
+        </div>
+      ) : null}
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2">
         <Link to="/" className="flex min-w-0 items-center gap-2 nav-slide">
           <span className={`truncate text-lg font-bold font-display text-foreground sm:text-xl transform transition-transform duration-300 ${scrolled ? 'scale-95' : 'scale-100'}`}>

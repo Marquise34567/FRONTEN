@@ -168,7 +168,7 @@ export const useExportNotification = ({
     const toastHeading = event === "downloaded"
       ? "Download complete"
       : event === "review"
-        ? "Human review needed"
+        ? "AI review needed"
         : "Your video is ready! Download now";
     const toastDescription = event === "downloaded"
       ? `${displayTitle} is saved to your device.`
@@ -260,7 +260,7 @@ export const useExportNotification = ({
     const notificationTitle = event === "downloaded"
       ? `Download Complete – ${appName}`
       : event === "review"
-        ? `Human Review Needed – ${appName}`
+        ? `AI Review Needed – ${appName}`
         : `Video Export Complete – ${appName}`;
     const body = event === "downloaded"
       ? `Your ${videoTitle} is saved to your device. Click to return to the editor.`
