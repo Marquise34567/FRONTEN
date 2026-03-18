@@ -3671,6 +3671,46 @@ const classifyEditDurationKind = (seconds: number): "short-form" | "long-form" =
 
 const roundToTwo = (value: number) => Number(value.toFixed(2));
 
+const parseEpochMs = (value: unknown): number | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value.getTime();
+  const parsed = new Date(String(value)).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const resolvePipelineStepTimingMs = (analysis: Record<string, unknown>) => {
+  const steps = toObjectRecord((analysis as any)?.pipelineSteps);
+  if (!steps) return null;
+  const starts: number[] = [];
+  const ends: number[] = [];
+  Object.values(steps).forEach((entry) => {
+    const row = toObjectRecord(entry);
+    if (!row) return;
+    const startedAt = parseEpochMs(
+      (row as any).startedAt ??
+      (row as any).started_at ??
+      (row as any).started,
+    );
+    const completedAt = parseEpochMs(
+      (row as any).completedAt ??
+      (row as any).completed_at ??
+      (row as any).completed,
+    );
+    const updatedAt = parseEpochMs((row as any).updatedAt ?? (row as any).updated_at);
+    if (startedAt !== null) starts.push(startedAt);
+    if (completedAt !== null) {
+      ends.push(completedAt);
+    } else if (updatedAt !== null) {
+      ends.push(updatedAt);
+    }
+  });
+  if (!starts.length && !ends.length) return null;
+  return {
+    startMs: starts.length ? Math.min(...starts) : null,
+    endMs: ends.length ? Math.max(...ends) : null,
+  };
+};
+
 const resolveEditTimeComparison = ({
   job,
   analysis,
@@ -3787,22 +3827,40 @@ const resolveEditTimeComparison = ({
   const finishedAtMs = runtime?.finishedAt ? new Date(String((runtime as any).finishedAt)).getTime() : Number.NaN;
   const createdAtMs = new Date(job.createdAt).getTime();
   const updatedAtMs = (job as any).updatedAt ? new Date(String((job as any).updatedAt)).getTime() : Number.NaN;
+  const analysisUpdatedAtMs = parseEpochMs(
+    (safeAnalysis as any)?.pipelineUpdatedAt ?? (safeAnalysis as any)?.updatedAt,
+  );
+  const pipelineStepsTiming = resolvePipelineStepTimingMs(safeAnalysis);
   const nowMs = Date.now();
   const isTerminal = isTerminalStatus(job.status);
 
   let autoMinutes: number | null = null;
   let autoIsLive = !isTerminal;
   let autoSource: "pipeline" | "job" = "job";
-  if (Number.isFinite(startedAtMs) && startedAtMs > 0) {
-    const endMs = Number.isFinite(finishedAtMs)
+  const safeCreatedAtMs = Number.isFinite(createdAtMs) && createdAtMs > 0 ? createdAtMs : null;
+  const safeUpdatedAtMs = Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? updatedAtMs : null;
+  const pipelineStartMs =
+    Number.isFinite(startedAtMs) && startedAtMs > 0
+      ? startedAtMs
+      : pipelineStepsTiming?.startMs ?? null;
+  const pipelineEndMs =
+    Number.isFinite(finishedAtMs) && finishedAtMs > 0
       ? finishedAtMs
-      : (isTerminal && Number.isFinite(updatedAtMs) ? updatedAtMs : nowMs);
-    autoMinutes = (endMs - startedAtMs) / 60000;
-    autoIsLive = !Number.isFinite(finishedAtMs) && !isTerminal;
+      : pipelineStepsTiming?.endMs ?? null;
+  const fallbackEndMs = isTerminal
+    ? (analysisUpdatedAtMs ?? safeUpdatedAtMs ?? nowMs)
+    : nowMs;
+
+  if (pipelineStartMs !== null) {
+    const boundedStartMs = safeCreatedAtMs !== null ? Math.max(pipelineStartMs, safeCreatedAtMs) : pipelineStartMs;
+    const endMs = pipelineEndMs ?? fallbackEndMs;
+    if (endMs >= boundedStartMs) {
+      autoMinutes = (endMs - boundedStartMs) / 60000;
+    }
+    autoIsLive = !isTerminal && pipelineEndMs === null;
     autoSource = "pipeline";
-  } else if (Number.isFinite(createdAtMs) && createdAtMs > 0) {
-    const endMs = isTerminal && Number.isFinite(updatedAtMs) ? updatedAtMs : nowMs;
-    autoMinutes = (endMs - createdAtMs) / 60000;
+  } else if (safeCreatedAtMs !== null) {
+    autoMinutes = (fallbackEndMs - safeCreatedAtMs) / 60000;
     autoIsLive = !isTerminal;
   }
 
@@ -4780,6 +4838,7 @@ const Editor = () => {
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [cancelingUpload, setCancelingUpload] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportReadyOpen, setExportReadyOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(
@@ -7381,18 +7440,24 @@ const Editor = () => {
   }, [jobs, refetchMe, accessToken, notifyExportComplete]);
 
   useEffect(() => {
-    if (!activeJob) return;
-    if (normalizeStatus(activeJob.status) !== "ready") return;
-    if (activeJob.renderMode === "vertical") {
-      setExportFeedbackOpen(false);
-      setExportOpen(false);
+    if (!activeJob) {
+      setExportReadyOpen(false);
+      return;
+    }
+    if (normalizeStatus(activeJob.status) !== "ready") {
+      setExportReadyOpen(false);
       return;
     }
     const key = `export_popup_shown_${activeJob.id}`;
     if (typeof window === "undefined") return;
-    if (window.localStorage.getItem(key)) return;
+    if (window.localStorage.getItem(key)) {
+      setExportReadyOpen(false);
+      return;
+    }
     window.localStorage.setItem(key, "true");
-    setExportOpen(true);
+    setExportFeedbackOpen(false);
+    setExportOpen(false);
+    setExportReadyOpen(true);
   }, [activeJob?.id, activeJob?.status, activeJob?.renderMode]);
 
   useEffect(() => {
@@ -19216,46 +19281,115 @@ const Editor = () => {
       </div>
     );
   };
+  const readyClipCount = Math.max(1, activeOutputUrls.length || verticalClipCount || 1);
   const exportReadyCard = activeJob && normalizeStatus(activeJob.status) === "ready" ? (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="fixed left-1/2 top-1/2 z-[90] w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 shadow-[0_26px_60px_-30px_rgba(16,185,129,0.65)]"
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
-      <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
-      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-emerald-100 flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4" />
-          {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
-            ? `Vertical clips are ready (${activeOutputUrls.length}).`
-            : "Export is ready. Download your final cut."}
-        </p>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <Button
-            className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-            onClick={() => {
-              if (activeJob.renderMode === "vertical") {
-                setExportOpen(true);
-                return;
-              }
-              void handleDownload(0);
-            }}
-          >
-            <Download className="h-4 w-4" />
-            {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
-          </Button>
-          <Button
-            variant="outline"
-            className="min-h-12 w-full gap-2 sm:w-auto"
-            onClick={handleExportXml}
-          >
-            <FileCode className="h-4 w-4" />
-            Export XML
-          </Button>
+    <Dialog open={exportReadyOpen} onOpenChange={setExportReadyOpen}>
+      <DialogContent
+        className="max-w-[calc(100vw-1.5rem)] overflow-hidden border border-emerald-400/40 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(16,185,129,0.18),transparent_55%),linear-gradient(150deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_40px_90px_-45px_rgba(16,185,129,0.75)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
+      >
+        <div className="pointer-events-none absolute -left-14 -top-10 h-32 w-32 rounded-full bg-emerald-400/20 blur-3xl" />
+        <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-cyan-400/20 blur-3xl" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-emerald-400/10 via-transparent to-transparent" />
+        <div className="relative z-10 space-y-4">
+          <DialogHeader>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="gap-1 border-emerald-400/45 bg-emerald-500/15 text-emerald-100">
+                    <Crown className="h-3 w-3" />
+                    Export Ready
+                  </Badge>
+                  <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">
+                    Premium Delivery
+                  </Badge>
+                </div>
+                <DialogTitle className="text-2xl font-display text-foreground">Your export is ready</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  {activeJob.renderMode === "vertical" && readyClipCount > 1
+                    ? `We produced ${readyClipCount} vertical clips optimized for retention.`
+                    : "Final render complete. Choose how you want to deliver it."}
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                aria-label="Close export ready popup"
+                onClick={() => setExportReadyOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-100/80">Project</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{displayName(activeJob)}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {activeJob.renderMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"} ·
+                Quality cap {maxQuality.toUpperCase()}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/60 bg-background/45 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Delivery</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {activeJob.renderMode === "vertical" && readyClipCount > 1
+                  ? `${readyClipCount} clips ready`
+                  : "Final MP4 ready"}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {activeJob.renderMode === "vertical"
+                  ? "Open the clip tray or download a clip now."
+                  : "Download now or open the export panel."}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                onClick={() => {
+                  setExportReadyOpen(false);
+                  if (activeJob.renderMode === "vertical") {
+                    setExportOpen(true);
+                    return;
+                  }
+                  void handleDownload(0);
+                }}
+              >
+                <Download className="h-4 w-4" />
+                {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
+              </Button>
+              {activeJob.renderMode === "vertical" ? null : (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={() => {
+                    setExportReadyOpen(false);
+                    setExportOpen(true);
+                  }}
+                >
+                  <Crown className="h-4 w-4" />
+                  Open Export
+                </Button>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              className="w-full gap-2 sm:w-auto"
+              onClick={() => {
+                setExportReadyOpen(false);
+                handleExportXml();
+              }}
+            >
+              <FileCode className="h-4 w-4" />
+              Export XML
+            </Button>
+          </div>
         </div>
-      </div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   ) : null;
   const reviewPendingCard = activeJob && normalizedActiveStatus === "review" ? (
     <motion.div
