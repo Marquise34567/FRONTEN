@@ -4610,6 +4610,7 @@ const Editor = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadBytesUploaded, setUploadBytesUploaded] = useState<number | null>(null);
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
+  const [cancelingUpload, setCancelingUpload] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
@@ -4647,6 +4648,11 @@ const Editor = () => {
   const autoDownloadTriggeredRef = useRef<Record<string, boolean>>({});
   const autoDownloadBatchRef = useRef<Set<string>>(new Set());
   const autoImportPromptedRef = useRef(false);
+  const uploadAbortControllersRef = useRef<Set<AbortController>>(new Set());
+  const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadAbortContextRef = useRef<{ uploadId: string; key: string } | null>(null);
+  const uploadCancelRequestedRef = useRef(false);
+  const uploadProxyAbortRef = useRef<AbortController | null>(null);
   const [etaTick, setEtaTick] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -7303,10 +7309,12 @@ const Editor = () => {
       headers?: Record<string, string>;
       skipContentType?: boolean;
       fallbackTotalBytes?: number;
+      onXhr?: (xhr: XMLHttpRequest) => void;
     },
   ) => {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      options?.onXhr?.(xhr);
       const body = options?.body ?? file;
       const headers = options?.headers ?? {};
       const fallbackTotal = Number.isFinite(Number(options?.fallbackTotalBytes))
@@ -7325,6 +7333,7 @@ const Editor = () => {
         else reject(new Error(`Upload failed (${xhr.status})`));
       };
       xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.onabort = () => reject(new Error("upload_canceled"));
       xhr.open("PUT", url, true);
       const headerEntries = Object.entries(headers);
       const hasContentTypeHeader = headerEntries.some(([key]) => key.toLowerCase() === "content-type");
@@ -7341,6 +7350,20 @@ const Editor = () => {
   const isSupabaseSignedUploadUrl = (url: string) => url.includes("/storage/v1/object/upload/sign/");
 
   // Resumable upload logic removed — we use backend-presigned multipart upload to R2
+
+  const isUploadCanceledError = (err: any) => {
+    if (uploadCancelRequestedRef.current) return true;
+    const message = String(err?.message || err || "").toLowerCase();
+    return message.includes("upload_canceled") || err?.name === "AbortError";
+  };
+
+  const throwIfUploadCanceled = () => {
+    if (uploadCancelRequestedRef.current) {
+      const error = new Error("upload_canceled");
+      (error as { code?: string }).code = "UPLOAD_CANCELED";
+      throw error;
+    }
+  };
 
   const handleFile = async (
     file: File,
@@ -7361,6 +7384,19 @@ const Editor = () => {
       toast({ title: "Unsupported file type", description: "Please upload an MP4, M4V, or MKV file." });
       return false;
     }
+    uploadCancelRequestedRef.current = false;
+    setCancelingUpload(false);
+    uploadAbortContextRef.current = null;
+    if (uploadProxyAbortRef.current) {
+      uploadProxyAbortRef.current.abort();
+      uploadProxyAbortRef.current = null;
+    }
+    if (uploadXhrRef.current) {
+      uploadXhrRef.current.abort();
+      uploadXhrRef.current = null;
+    }
+    uploadAbortControllersRef.current.forEach((controller) => controller.abort());
+    uploadAbortControllersRef.current.clear();
     if (!accessToken) return false;
     void ensureNotificationPermission("export_start");
     const requestedMode = renderOptions?.mode === "vertical" ? "vertical" : "horizontal";
@@ -7613,6 +7649,7 @@ const Editor = () => {
           token: accessToken,
         },
       );
+      throwIfUploadCanceled();
 
       setUploadingJobId(create.job.id);
       pipelineStartRef.current[create.job.id] = Date.now();
@@ -7627,6 +7664,7 @@ const Editor = () => {
       const tryR2Multipart = async () => {
         let abortContext: { uploadId: string; key: string } | null = null;
         try {
+          throwIfUploadCanceled();
           const r2create = await apiFetch<{
             uploadId: string;
             key: string;
@@ -7640,6 +7678,7 @@ const Editor = () => {
 
           const { uploadId, key, partSize, presignedParts } = r2create;
           abortContext = { uploadId, key };
+          uploadAbortContextRef.current = abortContext;
           if (!uploadId || !key || !Array.isArray(presignedParts) || presignedParts.length === 0) throw new Error("invalid_r2_create");
 
           const total = file.size;
@@ -7670,23 +7709,37 @@ const Editor = () => {
           const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
           const uploadPart = async (part: { partNumber: number; url: string }) => {
+            throwIfUploadCanceled();
+            const controller = new AbortController();
+            uploadAbortControllersRef.current.add(controller);
             const partNumber = part.partNumber;
             const start = (partNumber - 1) * actualPartSize;
             const end = Math.min(total, start + actualPartSize);
             const chunk = file.slice(start, end);
-            const resp = await fetch(part.url, {
-              method: "PUT",
-              headers: { "Content-Type": "application/octet-stream" },
-              body: chunk,
-            });
-            if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`);
-            const etag = resp.headers.get("ETag") || resp.headers.get("etag");
-            if (!etag) {
-              throw new Error(
-                "missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads",
-              );
+            try {
+              const resp = await fetch(part.url, {
+                method: "PUT",
+                headers: { "Content-Type": "application/octet-stream" },
+                body: chunk,
+                signal: controller.signal,
+              });
+              if (controller.signal.aborted) throw new Error("upload_canceled");
+              if (!resp.ok) throw new Error(`upload_part_failed_${partNumber}`);
+              const etag = resp.headers.get("ETag") || resp.headers.get("etag");
+              if (!etag) {
+                throw new Error(
+                  "missing_etag_header: configure R2 CORS ExposeHeaders to include ETag for multipart uploads",
+                );
+              }
+              return { ETag: etag, PartNumber: partNumber, size: chunk.size };
+            } catch (err) {
+              if (controller.signal.aborted || uploadCancelRequestedRef.current) {
+                throw new Error("upload_canceled");
+              }
+              throw err;
+            } finally {
+              uploadAbortControllersRef.current.delete(controller);
             }
-            return { ETag: etag, PartNumber: partNumber, size: chunk.size };
           };
 
           const uploadPartWithRetry = async (part: { partNumber: number; url: string }) => {
@@ -7697,6 +7750,7 @@ const Editor = () => {
               try {
                 return await uploadPart(part);
               } catch (err: any) {
+                if (isUploadCanceledError(err)) throw err;
                 const message = String(err?.message || err || "");
                 if (message.includes("missing_etag_header") || attempt >= maxAttempts) throw err;
                 const backoffMs = Math.min(1800, (attempt * 260) + Math.floor(Math.random() * 180));
@@ -7708,6 +7762,7 @@ const Editor = () => {
 
           if (parallelism <= 1 || sortedPresignedParts.length <= 1) {
             for (const part of sortedPresignedParts) {
+              throwIfUploadCanceled();
               const result = await uploadPartWithRetry(part);
               parts.push({ ETag: result.ETag, PartNumber: result.PartNumber });
               uploaded += result.size;
@@ -7720,6 +7775,7 @@ const Editor = () => {
             const workerCount = Math.min(parallelism, sortedPresignedParts.length);
             const worker = async () => {
               while (cursor < sortedPresignedParts.length) {
+                throwIfUploadCanceled();
                 const current = cursor;
                 cursor += 1;
                 const result = await uploadPartWithRetry(sortedPresignedParts[current]);
@@ -7735,6 +7791,7 @@ const Editor = () => {
           }
 
           // Complete multipart upload on backend
+          throwIfUploadCanceled();
           await apiFetch("/api/uploads/complete", {
             method: "POST",
             body: JSON.stringify({ jobId: create.job.id, key, uploadId, parts }),
@@ -7749,6 +7806,20 @@ const Editor = () => {
           toast({ title: "Upload complete", description: "Your job is now processing." });
           return true;
         } catch (err) {
+          if (isUploadCanceledError(err)) {
+            try {
+              if (abortContext?.uploadId && abortContext?.key) {
+                await apiFetch("/api/uploads/abort", {
+                  method: "POST",
+                  body: JSON.stringify({ key: abortContext.key, uploadId: abortContext.uploadId }),
+                  token: accessToken,
+                });
+              }
+            } catch (abortErr) {
+              console.warn("R2 multipart abort failed", abortErr);
+            }
+            throw err;
+          }
           console.warn("R2 multipart upload failed", err);
           // best-effort abort if we have uploadId
           try {
@@ -7763,6 +7834,10 @@ const Editor = () => {
             console.warn("R2 multipart abort failed", abortErr);
           }
           return false;
+        } finally {
+          if (uploadAbortContextRef.current && uploadAbortContextRef.current.uploadId === abortContext?.uploadId) {
+            uploadAbortContextRef.current = null;
+          }
         }
       };
 
@@ -7770,8 +7845,10 @@ const Editor = () => {
       const canUseMultipart = create.uploadProvider !== "supabase";
       const usedR2 = canUseMultipart ? await tryR2Multipart() : false;
       if (usedR2) return true
+      throwIfUploadCanceled()
 
       const uploadViaProxy = async () => {
+        throwIfUploadCanceled();
         const filenameParam = encodeURIComponent(file.name || "upload");
         const proxyPath = `/api/uploads/proxy?jobId=${encodeURIComponent(create.job.id)}&filename=${filenameParam}`
         const proxyBases: string[] = []
@@ -7792,7 +7869,10 @@ const Editor = () => {
         if (!proxyBases.length) proxyBases.push("")
         let lastError: unknown = null
         for (const base of proxyBases) {
+          throwIfUploadCanceled();
           const proxyUrl = `${base}${proxyPath}`
+          const controller = new AbortController()
+          uploadProxyAbortRef.current = controller
           try {
             const proxyResp = await fetch(proxyUrl, {
               method: "POST",
@@ -7802,12 +7882,18 @@ const Editor = () => {
                 "X-File-Name": file.name || "upload",
               },
               body: file,
+              signal: controller.signal,
             })
             if (!proxyResp.ok) throw new Error(`Proxy upload failed (${proxyResp.status})`)
             setUploadProgress(100)
             return
           } catch (err) {
+            if (isUploadCanceledError(err)) throw err
             lastError = err
+          } finally {
+            if (uploadProxyAbortRef.current === controller) {
+              uploadProxyAbortRef.current = null
+            }
           }
         }
         throw lastError ?? new Error("Proxy upload failed")
@@ -7819,6 +7905,7 @@ const Editor = () => {
         jobFileSizeRef.current[create.job.id] = file.size
         uploadStartRef.current[create.job.id] = Date.now()
         try {
+          throwIfUploadCanceled()
           const isSupabaseSignedUpload =
             create.uploadProvider === "supabase" || isSupabaseSignedUploadUrl(create.uploadUrl);
           if (isSupabaseSignedUpload) {
@@ -7837,16 +7924,25 @@ const Editor = () => {
               body: formData,
               headers: supabaseHeaders,
               skipContentType: true,
-              fallbackTotalBytes: file.size
+              fallbackTotalBytes: file.size,
+              onXhr: (xhr) => {
+                uploadXhrRef.current = xhr;
+              },
             });
           } else {
             await uploadWithProgress(create.uploadUrl, file, setUploadProgress, (loaded, total) => {
               setUploadBytesUploaded(loaded)
               setUploadBytesTotal(total)
               setUploadProgress(Math.round((loaded / total) * 100))
-            }, { fallbackTotalBytes: file.size })
+            }, {
+              fallbackTotalBytes: file.size,
+              onXhr: (xhr) => {
+                uploadXhrRef.current = xhr;
+              },
+            })
           }
         } catch (err) {
+          if (isUploadCanceledError(err)) throw err
           console.warn('Direct upload failed, falling back to proxy', err)
           await uploadViaProxy()
           toast({ title: 'Upload complete', description: 'Your job is now processing.' })
@@ -7856,9 +7952,12 @@ const Editor = () => {
           setUploadBytesTotal(null)
           fetchJobs()
           return true
+        } finally {
+          uploadXhrRef.current = null
         }
 
         // Notify backend of completion for single-PUT flow
+        throwIfUploadCanceled()
         await apiFetch(`/api/jobs/${create.job.id}/complete-upload`, {
           method: 'POST',
           body: JSON.stringify({
@@ -7924,6 +8023,18 @@ const Editor = () => {
       return true
     } catch (err: any) {
       console.error(err);
+      if (isUploadCanceledError(err)) {
+        if (!uploadCancelRequestedRef.current) {
+          toast({ title: "Upload canceled", description: "The upload was stopped." });
+        }
+        uploadCancelRequestedRef.current = false;
+        setCancelingUpload(false);
+        setUploadingJobId(null);
+        setUploadProgress(0);
+        setUploadBytesUploaded(null);
+        setUploadBytesTotal(null);
+        return false;
+      }
       if (err instanceof ApiError && err.code === "PLAN_LIMIT_EXCEEDED" && err.data?.feature === "editorInstructions") {
         promptDirectorNotesUpgrade();
       } else if (err instanceof ApiError && err.code === "RENDER_LIMIT_REACHED") {
@@ -9886,6 +9997,45 @@ const Editor = () => {
     },
     [accessToken, fetchJobs, signOut, toast],
   );
+
+  const handleCancelUpload = useCallback(async () => {
+    if (!uploadingJobId || cancelingUpload) return;
+    uploadCancelRequestedRef.current = true;
+    setCancelingUpload(true);
+    verticalAutoRenderRequestedRef.current = false;
+    uploadAbortControllersRef.current.forEach((controller) => controller.abort());
+    uploadAbortControllersRef.current.clear();
+    if (uploadProxyAbortRef.current) {
+      uploadProxyAbortRef.current.abort();
+      uploadProxyAbortRef.current = null;
+    }
+    if (uploadXhrRef.current) {
+      uploadXhrRef.current.abort();
+      uploadXhrRef.current = null;
+    }
+    if (accessToken && uploadAbortContextRef.current) {
+      try {
+        await apiFetch("/api/uploads/abort", {
+          method: "POST",
+          body: JSON.stringify({
+            key: uploadAbortContextRef.current.key,
+            uploadId: uploadAbortContextRef.current.uploadId,
+          }),
+          token: accessToken,
+        });
+      } catch (err) {
+        console.warn("Upload abort failed", err);
+      }
+    }
+    if (accessToken) {
+      await handleCancelJob(uploadingJobId);
+    }
+    setUploadingJobId(null);
+    setUploadProgress(0);
+    setUploadBytesUploaded(null);
+    setUploadBytesTotal(null);
+    setCancelingUpload(false);
+  }, [accessToken, cancelingUpload, handleCancelJob, uploadingJobId]);
 
   const handleRedoRender = useCallback(
     async (job: JobDetail, options?: { clipIndex?: number; overrides?: Record<string, unknown> }) => {
@@ -19602,21 +19752,21 @@ const Editor = () => {
 
           <div className={`grid grid-cols-1 gap-6 ${(showVerticalGalleryOnlyLayout || hideJobsPanel) ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
             {!showVerticalGalleryOnlyLayout && !hideJobsPanel ? (
-              <aside className="editor-job-list-shell min-w-0 space-y-3 p-3">
+              <aside className="editor-job-list-shell min-w-0 space-y-2 p-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-[13px] font-semibold text-foreground">Pipeline Jobs</h2>
-                    <p className="text-[10px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
+                    <h2 className="text-[12px] font-semibold text-foreground">Pipeline Jobs</h2>
+                    <p className="text-[9px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
                   </div>
-                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[11px] text-muted-foreground">
+                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[10px] text-muted-foreground">
                     {jobs.length}
                   </Badge>
                 </div>
-                {loadingJobs && <p className="text-[11px] text-muted-foreground">Loading jobs...</p>}
+                {loadingJobs && <p className="text-[10px] text-muted-foreground">Loading jobs...</p>}
                 {!loadingJobs && jobs.length === 0 && (
-                  <p className="text-[11px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+                  <p className="text-[10px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
                 )}
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {jobs.map((job) => {
                     const normalizedJobStatus = normalizeStatus(job.status);
                     const ready = normalizedJobStatus === "ready";
@@ -19635,36 +19785,36 @@ const Editor = () => {
                         data-selected={selectedJobId === job.id ? "true" : "false"}
                         data-ready={ready ? "true" : "false"}
                         data-highlighted={highlightedJobId === job.id ? "true" : "false"}
-                        className="editor-job-card w-full text-left px-2.5 py-2"
+                        className="editor-job-card w-full text-left px-2 py-1.5"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className={`truncate text-[13px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
+                            <p className={`truncate text-[12px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
                               {displayName(job)}
                             </p>
-                            <p className="mt-0.5 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                            <p className="mt-0.5 text-[8px] uppercase tracking-[0.14em] text-muted-foreground/80">
                               Job {job.id.slice(0, 8)}
                             </p>
                           </div>
                           {inFlight ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[8px] font-medium text-primary">
                               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                               Live
                             </span>
                           ) : null}
                         </div>
 
-                        <div className="mt-2 flex flex-wrap items-center gap-1">
-                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[9px] ${statusBadgeClass(job.status)}`}>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[8px] ${statusBadgeClass(job.status)}`}>
                             {STATUS_LABELS[normalizedJobStatus] || "Queued"}
                           </Badge>
-                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[8px] text-muted-foreground">
                             Stage: {stageLabel}
                           </Badge>
-                          <span className="ml-auto text-[9px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
+                          <span className="ml-auto text-[8px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
                         </div>
 
-                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-background/70">
+                        <div className="mt-1.5 h-0.5 overflow-hidden rounded-full bg-background/70">
                           <div
                             className={`h-full rounded-full transition-all ${
                               normalizedJobStatus === "failed"
@@ -19677,7 +19827,7 @@ const Editor = () => {
                           />
                         </div>
 
-                        <div className="mt-2 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground">
+                        <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[9px] text-muted-foreground">
                           <span className="truncate">
                             {new Date(job.createdAt).toLocaleString([], {
                               month: "short",
@@ -19686,7 +19836,7 @@ const Editor = () => {
                               minute: "2-digit",
                             })}
                           </span>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[9px]">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[8px]">
                             {job.renderMode === "vertical" ? (
                               <>
                                 <ScissorsSquare className="h-3 w-3 text-primary" />
@@ -19750,12 +19900,22 @@ const Editor = () => {
                       </p>
                     ) : null}
                     {uploadingJobId && (
-                      <div className="w-full max-w-sm mt-4">
+                      <div className="w-full max-w-sm mt-4 space-y-2">
                         <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
                           <span>Uploading...</span>
                           <span>{uploadProgress}%</span>
                         </div>
                         <Progress value={uploadProgress} className="h-2 bg-muted [&>div]:bg-primary" />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 w-full"
+                          onClick={handleCancelUpload}
+                          disabled={cancelingUpload}
+                        >
+                          {cancelingUpload ? "Canceling..." : "Cancel Upload"}
+                        </Button>
                       </div>
                     )}
                   </div>
