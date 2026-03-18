@@ -5094,6 +5094,7 @@ const Editor = () => {
   const verticalClipDurationSecondsRef = useRef<number>(VERTICAL_CLIP_DURATION_CHOICES[0]);
   const verticalCaptionHitboxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const captionPreviewDrawFailureCountRef = useRef(0);
+  const captionPreviewFrameTimeRef = useRef(0);
   const verticalCaptionSyncJobRef = useRef<string | null>(null);
   const pendingDownloadAfterRenderRef = useRef<{
     jobId: string;
@@ -9003,8 +9004,19 @@ const Editor = () => {
         }];
     const singleLayoutFit: VerticalFitMode = renderedClipPreviewActive ? "cover" : effectiveVerticalBottomFitMode;
 
+    const targetFrameIntervalMs = performanceConstrained ? (1000 / 24) : (1000 / 30);
+    captionPreviewFrameTimeRef.current = 0;
     let raf = 0;
     const render = () => {
+      const frameNow = performance.now();
+      if (
+        !verticalCaptionDragState &&
+        frameNow - captionPreviewFrameTimeRef.current < targetFrameIntervalMs
+      ) {
+        raf = window.requestAnimationFrame(render);
+        return;
+      }
+      captionPreviewFrameTimeRef.current = frameNow;
       try {
         webGpuPreviewActiveRef.current = false;
         const videoCanvas = verticalCompositionVideoCanvasRef.current;
@@ -9161,7 +9173,7 @@ const Editor = () => {
         }
 
         if (autoCaptionsEnabled && (editableSourcePreviewActive || renderedClipPreviewActive)) {
-          const now = performance.now();
+          const now = frameNow;
           const animSpeed = resolvedVerticalCaptionAnimationSpeed;
           const dynamicAnimationIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
             ? 1.24
@@ -9434,6 +9446,7 @@ const Editor = () => {
     skipManualWebcamCrop,
     webcamCropWasAdjusted,
     webcamPaddingPx,
+    performanceConstrained,
     autoCaptionsEnabled,
     verticalCaptionAnimation,
     resolvedVerticalCaptionAnimationSpeed,
@@ -9451,6 +9464,7 @@ const Editor = () => {
     verticalCaptionAutoEmoji,
     verticalCaptionRemoveFillers,
     verticalCaptionPreset,
+    verticalCaptionDragState,
     selectedVerticalCaptionFontVariant,
     resolvedVerticalCaptionText,
     verticalClipCaptionTextBySlot,
