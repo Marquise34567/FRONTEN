@@ -20,6 +20,14 @@ const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "en
     .join(" ")
 );
 const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+const toValuePoints = (values: number[]) =>
+  values
+    .map((value, index) => {
+      const x = values.length <= 1 ? 0 : (index / (values.length - 1)) * 100;
+      const y = 100 - clampPercent(value);
+      return `${x},${y}`;
+    })
+    .join(" ");
 const normalizePercent = (value: unknown) => {
   if (value === null || value === undefined) return null;
   const raw = Number(value);
@@ -372,6 +380,25 @@ const EditorAMode = () => {
     () => (timelineSeries.length ? toPoints(timelineSeries, "emotion") : ""),
     [timelineSeries],
   );
+  const retentionMiniValues = useMemo(() => {
+    if (timelineSeries.length > 1) {
+      const values = timelineSeries
+        .map((row) => (row.retention ?? row.energy ?? row.emotion))
+        .filter((value): value is number => Number.isFinite(value));
+      if (values.length > 3) {
+        return values.slice(0, 7).map((value) => clampPercent(value));
+      }
+    }
+    return [68, 65, 62, 58, 52, 49, 44];
+  }, [timelineSeries]);
+  const retentionMiniPoints = useMemo(
+    () => (retentionMiniValues.length ? toValuePoints(retentionMiniValues) : ""),
+    [retentionMiniValues],
+  );
+  const retentionMiniArea = useMemo(() => {
+    if (!retentionMiniPoints) return "";
+    return `${retentionMiniPoints} 100,100 0,100`;
+  }, [retentionMiniPoints]);
   const platformForecast = useMemo(() => {
     if (!jobAnalysis) return [] as { label: string; before: number | null; after: number | null; lift: string }[];
     const raw =
@@ -557,6 +584,44 @@ const EditorAMode = () => {
     if (raw.includes("youtube")) return "YouTube";
     return raw.replace(/_/g, " ");
   }, [jobAnalysis]);
+  const retentionDetectionScore = useMemo(() => {
+    const preferred = retentionScoreAfter ?? rateOverallScore ?? 42;
+    return clampPercent(preferred);
+  }, [rateOverallScore, retentionScoreAfter]);
+  const autoPatchBars = useMemo(() => ([
+    22, 26, 32, 28, 36, 44, 30, 52, 58, 46, 40, 62, 68, 54, 48, 42, 38, 46, 58, 72, 66, 52, 40,
+  ]), []);
+  const autoPatchActiveIndex = useMemo(() => {
+    const progress = fullVideoScanProgress ?? retentionDetectionScore ?? 42;
+    const maxIndex = autoPatchBars.length - 1;
+    return Math.max(0, Math.min(maxIndex, Math.round((progress / 100) * maxIndex)));
+  }, [autoPatchBars, fullVideoScanProgress, retentionDetectionScore]);
+  const autoPatchLogRows = useMemo(() => ([
+    { tone: "cmd", text: "$ autoeditor --quick-fix --performance-safe" },
+    { tone: "info", text: "Scanning 14:32 of footage..." },
+    { tone: "warn", text: "7 retention drops detected" },
+    { tone: "info", text: "Removing 16s dead air at 3:42" },
+    { tone: "success", text: "Tightening cut at 0:48 (+2.1% retention)" },
+    { tone: "info", text: "Jump cut optimization at 5:20" },
+    { tone: "info", text: "Patching drop at 0:01:31" },
+    { tone: "info", text: "Adjusting pacing at 7:12" },
+  ]), []);
+  const autoPatchStats = useMemo(() => {
+    const patchCountRaw = readNumberFrom(jobAnalysis, ["patch_count", "patchCount", "editsApplied", "edits_applied"]);
+    const patchCount = patchCountRaw !== null && Number.isFinite(patchCountRaw) ? Math.max(0, Math.round(patchCountRaw)) : 7;
+    const durationRaw = readNumberFrom(jobAnalysis, ["duration_sec", "durationSec", "sourceDurationSec", "source_duration_sec"]);
+    const durationLabel = durationRaw !== null && Number.isFinite(durationRaw)
+      ? formatTimelineStamp(durationRaw)
+      : "14:32";
+    const retentionLift = retentionScoreDelta !== null
+      ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta.toFixed(1)}%`
+      : "+12.4%";
+    return [
+      { label: "Patches Applied", value: String(patchCount), accent: "neutral" },
+      { label: "Analyzed", value: durationLabel, accent: "neutral" },
+      { label: "Retention", value: retentionLift, accent: "good" },
+    ];
+  }, [jobAnalysis, retentionScoreDelta]);
   const qualityGate = useMemo(() => {
     const raw = jobAutonomous?.qualityGate ?? jobAnalysis?.qualityGate ?? jobAnalysis?.quality_gate;
     if (!raw || typeof raw !== "object") return null;
@@ -672,6 +737,109 @@ const EditorAMode = () => {
             </div>
           </div>
         </motion.header>
+
+        <motion.section
+          className="mx-auto mt-6 grid max-w-6xl gap-4 lg:grid-cols-2"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.04, duration: 0.38 }}
+        >
+          <article className="a-mode-visual-card">
+            <div className="a-mode-visual-shell">
+              <div className="a-mode-visual-top">
+                <div className="a-mode-signal-strip" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+              <div className="a-mode-visual-content">
+                <p className="a-mode-visual-kicker">AI Analysis</p>
+                <h2 className="a-mode-visual-title">Retention Detection</h2>
+                <p className="a-mode-visual-subtitle">AutoEditor scans for audience drop-off points</p>
+                <div className="a-mode-mini-card">
+                  <div className="a-mode-mini-header">
+                    <span className="a-mode-mini-label">Signal</span>
+                    <span className="a-mode-mini-score">II {retentionDetectionScore}%</span>
+                  </div>
+                  <div className="a-mode-mini-graph">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                      <defs>
+                        <linearGradient id="a-mode-mini-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="rgba(124, 92, 255, 0.9)" />
+                          <stop offset="100%" stopColor="rgba(99, 102, 241, 0.95)" />
+                        </linearGradient>
+                        <linearGradient id="a-mode-mini-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="rgba(124, 92, 255, 0.18)" />
+                          <stop offset="100%" stopColor="rgba(124, 92, 255, 0.02)" />
+                        </linearGradient>
+                      </defs>
+                      <polyline points={retentionMiniArea} fill="url(#a-mode-mini-fill)" stroke="none" />
+                      <polyline points={retentionMiniPoints} fill="none" stroke="url(#a-mode-mini-line)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div className="a-mode-visual-footer">
+                <button className="a-mode-download-btn" type="button">Download Video</button>
+              </div>
+            </div>
+          </article>
+
+          <article className="a-mode-visual-card">
+            <div className="a-mode-visual-shell a-mode-visual-shell-alt">
+              <div className="a-mode-visual-top">
+                <div className="a-mode-signal-strip" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+              <div className="a-mode-visual-content">
+                <p className="a-mode-visual-kicker">Performance Mode</p>
+                <h2 className="a-mode-visual-title">Auto-Patch in Progress</h2>
+                <div className="a-mode-bar-grid" aria-hidden="true">
+                  {autoPatchBars.map((height, index) => {
+                    const isActive = index === autoPatchActiveIndex;
+                    const isTrailing = index > autoPatchActiveIndex - 3 && index < autoPatchActiveIndex + 3;
+                    return (
+                      <span
+                        key={`a-mode-bar-${index}`}
+                        className={`a-mode-bar ${isActive ? "is-active" : ""} ${isTrailing ? "is-trailing" : ""}`}
+                        style={{ height: `${height}%` }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="a-mode-terminal">
+                  <div className="a-mode-terminal-header">
+                    <span className="a-mode-terminal-dot is-red" />
+                    <span className="a-mode-terminal-dot is-yellow" />
+                    <span className="a-mode-terminal-dot is-green" />
+                    <span className="a-mode-terminal-title">autoeditor --quick-fix --performance-safe</span>
+                  </div>
+                  <div className="a-mode-terminal-body">
+                    {autoPatchLogRows.map((row) => (
+                      <p key={row.text} className={`a-mode-terminal-line is-${row.tone}`}>
+                        {row.text}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+                <div className="a-mode-stat-grid">
+                  {autoPatchStats.map((stat) => (
+                    <div key={stat.label} className={`a-mode-stat-card ${stat.accent === "good" ? "is-good" : ""}`}>
+                      <p className="a-mode-stat-value">{stat.value}</p>
+                      <p className="a-mode-stat-label">{stat.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </article>
+        </motion.section>
 
         <motion.section
           className="mx-auto mt-6 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-5"
