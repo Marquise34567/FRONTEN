@@ -37,17 +37,19 @@ const buildRealtimeSocketUrls = (token: string) => {
     addFromBase(asHttp);
   };
   const runtimeOriginBase = getRuntimeOriginBase();
-  if (rawRealtimeUrl) {
+  const hasExplicitRealtime = Boolean(rawRealtimeUrl && String(rawRealtimeUrl).trim());
+  if (hasExplicitRealtime) {
     addFromRealtimeEnv(rawRealtimeUrl);
-  }
-  if (API_URL && shouldIncludeApiBase(API_URL, runtimeOriginBase)) {
-    addFromBase(API_URL);
-  }
-  if (typeof window !== "undefined") {
-    const hostname = String(window.location.hostname || "").toLowerCase();
-    const isLocalDevHost = hostname === "localhost" || hostname === "127.0.0.1";
-    if (!isLocalDevHost) {
-      if (runtimeOriginBase) addFromBase(runtimeOriginBase);
+  } else {
+    if (API_URL && shouldIncludeApiBase(API_URL, runtimeOriginBase)) {
+      addFromBase(API_URL);
+    }
+    if (typeof window !== "undefined") {
+      const hostname = String(window.location.hostname || "").toLowerCase();
+      const isLocalDevHost = hostname === "localhost" || hostname === "127.0.0.1";
+      if (!isLocalDevHost) {
+        if (runtimeOriginBase) addFromBase(runtimeOriginBase);
+      }
     }
   }
   return out;
