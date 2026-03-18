@@ -1,13 +1,7 @@
 // In dev we prefer using a Vite proxy instead of hardcoding a backend URL.
 // `VITE_API_URL` may be set for deployed environments, but leave blank in dev
 // so fetches use relative paths (e.g. `/api/...`).
-let rawApiUrl = import.meta.env.VITE_API_URL || "";
-if (!rawApiUrl && typeof window !== "undefined") {
-  const host = window.location.hostname.toLowerCase();
-  if (host === "autoeditor.app" || host.endsWith(".autoeditor.app")) {
-    rawApiUrl = "https://editor-backend-production-8e6e.up.railway.app";
-  }
-}
+const rawApiUrl = import.meta.env.VITE_API_URL || "";
 const forceAbsoluteDevApi = String(import.meta.env.VITE_FORCE_API_URL || "").trim().toLowerCase() === "true";
 const TRUE_PATTERN = /^(1|true|yes|on)$/i;
 const FALSE_PATTERN = /^(0|false|no|off)$/i;
@@ -100,14 +94,7 @@ export const getApiBaseCandidates = (options: { includeEmpty?: boolean } = {}) =
     seen.add(normalized);
     out.push(normalized);
   };
-  const preferApiBase =
-    Boolean(API_URL) &&
-    Boolean(runtimeOriginBase) &&
-    isProtectedRuntimeOrigin(runtimeOriginBase);
-  // In production on autoeditor.app, prefer the Railway API directly to avoid
-  // proxy auth header issues through the Vercel rewrite.
-  if (preferApiBase) add(API_URL);
-  if (runtimeOriginBase && !preferApiBase) add(runtimeOriginBase);
+  if (runtimeOriginBase) add(runtimeOriginBase);
   if (shouldIncludeApiBase(API_URL || "", runtimeOriginBase)) add(API_URL);
   if (includeEmpty && !out.length) out.push("");
   return out;
