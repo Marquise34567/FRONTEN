@@ -686,21 +686,21 @@ const EditorAMode = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="responsive-main min-h-screen px-4 pb-20 pt-24">
+      <main className="responsive-main min-h-screen px-4 pb-16 pt-20">
         <motion.header
-          className="mx-auto max-w-6xl space-y-3"
+          className="mx-auto max-w-6xl space-y-2"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
         >
           <Link
             to={backToEditorHref}
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
+            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground transition hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to editor
           </Link>
-          <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-[linear-gradient(140deg,rgba(30,32,74,0.78),rgba(13,19,42,0.7))] p-5 backdrop-blur">
+          <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-[linear-gradient(140deg,rgba(30,32,74,0.78),rgba(13,19,42,0.7))] p-4 backdrop-blur">
             <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-primary/20 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-10 left-12 h-28 w-28 rounded-full bg-cyan-300/15 blur-3xl" />
             <div className="relative">
@@ -708,11 +708,11 @@ const EditorAMode = () => {
                 <Badge className="border-primary/35 bg-primary/10 text-foreground">A-Mode</Badge>
                 <Badge className="border-border/55 bg-background/55 text-foreground">Self-directed · Learning live</Badge>
               </div>
-              <h1 className="mt-2 font-display text-3xl font-semibold text-foreground sm:text-4xl">A-Mode Intelligence Deck</h1>
-              <p className="mt-2 max-w-3xl text-sm text-foreground/85">
+              <h1 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">A-Mode Intelligence Deck</h1>
+              <p className="mt-2 max-w-3xl text-[13px] text-foreground/85">
                 Expanded retention intelligence with richer data, modern graphing, and a premium decision dashboard.
               </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                 {jobLoading ? (
                   <Badge className="border-cyan-300/35 bg-cyan-400/10 text-cyan-100">Syncing job data...</Badge>
                 ) : null}
@@ -739,7 +739,7 @@ const EditorAMode = () => {
         </motion.header>
 
         <motion.section
-          className="mx-auto mt-6 grid max-w-6xl gap-4 lg:grid-cols-2"
+          className="mx-auto mt-4 grid max-w-6xl gap-3 lg:grid-cols-2"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.04, duration: 0.38 }}
@@ -842,40 +842,40 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-6 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-5"
+          className="mx-auto mt-4 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-5"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4 }}
         >
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention score</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
+            <p className="mt-1 text-xl font-semibold text-foreground">
               {retentionScoreAfter !== null ? `${retentionScoreAfter}%` : "--"}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {retentionScoreAfter !== null ? "Latest retention score" : "Awaiting retention score"}
             </p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Peak energy</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
+            <p className="mt-1 text-xl font-semibold text-foreground">
               {peakEnergyPoint ? peakEnergyPoint.energy : "--"}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {peakEnergyPoint ? `At ${peakEnergyPoint.stamp}` : "Awaiting energy scan"}
             </p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Emotion sync</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{avgEmotion ?? "--"}</p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xl font-semibold text-foreground">{avgEmotion ?? "--"}</p>
+            <p className="text-[10px] text-muted-foreground">
               {avgEmotion !== null ? "Facial + audio weighted" : "Awaiting emotion scan"}
             </p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Quality gate</p>
             <p
-              className={`mt-1 text-2xl font-semibold ${
+              className={`mt-1 text-xl font-semibold ${
                 qualityGatePassed === false
                   ? "text-rose-200"
                   : qualityGatePassed === true
@@ -885,7 +885,7 @@ const EditorAMode = () => {
             >
               {qualityGateScore ?? "--"}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {qualityGatePassed === false
                 ? "Gate needs attention"
                 : qualityGatePassed === true
@@ -893,11 +893,11 @@ const EditorAMode = () => {
                   : "Quality gate awaiting signal"}
             </p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Rate Card Winner</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{rateTopScore ?? "--"}</p>
-            <p className="text-[11px] text-muted-foreground">{rateTopScore !== null ? rateTopLabel : "Pending"}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xl font-semibold text-foreground">{rateTopScore ?? "--"}</p>
+            <p className="text-[10px] text-muted-foreground">{rateTopScore !== null ? rateTopLabel : "Pending"}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
               {rateDecisionReady && hasRateCard
                 ? "Locked on ready render"
                 : hasRateCard
@@ -908,19 +908,19 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          className="mx-auto mt-3 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-4"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.06, duration: 0.35 }}
         >
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention before</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionScoreBefore ?? "--"}</p>
-            <p className="text-[11px] text-muted-foreground">Baseline signal</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{retentionScoreBefore ?? "--"}</p>
+            <p className="text-[10px] text-muted-foreground">Baseline signal</p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention delta</p>
-            <p className={`mt-1 text-2xl font-semibold ${
+            <p className={`mt-1 text-xl font-semibold ${
               retentionScoreDelta === null
                 ? "text-foreground"
                 : retentionScoreDelta >= 0
@@ -929,27 +929,27 @@ const EditorAMode = () => {
             }`}>
               {retentionScoreDelta !== null ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta}` : "--"}
             </p>
-            <p className="text-[11px] text-muted-foreground">After - before</p>
+            <p className="text-[10px] text-muted-foreground">After - before</p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Hook confidence</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{hookConfidence ?? "--"}{hookConfidence !== null ? "%" : ""}</p>
-            <p className="text-[11px] text-muted-foreground">Opener signal</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{hookConfidence ?? "--"}{hookConfidence !== null ? "%" : ""}</p>
+            <p className="text-[10px] text-muted-foreground">Opener signal</p>
           </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-3">
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Target platform</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{retentionTargetPlatformLabel}</p>
-            <p className="text-[11px] text-muted-foreground">Retention focus</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{retentionTargetPlatformLabel}</p>
+            <p className="text-[10px] text-muted-foreground">Retention focus</p>
           </article>
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-2"
+          className="mx-auto mt-3 grid max-w-6xl gap-3 lg:grid-cols-2"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.38 }}
         >
-          <article className="relative overflow-hidden rounded-2xl border border-primary/25 bg-[linear-gradient(145deg,rgba(29,35,68,0.72),rgba(14,18,39,0.74))] p-4">
+          <article className="relative overflow-hidden rounded-2xl border border-primary/25 bg-[linear-gradient(145deg,rgba(29,35,68,0.72),rgba(14,18,39,0.74))] p-3">
             <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-primary/20 blur-3xl" />
             <div className="relative">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -960,7 +960,7 @@ const EditorAMode = () => {
                 <Badge className="border-primary/35 bg-primary/10 text-foreground">Moved to A-Mode</Badge>
               </div>
               <div className="mt-3 flex flex-wrap items-end gap-2">
-                <p className="font-display text-5xl font-bold leading-none text-foreground">
+                <p className="font-display text-4xl font-bold leading-none text-foreground">
                   {rateOverallScore ?? "--"}
                 </p>
                 <span className="pb-1 text-sm text-muted-foreground">{rateOverallScore !== null ? "/100" : "pending"}</span>
@@ -976,14 +976,14 @@ const EditorAMode = () => {
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Suggestions selected {rateSelectedCount}/{rateSuggestionCount}
               </p>
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-2">
                 {rateScoreRows.map((row) => (
-                  <div key={row.key} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
+                  <div key={row.key} className="rounded-lg border border-border/55 bg-background/45 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">{row.label}</p>
                       <Badge className="border-primary/35 bg-primary/10 text-foreground">{row.score ?? "--"}</Badge>
                     </div>
-                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted/65">
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted/65">
                       <div
                         className={`h-full rounded-full bg-gradient-to-r ${row.barClassName}`}
                         style={{ width: `${row.score ?? 0}%` }}
@@ -995,7 +995,7 @@ const EditorAMode = () => {
             </div>
           </article>
 
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Activity className="h-3.5 w-3.5 text-primary" />
@@ -1009,20 +1009,20 @@ const EditorAMode = () => {
                     : "Scan running"}
               </Badge>
             </div>
-            <p className="mt-3 font-display text-5xl font-bold leading-none text-foreground">
+            <p className="mt-2 font-display text-4xl font-bold leading-none text-foreground">
               {fullVideoScanProgress === null ? "--" : `${Math.round(fullVideoScanProgress)}%`}
             </p>
             <Progress
               value={fullVideoScanProgress ?? 0}
-              className="mt-3 h-2.5 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
+              className="mt-2.5 h-2 bg-muted/70 [&>div]:bg-gradient-to-r [&>div]:from-cyan-300 [&>div]:to-primary"
             />
-            <p className="mt-2 text-sm text-foreground/90">{fullVideoScanLabel}</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+            <p className="mt-2 text-[13px] text-foreground/90">{fullVideoScanLabel}</p>
+            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Render Link</p>
                 <p className="mt-1 text-xs text-foreground">{activeJobId ? `Job ${activeJobId.slice(0, 12)}` : "No job selected"}</p>
               </div>
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Mode Note</p>
                 <p className="mt-1 text-xs text-foreground">Full scan and rate decisions now live on this page.</p>
               </div>
@@ -1031,12 +1031,12 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-2"
+          className="mx-auto mt-3 grid max-w-6xl gap-3 lg:grid-cols-2"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.38 }}
         >
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Activity className="h-3.5 w-3.5 text-primary" />
@@ -1046,7 +1046,7 @@ const EditorAMode = () => {
             </div>
             {hasTimeline ? (
               <>
-                <div className="mt-3 h-44 rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] p-3">
+                <div className="mt-2.5 h-36 rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] p-3">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                     <defs>
                       <linearGradient id="a-mode-energy" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -1062,9 +1062,9 @@ const EditorAMode = () => {
                     <polyline points={emotionPoints} fill="none" stroke="url(#a-mode-emotion)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
-                <div className="mt-3 grid grid-cols-4 gap-1.5">
+                <div className="mt-2.5 grid grid-cols-4 gap-1">
                   {timelineSeries.map((row) => (
-                    <div key={row.stamp} className="rounded-md border border-border/50 bg-background/45 px-2 py-1.5">
+                    <div key={row.stamp} className="rounded-md border border-border/50 bg-background/45 px-2 py-1">
                       <p className="text-[10px] text-muted-foreground">{row.stamp}</p>
                       <p className="text-[11px] font-medium text-foreground">E {row.energy} · M {row.emotion}</p>
                     </div>
@@ -1072,13 +1072,13 @@ const EditorAMode = () => {
                 </div>
               </>
             ) : (
-              <div className="mt-3 flex h-44 items-center justify-center rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] text-xs text-muted-foreground">
+              <div className="mt-2.5 flex h-36 items-center justify-center rounded-xl border border-border/55 bg-[linear-gradient(180deg,rgba(26,33,59,0.76),rgba(14,19,38,0.62))] text-xs text-muted-foreground">
                 No energy/emotion timeline available yet.
               </div>
             )}
           </article>
 
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <BarChart3 className="h-3.5 w-3.5 text-primary" />
@@ -1089,9 +1089,9 @@ const EditorAMode = () => {
               </Badge>
             </div>
             {platformForecast.length > 0 ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-2">
                 {platformForecast.map((row) => (
-                  <div key={row.label} className="rounded-lg border border-border/55 bg-background/45 p-2.5">
+                  <div key={row.label} className="rounded-lg border border-border/55 bg-background/45 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">{row.label}</p>
                       <Badge className="border-primary/35 bg-primary/10 text-primary">
@@ -1104,7 +1104,7 @@ const EditorAMode = () => {
                           <span>Before</span>
                           <span>{row.before ?? "--"}</span>
                         </div>
-                        <div className="h-2 rounded-full bg-muted/70">
+                        <div className="h-1.5 rounded-full bg-muted/70">
                           <div className="h-full rounded-full bg-slate-400/75" style={{ width: `${row.before ?? 0}%` }} />
                         </div>
                       </div>
@@ -1113,7 +1113,7 @@ const EditorAMode = () => {
                           <span>After</span>
                           <span>{row.after ?? "--"}</span>
                         </div>
-                        <div className="h-2 rounded-full bg-muted/70">
+                        <div className="h-1.5 rounded-full bg-muted/70">
                           <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-300/80" style={{ width: `${row.after ?? 0}%` }} />
                         </div>
                       </div>
@@ -1122,13 +1122,13 @@ const EditorAMode = () => {
                 ))}
               </div>
             ) : (
-              <div className="mt-3 rounded-lg border border-border/55 bg-background/45 p-3 text-xs text-muted-foreground">
+              <div className="mt-2.5 rounded-lg border border-border/55 bg-background/45 p-2.5 text-xs text-muted-foreground">
                 No platform forecast available yet.
               </div>
             )}
           </article>
 
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <ScanFace className="h-3.5 w-3.5 text-primary" />
@@ -1139,9 +1139,9 @@ const EditorAMode = () => {
               </Badge>
             </div>
             {facialZones.length > 0 ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-2">
                 {facialZones.map((zone) => (
-                  <div key={`${zone.label}-${zone.at}`} className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+                  <div key={`${zone.label}-${zone.at}`} className="rounded-lg border border-border/60 bg-background/60 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">{zone.label}{zone.at ? ` · ${zone.at}` : ""}</p>
                       <Badge className="border-border/55 bg-background/55 text-foreground">{zone.intensity}</Badge>
@@ -1156,13 +1156,13 @@ const EditorAMode = () => {
                 ))}
               </div>
             ) : (
-              <div className="mt-3 rounded-lg border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+              <div className="mt-2.5 rounded-lg border border-border/60 bg-background/60 p-2.5 text-xs text-muted-foreground">
                 No facial signal data available yet.
               </div>
             )}
           </article>
 
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
@@ -1173,9 +1173,9 @@ const EditorAMode = () => {
               </Badge>
             </div>
             {storyMapRows.length > 0 ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-2">
                 {storyMapRows.map((row, index) => (
-                  <div key={`${row.phase}-${row.range}-${index}`} className="rounded-lg border border-border/60 bg-background/50 p-2.5">
+                  <div key={`${row.phase}-${row.range}-${index}`} className="rounded-lg border border-border/60 bg-background/50 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">{row.phase}</p>
                       <Badge variant="outline" className="border-border/55 bg-background/45 text-[10px] text-muted-foreground">
@@ -1195,7 +1195,7 @@ const EditorAMode = () => {
                 ))}
               </div>
             ) : (
-              <div className="mt-3 rounded-lg border border-border/60 bg-background/50 p-3 text-xs text-muted-foreground">
+              <div className="mt-2.5 rounded-lg border border-border/60 bg-background/50 p-2.5 text-xs text-muted-foreground">
                 No story map data available yet.
               </div>
             )}
@@ -1203,12 +1203,12 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-4 lg:grid-cols-2"
+          className="mx-auto mt-3 grid max-w-6xl gap-3 lg:grid-cols-2"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.38 }}
         >
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Activity className="h-3.5 w-3.5 text-primary" />
@@ -1218,8 +1218,8 @@ const EditorAMode = () => {
                 {humanReviewRequired ? "AI review enabled" : "Auto-approve"}
               </Badge>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Status</p>
                 <p className="mt-1 text-xs text-foreground">
                   {humanReviewState?.status
@@ -1229,7 +1229,7 @@ const EditorAMode = () => {
                       : "Not required"}
                 </p>
               </div>
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Preview</p>
                 <p className="mt-1 text-xs text-foreground">
                   {humanReviewState?.previewDurationSeconds
@@ -1240,11 +1240,11 @@ const EditorAMode = () => {
                   {humanReviewState?.previewMode ? `Mode ${humanReviewState.previewMode}` : "Preview not ready"}
                 </p>
               </div>
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Requested</p>
                 <p className="mt-1 text-xs text-foreground">{formatOptionalDateTime(humanReviewState?.requestedAt) || "--"}</p>
               </div>
-              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-2">
+              <div className="rounded-lg border border-border/55 bg-background/45 px-2.5 py-1.5">
                 <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Approved</p>
                 <p className="mt-1 text-xs text-foreground">{formatOptionalDateTime(humanReviewState?.approvedAt) || "--"}</p>
               </div>
@@ -1252,12 +1252,12 @@ const EditorAMode = () => {
             {humanReviewState?.previewError ? (
               <p className="mt-2 text-[11px] text-rose-200">Preview error: {String(humanReviewState.previewError)}</p>
             ) : null}
-            <div className="mt-3">
+            <div className="mt-2.5">
               <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Reviewer notes</p>
               {humanReviewNotes.length > 0 ? (
                 <div className="mt-2 space-y-2">
                   {humanReviewNotes.map((note) => (
-                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-1.5 text-xs text-foreground/90">
                       {note}
                     </div>
                   ))}
@@ -1268,7 +1268,7 @@ const EditorAMode = () => {
             </div>
           </article>
 
-          <article className="rounded-2xl border border-primary/25 bg-background/55 p-4">
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
@@ -1277,18 +1277,18 @@ const EditorAMode = () => {
               <Badge className="border-primary/35 bg-primary/10 text-foreground">AI agent notes</Badge>
             </div>
             {editorInstructionPrompt ? (
-              <div className="mt-3 rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+              <div className="mt-2.5 rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
                 {editorInstructionPrompt}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-muted-foreground">No agent prompt attached yet.</p>
+              <p className="mt-2.5 text-xs text-muted-foreground">No agent prompt attached yet.</p>
             )}
-            <div className="mt-3">
+            <div className="mt-2.5">
               <p className="text-[10px] uppercase tracking-[0.13em] text-muted-foreground">Action items</p>
               {agentTaskNotes.length > 0 ? (
                 <div className="mt-2 space-y-2">
                   {agentTaskNotes.map((note) => (
-                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                    <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-1.5 text-xs text-foreground/90">
                       {note}
                     </div>
                   ))}
@@ -1301,7 +1301,7 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 max-w-6xl rounded-2xl border border-primary/25 bg-background/55 p-4"
+          className="mx-auto mt-3 max-w-6xl rounded-2xl border border-primary/25 bg-background/55 p-3"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12, duration: 0.35 }}
@@ -1333,19 +1333,19 @@ const EditorAMode = () => {
             </div>
           </div>
           {decisionNotes.length > 0 ? (
-            <div className="mt-3 space-y-2">
+            <div className="mt-2.5 space-y-2">
               {decisionNotes.map((note) => (
-                <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-2 text-xs text-foreground/90">
+                <div key={note} className="rounded-lg border border-border/55 bg-background/45 px-3 py-1.5 text-xs text-foreground/90">
                   {note}
                 </div>
               ))}
             </div>
           ) : (
-            <p className="mt-3 text-xs text-muted-foreground">No decision log entries yet.</p>
+            <p className="mt-2.5 text-xs text-muted-foreground">No decision log entries yet.</p>
           )}
         </motion.section>
 
-        <div className="mx-auto mt-6 flex max-w-6xl justify-end">
+        <div className="mx-auto mt-5 flex max-w-6xl justify-end">
           <Button asChild>
             <Link to={backToEditorHref}>Return to Editor</Link>
           </Button>
