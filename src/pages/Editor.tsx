@@ -7387,9 +7387,7 @@ const Editor = () => {
         : maxCutsRequested;
     const boostedContinuityFirstMode = qualityBoostEnabled ? true : resolvedContinuityFirstMode;
     const boostedExploreX3Mode = qualityBoostEnabled ? true : exploreX3Enabled;
-    const boostedTopHumanGuardMode = qualityBoostEnabled
-      ? (humanReviewEnabled ? true : topHumanGuardEnabled)
-      : topHumanGuardEnabled;
+    const boostedTopHumanGuardMode = topHumanGuardEnabled;
     const effectiveRetentionStrategyProfile: RetentionStrategyProfile = boostedRetentionStrategyProfile;
     const effectiveRetentionAggressionLevel = resolveEffectiveRetentionAggressionLevel({
       strategyProfile: effectiveRetentionStrategyProfile,
