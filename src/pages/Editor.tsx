@@ -94,9 +94,9 @@ const SHOW_CAPTION_STYLE_OPTIONS = false;
 const AUTO_VERTICAL_SINGLE_FIT_MODE = "cover" as const;
 const DEFAULT_VERTICAL_BOTTOM_FIT_MODE = "cover" as const;
 const SHORTS_AUTO_VERTICAL_ONLY = false;
-const MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH = 520;
-const MOBILE_SHORT_MODE_MAX_VIEWPORT_HEIGHT = 980;
-const MOBILE_SHORT_MODE_MAX_VIEWPORT_AREA = 500_000;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH = 767;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_HEIGHT = 1180;
+const MOBILE_SHORT_MODE_MAX_VIEWPORT_AREA = 900_000;
 const ETA_TICK_STANDARD_INTERVAL_MS = 1000;
 const ETA_TICK_CONSTRAINED_INTERVAL_MS = 1500;
 const isAllowedUploadFile = (file: File) => {
@@ -181,7 +181,7 @@ const shouldEnableAutoShortScreenMode = (viewportWidth: number, viewportHeight: 
   const shortEdge = Math.min(width, height);
   const longEdge = Math.max(width, height);
   const area = shortEdge * longEdge;
-  if (shortEdge > MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH) return false;
+  if (shortEdge <= MOBILE_SHORT_MODE_MAX_VIEWPORT_WIDTH) return true;
   if (longEdge <= MOBILE_SHORT_MODE_MAX_VIEWPORT_HEIGHT) return true;
   return area <= MOBILE_SHORT_MODE_MAX_VIEWPORT_AREA;
 };
@@ -15409,6 +15409,78 @@ const Editor = () => {
     || "Auto captions preview";
   const selectedCaptionOverlayTone: VerticalCaptionOverlayTone =
     selectedCaptionClipSlotKey ? (verticalClipCaptionOverlayBySlot[selectedCaptionClipSlotKey] || "none") : "none";
+  const captionPreviewFallbackText = useMemo(() => {
+    const raw = String(captionPreviewTextForClip || "").trim() || "Auto captions preview";
+    const hints =
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const forceUppercase =
+      hints.uppercase || selectedVerticalCaptionFontVariant?.textTransform === "uppercase";
+    const trimmed = raw.length > 120 ? `${raw.slice(0, 117).trimEnd()}...` : raw;
+    return forceUppercase ? trimmed.toUpperCase() : trimmed;
+  }, [captionPreviewTextForClip, selectedVerticalCaptionFontVariant, verticalCaptionPreset]);
+  const captionPreviewFallbackStyle = useMemo(() => {
+    const palette =
+      VERTICAL_CAPTION_PREVIEW_PALETTE[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const defaults =
+      VERTICAL_CAPTION_PRESET_DEFAULTS[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const hints =
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[verticalCaptionPreset] ??
+      VERTICAL_CAPTION_PRESET_RENDER_HINTS[DEFAULT_VERTICAL_CAPTION_STYLE];
+    const overlayPalette = selectedCaptionOverlayTone === "white"
+      ? {
+          boxColor: "rgba(255, 255, 255, 0.94)",
+          borderColor: "rgba(15, 23, 42, 0.82)",
+        }
+      : selectedCaptionOverlayTone === "black"
+        ? {
+            boxColor: "rgba(0, 0, 0, 0.82)",
+            borderColor: "rgba(255, 255, 255, 0.65)",
+          }
+        : null;
+    const baseTextColor = normalizeCaptionCssColor(verticalCaptionTextColor, palette.textColor);
+    const textColor = selectedCaptionOverlayTone === "white" ? "#0B0D12" : baseTextColor;
+    const outlineColor = normalizeCaptionHexColor(verticalCaptionOutlineColor, defaults.outlineColor);
+    const boxEnabled = hints.boxEnabled || selectedCaptionOverlayTone !== "none";
+    const strokePx = boxEnabled
+      ? 0
+      : Number(clamp(verticalCaptionOutlineWidth * 0.05, 0.45, 1.4).toFixed(2));
+    const shadowOpacity = clamp(verticalCaptionShadowStrength / 100, 0, 1);
+    const shadowBlur = boxEnabled ? 0 : Math.max(2, Math.round(2 + shadowOpacity * 5));
+    const shadowY = boxEnabled ? 0 : Math.max(1, Math.round(1 + shadowOpacity * 2));
+    const fontSizePx = Math.round(clamp(verticalCaptionFontSize * 0.26, 16, 30));
+    return {
+      color: textColor,
+      fontFamily: selectedVerticalCaptionFontVariant?.previewFamily
+        ?? VERTICAL_CAPTION_FONT_FAMILY[verticalCaptionFontId]
+        ?? VERTICAL_CAPTION_FONT_FAMILY.impact,
+      fontWeight: selectedVerticalCaptionFontVariant?.fontWeight ?? 900,
+      letterSpacing: `${selectedVerticalCaptionFontVariant?.letterSpacing ?? 0.02}em`,
+      fontSize: `${fontSizePx}px`,
+      lineHeight: 1.08,
+      textTransform: (hints.uppercase || selectedVerticalCaptionFontVariant?.textTransform === "uppercase")
+        ? "uppercase"
+        : "none",
+      WebkitTextStroke: `${strokePx}px #${outlineColor}`,
+      textShadow: shadowBlur > 0 ? `0 ${shadowY}px ${shadowBlur}px rgba(0, 0, 0, 0.65)` : "none",
+      backgroundColor: boxEnabled ? (overlayPalette?.boxColor ?? palette.boxColor) : "transparent",
+      border: boxEnabled ? `1px solid ${overlayPalette?.borderColor ?? palette.borderColor}` : "none",
+      borderRadius: boxEnabled ? "0.6rem" : "0.2rem",
+      padding: boxEnabled ? "0.24rem 0.5rem" : "0.08rem 0.18rem",
+    };
+  }, [
+    selectedCaptionOverlayTone,
+    selectedVerticalCaptionFontVariant,
+    verticalCaptionFontId,
+    verticalCaptionFontSize,
+    verticalCaptionOutlineColor,
+    verticalCaptionOutlineWidth,
+    verticalCaptionPreset,
+    verticalCaptionShadowStrength,
+    verticalCaptionTextColor,
+  ]);
   const selectedCaptionClipLabel = selectedCaptionClipIndex >= 0
     ? `Clip #${selectedCaptionClipIndex + 1}`
     : "Clip";
@@ -18878,7 +18950,7 @@ const Editor = () => {
     <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main
-        className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
+        className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen min-h-[100dvh] max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
           performanceConstrained ? "network-constrained editor-performance-safe" : ""
         } ${autoShortScreenMode ? "editor-auto-short-mode" : ""}`}
         data-network={runtimeProfile.effectiveType ?? "unknown"}
@@ -22651,8 +22723,8 @@ const Editor = () => {
       </Dialog>
       <Dialog open={captionSettingsDialogOpen} onOpenChange={setCaptionSettingsDialogOpen}>
         {captionSettingsDialogOpen ? (
-          <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-hidden border border-border/50 bg-background/95 p-0 backdrop-blur-xl sm:max-w-5xl">
-            <div className="max-h-[90vh] overflow-y-auto p-4 sm:p-5">
+          <DialogContent className="caption-editor-dialog max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-hidden border border-border/50 bg-background/95 p-0 backdrop-blur-xl sm:max-w-5xl">
+            <div className="caption-editor-scroll max-h-[90vh] overflow-y-auto p-4 sm:p-5">
               <DialogHeader>
                 <DialogTitle className="text-xl font-display text-foreground">Caption Editor</DialogTitle>
                 <DialogDescription className="text-sm text-muted-foreground">
@@ -22752,27 +22824,39 @@ const Editor = () => {
                             <div className="relative aspect-[9/16] overflow-hidden rounded-lg border border-border/50 bg-black/75">
                                 {captionPreviewSourceUrl ? (
                                   captionPreviewDrawFallback ? (
-                                    <video
-                                      src={captionPreviewSourceUrl}
-                                      preload="metadata"
-                                      muted
-                                    playsInline
-                                    autoPlay
-                                      loop
-                                      className="h-full w-full bg-black/75 object-cover"
-                                    />
+                                    <div className="relative h-full w-full">
+                                      <video
+                                        src={captionPreviewSourceUrl}
+                                        preload="metadata"
+                                        muted
+                                        playsInline
+                                        autoPlay
+                                        loop
+                                        className="h-full w-full bg-black/75 object-cover"
+                                      />
+                                      {autoCaptionsEnabled ? (
+                                        <div className="pointer-events-none absolute inset-x-2 bottom-3 flex justify-center">
+                                          <span
+                                            className="vertical-variant-preview-caption-text"
+                                            style={captionPreviewFallbackStyle}
+                                          >
+                                            {captionPreviewFallbackText}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   ) : (
-                                  <>
-                                    <canvas
-                                      ref={verticalCompositionVideoCanvasRef}
-                                      className="absolute inset-0 h-full w-full pointer-events-none"
-                                    />
-                                    <canvas
-                                      ref={verticalCompositionCanvasRef}
-                                      onPointerDown={beginVerticalCaptionDrag}
-                                      className="absolute inset-0 h-full w-full touch-none"
-                                    />
-                                  </>
+                                    <>
+                                      <canvas
+                                        ref={verticalCompositionVideoCanvasRef}
+                                        className="absolute inset-0 h-full w-full pointer-events-none"
+                                      />
+                                      <canvas
+                                        ref={verticalCompositionCanvasRef}
+                                        onPointerDown={beginVerticalCaptionDrag}
+                                        className="absolute inset-0 h-full w-full touch-none"
+                                      />
+                                    </>
                                   )
                                 ) : (
                                 <div className="flex h-full items-center justify-center border border-dashed border-border/60 bg-background/45 px-4 text-center text-xs text-muted-foreground">
