@@ -1,7 +1,13 @@
 // In dev we prefer using a Vite proxy instead of hardcoding a backend URL.
 // `VITE_API_URL` may be set for deployed environments, but leave blank in dev
 // so fetches use relative paths (e.g. `/api/...`).
-const rawApiUrl = import.meta.env.VITE_API_URL || "";
+let rawApiUrl = import.meta.env.VITE_API_URL || "";
+if (!rawApiUrl && typeof window !== "undefined") {
+  const host = window.location.hostname.toLowerCase();
+  if (host === "autoeditor.app" || host.endsWith(".autoeditor.app")) {
+    rawApiUrl = "https://editor-backend-production-8e6e.up.railway.app";
+  }
+}
 const forceAbsoluteDevApi = String(import.meta.env.VITE_FORCE_API_URL || "").trim().toLowerCase() === "true";
 const TRUE_PATTERN = /^(1|true|yes|on)$/i;
 const FALSE_PATTERN = /^(0|false|no|off)$/i;
