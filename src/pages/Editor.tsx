@@ -3655,6 +3655,174 @@ const parseBooleanLike = (value: unknown): boolean | null => {
   return null;
 };
 
+type EditTimeComparison = {
+  manualMinutes: number;
+  autoMinutes: number | null;
+  savedMinutes: number | null;
+  autoIsLive: boolean;
+  autoSource: "pipeline" | "job";
+};
+
+const classifyEditDurationKind = (seconds: number): "short-form" | "long-form" => {
+  if (seconds <= 60) return "short-form";
+  if (seconds >= 300) return "long-form";
+  return Math.abs(seconds - 60) <= Math.abs(seconds - 300) ? "short-form" : "long-form";
+};
+
+const roundToTwo = (value: number) => Number(value.toFixed(2));
+
+const resolveEditTimeComparison = ({
+  job,
+  analysis,
+  renderSettings,
+  estimatedDurationSec,
+}: {
+  job: JobDetail | null;
+  analysis: Record<string, unknown> | null;
+  renderSettings: Record<string, unknown> | null;
+  estimatedDurationSec: number | null;
+}): EditTimeComparison | null => {
+  if (!job) return null;
+  const safeAnalysis = analysis ?? {};
+  const metadataSummary =
+    toObjectRecord((safeAnalysis as any).metadata_summary) ??
+    toObjectRecord((safeAnalysis as any).metadataSummary);
+  const timeline = toObjectRecord((metadataSummary as any)?.timeline);
+  const pacing = toObjectRecord((metadataSummary as any)?.pacing);
+  const rawDurationSeconds = firstFiniteNumber(
+    job.inputDurationSeconds,
+    (timeline as any)?.sourceDurationSeconds,
+    (safeAnalysis as any)?.duration,
+    estimatedDurationSec,
+  );
+  if (rawDurationSeconds === null || !Number.isFinite(rawDurationSeconds) || rawDurationSeconds <= 0) return null;
+  const safeRawDuration = Math.max(1, rawDurationSeconds);
+
+  const removedSecondsRaw = firstFiniteNumber((timeline as any)?.removedSeconds);
+  const finalDurationFallback = safeRawDuration - (removedSecondsRaw ?? 0);
+  const finalDurationSeconds = clamp(
+    firstFiniteNumber(
+      (pacing as any)?.editedRuntimeSeconds,
+      (pacing as any)?.keptTimelineSeconds,
+      finalDurationFallback,
+    ) ?? safeRawDuration,
+    1,
+    safeRawDuration,
+  );
+
+  const removedFromRatio = safeRawDuration * clamp01(
+    firstFiniteNumber(
+      (safeAnalysis as any)?.boredom_removed_ratio,
+      (safeAnalysis as any)?.boredomRemovedRatio,
+    ) ?? 0,
+  );
+  const deadAirRemovedSeconds = clamp(
+    firstFiniteNumber(
+      removedSecondsRaw,
+      Math.max(0, safeRawDuration - finalDurationSeconds),
+      removedFromRatio,
+    ) ?? 0,
+    0,
+    safeRawDuration,
+  );
+  const removedRatio = clamp01(deadAirRemovedSeconds / Math.max(1, safeRawDuration));
+
+  const toRatio = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) return null;
+    if (value >= 0 && value <= 1) return clamp01(value);
+    return clamp01(value / 100);
+  };
+  const hookScoreRaw = firstFiniteNumber(
+    (metadataSummary as any)?.hook?.score,
+    (safeAnalysis as any)?.hook_score,
+    (safeAnalysis as any)?.hookScore,
+  );
+  const hookAuditRaw = firstFiniteNumber(
+    (metadataSummary as any)?.hook?.auditScore,
+    (safeAnalysis as any)?.hook_audit_score,
+    (safeAnalysis as any)?.hookAuditScore,
+  );
+  const hookScore = toRatio(hookScoreRaw) ?? 0;
+  const hookAudit = toRatio(hookAuditRaw) ?? hookScore;
+  const hookStrength = Math.max(hookScore, hookAudit);
+
+  const captionModeRaw = String(
+    (safeAnalysis as any)?.captionMode ?? (safeAnalysis as any)?.caption_mode ?? "",
+  ).trim().toLowerCase();
+  const captionFlag =
+    parseBooleanLike((safeAnalysis as any)?.vertical_caption_enabled ?? (safeAnalysis as any)?.verticalCaptionEnabled) ??
+    parseBooleanLike((renderSettings as any)?.vertical_caption_enabled ?? (renderSettings as any)?.verticalCaptionEnabled);
+  const captionsEnabled = captionFlag ?? (captionModeRaw === "ai" || captionModeRaw === "auto");
+
+  const audioChainRaw = Array.isArray((safeAnalysis as any)?.audio_polish_chain)
+    ? (safeAnalysis as any).audio_polish_chain
+    : [];
+  const audioCount = audioChainRaw
+    .map((entry: any) => String(entry || "").trim())
+    .filter(Boolean).length;
+
+  const preScan = toObjectRecord((safeAnalysis as any)?.long_form_prescan ?? (safeAnalysis as any)?.longFormPrescan);
+  const chapterCount = Array.isArray((preScan as any)?.highEnergyRanges)
+    ? (preScan as any).highEnergyRanges.length
+    : (() => {
+        const raw = firstFiniteNumber((preScan as any)?.totalChunks, (preScan as any)?.total_chunks);
+        return raw !== null ? Math.max(0, Math.round(raw / 2)) : 0;
+      })();
+
+  const kind = classifyEditDurationKind(safeRawDuration);
+  const rawMinutes = safeRawDuration / 60;
+  const complexity =
+    0.44 +
+    removedRatio * 1.25 +
+    hookStrength * 0.32 +
+    (captionsEnabled ? 0.22 : 0.08) +
+    Math.min(0.26, audioCount * 0.06) +
+    (kind === "long-form" ? 0.38 + Math.min(0.34, chapterCount * 0.05) : 0);
+  const manualMinutes = roundToTwo(Math.max(rawMinutes * (1.2 + complexity), rawMinutes * 0.6));
+
+  const runtime =
+    toObjectRecord((safeAnalysis as any)?.pipeline_runtime) ??
+    toObjectRecord((safeAnalysis as any)?.pipelineRuntime);
+  const startedAtMs = runtime?.startedAt ? new Date(String((runtime as any).startedAt)).getTime() : Number.NaN;
+  const finishedAtMs = runtime?.finishedAt ? new Date(String((runtime as any).finishedAt)).getTime() : Number.NaN;
+  const createdAtMs = new Date(job.createdAt).getTime();
+  const updatedAtMs = (job as any).updatedAt ? new Date(String((job as any).updatedAt)).getTime() : Number.NaN;
+  const nowMs = Date.now();
+  const isTerminal = isTerminalStatus(job.status);
+
+  let autoMinutes: number | null = null;
+  let autoIsLive = !isTerminal;
+  let autoSource: "pipeline" | "job" = "job";
+  if (Number.isFinite(startedAtMs) && startedAtMs > 0) {
+    const endMs = Number.isFinite(finishedAtMs)
+      ? finishedAtMs
+      : (isTerminal && Number.isFinite(updatedAtMs) ? updatedAtMs : nowMs);
+    autoMinutes = (endMs - startedAtMs) / 60000;
+    autoIsLive = !Number.isFinite(finishedAtMs) && !isTerminal;
+    autoSource = "pipeline";
+  } else if (Number.isFinite(createdAtMs) && createdAtMs > 0) {
+    const endMs = isTerminal && Number.isFinite(updatedAtMs) ? updatedAtMs : nowMs;
+    autoMinutes = (endMs - createdAtMs) / 60000;
+    autoIsLive = !isTerminal;
+  }
+
+  if (autoMinutes !== null && Number.isFinite(autoMinutes)) {
+    autoMinutes = autoMinutes > 0 ? roundToTwo(Math.max(0.5, autoMinutes)) : null;
+  } else {
+    autoMinutes = null;
+  }
+
+  const savedMinutes = autoMinutes !== null ? roundToTwo(Math.max(0, manualMinutes - autoMinutes)) : null;
+
+  return {
+    manualMinutes,
+    autoMinutes,
+    savedMinutes,
+    autoIsLive,
+    autoSource,
+  };
+};
+
 const parseCreatorStyleLockPercent = (value: unknown): number | null => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
@@ -16971,6 +17139,13 @@ const Editor = () => {
         ? `Based on ${formatDurationClock(estimatedDurationSec)} source runtime and live pipeline speed.`
         : "Based on live pipeline speed and current stage progress.";
   const etaBadgeLabel = etaSeconds !== null && etaSeconds > 0 ? `${etaLabel} remaining` : etaLabel;
+  const editTimeComparison = resolveEditTimeComparison({
+    job: activeJob,
+    analysis: activeAnalysis,
+    renderSettings: activeRenderSettings,
+    estimatedDurationSec,
+  });
+  const showEditTimeComparison = Boolean(editTimeComparison && editTimeComparison.autoMinutes !== null);
   const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
   const fullAutoPreviewBulletPoints = useMemo(() => {
@@ -21046,6 +21221,30 @@ const Editor = () => {
                       <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
                         {activeJobCreatedAtLabel}
                       </span>
+                    </div>
+                  ) : null}
+                  {showEditTimeComparison && editTimeComparison ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                        Manual edit estimate:
+                        <span className="ml-1 font-semibold text-foreground">
+                          {formatDurationClock(editTimeComparison.manualMinutes * 60)}
+                        </span>
+                      </span>
+                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                        AutoEditor {editTimeComparison.autoIsLive ? "elapsed" : "time"}:
+                        <span className="ml-1 font-semibold text-foreground">
+                          {formatDurationClock((editTimeComparison.autoMinutes ?? 0) * 60)}
+                        </span>
+                      </span>
+                      {editTimeComparison.savedMinutes !== null && editTimeComparison.savedMinutes > 0.4 ? (
+                        <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
+                          Time saved:
+                          <span className="ml-1 font-semibold text-emerald-300">
+                            {formatDurationClock(editTimeComparison.savedMinutes * 60)}
+                          </span>
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
