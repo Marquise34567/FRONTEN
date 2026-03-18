@@ -2492,6 +2492,14 @@ const LIVE_SETTINGS_MUTABLE_STATUSES = new Set([
   "retention",
   "rendering",
 ]);
+const TIME_DRIVEN_STAGE_STATUSES = new Set([
+  "pacing",
+  "story",
+  "subtitling",
+  "audio",
+  "retention",
+  "rendering",
+]);
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -12674,14 +12682,29 @@ const Editor = () => {
         : 0;
     if (normalized === "ready") return 100;
     const marker = statusStartRef.current[activeJob.id];
+    let progressFromJob = clamp(overallProgress, 4, 99);
     if (marker && marker.status === normalized && Number.isFinite(marker.startProgress)) {
       const start = clamp(marker.startProgress, 0, 99);
       const span = Math.max(1, 100 - start);
-      return clamp(((overallProgress - start) / span) * 100, 4, 99);
+      progressFromJob = clamp(((overallProgress - start) / span) * 100, 4, 99);
     }
-    if (normalized === "failed") return clamp(overallProgress, 6, 99);
-    return clamp(overallProgress, 4, 99);
-  }, [activeJob?.id, activeJob?.status, activeJob?.progress]);
+    if (normalized === "failed") return clamp(progressFromJob, 6, 99);
+    if (!TIME_DRIVEN_STAGE_STATUSES.has(normalized)) return progressFromJob;
+
+    const analysisStageStartMs = resolvePipelineStageStartMs(
+      activeJob.analysis && typeof activeJob.analysis === "object" ? (activeJob.analysis as Record<string, unknown>) : null,
+      normalized,
+    );
+    const stageStartedAt =
+      analysisStageStartMs ??
+      (marker && marker.status === normalized ? marker.startedAt : new Date(activeJob.createdAt).getTime());
+    const stageElapsedSec = Math.max(0, (Date.now() - stageStartedAt) / 1000);
+    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
+    const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
+    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
+    const timeDrivenProgress = clamp((stageElapsedSec / Math.max(1, baseline)) * 100, 4, 97);
+    return clamp(Math.max(progressFromJob, timeDrivenProgress), 4, 99);
+  }, [activeJob?.id, activeJob?.status, activeJob?.progress, activeJob?.analysis, etaTick, uploadBytesTotal]);
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
     activeAnalysis?.framesAnalyzed,
