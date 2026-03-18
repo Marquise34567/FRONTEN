@@ -19045,7 +19045,7 @@ const Editor = () => {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
+      className="fixed left-1/2 top-1/2 z-[90] w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 shadow-[0_26px_60px_-30px_rgba(16,185,129,0.65)]"
     >
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
       <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
