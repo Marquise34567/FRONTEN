@@ -94,7 +94,14 @@ export const getApiBaseCandidates = (options: { includeEmpty?: boolean } = {}) =
     seen.add(normalized);
     out.push(normalized);
   };
-  if (runtimeOriginBase) add(runtimeOriginBase);
+  const preferApiBase =
+    Boolean(API_URL) &&
+    Boolean(runtimeOriginBase) &&
+    isProtectedRuntimeOrigin(runtimeOriginBase);
+  // In production on autoeditor.app, prefer the Railway API directly to avoid
+  // proxy auth header issues through the Vercel rewrite.
+  if (preferApiBase) add(API_URL);
+  if (runtimeOriginBase && !preferApiBase) add(runtimeOriginBase);
   if (shouldIncludeApiBase(API_URL || "", runtimeOriginBase)) add(API_URL);
   if (includeEmpty && !out.length) out.push("");
   return out;
