@@ -4630,6 +4630,7 @@ const Editor = () => {
   const [verticalUploadPresetPromptOpen, setVerticalUploadPresetPromptOpen] = useState(false);
   const [uploadRenderSettingsOpen, setUploadRenderSettingsOpen] = useState(false);
   const [uploadModeExtrasOpen, setUploadModeExtrasOpen] = useState(false);
+  const [uploadOnlyCutsEnabled, setUploadOnlyCutsEnabled] = useState(false);
   const [pendingUploadSelection, setPendingUploadSelection] = useState<{
     file: File;
     fileCount: number;
@@ -7407,6 +7408,7 @@ const Editor = () => {
         pipelinePowerMode?: PipelinePowerMode;
         fullAutoYoutubeEnabled?: boolean;
         continuityFirstMode?: boolean;
+        onlyCuts?: boolean;
       };
     },
   ) => {
@@ -7438,6 +7440,14 @@ const Editor = () => {
     const resolvedContinuityFirstMode = typeof renderOptions?.uploadModeOverride?.continuityFirstMode === "boolean"
       ? renderOptions.uploadModeOverride.continuityFirstMode
       : continuityFirstEnabled;
+    const resolvedOnlyCuts = typeof renderOptions?.uploadModeOverride?.onlyCuts === "boolean"
+      ? renderOptions.uploadModeOverride.onlyCuts
+      : uploadOnlyCutsEnabled;
+    const fullAutoYoutubeEnabledForJob = resolvedOnlyCuts ? false : resolvedFullAutoYoutubeEnabled;
+    const smartZoomForJob = resolvedOnlyCuts ? false : smartZoomEnabled;
+    const transitionsForJob = resolvedOnlyCuts ? false : autoTransitionsEnabled;
+    const soundFxForJob = resolvedOnlyCuts ? false : autoSoundFxEnabled;
+    const tangentKillerForJob = resolvedOnlyCuts ? true : tangentKiller;
     const qualityBoostEnabled = resolvedPipelinePowerMode === "retention_king";
     const platformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
     const boostedRetentionStrategyProfile: RetentionStrategyProfile =
@@ -7557,7 +7567,7 @@ const Editor = () => {
             clipOverlayToneBySlot: verticalClipCaptionOverlayBySlotForJob,
           }
         : null;
-    const fullAutoYoutubePayload = resolvedFullAutoYoutubeEnabled
+    const fullAutoYoutubePayload = fullAutoYoutubeEnabledForJob
       ? {
           enabled: true,
           target: fullAutoYoutubeTarget,
@@ -7594,14 +7604,14 @@ const Editor = () => {
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
-              smartZoom: smartZoomEnabled,
-              transitions: autoTransitionsEnabled,
-              soundFx: autoSoundFxEnabled,
+              smartZoom: smartZoomForJob,
+              transitions: transitionsForJob,
+              soundFx: soundFxForJob,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
-              tangentKiller,
+              tangentKiller: tangentKillerForJob,
               curseWordRemoval: curseFilterPayload,
               videoPreset,
               videoCrf,
@@ -7609,6 +7619,7 @@ const Editor = () => {
               encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
               pipelinePowerMode: pipelinePowerModeForRequest,
+              onlyCuts: resolvedOnlyCuts,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -7639,14 +7650,14 @@ const Editor = () => {
               maxCuts: autoModeV3Defaults.maxCuts,
               editorMode: editorModeForJob,
               creativeVariant,
-              smartZoom: smartZoomEnabled,
-              transitions: autoTransitionsEnabled,
-              soundFx: autoSoundFxEnabled,
+              smartZoom: smartZoomForJob,
+              transitions: transitionsForJob,
+              soundFx: soundFxForJob,
               hookSelectionMode: defaultHookSelectionMode,
               longFormPreset: autoModeV3Defaults.longFormPreset,
               longFormAggression: autoModeV3Defaults.longFormAggression,
               longFormClarityVsSpeed: autoModeV3Defaults.longFormClarityVsSpeed,
-              tangentKiller,
+              tangentKiller: tangentKillerForJob,
               curseWordRemoval: curseFilterPayload,
               videoPreset,
               videoCrf,
@@ -7654,6 +7665,7 @@ const Editor = () => {
               encoding: { videoPreset, videoCrf, audioBitrateKbps },
               fastMode: fastModeForJob,
               pipelinePowerMode: pipelinePowerModeForRequest,
+              onlyCuts: resolvedOnlyCuts,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -9731,6 +9743,7 @@ const Editor = () => {
       pipelinePowerMode?: PipelinePowerMode;
       fullAutoYoutubeEnabled?: boolean;
       continuityFirstMode?: boolean;
+      onlyCuts?: boolean;
     },
   ) => {
     if (fileCount > 1) {
@@ -17045,6 +17058,9 @@ const Editor = () => {
     : pipelinePowerMode;
   const uploadModePromptActiveLabel =
     UPLOAD_MODE_PROMPT_OPTIONS.find((option) => option.value === uploadModePromptActiveSelection)?.label ?? "Standard";
+  const uploadModePromptSummaryLabel = uploadOnlyCutsEnabled
+    ? `${uploadModePromptActiveLabel} · Only Cut`
+    : uploadModePromptActiveLabel;
   const recommendedUploadFormat: "horizontal" | "vertical" =
     SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (retentionTargetPlatform === "youtube" ? "horizontal" : "vertical");
   const recommendedUploadFormatLabel = recommendedUploadFormat === "vertical"
@@ -17128,10 +17144,21 @@ const Editor = () => {
       return;
     }
 
+    const onlyCutsOverride = uploadOnlyCutsEnabled;
     const uploadModeOverride =
       selection === "full_auto_youtube"
-        ? { pipelinePowerMode: "standard" as PipelinePowerMode, fullAutoYoutubeEnabled: true, continuityFirstMode: true }
-        : { pipelinePowerMode: selection as PipelinePowerMode, fullAutoYoutubeEnabled: false, continuityFirstMode: true };
+        ? {
+            pipelinePowerMode: "standard" as PipelinePowerMode,
+            fullAutoYoutubeEnabled: !onlyCutsOverride,
+            continuityFirstMode: true,
+            ...(onlyCutsOverride ? { onlyCuts: true } : {}),
+          }
+        : {
+            pipelinePowerMode: selection as PipelinePowerMode,
+            fullAutoYoutubeEnabled: false,
+            continuityFirstMode: true,
+            ...(onlyCutsOverride ? { onlyCuts: true } : {}),
+          };
     const pendingFile = pending.file;
     const pendingFileCount = pending.fileCount;
     const pendingMode = pending.mode;
@@ -17143,20 +17170,23 @@ const Editor = () => {
       metadata: {
         selection,
         mode: pendingMode,
+        onlyCuts: onlyCutsOverride,
       },
     });
 
     closeUploadModePrompt();
     const startUpload = () => {
       setContinuityFirstEnabled(true);
-      if (selection === "full_auto_youtube") {
+      if (selection === "full_auto_youtube" && !onlyCutsOverride) {
         setFullAutoYoutubeEnabled(true);
         if (pipelinePowerMode !== "standard") {
           handleSelectPipelinePowerMode("standard");
         }
       } else {
         setFullAutoYoutubeEnabled(false);
-        handleSelectPipelinePowerMode(selection as PipelinePowerMode);
+        const nextPipelineMode: PipelinePowerMode =
+          selection === "full_auto_youtube" ? "standard" : (selection as PipelinePowerMode);
+        handleSelectPipelinePowerMode(nextPipelineMode);
       }
 
       continueWithSelectedFile(
@@ -17179,6 +17209,7 @@ const Editor = () => {
     retentionTargetPlatform,
     toast,
     trackEditorEvent,
+    uploadOnlyCutsEnabled,
   ]);
 
   useEffect(() => {
@@ -21938,7 +21969,7 @@ const Editor = () => {
                 <div className={uploadStudioSummaryCardClass}>
                   <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Upload mode</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <span className="text-sm font-semibold text-foreground">{uploadModePromptActiveLabel}</span>
+                    <span className="text-sm font-semibold text-foreground">{uploadModePromptSummaryLabel}</span>
                     {paidTier ? (
                       <Badge className="border-primary/35 bg-primary/12 text-primary">Premium</Badge>
                     ) : null}
@@ -22358,6 +22389,42 @@ const Editor = () => {
                   );
                 })}
               </div>
+            </div>
+
+            <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl ${
+                    uploadOnlyCutsEnabled ? "bg-primary/25 text-primary" : "bg-background/60 text-muted-foreground"
+                  }`}>
+                    <Scissors className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cut-only Mode</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Trim dead air + filler only. Skips zooms, transitions, and SFX.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={uploadOnlyCutsEnabled
+                      ? "border-primary/45 bg-primary/15 text-primary"
+                      : "border-border/50 bg-background/45 text-muted-foreground"}
+                  >
+                    {uploadOnlyCutsEnabled ? "Enabled" : "Off"}
+                  </Badge>
+                  <Switch
+                    checked={uploadOnlyCutsEnabled}
+                    onCheckedChange={setUploadOnlyCutsEnabled}
+                    aria-label="Toggle cut-only mode"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Great for quick trims when you just want the timeline tightened up.
+                {uploadOnlyCutsEnabled && fullAutoYoutubeEnabled ? " Full Auto YouTube extras are skipped for this upload." : ""}
+              </p>
             </div>
 
             <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
