@@ -9866,7 +9866,7 @@ const Editor = () => {
       mode: SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (isVerticalMode ? "vertical" : "horizontal"),
     });
     setVerticalUploadPresetPromptOpen(false);
-    setUploadRenderSettingsOpen(true);
+    setUploadRenderSettingsOpen(false);
     setUploadModeExtrasOpen(true);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
