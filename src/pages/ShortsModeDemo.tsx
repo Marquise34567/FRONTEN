@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -71,9 +71,15 @@ const AUTO_REDIRECT_DELAY_MS = 1200;
 
 const ShortsModeDemo = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [stepIndex, setStepIndex] = useState(0);
   const [running, setRunning] = useState(true);
   const maxStep = DEMO_STEPS.length - 1;
+  const autoRedirectEnabled = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("auto");
+    return raw === "1" || raw === "true";
+  }, [location.search]);
 
   useEffect(() => {
     if (!running) return;
@@ -88,13 +94,14 @@ const ShortsModeDemo = () => {
   }, [maxStep, running, stepIndex]);
 
   useEffect(() => {
+    if (!autoRedirectEnabled) return;
     if (running) return;
     if (stepIndex < maxStep) return;
     const timer = window.setTimeout(() => {
       navigate(SHORTS_EDITOR_LINK);
     }, AUTO_REDIRECT_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [maxStep, navigate, running, stepIndex]);
+  }, [autoRedirectEnabled, maxStep, navigate, running, stepIndex]);
 
   const progressPercent = useMemo(
     () => Math.round(((stepIndex + 1) / DEMO_STEPS.length) * 100),

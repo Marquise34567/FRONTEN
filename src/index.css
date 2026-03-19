@@ -4158,14 +4158,14 @@ html[data-performance='constrained'] .trial-takeover-active * {
 
   @media (max-width: 767px) {
     .editor-auto-short-mode {
-      --ae-main-pt: 4.65rem;
-      --ae-main-pb: 5rem;
-      --ae-main-px: 0.62rem;
+      --ae-main-pt: 5.2rem;
+      --ae-main-pb: 6rem;
+      --ae-main-px: 0.85rem;
     }
 
     .editor-auto-short-mode.responsive-main {
-      padding-left: max(env(safe-area-inset-left), 0.62rem) !important;
-      padding-right: max(env(safe-area-inset-right), 0.62rem) !important;
+      padding-left: max(env(safe-area-inset-left), 0.85rem) !important;
+      padding-right: max(env(safe-area-inset-right), 0.85rem) !important;
     }
 
     .editor-auto-short-mode :where(
@@ -4185,14 +4185,14 @@ html[data-performance='constrained'] .trial-takeover-active * {
     }
 
     .editor-auto-short-mode .editor-premium-hero {
-      margin-bottom: 0.95rem !important;
+      margin-bottom: 1.05rem !important;
       border-radius: 1rem;
-      padding: 0.78rem !important;
+      padding: 0.9rem !important;
     }
 
     .editor-auto-short-mode .editor-settings-shell {
       border-radius: 1rem;
-      padding: 0.6rem !important;
+      padding: 0.75rem !important;
     }
 
     .editor-auto-short-mode .editor-premium-status-row {
@@ -4200,8 +4200,8 @@ html[data-performance='constrained'] .trial-takeover-active * {
     }
 
     .editor-auto-short-mode .editor-premium-status-chip {
-      font-size: 0.62rem !important;
-      padding: 0.2rem 0.48rem;
+      font-size: 0.68rem !important;
+      padding: 0.28rem 0.56rem;
     }
 
     .editor-auto-short-mode .editor-premium-toolbar-grid {
@@ -4211,12 +4211,12 @@ html[data-performance='constrained'] .trial-takeover-active * {
 
     .editor-auto-short-mode .editor-tools-step-card {
       border-radius: 0.84rem;
-      padding: 0.58rem;
+      padding: 0.7rem;
     }
 
     .editor-auto-short-mode .editor-upload-dropzone {
-      min-height: clamp(8.4rem, 24vh, 10.25rem);
-      padding: 0.86rem !important;
+      min-height: clamp(10rem, 28vh, 13rem);
+      padding: 1rem !important;
     }
 
     .editor-auto-short-mode .editor-job-list-shell {
@@ -4226,7 +4226,7 @@ html[data-performance='constrained'] .trial-takeover-active * {
 
     .editor-auto-short-mode .editor-job-card {
       border-radius: 0.8rem;
-      padding: 0.58rem !important;
+      padding: 0.7rem !important;
     }
 
     .editor-auto-short-mode .editor-job-scroll {
@@ -4235,48 +4235,70 @@ html[data-performance='constrained'] .trial-takeover-active * {
 
     .editor-auto-short-mode .vertical-reboot-shell {
       border-radius: 1rem;
-      padding: 0.62rem;
-      gap: 0.62rem;
+      padding: 0.8rem;
+      gap: 0.75rem;
     }
 
     .editor-auto-short-mode .vertical-reboot-card,
     .editor-auto-short-mode .vertical-reboot-card-lg {
-      padding: 0.6rem;
+      padding: 0.75rem;
     }
 
     .editor-auto-short-mode .vertical-reboot-step {
-      font-size: 0.62rem;
-      padding: 0.48rem 0.52rem;
+      font-size: 0.72rem;
+      padding: 0.56rem 0.7rem;
     }
 
     .editor-auto-short-mode .vertical-reboot-mini-pill {
-      font-size: 0.56rem !important;
-      padding: 0.2rem 0.36rem;
+      font-size: 0.6rem !important;
+      padding: 0.24rem 0.44rem;
+    }
+
+    .editor-auto-short-mode .vertical-variant-subversion-list {
+      grid-template-columns: 1fr;
+      gap: 0.8rem;
     }
 
     .editor-auto-short-mode .vertical-variant-subversion-list.is-gallery-only {
       grid-template-columns: 1fr;
-      gap: 0.62rem;
+      gap: 0.75rem;
+    }
+
+    .editor-auto-short-mode .vertical-variant-subversion-heading {
+      font-size: 0.72rem;
     }
 
     .editor-auto-short-mode .vertical-variant-subversion-media {
-      width: min(100%, 180px);
-      min-height: 214px;
+      width: 100%;
+      min-height: clamp(240px, 52vh, 420px);
+    }
+
+    .editor-auto-short-mode .vertical-variant-preview-media {
+      min-height: clamp(240px, 52vh, 420px);
     }
 
     .editor-auto-short-mode .vertical-variant-preview-time {
-      font-size: 0.54rem;
-      padding: 0.14rem 0.34rem;
+      font-size: 0.62rem;
+      padding: 0.2rem 0.55rem;
     }
 
     .editor-auto-short-mode .vertical-variant-preview-caption-text {
-      font-size: 0.64rem;
+      font-size: 0.82rem;
       -webkit-line-clamp: 3;
     }
 
+    .editor-auto-short-mode .vertical-variant-preview-actions {
+      grid-template-columns: 1fr;
+    }
+
     .editor-auto-short-mode .vertical-variant-preview-button {
-      font-size: 0.66rem;
-      padding: 0.42rem 0.3rem;
+      font-size: 0.8rem;
+      padding: 0.6rem 0.55rem;
+      min-height: 2.5rem;
+    }
+
+    .editor-auto-short-mode .vertical-variant-icon-button {
+      height: 2.5rem;
     }
   }
 

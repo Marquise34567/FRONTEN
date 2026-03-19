@@ -4549,6 +4549,35 @@ const buildVerticalCaptionSnapshotFromConfig = (
 const buildVerticalCaptionSignature = (snapshot: VerticalCaptionSnapshot | null) =>
   snapshot ? JSON.stringify(snapshot) : "";
 
+const DEFAULT_VERTICAL_CAPTION_SIGNATURE = buildVerticalCaptionSignature(
+  buildVerticalCaptionSnapshotFromConfig({
+    enabled: true,
+    autoGenerate: true,
+    preset: DEFAULT_VERTICAL_CAPTION_STYLE,
+    fontId: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId,
+    fontSize: VERTICAL_CAPTION_FONT_SIZE_DEFAULT,
+    textColor: VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE].textColor,
+    accentColor: VERTICAL_CAPTION_PREVIEW_PALETTE[DEFAULT_VERTICAL_CAPTION_STYLE].highlightColor,
+    outlineColor: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineColor,
+    outlineWidth: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].outlineWidth,
+    animation: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animation,
+    animationSpeed: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].animationSpeed,
+    dynamicMode: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].dynamicMode,
+    highlightWords: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].highlightWords,
+    autoEmphasis: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].autoEmphasis,
+    autoEmoji: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].autoEmoji,
+    removeFillers: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].removeFillers,
+    shadowStrength: VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].shadowStrength,
+    positionX: 0.5,
+    positionY: DEFAULT_VERTICAL_CAPTION_POSITION_Y,
+    variantPositions: {
+      instagram: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      youtube: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+      tiktok: { x: 0.5, y: DEFAULT_VERTICAL_CAPTION_POSITION_Y },
+    },
+  }),
+);
+
 const pickVerticalCaptionConfigSource = (
   renderSettings: Record<string, unknown> | null,
   analysis: Record<string, unknown> | null,
@@ -11019,12 +11048,17 @@ const Editor = () => {
   );
   const verticalCaptionsDirty = useMemo(() => {
     if (!activeJob?.id || activeJob.renderMode !== "vertical") return false;
-    if (!currentVerticalCaptionSignature || !activeVerticalCaptionSignature) return false;
+    if (!currentVerticalCaptionSignature) return false;
+    if (!activeVerticalCaptionSignature) {
+      if (!autoCaptionsEnabled) return false;
+      return currentVerticalCaptionSignature !== DEFAULT_VERTICAL_CAPTION_SIGNATURE;
+    }
     return currentVerticalCaptionSignature !== activeVerticalCaptionSignature;
   }, [
     activeJob?.id,
     activeJob?.renderMode,
     activeVerticalCaptionSignature,
+    autoCaptionsEnabled,
     currentVerticalCaptionSignature,
   ]);
   const autonomousEditor =
@@ -20325,6 +20359,15 @@ const Editor = () => {
                                         }
                                         void startVerticalRender();
                                       };
+                                      const renderButtonLabel = clipReady
+                                        ? (reprocessingJobId === activeJob?.id
+                                          ? "Re-rendering..."
+                                          : verticalCaptionsDirty
+                                            ? "Apply Captions"
+                                            : "Render Again")
+                                        : uploadingJobId
+                                          ? "Rendering..."
+                                          : "Render";
                                       return (
                                         <div key={`vertical-clip-${clipIndex + 1}`} className="vertical-variant-subversion-card vertical-reboot-clip-card">
                                           <p className="vertical-variant-subversion-heading">
@@ -20441,11 +20484,7 @@ const Editor = () => {
                                               onClick={handleRenderClick}
                                               disabled={rerenderDisabled}
                                             >
-                                              {clipReady
-                                                ? (reprocessingJobId === activeJob?.id ? "Re-rendering..." : "Render Again")
-                                                : uploadingJobId
-                                                  ? "Rendering..."
-                                                  : "Render"}
+                                              {renderButtonLabel}
                                             </button>
                                             </div>
                                           ) : null}
