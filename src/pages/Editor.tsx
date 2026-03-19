@@ -136,6 +136,37 @@ const inferFileExtension = (value: string, fallback = "mp4") => {
   return match ? match[1].toLowerCase() : fallback;
 };
 
+const STITCHED_OUTPUT_URL_PATTERN = /(?:^|\/)output\.mp4(?:$|[?#])/i;
+const VERTICAL_CLIP_URL_PATTERN = /(?:^|\/)vertical\/clip-(\d+)\.mp4(?:$|[?#])/i;
+const GENERIC_CLIP_URL_PATTERN = /(?:^|\/)clip-(\d+)\.mp4(?:$|[?#])/i;
+
+const extractVerticalClipIndex = (url: string) => {
+  const match = url.match(VERTICAL_CLIP_URL_PATTERN) || url.match(GENERIC_CLIP_URL_PATTERN);
+  return match ? Number(match[1]) : null;
+};
+
+const normalizeVerticalClipUrls = (urls: string[]) => {
+  const cleaned = urls.map((value) => String(value || "").trim()).filter(Boolean);
+  if (cleaned.length <= 1) return cleaned;
+  const clipUrls = cleaned.filter((url) =>
+    VERTICAL_CLIP_URL_PATTERN.test(url) || GENERIC_CLIP_URL_PATTERN.test(url),
+  );
+  if (clipUrls.length > 0) {
+    return clipUrls
+      .slice()
+      .sort((left, right) => {
+        const leftIndex = extractVerticalClipIndex(left);
+        const rightIndex = extractVerticalClipIndex(right);
+        if (leftIndex === null && rightIndex === null) return left.localeCompare(right);
+        if (leftIndex === null) return 1;
+        if (rightIndex === null) return -1;
+        return leftIndex - rightIndex;
+      });
+  }
+  const withoutStitched = cleaned.filter((url) => !STITCHED_OUTPUT_URL_PATTERN.test(url));
+  return withoutStitched.length > 0 ? withoutStitched : cleaned;
+};
+
 const isMobileUserAgent = () => {
   if (typeof navigator === "undefined") return false;
   return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
@@ -10536,8 +10567,10 @@ const Editor = () => {
         downloadUrl = data.url;
       } catch {
         const outputUrls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : []);
+        const resolvedOutputUrls =
+          activeJob.renderMode === "vertical" ? normalizeVerticalClipUrls(outputUrls) : outputUrls;
         const selectedExistingUrl =
-          outputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
+          resolvedOutputUrls[clipIndex] || (clipIndex === 0 ? activeJob.outputUrl || undefined : undefined);
         if (selectedExistingUrl) {
           downloadUrl = selectedExistingUrl;
         } else {
@@ -10549,14 +10582,18 @@ const Editor = () => {
       }
       setActiveJob((prev) => {
         if (!prev) return prev;
-        const nextUrls = sanitizeVideoUrlList(Array.isArray(prev.outputUrls) ? prev.outputUrls : []);
+        let nextUrls = sanitizeVideoUrlList(Array.isArray(prev.outputUrls) ? prev.outputUrls : []);
+        if (prev.renderMode === "vertical") {
+          nextUrls = normalizeVerticalClipUrls(nextUrls);
+        }
         while (nextUrls.length < clipParam) nextUrls.push("");
         nextUrls[clipIndex] = downloadUrl;
         const sanitized = sanitizeVideoUrlList(nextUrls);
+        const finalUrls = prev.renderMode === "vertical" ? normalizeVerticalClipUrls(sanitized) : sanitized;
         return {
           ...prev,
-          outputUrl: isLikelyVideoUrl(downloadUrl) ? downloadUrl : (sanitized[0] ?? null),
-          outputUrls: sanitized.length > 0 ? sanitized : null,
+          outputUrl: isLikelyVideoUrl(downloadUrl) ? downloadUrl : (finalUrls[0] ?? null),
+          outputUrls: finalUrls.length > 0 ? finalUrls : null,
         };
       });
       await triggerFileDownload(downloadUrl, fallbackFileName);
@@ -10851,15 +10888,18 @@ const Editor = () => {
   const activePreviewCacheKey = useMemo(() => buildJobPreviewCacheKey(activeJob), [activeJob]);
   const activeOutputUrls = useMemo(() => {
     if (!activeJob) return [] as string[];
-    const urls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [])
+    const rawUrls = sanitizeVideoUrlList(Array.isArray(activeJob.outputUrls) ? activeJob.outputUrls : [])
       .map((url) => appendVideoCacheBust(url, activePreviewCacheKey))
       .filter((url) => isLikelyVideoUrl(url));
-    if (urls.length > 0) return urls;
-    if (isLikelyVideoUrl(activeJob.outputUrl)) {
+    let urls = rawUrls;
+    if (urls.length === 0 && isLikelyVideoUrl(activeJob.outputUrl)) {
       const preview = appendVideoCacheBust(String(activeJob.outputUrl), activePreviewCacheKey);
-      return preview ? [preview] : [];
+      urls = preview ? [preview] : [];
     }
-    return [];
+    if (activeJob.renderMode === "vertical") {
+      return normalizeVerticalClipUrls(urls);
+    }
+    return urls;
   }, [activeJob, activePreviewCacheKey]);
   const activeVerticalOutputUrlIdentity = useMemo(
     () =>
