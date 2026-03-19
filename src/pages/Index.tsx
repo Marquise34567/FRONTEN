@@ -1263,7 +1263,7 @@ const Index = () => {
         <div className="relative min-h-screen overflow-hidden">
           <div className="relative z-10">
             <Navbar />
-            <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
+            <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-16 pb-24 sm:pt-20">
         {showBackdrop && !lowEndMotionMode ? <ViralBackdrop /> : null}
         <AnimatePresence>
           {isTrialHoverTakeoverActive ? (
@@ -1381,7 +1381,7 @@ const Index = () => {
             transition={{ duration: 0.7, ease: "easeOut" }}
           >
             <motion.div
-              className="pill-badge mb-8"
+              className="pill-badge mb-5"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2, duration: 0.5 }}
@@ -1391,7 +1391,7 @@ const Index = () => {
             </motion.div>
 
             <motion.div
-              className="relative mb-6 w-full"
+              className="relative mb-4 w-full"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.7 }}
@@ -1407,7 +1407,7 @@ const Index = () => {
                 transition={{ type: "spring", stiffness: 280, damping: 18 }}
               >
                 <motion.span
-                  className="hero-title-line block text-5xl font-extrabold sm:text-7xl lg:text-8xl"
+                  className="hero-title-line block text-5xl font-extrabold sm:text-6xl lg:text-7xl"
                   initial={{ opacity: 0, y: 22 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.34, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
@@ -1483,7 +1483,7 @@ const Index = () => {
             </motion.div>
 
             <motion.p
-              className="hero-description mb-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg"
+              className="hero-description mb-4 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg"
               initial={{ opacity: 0, y: 16, filter: shouldReduceMotion ? "none" : "blur(8px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
@@ -1493,7 +1493,7 @@ const Index = () => {
             </motion.p>
 
             <motion.div
-              className="mb-10 flex flex-wrap items-center justify-center gap-2"
+              className="mb-6 flex flex-wrap items-center justify-center gap-2"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.58, duration: 0.45 }}
