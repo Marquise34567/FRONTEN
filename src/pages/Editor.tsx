@@ -110,16 +110,41 @@ const isAllowedUploadName = (name: string) => {
   return ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
 };
 
+const safeLocalStorageGet = (key: string) => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeLocalStorageSet = (key: string, value: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures (private mode / blocked storage).
+  }
+};
+
+const safeLocalStorageRemove = (key: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures (private mode / blocked storage).
+  }
+};
+
 const readLocalStorageFlag = (key: string, fallback = false) => {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
+  const raw = safeLocalStorageGet(key);
   if (raw === null) return fallback;
   return raw === "true";
 };
 
 const writeLocalStorageFlag = (key: string, value: boolean) => {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, value ? "true" : "false");
+  safeLocalStorageSet(key, value ? "true" : "false");
 };
 
 const sanitizeFileStem = (value: string) =>
@@ -5995,7 +6020,7 @@ const Editor = () => {
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
       try {
-        window.localStorage.setItem(trialUpgradePromptKey, String(Date.now()));
+        safeLocalStorageSet(trialUpgradePromptKey, String(Date.now()));
       } catch (error) {
         // ignore storage failures
       }
@@ -6011,7 +6036,7 @@ const Editor = () => {
   const handleHideSubscriptionCard = useCallback(() => {
     if (subscriptionCardHideKey) {
       try {
-        window.localStorage.setItem(subscriptionCardHideKey, "true");
+        safeLocalStorageSet(subscriptionCardHideKey, "true");
       } catch (error) {
         // ignore storage failures
       }
@@ -6022,7 +6047,7 @@ const Editor = () => {
   const handleShowSubscriptionCard = useCallback(() => {
     if (subscriptionCardHideKey) {
       try {
-        window.localStorage.removeItem(subscriptionCardHideKey);
+        safeLocalStorageRemove(subscriptionCardHideKey);
       } catch (error) {
         // ignore storage failures
       }
@@ -6036,7 +6061,7 @@ const Editor = () => {
       return;
     }
     try {
-      const dismissed = window.localStorage.getItem(trialUpgradePromptKey);
+      const dismissed = safeLocalStorageGet(trialUpgradePromptKey);
       if (dismissed) return;
     } catch (error) {
       // ignore storage failures
@@ -6050,7 +6075,7 @@ const Editor = () => {
       return;
     }
     try {
-      setHideSubscriptionCard(window.localStorage.getItem(subscriptionCardHideKey) === "true");
+      setHideSubscriptionCard(safeLocalStorageGet(subscriptionCardHideKey) === "true");
     } catch (error) {
       setHideSubscriptionCard(false);
     }
@@ -6101,7 +6126,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = window.localStorage.getItem(EDITOR_SETTINGS_COLLAPSED_KEY);
+      const persisted = safeLocalStorageGet(EDITOR_SETTINGS_COLLAPSED_KEY);
       if (persisted === "true") {
         setHideEditorControlsPanel(true);
         return;
@@ -6116,7 +6141,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(EDITOR_SETTINGS_COLLAPSED_KEY, hideEditorControlsPanel ? "true" : "false");
+      safeLocalStorageSet(EDITOR_SETTINGS_COLLAPSED_KEY, hideEditorControlsPanel ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6124,7 +6149,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = window.localStorage.getItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY);
+      const persisted = safeLocalStorageGet(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY);
       if (persisted === "false") {
         setShowLiveTranscriptEditor(false);
         return;
@@ -6139,7 +6164,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY, showLiveTranscriptEditor ? "true" : "false");
+      safeLocalStorageSet(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY, showLiveTranscriptEditor ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6147,7 +6172,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = window.localStorage.getItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY);
+      const persisted = safeLocalStorageGet(LIVE_OUTCOME_LOOP_VISIBLE_KEY);
       if (persisted === "true") {
         setShowLiveOutcomeLoop(true);
         return;
@@ -6162,7 +6187,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY, showLiveOutcomeLoop ? "true" : "false");
+      safeLocalStorageSet(LIVE_OUTCOME_LOOP_VISIBLE_KEY, showLiveOutcomeLoop ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6174,7 +6199,7 @@ const Editor = () => {
       return;
     }
     try {
-      const raw = window.localStorage.getItem(analyzeUnlockStorageKey);
+      const raw = safeLocalStorageGet(analyzeUnlockStorageKey);
       if (!raw) {
         setAnalyzeUnlockedByJob({});
         return;
@@ -6199,7 +6224,7 @@ const Editor = () => {
   useEffect(() => {
     if (!analyzeUnlockStorageKey) return;
     try {
-      window.localStorage.setItem(analyzeUnlockStorageKey, JSON.stringify(analyzeUnlockedByJob));
+      safeLocalStorageSet(analyzeUnlockStorageKey, JSON.stringify(analyzeUnlockedByJob));
     } catch (error) {
       // ignore storage failures
     }
@@ -6207,7 +6232,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      if (window.localStorage.getItem(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
+      if (safeLocalStorageGet(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
         editorGuidePromptedRef.current = true;
         return;
       }
@@ -6221,7 +6246,7 @@ const Editor = () => {
       if (scrollTop < 80) return;
       editorGuidePromptedRef.current = true;
       try {
-        window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+        safeLocalStorageSet(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
       } catch (error) {
         // ignore storage failures
       }
@@ -7608,11 +7633,11 @@ const Editor = () => {
     }
     const key = `export_popup_shown_${activeJob.id}`;
     if (typeof window === "undefined") return;
-    if (window.localStorage.getItem(key)) {
+    if (safeLocalStorageGet(key)) {
       setExportReadyOpen(false);
       return;
     }
-    window.localStorage.setItem(key, "true");
+    safeLocalStorageSet(key, "true");
     setExportFeedbackOpen(false);
     setExportOpen(false);
     setExportReadyOpen(true);
@@ -16826,8 +16851,8 @@ const Editor = () => {
     if (!storyMapAgentPromptEnabled) return;
     if (typeof window === "undefined") return;
     const key = `story_map_agent_prompt_shown_${activeJob.id}`;
-    if (window.localStorage.getItem(key)) return;
-    window.localStorage.setItem(key, "true");
+    if (safeLocalStorageGet(key)) return;
+    safeLocalStorageSet(key, "true");
     setStoryMapAgentSuggestionIdByJob((prev) => ({
       ...prev,
       [activeJob.id]: activeStoryMapAgentSuggestion.id,
@@ -23464,7 +23489,7 @@ const Editor = () => {
           if (open) {
             editorGuidePromptedRef.current = true;
             try {
-              window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+              safeLocalStorageSet(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
             } catch (error) {
               // ignore storage failures
             }
