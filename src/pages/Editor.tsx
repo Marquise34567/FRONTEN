@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Fragment, lazy, Suspense } from "react";
-const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
+import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
 import { EditorAgentRateCard } from "@/components/editor/EditorAgentRateCard";
 import { Button } from "@/components/ui/button";
@@ -19745,7 +19744,7 @@ const Editor = () => {
   ) : null;
 
   return (
-    <Suspense fallback={<Fragment />}><GlowBackdrop>
+    <GlowBackdrop>
       <Navbar />
       <main
         className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen min-h-[100dvh] max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
@@ -24929,7 +24928,6 @@ const Editor = () => {
         ) : null}
       </Dialog>
     </GlowBackdrop>
-    </Suspense>
   );
 };
 
