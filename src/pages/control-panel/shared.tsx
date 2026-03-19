@@ -180,6 +180,22 @@ export type CommandCenterResponse = {
       keepShared: boolean
       issues: string[]
     }
+    cppProbes?: {
+      status: "enabled" | "partial" | "disabled"
+      visualProbe: {
+        configured: boolean
+        exists: boolean
+        path: string | null
+        source: "env" | "default" | "missing" | "disabled"
+      }
+      audioProbe: {
+        configured: boolean
+        exists: boolean
+        path: string | null
+        source: "env" | "default" | "missing" | "disabled"
+      }
+      issues: string[]
+    }
     processingTimeSpikeAlert: {
       active: boolean
       severity: "normal" | "elevated" | "critical"

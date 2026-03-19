@@ -68,7 +68,8 @@ const ControlPanelInfrastructure = () => {
   const gpuModeLabel = gpuMode === "urls" ? "signed URLs" : "shared dir"
   const gpuIssueLabels: Record<string, string> = {
     missing_url: "GPU_WORKER_URL not set",
-    missing_shared_dir: "GPU_WORKER_SHARED_DIR not set"
+    missing_shared_dir: "GPU_WORKER_SHARED_DIR not set",
+    missing_url_tmp_dir: "GPU_WORKER_URL_TMP_DIR not set"
   }
   const gpuIssueText = (gpuWorker?.issues || [])
     .map((issue) => gpuIssueLabels[issue] || issue)
@@ -95,6 +96,48 @@ const ControlPanelInfrastructure = () => {
         { label: "Fallback", value: gpuWorker.fallbackEnabled ? "enabled" : "disabled" },
         { label: "Force", value: gpuWorker.forceEnabled ? "enabled" : "disabled" },
         { label: "Keep Shared", value: gpuWorker.keepShared ? "enabled" : "disabled" }
+      ]
+    : []
+  const cppProbes = renderInfra?.cppProbes
+  const cppStatus = cppProbes?.status ?? "disabled"
+  const cppStatusLabel = cppStatus === "enabled" ? "enabled" : cppStatus === "partial" ? "partial" : "disabled"
+  const cppStatusTone =
+    cppStatus === "enabled"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+      : cppStatus === "partial"
+      ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+      : "border-border/50 bg-card/35 text-muted-foreground"
+  const cppIssueLabels: Record<string, string> = {
+    visual_probe_missing: "visual_probe binary not found",
+    audio_probe_missing: "audio_probe binary not found"
+  }
+  const cppIssueText = (cppProbes?.issues || [])
+    .map((issue) => cppIssueLabels[issue] || issue)
+    .join(" • ")
+  const probeStatusLabel = (probe: { configured: boolean; exists: boolean; source: string }) => {
+    if (probe.exists) return "ready"
+    if (probe.source === "disabled") return "disabled"
+    if (probe.configured) return "missing"
+    return "not configured"
+  }
+  const probeDetailLabel = (probe: { path: string | null; source: string }) => {
+    if (probe.path) return probe.path
+    if (probe.source === "default") return "default build"
+    if (probe.source === "disabled") return "disabled via env"
+    return ""
+  }
+  const cppProbeItems = cppProbes
+    ? [
+        {
+          label: "Visual Probe",
+          status: probeStatusLabel(cppProbes.visualProbe),
+          detail: probeDetailLabel(cppProbes.visualProbe)
+        },
+        {
+          label: "Audio Probe",
+          status: probeStatusLabel(cppProbes.audioProbe),
+          detail: probeDetailLabel(cppProbes.audioProbe)
+        }
       ]
     : []
 
@@ -185,7 +228,7 @@ const ControlPanelInfrastructure = () => {
           </Card>
         </section>
 
-        <section className="mt-4">
+        <section className="mt-4 grid gap-4 xl:grid-cols-2">
           <Card className="glass-card border-border/60">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -219,6 +262,40 @@ const ControlPanelInfrastructure = () => {
                       <div key={`gpu-tune-${item.label}`} className="rounded-md border border-border/50 bg-card/40 p-2">
                         <p className="text-muted-foreground">{item.label}</p>
                         <p className="text-[12px] font-semibold text-foreground">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-border/60">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Radar className="h-4 w-4 text-sky-200" />
+                C++ Probes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs">
+              {!cppProbes ? (
+                <EmptyStateNote text="C++ probe telemetry is not available yet." />
+              ) : (
+                <div className="space-y-2">
+                  <p className={`rounded-md border p-2 ${cppStatusTone}`}>C++ probes: {cppStatusLabel}</p>
+                  {cppIssueText ? (
+                    <p className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-[11px] text-amber-100">
+                      {cppIssueText}
+                    </p>
+                  ) : null}
+                  <div className="grid grid-cols-2 gap-2">
+                    {cppProbeItems.map((item) => (
+                      <div key={`cpp-probe-${item.label}`} className="rounded-md border border-border/50 bg-card/40 p-2">
+                        <p className="text-muted-foreground">{item.label}</p>
+                        <p className="text-[12px] font-semibold text-foreground">{item.status}</p>
+                        {item.detail ? (
+                          <p className="mt-1 truncate text-[10px] text-muted-foreground">{item.detail}</p>
+                        ) : null}
                       </div>
                     ))}
                   </div>
