@@ -5034,6 +5034,9 @@ const Editor = () => {
   const [mobileImportWaitlistJoined, setMobileImportWaitlistJoined] = useState(
     () => readLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, false),
   );
+  const [storyMapAgentPromptEnabled, setStoryMapAgentPromptEnabled] = useState(
+    () => readLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, false),
+  );
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const prevJobStatusRef = useRef<Map<string, JobStatus>>(new Map());
@@ -5523,9 +5526,6 @@ const Editor = () => {
   const [previewTipSkipRangesByJob, setPreviewTipSkipRangesByJob] = useState<Record<string, PreviewTipSkipRange[]>>({});
   const [previewTipPlaybackRateByJob, setPreviewTipPlaybackRateByJob] = useState<Record<string, number>>({});
   const [showStoryMapPanel, setShowStoryMapPanel] = useState(true);
-  const [storyMapAgentPromptEnabled, setStoryMapAgentPromptEnabled] = useState(
-    () => readLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, false),
-  );
   const [showLiveOutcomeLoop, setShowLiveOutcomeLoop] = useState(false);
   const [showScanInsightsPanel, setShowScanInsightsPanel] = useState(true);
   const [showEnergyEmotionTimeline, setShowEnergyEmotionTimeline] = useState(true);
