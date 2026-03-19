@@ -11278,6 +11278,10 @@ const Editor = () => {
         : "Preparing...";
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const analysisRecord =
+    activeJob?.analysis && typeof activeJob.analysis === "object"
+      ? (activeJob.analysis as Record<string, unknown>)
+      : null;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
     ? (activeAnalysis.youtube_sync as Record<string, unknown>)
     : null;
@@ -17291,10 +17295,6 @@ const Editor = () => {
       return lockedEta;
     };
     const nowMs = Date.now();
-    const analysisRecord =
-      activeJob.analysis && typeof activeJob.analysis === "object"
-        ? (activeJob.analysis as Record<string, unknown>)
-        : null;
     const directEtaSeconds = firstFiniteNumber(
       (activeJob as any)?.etaSeconds,
       (activeJob as any)?.eta_seconds,
@@ -17308,10 +17308,7 @@ const Editor = () => {
     const fileSize = jobFileSizeRef.current[jobId] ?? uploadBytesTotal ?? null;
     const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
     const stageMarker = statusStartRef.current[jobId];
-    const analysisStageStartMs = resolvePipelineStageStartMs(
-      activeJob.analysis && typeof activeJob.analysis === "object" ? (activeJob.analysis as Record<string, unknown>) : null,
-      normalized,
-    );
+    const analysisStageStartMs = resolvePipelineStageStartMs(analysisRecord, normalized);
     const stageStartedAt =
       analysisStageStartMs ??
       (stageMarker && stageMarker.status === normalized
