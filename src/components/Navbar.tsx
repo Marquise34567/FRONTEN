@@ -106,6 +106,13 @@ const Navbar = () => {
               {t("nav.pricing")}
             </Button>
           </Link>
+          {user ? (
+            <Link to="/title-generator" className="inline-flex nav-float">
+              <Button variant="ghost" size="sm" className="nav-cta-ghost">
+                Title AI
+              </Button>
+            </Link>
+          ) : null}
           {showControlPanel ? (
             <Link to="/dev/control-panel/overview">
               <Button variant="ghost" size="sm" className="rounded-full text-primary hover:text-primary">
@@ -152,6 +159,11 @@ const Navbar = () => {
                 </Button>
                 <span className="cta-note cta-note-mobile">Sign up to unlock pro features — free trial!</span>
               </div>
+              {user ? (
+                <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full nav-cta-ghost">
+                  <Link to="/title-generator">Title AI</Link>
+                </Button>
+              ) : null}
               {showControlPanel ? (
                 <Button asChild variant="ghost" size="sm" className="w-full justify-center rounded-full text-primary hover:text-primary">
                   <Link to="/dev/control-panel">{t("nav.controlPanel")}</Link>
