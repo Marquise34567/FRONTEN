@@ -5303,6 +5303,7 @@ const Editor = () => {
   const canUseRealtimeBugFixAI = isControlPanelOwnerEmail(me?.user?.email);
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
+  const [forceReanalyzeOnRedo, setForceReanalyzeOnRedo] = useState(false);
   const [trialUpgradeOpen, setTrialUpgradeOpen] = useState(false);
   const [checkoutSuccessDialog, setCheckoutSuccessDialog] = useState<CheckoutSuccessDialogState>({
     open: false,
@@ -10324,6 +10325,9 @@ const Editor = () => {
             duration: preferredHook.duration,
           };
         }
+        if (forceReanalyzeOnRedo) {
+          payload.forceReanalyze = true;
+        }
         if (options?.overrides && typeof options.overrides === "object") {
           Object.assign(payload, options.overrides);
         }
@@ -10484,6 +10488,7 @@ const Editor = () => {
       verticalClipCaptionOverlayBySlotForJob,
       verticalClipCount,
       ensureNotificationPermission,
+      forceReanalyzeOnRedo,
       toast,
     ],
   );
@@ -20203,7 +20208,60 @@ const Editor = () => {
               ) : null}
 
               {isVerticalMode && (
-                <div className="vertical-reboot-shell">
+                <div className="vertical-opus-shell editor-landing-skin p-3">
+                  <div className="vertical-reboot-shell">
+                    <div className="vertical-reboot-hero">
+                      <div className="vertical-opus-hero-grid">
+                        <div className="vertical-opus-hero-copy">
+                          <div className="vertical-reboot-kicker-row">
+                            <div className="pill-badge">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Vertical Clip Studio
+                            </div>
+                            <Badge className="vertical-reboot-kicker-pill">Landing-grade workflow</Badge>
+                          </div>
+                          <h3 className="vertical-reboot-title">Vertical Command Deck</h3>
+                          <p className="vertical-reboot-subtitle">
+                            Landing-page energy for clip selection, caption edits, and export-ready previews in one space.
+                          </p>
+                        </div>
+                        <div className="vertical-opus-hero-card">
+                          <div className="vertical-opus-hero-card-header">
+                            <p className="vertical-opus-hero-card-kicker">Live Clip Score</p>
+                            <Badge className="vertical-opus-hero-card-pill">{activeVerticalShortFormPreset.label}</Badge>
+                          </div>
+                          <div className="vertical-opus-hero-metrics">
+                            <div className="vertical-opus-hero-metric">
+                              <span>Status</span>
+                              <strong>{verticalVariantStatusLabel}</strong>
+                            </div>
+                            <div className="vertical-opus-hero-metric">
+                              <span>Progress</span>
+                              <strong>{Math.round(totalPipelineProgress)}%</strong>
+                            </div>
+                            <div className="vertical-opus-hero-metric">
+                              <span>Clips</span>
+                              <strong>{Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}</strong>
+                            </div>
+                          </div>
+                          <div className="vertical-opus-hero-progress" aria-hidden>
+                            <span style={{ width: `${Math.round(totalPipelineProgress)}%` }} />
+                          </div>
+                          <p className="vertical-opus-hero-note">
+                            {activeVerticalJobReadyForDownload
+                              ? "Clips ready for download and caption tuning."
+                              : activeVerticalJobProcessing
+                                ? `Stage ${activeStageLabel} · ETA ${etaLabel}`
+                                : "Ready as soon as your source metadata finishes loading."}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="vertical-reboot-step-grid">
+                        <div className="vertical-reboot-step">Upload or select a source clip.</div>
+                        <div className="vertical-reboot-step">Tune moments, captions, and overlays.</div>
+                        <div className="vertical-reboot-step">Render and download your vertical cuts.</div>
+                      </div>
+                    </div>
                   {hasVerticalVariantWorkspace && (
                     <div className="vertical-reboot-gallery-shell space-y-4">
                       {verticalPreviewUrl ? (
@@ -20480,9 +20538,14 @@ const Editor = () => {
                                           ? "Rendering..."
                                           : "Render";
                                       return (
-                                        <div key={`vertical-clip-${clipIndex + 1}`} className="vertical-variant-subversion-card vertical-reboot-clip-card">
+                                        <div key={`vertical-clip-${clipIndex + 1}`} className={`vertical-variant-subversion-card vertical-reboot-clip-card is-${variantKey}`}>
                                           <p className="vertical-variant-subversion-heading">
-                                            #{clipIndex + 1} {platformLabel} V{versionIndex + 1}
+                                            <span className="vertical-variant-heading-main">#{clipIndex + 1} {platformLabel}</span>
+                                            <span
+                                              className={`vertical-variant-heading-meta ${clipReady ? "is-ready" : clipProcessing ? "is-processing" : ""}`.trim()}
+                                            >
+                                              {clipStatusLabel} · V{versionIndex + 1}
+                                            </span>
                                           </p>
                                           <div className="vertical-variant-preview-media vertical-variant-subversion-media">
                                             {clipReady ? (
@@ -20522,7 +20585,7 @@ const Editor = () => {
                                             <span className="vertical-variant-preview-time">{durationLabel}</span>
                                             {showPreviewCaptionOverlay && clipPreviewCaption ? (
                                               <p
-                                                className={`vertical-variant-preview-caption ${clipReady ? "is-ready" : ""} ${clipCaptionSelected ? "is-selected" : ""}`.trim()}
+                                                className={`vertical-variant-preview-caption ${clipReady ? "is-ready" : ""} ${clipCaptionSelected ? "is-selected" : ""} ${clipPreviewCaptionBoxEnabled ? "is-boxed" : "is-plain"}`.trim()}
                                               >
                                                 <span
                                                   className={`vertical-variant-preview-caption-text ${clipCaptionAnimationClass}`.trim()}
@@ -20736,6 +20799,7 @@ const Editor = () => {
                       ) : null}
                     </div>
                   )}
+                  </div>
                 </div>
               )}
 
@@ -21563,9 +21627,20 @@ const Editor = () => {
                     {isVerticalMode ? exportReadyCard : null}
                     {isTerminalStatus(activeJob.status) && activeJob.error !== "queue_canceled_by_user" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-muted-foreground">
-                          Need another pass? Queue a redo render using your daily re-render allowance.
-                        </p>
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            Need another pass? Queue a redo render using your daily re-render allowance.
+                          </p>
+                          <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            <span>Force re-analyze</span>
+                            <Switch
+                              checked={forceReanalyzeOnRedo}
+                              onCheckedChange={setForceReanalyzeOnRedo}
+                              disabled={reprocessingJobId === activeJob.id}
+                              aria-label="Force re-analyze before redo render"
+                            />
+                          </label>
+                        </div>
                         <Button
                           variant="outline"
                           className="min-h-12 w-full gap-2 sm:min-h-10 sm:w-auto"
