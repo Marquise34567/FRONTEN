@@ -1407,12 +1407,12 @@ const Index = () => {
                 transition={{ type: "spring", stiffness: 280, damping: 18 }}
               >
                 <motion.span
-                  className="hero-title-line block"
+                  className="hero-title-line block text-5xl font-extrabold sm:text-7xl lg:text-8xl"
                   initial={{ opacity: 0, y: 22 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.34, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  STOP FEEDING THE SCROLL.
+                  STOP GUESSING WHICH VIDEO WILL BLOW UP
                 </motion.span>
                 <motion.span
                   className="hero-highlight-text block"
