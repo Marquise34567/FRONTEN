@@ -10253,8 +10253,8 @@ const Editor = () => {
       mode: SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (isVerticalMode ? "vertical" : "horizontal"),
     });
     setVerticalUploadPresetPromptOpen(false);
-    setUploadRenderSettingsOpen(false);
-    setUploadModeExtrasOpen(false);
+    setUploadRenderSettingsOpen(true);
+    setUploadModeExtrasOpen(true);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -17541,6 +17541,8 @@ const Editor = () => {
   const uploadModePromptActiveSelection: UploadModePromptSelection = fullAutoYoutubeEnabled
     ? "full_auto_youtube"
     : pipelinePowerMode;
+  const uploadModePromptActiveLabel =
+    UPLOAD_MODE_PROMPT_OPTIONS.find((option) => option.value === uploadModePromptActiveSelection)?.label ?? "Standard";
   const recommendedUploadFormat: "horizontal" | "vertical" =
     SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (retentionTargetPlatform === "youtube" ? "horizontal" : "vertical");
   const recommendedUploadFormatLabel = recommendedUploadFormat === "vertical"
@@ -17555,6 +17557,7 @@ const Editor = () => {
       ? "vertical"
       : (pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal"));
   const isVerticalUploadPrompt = pendingUploadMode === "vertical";
+  const pendingUploadModeLabel = pendingUploadMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9";
   const activeAdvancedLearningModeLabels = useMemo(() => {
     const labels: string[] = [];
     if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
@@ -18198,6 +18201,8 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
+  const uploadStudioSummaryCardClass =
+    "relative overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(145deg,hsl(var(--card)/0.92),hsl(var(--card)/0.68))] px-3 py-2.5 shadow-[0_18px_44px_-30px_hsl(var(--primary)/0.9)] backdrop-blur before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-[radial-gradient(120%_120%_at_0%_0%,hsl(var(--primary)/0.22),transparent_58%)] before:content-['']";
   const uploadFormatCardClass = (active: boolean, compact = false) =>
     `group relative overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
       compact ? "min-h-[108px] rounded-xl p-3" : "min-h-[154px] rounded-2xl p-4"
@@ -22491,8 +22496,8 @@ const Editor = () => {
         }}
       >
       {uploadModePromptOpen ? (
-      <DialogContent
-          className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_28px_90px_-42px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
+        <DialogContent
+          className="relative max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-3xl border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_34px_110px_-52px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
@@ -22500,13 +22505,14 @@ const Editor = () => {
             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
               <span className="absolute -left-16 top-[-4.5rem] h-44 w-44 rounded-full bg-primary/22 blur-3xl" />
               <span className="absolute right-[-4.25rem] top-[-3.5rem] h-36 w-36 rounded-full bg-[hsl(var(--glow-secondary)/0.18)] blur-3xl" />
+              <span className="absolute inset-x-6 top-0 h-px bg-[linear-gradient(90deg,transparent,hsl(var(--primary)/0.7),transparent)]" />
             </div>
             <DialogHeader className="relative z-10">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <Badge className="border-primary/40 bg-primary/12 text-primary">Upload Studio</Badge>
                 <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Premium Workflow</span>
               </div>
-              <DialogTitle className="text-xl font-display text-foreground">
+              <DialogTitle className="text-2xl font-display text-foreground sm:text-3xl">
                 {isVerticalUploadPrompt ? "Vertical Upload Mode" : "Choose Upload Mode"}
               </DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
@@ -22516,10 +22522,43 @@ const Editor = () => {
               </DialogDescription>
             </DialogHeader>
 
+            <div className="relative z-10 mt-3 h-px w-full bg-[linear-gradient(90deg,transparent,hsl(var(--primary)/0.5),transparent)]" />
+
             {pendingUploadSelection ? (
-              <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-[linear-gradient(140deg,hsl(var(--card)/0.78),hsl(var(--card)/0.46))] px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected file</p>
-                <p className="mt-1 truncate text-sm text-foreground">{pendingUploadSelection.file.name}</p>
+              <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-3">
+                <div className={uploadStudioSummaryCardClass}>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Selected file</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-foreground">
+                    {pendingUploadSelection.fileCount > 1
+                      ? `${pendingUploadSelection.file.name} + ${Math.max(0, pendingUploadSelection.fileCount - 1)} more`
+                      : pendingUploadSelection.file.name}
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {pendingUploadSelection.fileCount > 1
+                      ? `${pendingUploadSelection.fileCount} files queued`
+                      : "Ready to upload"}
+                  </p>
+                </div>
+                <div className={uploadStudioSummaryCardClass}>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Output format</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">{pendingUploadModeLabel}</span>
+                    <Badge className="border-primary/35 bg-primary/12 text-primary">
+                      {pendingUploadMode === "vertical" ? "Shorts" : "Long-form"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{recommendedUploadFormatLabel}</p>
+                </div>
+                <div className={uploadStudioSummaryCardClass}>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Upload mode</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">{uploadModePromptActiveLabel}</span>
+                    {paidTier ? (
+                      <Badge className="border-primary/35 bg-primary/12 text-primary">Premium</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Tap a mode below to update.</p>
+                </div>
               </div>
             ) : null}
 
@@ -22663,27 +22702,10 @@ const Editor = () => {
                   </div>
                 </div>
 
-                <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-background/35 px-3 py-3">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-3 text-left"
-                    onClick={() => setVerticalUploadPresetPromptOpen(true)}
-                    aria-label="Open vertical layout presets"
-                  >
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Layout + Webcam</p>
-                      <p className="text-xs text-muted-foreground">
-                        {activeVerticalUploadModePreset.label} · {activeVerticalUploadModePreset.tagline}
-                      </p>
-                    </div>
-                    <Badge className="border-primary/40 bg-primary/12 text-primary">
-                      {activeVerticalUploadModePreset.premiumLabel}
-                    </Badge>
-                  </button>
-                </div>
               </>
-            ) : (
-              <>
+            ) : null}
+
+            <>
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -22818,7 +22840,7 @@ const Editor = () => {
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Render Settings</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Advanced encoder controls for this upload. Hidden by default.
+                    Advanced encoder controls for this upload.
                   </p>
                 </div>
                 <span className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/50 bg-background/45 text-foreground transition hover:border-primary/45 hover:text-primary">
@@ -22971,7 +22993,7 @@ const Editor = () => {
               </button>
               {!uploadModeExtrasOpen ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Hidden by default for a faster popup open.
+                  Collapse to simplify the popup.
                 </p>
               ) : null}
             </div>
@@ -23265,8 +23287,7 @@ const Editor = () => {
             </div>
               </>
             ) : null}
-              </>
-            )}
+            </>
 
             <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
