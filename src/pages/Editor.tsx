@@ -7582,6 +7582,7 @@ const Editor = () => {
       ? renderOptions.uploadModeOverride.onlyCuts
       : uploadOnlyCutsEnabled;
     const fullAutoYoutubeEnabledForJob = resolvedOnlyCuts ? false : resolvedFullAutoYoutubeEnabled;
+    const dopamineBoostForJob = !resolvedOnlyCuts && bingeModeEnabled;
     const smartZoomForJob = resolvedOnlyCuts ? false : smartZoomEnabled;
     const transitionsForJob = resolvedOnlyCuts ? false : autoTransitionsEnabled;
     const soundFxForJob = resolvedOnlyCuts ? false : autoSoundFxEnabled;
@@ -7758,6 +7759,7 @@ const Editor = () => {
               fastMode: fastModeForJob,
               pipelinePowerMode: pipelinePowerModeForRequest,
               onlyCuts: resolvedOnlyCuts,
+              dopamineBoost: dopamineBoostForJob,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -7804,6 +7806,7 @@ const Editor = () => {
               fastMode: fastModeForJob,
               pipelinePowerMode: pipelinePowerModeForRequest,
               onlyCuts: resolvedOnlyCuts,
+              dopamineBoost: dopamineBoostForJob,
               ...adaptiveLearningPayload,
               autoCaptions: captionsEnabledForJob,
               subtitleStyle: subtitleStyleForJob,
@@ -16258,6 +16261,7 @@ const Editor = () => {
       setRetentionStrategyProfile("viral");
       applyMaxCutsDelta(3);
       patchPayload.onlyCuts = false;
+      patchPayload.dopamineBoost = true;
       patchPayload.transitions = true;
       patchPayload.retentionStrategyProfile = "viral";
       patchPayload.tangentKiller = true;
@@ -16305,6 +16309,7 @@ const Editor = () => {
       setAutoTransitionsEnabled(true);
       applyMaxCutsDelta(2);
       patchPayload.onlyCuts = false;
+      patchPayload.dopamineBoost = true;
       patchPayload.transitions = true;
       setPreviewTipPlaybackRateByJob((prev) => ({
         ...prev,
