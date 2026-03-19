@@ -17391,6 +17391,46 @@ const Editor = () => {
     return stabilizeEta(baselineRemaining);
   }, [activeJob, etaTick, estimatedDurationSec, uploadBytesUploaded, uploadBytesTotal]);
 
+  const etaDrivenStageProgress = useMemo(() => {
+    if (!activeJob) return null;
+    if (etaSeconds === null || etaSeconds <= 0) return null;
+    const normalized = normalizeStatus(activeJob.status);
+    if (!TIME_DRIVEN_STAGE_STATUSES.has(normalized)) return null;
+    const analysisStageStartMs = resolvePipelineStageStartMs(
+      activeJob.analysis && typeof activeJob.analysis === "object" ? (activeJob.analysis as Record<string, unknown>) : null,
+      normalized,
+    );
+    const marker = statusStartRef.current[activeJob.id];
+    const stageStartedAt =
+      analysisStageStartMs ??
+      (marker && marker.status === normalized
+        ? marker.startedAt
+        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime());
+    const elapsedSec = Math.max(0.5, (Date.now() - stageStartedAt) / 1000);
+    const etaProgress = clamp((elapsedSec / Math.max(1, elapsedSec + etaSeconds)) * 100, 4, 97);
+    return etaProgress;
+  }, [activeJob?.id, activeJob?.status, activeJob?.analysis, etaSeconds, etaTick]);
+
+  const effectiveStageProgress = useMemo(() => {
+    if (!activeJob) return activeStageProgress;
+    if (normalizeStatus(activeJob.status) === "ready") return 100;
+    if (etaDrivenStageProgress === null) return activeStageProgress;
+    return clamp(Math.max(activeStageProgress, etaDrivenStageProgress), 4, 99);
+  }, [activeStageProgress, activeJob?.status, etaDrivenStageProgress]);
+
+  const effectivePipelineProgress = useMemo(() => {
+    if (!activeJob) return totalPipelineProgress;
+    const normalized = normalizeStatus(activeJob.status);
+    if (normalized === "ready") return 100;
+    const stageCount = Math.max(1, PIPELINE_STEPS.length);
+    const stageIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
+    const stageWeight = 100 / stageCount;
+    const stageContribution = (stageIndex + clamp(effectiveStageProgress, 0, 100) / 100) * stageWeight;
+    const computed = clamp(stageContribution, 0, 99);
+    if (normalized === "failed") return clamp(Math.max(totalPipelineProgress, computed), 6, 99);
+    return clamp(Math.max(totalPipelineProgress, computed), 0, 100);
+  }, [activeJob?.status, currentStepIndex, effectiveStageProgress, totalPipelineProgress]);
+
   const formatEta = (seconds: number | null) => {
     if (seconds === null) return "Calculating ETA...";
     if (seconds <= 0) return "Finalizing...";
@@ -20610,7 +20650,7 @@ const Editor = () => {
                         </div>
                         <div className="vertical-reboot-overview-metrics">
                           <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
-                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
+                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(effectivePipelineProgress)}%</span>
                           {activeVerticalJobProcessing ? (
                             <span className="vertical-reboot-mini-pill text-[10px]">Stage: {activeStageLabel}</span>
                           ) : null}
@@ -20836,7 +20876,7 @@ const Editor = () => {
                                           ? "YouTube"
                                           : "TikTok";
                                       const clipStatusLabel = clipReady ? "Ready" : clipProcessing ? "Rendering" : "Queued";
-                                      const clipProgressPct = clipReady ? 100 : clamp(Math.round(totalPipelineProgress || 0), 0, 99);
+                                      const clipProgressPct = clipReady ? 100 : clamp(Math.round(effectivePipelineProgress || 0), 0, 99);
                                       const rerenderDisabled =
                                         !!uploadingJobId ||
                                         ((activeJob && activeJob.renderMode === "vertical")
@@ -21511,7 +21551,7 @@ const Editor = () => {
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
                 <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
                   {activeJob
-                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(totalPipelineProgress)} percent complete.`
+                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(effectivePipelineProgress)} percent complete.`
                     : "No active pipeline selected."}
                 </div>
                 {normalizeStatus(activeJob?.status) === "failed" ? (
@@ -21537,7 +21577,7 @@ const Editor = () => {
                           {activeStatusLabel}
                         </Badge>
                         <Badge variant="outline" className="border-border/60 bg-muted/20 text-xs text-muted-foreground">
-                          {Math.round(totalPipelineProgress)}%
+                          {Math.round(effectivePipelineProgress)}%
                         </Badge>
                         {!isTerminalStatus(activeJob.status) ? (
                           <Badge
@@ -21605,13 +21645,13 @@ const Editor = () => {
                         <motion.div
                           className="h-full bg-gradient-to-r from-primary via-primary/80 to-glow-secondary"
                           initial={{ width: 0 }}
-                          animate={{ width: `${totalPipelineProgress}%` }}
+                          animate={{ width: `${effectivePipelineProgress}%` }}
                           transition={{ duration: 0.35, ease: "easeOut" }}
                         />
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                         <span className="uppercase tracking-[0.16em]">Live Pipeline Progress</span>
-                        <span>{Math.round(totalPipelineProgress)}%</span>
+                        <span>{Math.round(effectivePipelineProgress)}%</span>
                       </div>
                     </div>
 
