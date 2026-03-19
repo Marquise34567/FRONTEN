@@ -10926,7 +10926,7 @@ const Editor = () => {
     !verticalExtrasModeEnabled &&
     hasVerticalVariantWorkspace,
   );
-  const showUploadDropzone = !showVerticalGalleryOnlyLayout && (isVerticalMode || (!activeJob && !uploadingJobId));
+  const showUploadDropzone = !showVerticalGalleryOnlyLayout && (isVerticalMode || uploadingJobId || !activeJob);
   const showModeInsightsInline = searchParams.get("modePageInline") === "1";
   const verticalExtrasHref = useMemo(() => {
     const next = new URLSearchParams(searchParams);
