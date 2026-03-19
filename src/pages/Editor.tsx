@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import GlowBackdrop from "@/components/GlowBackdrop";
+import { Fragment, lazy, Suspense } from "react";
+const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { EditorAgentRateCard } from "@/components/editor/EditorAgentRateCard";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,6 @@ const AUTO_DOWNLOAD_VERTICAL_MODE_KEY = "editor_auto_download_vertical_mode_v1";
 const AUTO_DOWNLOAD_LONGFORM_ONLY_KEY = "editor_auto_download_longform_only_v1";
 const AUTO_IMPORT_ENABLED_KEY = "editor_auto_import_enabled_v1";
 const MOBILE_IMPORT_WAITLIST_KEY = "editor_mobile_auto_import_waitlist_v1";
-const STORY_MAP_AGENT_PROMPT_ENABLED_KEY = "editor_story_map_agent_prompt_enabled_v1";
 const CAPTIONS_PIPELINE_ENABLED = (() => {
   const raw = String(import.meta.env.VITE_CAPTIONS_PIPELINE_ENABLED ?? "true").trim().toLowerCase();
   if (!raw) return true;
@@ -110,41 +110,16 @@ const isAllowedUploadName = (name: string) => {
   return ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
 };
 
-const safeLocalStorageGet = (key: string) => {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const safeLocalStorageSet = (key: string, value: string) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Ignore storage failures (private mode / blocked storage).
-  }
-};
-
-const safeLocalStorageRemove = (key: string) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Ignore storage failures (private mode / blocked storage).
-  }
-};
-
 const readLocalStorageFlag = (key: string, fallback = false) => {
-  const raw = safeLocalStorageGet(key);
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
   if (raw === null) return fallback;
   return raw === "true";
 };
 
 const writeLocalStorageFlag = (key: string, value: boolean) => {
-  safeLocalStorageSet(key, value ? "true" : "false");
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value ? "true" : "false");
 };
 
 const sanitizeFileStem = (value: string) =>
@@ -2517,14 +2492,6 @@ const LIVE_SETTINGS_MUTABLE_STATUSES = new Set([
   "retention",
   "rendering",
 ]);
-const TIME_DRIVEN_STAGE_STATUSES = new Set([
-  "pacing",
-  "story",
-  "subtitling",
-  "audio",
-  "retention",
-  "rendering",
-]);
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -3688,375 +3655,6 @@ const parseBooleanLike = (value: unknown): boolean | null => {
   return null;
 };
 
-type EditTimeComparison = {
-  manualMinutes: number;
-  autoMinutes: number | null;
-  savedMinutes: number | null;
-  autoIsLive: boolean;
-  autoSource: "pipeline" | "job";
-};
-
-const classifyEditDurationKind = (seconds: number): "short-form" | "long-form" => {
-  if (seconds <= 60) return "short-form";
-  if (seconds >= 300) return "long-form";
-  return Math.abs(seconds - 60) <= Math.abs(seconds - 300) ? "short-form" : "long-form";
-};
-
-const roundToTwo = (value: number) => Number(value.toFixed(2));
-
-const parseEpochMs = (value: unknown): number | null => {
-  if (!value) return null;
-  if (value instanceof Date) return value.getTime();
-  const parsed = new Date(String(value)).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const PIPELINE_STAGE_STEP_CANDIDATES: Record<string, string[]> = {
-  queued: ["UPLOAD", "UPLOADING"],
-  uploading: ["UPLOAD", "UPLOADING"],
-  analyzing: ["TRANSCRIBE", "FRAME_ANALYSIS", "BEST_MOMENT_SCORING", "ANALYZE", "ANALYZING"],
-  hooking: ["HOOK_SELECT_AND_AUDIT", "HOOK_SCORING"],
-  cutting: ["TIMELINE_REORDER", "STORY_REORDER", "CUTTING"],
-  pacing: ["PACING_AND_INTERRUPTS", "PACING_ENFORCEMENT", "STORY_QUALITY_GATE", "PACING"],
-  retention: ["RETENTION_SCORE"],
-  review: ["REVIEW", "HUMAN_REVIEW"],
-  rendering: ["RENDER_FINAL", "RENDER", "RENDERING"],
-};
-
-const PIPELINE_STATUS_ORDER = [
-  "queued",
-  "uploading",
-  "analyzing",
-  "hooking",
-  "cutting",
-  "pacing",
-  "story",
-  "subtitling",
-  "audio",
-  "retention",
-  "review",
-  "rendering",
-] as const;
-
-const resolvePipelineStepTimingMs = (analysis: Record<string, unknown>) => {
-  const steps = toObjectRecord((analysis as any)?.pipelineSteps);
-  if (!steps) return null;
-  const starts: number[] = [];
-  const ends: number[] = [];
-  Object.values(steps).forEach((entry) => {
-    const row = toObjectRecord(entry);
-    if (!row) return;
-    const startedAt = parseEpochMs(
-      (row as any).startedAt ??
-      (row as any).started_at ??
-      (row as any).started,
-    );
-    const completedAt = parseEpochMs(
-      (row as any).completedAt ??
-      (row as any).completed_at ??
-      (row as any).completed,
-    );
-    const updatedAt = parseEpochMs((row as any).updatedAt ?? (row as any).updated_at);
-    if (startedAt !== null) starts.push(startedAt);
-    if (completedAt !== null) {
-      ends.push(completedAt);
-    } else if (updatedAt !== null) {
-      ends.push(updatedAt);
-    }
-  });
-  if (!starts.length && !ends.length) return null;
-  return {
-    startMs: starts.length ? Math.min(...starts) : null,
-    endMs: ends.length ? Math.max(...ends) : null,
-  };
-};
-
-const resolvePipelineStepStage = (stepKey: string) => {
-  const normalized = String(stepKey || "").trim().toUpperCase();
-  if (!normalized) return null;
-  for (const [stage, steps] of Object.entries(PIPELINE_STAGE_STEP_CANDIDATES)) {
-    if (steps.includes(normalized)) return stage;
-  }
-  return null;
-};
-
-const resolvePipelineStageDurationsSeconds = (analysis: Record<string, unknown>) => {
-  const steps = toObjectRecord((analysis as any)?.pipelineSteps);
-  if (!steps) return null;
-  const durations: Record<string, number> = {};
-  Object.entries(steps).forEach(([stepKey, entry]) => {
-    const stage = resolvePipelineStepStage(stepKey);
-    if (!stage) return;
-    const row = toObjectRecord(entry);
-    if (!row) return;
-    const startedAt = parseEpochMs(
-      (row as any).startedAt ??
-      (row as any).started_at ??
-      (row as any).started,
-    );
-    const completedAt = parseEpochMs(
-      (row as any).completedAt ??
-      (row as any).completed_at ??
-      (row as any).completed,
-    );
-    const updatedAt = parseEpochMs((row as any).updatedAt ?? (row as any).updated_at);
-    const status = String((row as any).status || "").toLowerCase();
-    const endAt =
-      completedAt ??
-      ((status === "completed" || status === "failed") ? updatedAt : null);
-    if (startedAt === null || endAt === null || endAt < startedAt) return;
-    const durationSeconds = (endAt - startedAt) / 1000;
-    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
-    durations[stage] = (durations[stage] ?? 0) + durationSeconds;
-  });
-  return durations;
-};
-
-const estimatePipelineRemainingSeconds = ({
-  analysis,
-  status,
-  fileSizeBytes,
-  quality,
-  stageElapsedSeconds,
-}: {
-  analysis: Record<string, unknown> | null;
-  status: string;
-  fileSizeBytes?: number | null;
-  quality?: ExportQuality | null;
-  stageElapsedSeconds: number;
-}) => {
-  if (!analysis) return null;
-  const order = PIPELINE_STATUS_ORDER as readonly string[];
-  const currentIndex = order.indexOf(status);
-  if (currentIndex === -1) return null;
-
-  const stageDurations = resolvePipelineStageDurationsSeconds(analysis) ?? {};
-  const baselineForStage = (stageKey: string) =>
-    computeStageEtaBaseline({ status: stageKey, fileSizeBytes, quality });
-  const completedStages = order.slice(0, currentIndex);
-  const observedSeconds = completedStages.reduce(
-    (sum, stageKey) => sum + (stageDurations[stageKey] ?? 0),
-    0,
-  );
-  const baselineSeconds = completedStages.reduce(
-    (sum, stageKey) => sum + baselineForStage(stageKey),
-    0,
-  );
-  const speedRatio =
-    baselineSeconds > 0 && observedSeconds > 0
-      ? clamp(observedSeconds / baselineSeconds, 0.35, 2.6)
-      : 1;
-
-  let remaining = 0;
-  for (let index = currentIndex; index < order.length; index += 1) {
-    const stageKey = order[index];
-    const base = baselineForStage(stageKey) * speedRatio;
-    if (stageKey === status) {
-      remaining += Math.max(0, base - stageElapsedSeconds);
-    } else {
-      remaining += base;
-    }
-  }
-  if (!Number.isFinite(remaining)) return null;
-  const observedStageCount = Object.keys(stageDurations).length;
-  const confidence = clamp(0.25 + observedStageCount * 0.08, 0.25, 0.8);
-  return {
-    remainingSeconds: Math.max(0, Math.round(remaining)),
-    confidence,
-  };
-};
-
-const resolvePipelineStageStartMs = (analysis: Record<string, unknown> | null, status: string) => {
-  if (!analysis) return null;
-  const steps = toObjectRecord((analysis as any)?.pipelineSteps);
-  if (!steps) return null;
-  const candidates = PIPELINE_STAGE_STEP_CANDIDATES[status] ?? [];
-  let runningStart: number | null = null;
-  let latestStart: number | null = null;
-  candidates.forEach((key) => {
-    const row = toObjectRecord((steps as any)[key]);
-    if (!row) return;
-    const startedAt = parseEpochMs((row as any).startedAt ?? (row as any).started_at ?? (row as any).started);
-    if (startedAt === null) return;
-    const state = String((row as any).status || "").toLowerCase();
-    if (state === "running") {
-      runningStart = runningStart === null ? startedAt : Math.max(runningStart, startedAt);
-    }
-    latestStart = latestStart === null ? startedAt : Math.max(latestStart, startedAt);
-  });
-  return runningStart ?? latestStart;
-};
-
-const resolveEditTimeComparison = ({
-  job,
-  analysis,
-  renderSettings,
-  estimatedDurationSec,
-}: {
-  job: JobDetail | null;
-  analysis: Record<string, unknown> | null;
-  renderSettings: Record<string, unknown> | null;
-  estimatedDurationSec: number | null;
-}): EditTimeComparison | null => {
-  if (!job) return null;
-  const safeAnalysis = analysis ?? {};
-  const metadataSummary =
-    toObjectRecord((safeAnalysis as any).metadata_summary) ??
-    toObjectRecord((safeAnalysis as any).metadataSummary);
-  const timeline = toObjectRecord((metadataSummary as any)?.timeline);
-  const pacing = toObjectRecord((metadataSummary as any)?.pacing);
-  const rawDurationSeconds = firstFiniteNumber(
-    job.inputDurationSeconds,
-    (timeline as any)?.sourceDurationSeconds,
-    (safeAnalysis as any)?.duration,
-    estimatedDurationSec,
-  );
-  if (rawDurationSeconds === null || !Number.isFinite(rawDurationSeconds) || rawDurationSeconds <= 0) return null;
-  const safeRawDuration = Math.max(1, rawDurationSeconds);
-
-  const removedSecondsRaw = firstFiniteNumber((timeline as any)?.removedSeconds);
-  const finalDurationFallback = safeRawDuration - (removedSecondsRaw ?? 0);
-  const finalDurationSeconds = clamp(
-    firstFiniteNumber(
-      (pacing as any)?.editedRuntimeSeconds,
-      (pacing as any)?.keptTimelineSeconds,
-      finalDurationFallback,
-    ) ?? safeRawDuration,
-    1,
-    safeRawDuration,
-  );
-
-  const removedFromRatio = safeRawDuration * clamp01(
-    firstFiniteNumber(
-      (safeAnalysis as any)?.boredom_removed_ratio,
-      (safeAnalysis as any)?.boredomRemovedRatio,
-    ) ?? 0,
-  );
-  const deadAirRemovedSeconds = clamp(
-    firstFiniteNumber(
-      removedSecondsRaw,
-      Math.max(0, safeRawDuration - finalDurationSeconds),
-      removedFromRatio,
-    ) ?? 0,
-    0,
-    safeRawDuration,
-  );
-  const removedRatio = clamp01(deadAirRemovedSeconds / Math.max(1, safeRawDuration));
-
-  const toRatio = (value: number | null) => {
-    if (value === null || !Number.isFinite(value)) return null;
-    if (value >= 0 && value <= 1) return clamp01(value);
-    return clamp01(value / 100);
-  };
-  const hookScoreRaw = firstFiniteNumber(
-    (metadataSummary as any)?.hook?.score,
-    (safeAnalysis as any)?.hook_score,
-    (safeAnalysis as any)?.hookScore,
-  );
-  const hookAuditRaw = firstFiniteNumber(
-    (metadataSummary as any)?.hook?.auditScore,
-    (safeAnalysis as any)?.hook_audit_score,
-    (safeAnalysis as any)?.hookAuditScore,
-  );
-  const hookScore = toRatio(hookScoreRaw) ?? 0;
-  const hookAudit = toRatio(hookAuditRaw) ?? hookScore;
-  const hookStrength = Math.max(hookScore, hookAudit);
-
-  const captionModeRaw = String(
-    (safeAnalysis as any)?.captionMode ?? (safeAnalysis as any)?.caption_mode ?? "",
-  ).trim().toLowerCase();
-  const captionFlag =
-    parseBooleanLike((safeAnalysis as any)?.vertical_caption_enabled ?? (safeAnalysis as any)?.verticalCaptionEnabled) ??
-    parseBooleanLike((renderSettings as any)?.vertical_caption_enabled ?? (renderSettings as any)?.verticalCaptionEnabled);
-  const captionsEnabled = captionFlag ?? (captionModeRaw === "ai" || captionModeRaw === "auto");
-
-  const audioChainRaw = Array.isArray((safeAnalysis as any)?.audio_polish_chain)
-    ? (safeAnalysis as any).audio_polish_chain
-    : [];
-  const audioCount = audioChainRaw
-    .map((entry: any) => String(entry || "").trim())
-    .filter(Boolean).length;
-
-  const preScan = toObjectRecord((safeAnalysis as any)?.long_form_prescan ?? (safeAnalysis as any)?.longFormPrescan);
-  const chapterCount = Array.isArray((preScan as any)?.highEnergyRanges)
-    ? (preScan as any).highEnergyRanges.length
-    : (() => {
-        const raw = firstFiniteNumber((preScan as any)?.totalChunks, (preScan as any)?.total_chunks);
-        return raw !== null ? Math.max(0, Math.round(raw / 2)) : 0;
-      })();
-
-  const kind = classifyEditDurationKind(safeRawDuration);
-  const rawMinutes = safeRawDuration / 60;
-  const complexity =
-    0.44 +
-    removedRatio * 1.25 +
-    hookStrength * 0.32 +
-    (captionsEnabled ? 0.22 : 0.08) +
-    Math.min(0.26, audioCount * 0.06) +
-    (kind === "long-form" ? 0.38 + Math.min(0.34, chapterCount * 0.05) : 0);
-  const manualMinutes = roundToTwo(Math.max(rawMinutes * (1.2 + complexity), rawMinutes * 0.6));
-
-  const runtime =
-    toObjectRecord((safeAnalysis as any)?.pipeline_runtime) ??
-    toObjectRecord((safeAnalysis as any)?.pipelineRuntime);
-  const startedAtMs = runtime?.startedAt ? new Date(String((runtime as any).startedAt)).getTime() : Number.NaN;
-  const finishedAtMs = runtime?.finishedAt ? new Date(String((runtime as any).finishedAt)).getTime() : Number.NaN;
-  const createdAtMs = new Date(job.createdAt).getTime();
-  const updatedAtMs = (job as any).updatedAt ? new Date(String((job as any).updatedAt)).getTime() : Number.NaN;
-  const analysisUpdatedAtMs = parseEpochMs(
-    (safeAnalysis as any)?.pipelineUpdatedAt ?? (safeAnalysis as any)?.updatedAt,
-  );
-  const pipelineStepsTiming = resolvePipelineStepTimingMs(safeAnalysis);
-  const nowMs = Date.now();
-  const isTerminal = isTerminalStatus(job.status);
-
-  let autoMinutes: number | null = null;
-  let autoIsLive = !isTerminal;
-  let autoSource: "pipeline" | "job" = "job";
-  const safeCreatedAtMs = Number.isFinite(createdAtMs) && createdAtMs > 0 ? createdAtMs : null;
-  const safeUpdatedAtMs = Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? updatedAtMs : null;
-  const pipelineStartMs =
-    Number.isFinite(startedAtMs) && startedAtMs > 0
-      ? startedAtMs
-      : pipelineStepsTiming?.startMs ?? null;
-  const pipelineEndMs =
-    Number.isFinite(finishedAtMs) && finishedAtMs > 0
-      ? finishedAtMs
-      : pipelineStepsTiming?.endMs ?? null;
-  const fallbackEndMs = isTerminal
-    ? (analysisUpdatedAtMs ?? safeUpdatedAtMs ?? nowMs)
-    : nowMs;
-
-  if (pipelineStartMs !== null) {
-    const boundedStartMs = safeCreatedAtMs !== null ? Math.max(pipelineStartMs, safeCreatedAtMs) : pipelineStartMs;
-    const endMs = pipelineEndMs ?? fallbackEndMs;
-    if (endMs >= boundedStartMs) {
-      autoMinutes = (endMs - boundedStartMs) / 60000;
-    }
-    autoIsLive = !isTerminal && pipelineEndMs === null;
-    autoSource = "pipeline";
-  } else if (safeCreatedAtMs !== null) {
-    autoMinutes = (fallbackEndMs - safeCreatedAtMs) / 60000;
-    autoIsLive = !isTerminal;
-  }
-
-  if (autoMinutes !== null && Number.isFinite(autoMinutes)) {
-    autoMinutes = autoMinutes > 0 ? roundToTwo(Math.max(0.5, autoMinutes)) : null;
-  } else {
-    autoMinutes = null;
-  }
-
-  const savedMinutes = autoMinutes !== null ? roundToTwo(Math.max(0, manualMinutes - autoMinutes)) : null;
-
-  return {
-    manualMinutes,
-    autoMinutes,
-    savedMinutes,
-    autoIsLive,
-    autoSource,
-  };
-};
-
 const parseCreatorStyleLockPercent = (value: unknown): number | null => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
@@ -5014,7 +4612,6 @@ const Editor = () => {
   const [uploadBytesTotal, setUploadBytesTotal] = useState<number | null>(null);
   const [cancelingUpload, setCancelingUpload] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportReadyOpen, setExportReadyOpen] = useState(false);
   const [exportFeedbackOpen, setExportFeedbackOpen] = useState(false);
   const [openingFileExplorer, setOpeningFileExplorer] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(
@@ -5033,9 +4630,6 @@ const Editor = () => {
   const [autoImportStatus, setAutoImportStatus] = useState<"idle" | "picking" | "watching" | "error">("idle");
   const [mobileImportWaitlistJoined, setMobileImportWaitlistJoined] = useState(
     () => readLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, false),
-  );
-  const [storyMapAgentPromptEnabled, setStoryMapAgentPromptEnabled] = useState(
-    () => readLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, false),
   );
   const [qualityByJob, setQualityByJob] = useState<Record<string, ExportQuality>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -5114,10 +4708,6 @@ const Editor = () => {
   useEffect(() => {
     writeLocalStorageFlag(MOBILE_IMPORT_WAITLIST_KEY, mobileImportWaitlistJoined);
   }, [mobileImportWaitlistJoined]);
-
-  useEffect(() => {
-    writeLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, storyMapAgentPromptEnabled);
-  }, [storyMapAgentPromptEnabled]);
 
   useEffect(() => {
     if (!autoImportEnabled) {
@@ -6020,7 +5610,7 @@ const Editor = () => {
   const dismissTrialUpgradePrompt = useCallback(() => {
     if (trialUpgradePromptKey) {
       try {
-        safeLocalStorageSet(trialUpgradePromptKey, String(Date.now()));
+        window.localStorage.setItem(trialUpgradePromptKey, String(Date.now()));
       } catch (error) {
         // ignore storage failures
       }
@@ -6036,7 +5626,7 @@ const Editor = () => {
   const handleHideSubscriptionCard = useCallback(() => {
     if (subscriptionCardHideKey) {
       try {
-        safeLocalStorageSet(subscriptionCardHideKey, "true");
+        window.localStorage.setItem(subscriptionCardHideKey, "true");
       } catch (error) {
         // ignore storage failures
       }
@@ -6047,7 +5637,7 @@ const Editor = () => {
   const handleShowSubscriptionCard = useCallback(() => {
     if (subscriptionCardHideKey) {
       try {
-        safeLocalStorageRemove(subscriptionCardHideKey);
+        window.localStorage.removeItem(subscriptionCardHideKey);
       } catch (error) {
         // ignore storage failures
       }
@@ -6061,7 +5651,7 @@ const Editor = () => {
       return;
     }
     try {
-      const dismissed = safeLocalStorageGet(trialUpgradePromptKey);
+      const dismissed = window.localStorage.getItem(trialUpgradePromptKey);
       if (dismissed) return;
     } catch (error) {
       // ignore storage failures
@@ -6075,7 +5665,7 @@ const Editor = () => {
       return;
     }
     try {
-      setHideSubscriptionCard(safeLocalStorageGet(subscriptionCardHideKey) === "true");
+      setHideSubscriptionCard(window.localStorage.getItem(subscriptionCardHideKey) === "true");
     } catch (error) {
       setHideSubscriptionCard(false);
     }
@@ -6126,7 +5716,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = safeLocalStorageGet(EDITOR_SETTINGS_COLLAPSED_KEY);
+      const persisted = window.localStorage.getItem(EDITOR_SETTINGS_COLLAPSED_KEY);
       if (persisted === "true") {
         setHideEditorControlsPanel(true);
         return;
@@ -6141,7 +5731,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      safeLocalStorageSet(EDITOR_SETTINGS_COLLAPSED_KEY, hideEditorControlsPanel ? "true" : "false");
+      window.localStorage.setItem(EDITOR_SETTINGS_COLLAPSED_KEY, hideEditorControlsPanel ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6149,7 +5739,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = safeLocalStorageGet(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY);
+      const persisted = window.localStorage.getItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY);
       if (persisted === "false") {
         setShowLiveTranscriptEditor(false);
         return;
@@ -6164,7 +5754,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      safeLocalStorageSet(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY, showLiveTranscriptEditor ? "true" : "false");
+      window.localStorage.setItem(LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY, showLiveTranscriptEditor ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6172,7 +5762,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      const persisted = safeLocalStorageGet(LIVE_OUTCOME_LOOP_VISIBLE_KEY);
+      const persisted = window.localStorage.getItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY);
       if (persisted === "true") {
         setShowLiveOutcomeLoop(true);
         return;
@@ -6187,7 +5777,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      safeLocalStorageSet(LIVE_OUTCOME_LOOP_VISIBLE_KEY, showLiveOutcomeLoop ? "true" : "false");
+      window.localStorage.setItem(LIVE_OUTCOME_LOOP_VISIBLE_KEY, showLiveOutcomeLoop ? "true" : "false");
     } catch (error) {
       // ignore storage failures
     }
@@ -6199,7 +5789,7 @@ const Editor = () => {
       return;
     }
     try {
-      const raw = safeLocalStorageGet(analyzeUnlockStorageKey);
+      const raw = window.localStorage.getItem(analyzeUnlockStorageKey);
       if (!raw) {
         setAnalyzeUnlockedByJob({});
         return;
@@ -6224,7 +5814,7 @@ const Editor = () => {
   useEffect(() => {
     if (!analyzeUnlockStorageKey) return;
     try {
-      safeLocalStorageSet(analyzeUnlockStorageKey, JSON.stringify(analyzeUnlockedByJob));
+      window.localStorage.setItem(analyzeUnlockStorageKey, JSON.stringify(analyzeUnlockedByJob));
     } catch (error) {
       // ignore storage failures
     }
@@ -6232,7 +5822,7 @@ const Editor = () => {
 
   useEffect(() => {
     try {
-      if (safeLocalStorageGet(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
+      if (window.localStorage.getItem(EDITOR_GUIDE_AUTO_OPENED_KEY) === "true") {
         editorGuidePromptedRef.current = true;
         return;
       }
@@ -6246,7 +5836,7 @@ const Editor = () => {
       if (scrollTop < 80) return;
       editorGuidePromptedRef.current = true;
       try {
-        safeLocalStorageSet(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+        window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
       } catch (error) {
         // ignore storage failures
       }
@@ -7623,24 +7213,18 @@ const Editor = () => {
   }, [jobs, refetchMe, accessToken, notifyExportComplete]);
 
   useEffect(() => {
-    if (!activeJob) {
-      setExportReadyOpen(false);
-      return;
-    }
-    if (normalizeStatus(activeJob.status) !== "ready") {
-      setExportReadyOpen(false);
+    if (!activeJob) return;
+    if (normalizeStatus(activeJob.status) !== "ready") return;
+    if (activeJob.renderMode === "vertical") {
+      setExportFeedbackOpen(false);
+      setExportOpen(false);
       return;
     }
     const key = `export_popup_shown_${activeJob.id}`;
     if (typeof window === "undefined") return;
-    if (safeLocalStorageGet(key)) {
-      setExportReadyOpen(false);
-      return;
-    }
-    safeLocalStorageSet(key, "true");
-    setExportFeedbackOpen(false);
-    setExportOpen(false);
-    setExportReadyOpen(true);
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "true");
+    setExportOpen(true);
   }, [activeJob?.id, activeJob?.status, activeJob?.renderMode]);
 
   useEffect(() => {
@@ -10253,8 +9837,8 @@ const Editor = () => {
       mode: SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (isVerticalMode ? "vertical" : "horizontal"),
     });
     setVerticalUploadPresetPromptOpen(false);
-    setUploadRenderSettingsOpen(true);
-    setUploadModeExtrasOpen(true);
+    setUploadRenderSettingsOpen(false);
+    setUploadModeExtrasOpen(false);
     setUploadModePromptOpen(true);
   }, [isVerticalMode]);
 
@@ -11278,10 +10862,6 @@ const Editor = () => {
         : "Preparing...";
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
-  const analysisRecord =
-    activeJob?.analysis && typeof activeJob.analysis === "object"
-      ? (activeJob.analysis as Record<string, unknown>)
-      : null;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
     ? (activeAnalysis.youtube_sync as Record<string, unknown>)
     : null;
@@ -12267,6 +11847,55 @@ const Editor = () => {
     return `${baseName}.${extension}`;
   }, [activeJob, activeOutputUrls, autoDownloadTitleBase]);
 
+  const fullAutoEditorAddedSummary = (() => {
+    if (!fullAutoEnabledForActiveJob) return null;
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const addLabel = (value: string | null) => {
+      const label = String(value || "").trim();
+      if (!label) return;
+      const dedupeKey = label.toLowerCase();
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      labels.push(label);
+    };
+
+    if (fullAutoAppliedSettings?.smartZoom === true) addLabel("smart zoom reframing");
+    if (fullAutoAppliedSettings?.transitions === true || fullAutoTransitionPack.length > 0) addLabel("transitions");
+    if (fullAutoAppliedSettings?.soundFx === true || fullAutoSoundFxPack.length > 0) addLabel("sound effects");
+    if (fullAutoAppliedSettings?.autoCaptions === true) {
+      const subtitleStyle = typeof fullAutoAppliedSettings?.subtitleStyle === "string"
+        ? fullAutoAppliedSettings.subtitleStyle.trim()
+        : "";
+      addLabel(subtitleStyle ? `${formatNicheLabel(subtitleStyle)} auto captions` : "auto captions");
+    }
+    if (fullAutoMusicPlan?.ducking === true) addLabel("background music ducking");
+    if (fullAutoProfileRaw?.preferAiBroll === true) addLabel("AI B-roll assist");
+    if (fullAutoAppliedSettings?.hookSelectionMode === "auto") addLabel("auto hook selection");
+    const maxCuts = Number(fullAutoAppliedSettings?.maxCuts);
+    if (Number.isFinite(maxCuts) && maxCuts > 0) addLabel(`up to ${Math.round(maxCuts)} auto cuts`);
+    const editorMode = typeof fullAutoAppliedSettings?.editorMode === "string"
+      ? fullAutoAppliedSettings.editorMode.trim().toLowerCase()
+      : "";
+    if (editorMode && editorMode !== "auto") addLabel(`${formatNicheLabel(editorMode)} pacing mode`);
+
+    if (labels.length > 0) return `Editor added: ${formatNaturalList(labels.slice(0, 6))}.`;
+
+    const fallbackHighlight = Array.isArray(fullAutoProfileRaw?.highlights)
+      ? fullAutoProfileRaw.highlights.find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      : null;
+    if (fallbackHighlight) {
+      const cleanHighlight = fallbackHighlight.trim().replace(/[.!?]+$/, "");
+      if (cleanHighlight) return `Editor added: ${cleanHighlight}.`;
+    }
+    return "Editor added: Full Auto YouTube optimizations.";
+  })();
+  const showFullAutoEditorAddedSummary = Boolean(
+    fullAutoEnabledForActiveJob &&
+      normalizedActiveStatus === "ready" &&
+      fullAutoEditorAddedSummary,
+  );
+  let verticalClipPredictions: VerticalClipPrediction[] = [];
   const metadataClipSummaries: Array<{
     clip: number;
     predictedCompletion: number | null;
@@ -12303,7 +11932,7 @@ const Editor = () => {
     : typeof metadataSummary?.selection_mode === "string"
       ? metadataSummary.selection_mode
     : null;
-  const verticalClipPredictions: VerticalClipPrediction[] = metadataClipsRaw.length > 0
+  verticalClipPredictions = metadataClipsRaw.length > 0
     ? metadataClipsRaw
         .map((item: any) => {
           const clip = Number.isFinite(Number(item?.clip))
@@ -12353,7 +11982,6 @@ const Editor = () => {
       ).toFixed(2),
     );
   })();
-
   const bestVerticalClipIndex = useMemo(() => {
     if (!verticalClipPredictions.length) return 0;
     const best = verticalClipPredictions.reduce((leader, item) =>
@@ -12427,54 +12055,6 @@ const Editor = () => {
     }
     autoDownloadBatchRef.current.delete(activeJob.id);
   }, [activeJob?.id, activeJob?.status]);
-  const fullAutoEditorAddedSummary = (() => {
-    if (!fullAutoEnabledForActiveJob) return null;
-    const labels: string[] = [];
-    const seen = new Set<string>();
-    const addLabel = (value: string | null) => {
-      const label = String(value || "").trim();
-      if (!label) return;
-      const dedupeKey = label.toLowerCase();
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
-      labels.push(label);
-    };
-
-    if (fullAutoAppliedSettings?.smartZoom === true) addLabel("smart zoom reframing");
-    if (fullAutoAppliedSettings?.transitions === true || fullAutoTransitionPack.length > 0) addLabel("transitions");
-    if (fullAutoAppliedSettings?.soundFx === true || fullAutoSoundFxPack.length > 0) addLabel("sound effects");
-    if (fullAutoAppliedSettings?.autoCaptions === true) {
-      const subtitleStyle = typeof fullAutoAppliedSettings?.subtitleStyle === "string"
-        ? fullAutoAppliedSettings.subtitleStyle.trim()
-        : "";
-      addLabel(subtitleStyle ? `${formatNicheLabel(subtitleStyle)} auto captions` : "auto captions");
-    }
-    if (fullAutoMusicPlan?.ducking === true) addLabel("background music ducking");
-    if (fullAutoProfileRaw?.preferAiBroll === true) addLabel("AI B-roll assist");
-    if (fullAutoAppliedSettings?.hookSelectionMode === "auto") addLabel("auto hook selection");
-    const maxCuts = Number(fullAutoAppliedSettings?.maxCuts);
-    if (Number.isFinite(maxCuts) && maxCuts > 0) addLabel(`up to ${Math.round(maxCuts)} auto cuts`);
-    const editorMode = typeof fullAutoAppliedSettings?.editorMode === "string"
-      ? fullAutoAppliedSettings.editorMode.trim().toLowerCase()
-      : "";
-    if (editorMode && editorMode !== "auto") addLabel(`${formatNicheLabel(editorMode)} pacing mode`);
-
-    if (labels.length > 0) return `Editor added: ${formatNaturalList(labels.slice(0, 6))}.`;
-
-    const fallbackHighlight = Array.isArray(fullAutoProfileRaw?.highlights)
-      ? fullAutoProfileRaw.highlights.find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-      : null;
-    if (fallbackHighlight) {
-      const cleanHighlight = fallbackHighlight.trim().replace(/[.!?]+$/, "");
-      if (cleanHighlight) return `Editor added: ${cleanHighlight}.`;
-    }
-    return "Editor added: Full Auto YouTube optimizations.";
-  })();
-  const showFullAutoEditorAddedSummary = Boolean(
-    fullAutoEnabledForActiveJob &&
-      normalizedActiveStatus === "ready" &&
-      fullAutoEditorAddedSummary,
-  );
   const hookSelectionModeFromAnalysis = normalizeHookSelectionMode(
     activeAnalysis?.hook_selection_mode ??
     activeAnalysis?.hookSelectionMode ??
@@ -12752,18 +12332,6 @@ const Editor = () => {
         ? Number((retentionScoreAfterDisplay - retentionScoreBeforeDisplay).toFixed(1))
         : null
     );
-  const retentionScoreHeadline = normalizedActiveStatus === "ready"
-    ? (retentionScoreAfterDisplay ?? retentionScoreDisplay)
-    : null;
-  const retentionScoreHeadlineLabel =
-    retentionScoreHeadline !== null ? `${retentionScoreHeadline.toFixed(1)}%` : "--";
-  const retentionScoreDeltaLabel = retentionScoreDeltaDisplay !== null
-    ? `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)} pts`
-    : null;
-  const retentionQuickStatusLabel =
-    normalizedActiveStatus === "ready"
-      ? (retentionScoreDeltaLabel ? `Delta ${retentionScoreDeltaLabel}` : "Latest retention score")
-      : "Awaiting retention score";
   const dynamicScoreBeforePopup = dynamicScoreBeforeDisplay ?? retentionScoreBeforeDisplay;
   const dynamicScoreAfterPopup = dynamicScoreAfterDisplay ?? retentionScoreAfterDisplay;
   const hookWindowLabel =
@@ -12840,26 +12408,14 @@ const Editor = () => {
         : 0;
     if (normalized === "ready") return 100;
     const marker = statusStartRef.current[activeJob.id];
-    let progressFromJob = clamp(overallProgress, 4, 99);
     if (marker && marker.status === normalized && Number.isFinite(marker.startProgress)) {
       const start = clamp(marker.startProgress, 0, 99);
       const span = Math.max(1, 100 - start);
-      progressFromJob = clamp(((overallProgress - start) / span) * 100, 4, 99);
+      return clamp(((overallProgress - start) / span) * 100, 4, 99);
     }
-    if (normalized === "failed") return clamp(progressFromJob, 6, 99);
-    if (!TIME_DRIVEN_STAGE_STATUSES.has(normalized)) return progressFromJob;
-
-    const analysisStageStartMs = resolvePipelineStageStartMs(analysisRecord, normalized);
-    const stageStartedAt =
-      analysisStageStartMs ??
-      (marker && marker.status === normalized ? marker.startedAt : new Date(activeJob.createdAt).getTime());
-    const stageElapsedSec = Math.max(0, (Date.now() - stageStartedAt) / 1000);
-    const fileSize = jobFileSizeRef.current[activeJob.id] ?? uploadBytesTotal ?? null;
-    const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
-    const baseline = computeStageEtaBaseline({ status: normalized, fileSizeBytes: fileSize, quality: targetQuality });
-    const timeDrivenProgress = clamp((stageElapsedSec / Math.max(1, baseline)) * 100, 4, 97);
-    return clamp(Math.max(progressFromJob, timeDrivenProgress), 4, 99);
-  }, [activeJob?.id, activeJob?.status, activeJob?.progress, activeJob?.analysis, etaTick, uploadBytesTotal]);
+    if (normalized === "failed") return clamp(overallProgress, 6, 99);
+    return clamp(overallProgress, 4, 99);
+  }, [activeJob?.id, activeJob?.status, activeJob?.progress]);
   const analyzedFrames = firstFiniteNumber(
     activeAnalysis?.frames_analyzed,
     activeAnalysis?.framesAnalyzed,
@@ -16852,18 +16408,17 @@ const Editor = () => {
   useEffect(() => {
     if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
     if (!activeStoryMapAgentSuggestion) return;
-    if (!storyMapAgentPromptEnabled) return;
     if (typeof window === "undefined") return;
     const key = `story_map_agent_prompt_shown_${activeJob.id}`;
-    if (safeLocalStorageGet(key)) return;
-    safeLocalStorageSet(key, "true");
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "true");
     setStoryMapAgentSuggestionIdByJob((prev) => ({
       ...prev,
       [activeJob.id]: activeStoryMapAgentSuggestion.id,
     }));
     setStoryMapAgentPromptOpen(true);
     setExportOpen(false);
-  }, [activeJob?.id, activeJob?.status, activeStoryMapAgentSuggestion, storyMapAgentPromptEnabled]);
+  }, [activeJob?.id, activeJob?.status, activeStoryMapAgentSuggestion]);
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -17284,9 +16839,7 @@ const Editor = () => {
         };
         return nextEta;
       }
-      const progressStalled = clampedProgress <= previous.progress + 0.2;
-      const allowIncrease = progressStalled && nextEta >= previous.etaSeconds + 5;
-      const lockedEta = allowIncrease ? nextEta : Math.min(nextEta, previous.etaSeconds);
+      const lockedEta = Math.min(nextEta, previous.etaSeconds);
       etaMonotonicRef.current[jobId] = {
         status: normalized,
         etaSeconds: lockedEta,
@@ -17295,25 +16848,13 @@ const Editor = () => {
       return lockedEta;
     };
     const nowMs = Date.now();
-    const directEtaSeconds = firstFiniteNumber(
-      (activeJob as any)?.etaSeconds,
-      (activeJob as any)?.eta_seconds,
-      (activeJob as any)?.etaRemainingSeconds,
-      (activeJob as any)?.eta_remaining_seconds,
-      (activeJob as any)?.etaRemainingSec,
-      (activeJob as any)?.eta_remaining_sec,
-      (activeJob.analysis as any)?.etaSeconds,
-      (activeJob.analysis as any)?.eta_seconds,
-    );
     const fileSize = jobFileSizeRef.current[jobId] ?? uploadBytesTotal ?? null;
     const targetQuality = normalizeQuality(activeJob.finalQuality || activeJob.requestedQuality || "720p");
     const stageMarker = statusStartRef.current[jobId];
-    const analysisStageStartMs = resolvePipelineStageStartMs(analysisRecord, normalized);
     const stageStartedAt =
-      analysisStageStartMs ??
-      (stageMarker && stageMarker.status === normalized
+      stageMarker && stageMarker.status === normalized
         ? stageMarker.startedAt
-        : pipelineStartRef.current[jobId] ?? new Date(activeJob.createdAt).getTime());
+        : pipelineStartRef.current[jobId] ?? new Date(activeJob.createdAt).getTime();
     const stageStartProgress =
       stageMarker && stageMarker.status === normalized && Number.isFinite(stageMarker.startProgress)
         ? clamp(stageMarker.startProgress, 0, 100)
@@ -17351,14 +16892,14 @@ const Editor = () => {
       if (queueEtaRemaining !== null) return stabilizeEta(queueEtaRemaining);
       return stabilizeEta(baselineRemaining);
     }
-    if (directEtaSeconds !== null && directEtaSeconds >= 0) {
-      return stabilizeEta(directEtaSeconds);
-    }
 
     const runtimeFromAnalysisMs = (() => {
+      const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
+        ? (activeJob.analysis as Record<string, unknown>)
+        : null;
       const runtimeRaw =
-        (analysisRecord?.pipeline_runtime as Record<string, unknown> | undefined) ||
-        (analysisRecord?.pipelineRuntime as Record<string, unknown> | undefined) ||
+        (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
+        (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
         null;
       const startedAtRaw = runtimeRaw?.startedAt;
       const parsed = startedAtRaw ? new Date(String(startedAtRaw)).getTime() : Number.NaN;
@@ -17387,39 +16928,13 @@ const Editor = () => {
           ? Math.round((elapsed * (100 - jobProgress)) / jobProgress)
           : null;
 
-    const pipelineEstimate = estimatePipelineRemainingSeconds({
-      analysis: analysisRecord,
-      status: normalized,
-      fileSizeBytes: fileSize,
-      quality: targetQuality,
-      stageElapsedSeconds: stageElapsed,
-    });
-    const pipelineRemaining = pipelineEstimate?.remainingSeconds ?? null;
-    const pipelineWeight = pipelineEstimate?.confidence ?? 0;
-
     let candidate = baselineRemaining;
-    const weightedCandidates: Array<{ value: number; weight: number }> = [];
-    if (pipelineRemaining !== null) {
-      const blended = clamp(pipelineWeight + clampedProgress / 200, pipelineWeight, 0.85);
-      weightedCandidates.push({ value: pipelineRemaining, weight: blended });
-    }
-    if (progressDrivenRemaining !== null) {
-      weightedCandidates.push({
-        value: progressDrivenRemaining,
-        weight: clamp(0.2 + clampedProgress / 150, 0.2, 0.6),
-      });
-    }
-    if (durationDrivenRemaining !== null) {
-      weightedCandidates.push({ value: durationDrivenRemaining, weight: 0.2 });
-    }
-
-    if (weightedCandidates.length) {
-      const totalWeight = weightedCandidates.reduce((sum, entry) => sum + entry.weight, 0);
-      if (totalWeight > 0) {
-        candidate = Math.round(
-          weightedCandidates.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / totalWeight,
-        );
-      }
+    if (durationDrivenRemaining !== null && progressDrivenRemaining !== null) {
+      const progressWeight = clamp(clampedProgress / 100, 0.25, 0.85);
+      candidate = Math.round(
+        progressDrivenRemaining * progressWeight +
+        durationDrivenRemaining * (1 - progressWeight),
+      );
     } else if (progressDrivenRemaining !== null) {
       candidate = progressDrivenRemaining;
     } else if (durationDrivenRemaining !== null) {
@@ -17433,48 +16948,8 @@ const Editor = () => {
     return stabilizeEta(baselineRemaining);
   }, [activeJob, etaTick, estimatedDurationSec, uploadBytesUploaded, uploadBytesTotal]);
 
-  const etaDrivenStageProgress = useMemo(() => {
-    if (!activeJob) return null;
-    if (etaSeconds === null || etaSeconds <= 0) return null;
-    const normalized = normalizeStatus(activeJob.status);
-    if (!TIME_DRIVEN_STAGE_STATUSES.has(normalized)) return null;
-    const analysisStageStartMs = resolvePipelineStageStartMs(
-      activeJob.analysis && typeof activeJob.analysis === "object" ? (activeJob.analysis as Record<string, unknown>) : null,
-      normalized,
-    );
-    const marker = statusStartRef.current[activeJob.id];
-    const stageStartedAt =
-      analysisStageStartMs ??
-      (marker && marker.status === normalized
-        ? marker.startedAt
-        : pipelineStartRef.current[activeJob.id] ?? new Date(activeJob.createdAt).getTime());
-    const elapsedSec = Math.max(0.5, (Date.now() - stageStartedAt) / 1000);
-    const etaProgress = clamp((elapsedSec / Math.max(1, elapsedSec + etaSeconds)) * 100, 4, 97);
-    return etaProgress;
-  }, [activeJob?.id, activeJob?.status, activeJob?.analysis, etaSeconds, etaTick]);
-
-  const effectiveStageProgress = useMemo(() => {
-    if (!activeJob) return activeStageProgress;
-    if (normalizeStatus(activeJob.status) === "ready") return 100;
-    if (etaDrivenStageProgress === null) return activeStageProgress;
-    return clamp(Math.max(activeStageProgress, etaDrivenStageProgress), 4, 99);
-  }, [activeStageProgress, activeJob?.status, etaDrivenStageProgress]);
-
-  const effectivePipelineProgress = useMemo(() => {
-    if (!activeJob) return totalPipelineProgress;
-    const normalized = normalizeStatus(activeJob.status);
-    if (normalized === "ready") return 100;
-    const stageCount = Math.max(1, PIPELINE_STEPS.length);
-    const stageIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
-    const stageWeight = 100 / stageCount;
-    const stageContribution = (stageIndex + clamp(effectiveStageProgress, 0, 100) / 100) * stageWeight;
-    const computed = clamp(stageContribution, 0, 99);
-    if (normalized === "failed") return clamp(Math.max(totalPipelineProgress, computed), 6, 99);
-    return clamp(Math.max(totalPipelineProgress, computed), 0, 100);
-  }, [activeJob?.status, currentStepIndex, effectiveStageProgress, totalPipelineProgress]);
-
   const formatEta = (seconds: number | null) => {
-    if (seconds === null) return "Calculating ETA...";
+    if (seconds === null) return "Calculating...";
     if (seconds <= 0) return "Finalizing...";
     const mins = Math.floor(seconds / 60);
     const hrs = Math.floor(mins / 60);
@@ -17489,20 +16964,13 @@ const Editor = () => {
   const etaDurationLabel = etaSeconds === null ? "--" : formatDurationClock(etaSeconds);
   const etaQueuePosition = firstFiniteNumber(activeJob?.queuePosition);
   const etaContextLabel = normalizedActiveStatus === "queued" && etaQueuePosition !== null && etaQueuePosition > 0
-    ? `Queue position #${Math.round(etaQueuePosition)}. ETA updates as slots open.`
+    ? `Queue position #${Math.round(etaQueuePosition)}`
     : normalizedActiveStatus === "uploading"
-      ? "ETA updates with your current upload speed."
+      ? "Uploading source media before the full edit pipeline starts."
       : estimatedDurationSec !== null
-        ? `Based on ${formatDurationClock(estimatedDurationSec)} of source runtime and current pipeline speed.`
-        : "Based on live pipeline speed and recent stage timings.";
+        ? `Based on ${formatDurationClock(estimatedDurationSec)} source runtime and live pipeline speed.`
+        : "Based on live pipeline speed and current stage progress.";
   const etaBadgeLabel = etaSeconds !== null && etaSeconds > 0 ? `${etaLabel} remaining` : etaLabel;
-  const editTimeComparison = resolveEditTimeComparison({
-    job: activeJob,
-    analysis: activeAnalysis,
-    renderSettings: activeRenderSettings,
-    estimatedDurationSec,
-  });
-  const showEditTimeComparison = Boolean(editTimeComparison && editTimeComparison.autoMinutes !== null);
   const activePlatformRecommendation = PLATFORM_RECOMMENDATION_MAP[retentionTargetPlatform];
   const retentionSliderValue = Math.max(0, RETENTION_PROFILE_SEQUENCE.indexOf(retentionStrategyProfile));
   const fullAutoPreviewBulletPoints = useMemo(() => {
@@ -17541,8 +17009,6 @@ const Editor = () => {
   const uploadModePromptActiveSelection: UploadModePromptSelection = fullAutoYoutubeEnabled
     ? "full_auto_youtube"
     : pipelinePowerMode;
-  const uploadModePromptActiveLabel =
-    UPLOAD_MODE_PROMPT_OPTIONS.find((option) => option.value === uploadModePromptActiveSelection)?.label ?? "Standard";
   const recommendedUploadFormat: "horizontal" | "vertical" =
     SHORTS_AUTO_VERTICAL_ONLY ? "vertical" : (retentionTargetPlatform === "youtube" ? "horizontal" : "vertical");
   const recommendedUploadFormatLabel = recommendedUploadFormat === "vertical"
@@ -17557,7 +17023,6 @@ const Editor = () => {
       ? "vertical"
       : (pendingUploadSelection?.mode ?? (isVerticalMode ? "vertical" : "horizontal"));
   const isVerticalUploadPrompt = pendingUploadMode === "vertical";
-  const pendingUploadModeLabel = pendingUploadMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9";
   const activeAdvancedLearningModeLabels = useMemo(() => {
     const labels: string[] = [];
     if (coldStartAutopilotEnabled) labels.push("Cold-Start Autopilot");
@@ -18201,8 +17666,6 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/14 text-foreground shadow-sm"
         : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/35 hover:text-foreground"
     }`;
-  const uploadStudioSummaryCardClass =
-    "relative overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(145deg,hsl(var(--card)/0.92),hsl(var(--card)/0.68))] px-3 py-2.5 shadow-[0_18px_44px_-30px_hsl(var(--primary)/0.9)] backdrop-blur before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-[radial-gradient(120%_120%_at_0%_0%,hsl(var(--primary)/0.22),transparent_58%)] before:content-['']";
   const uploadFormatCardClass = (active: boolean, compact = false) =>
     `group relative overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
       compact ? "min-h-[108px] rounded-xl p-3" : "min-h-[154px] rounded-2xl p-4"
@@ -19578,115 +19041,36 @@ const Editor = () => {
       </div>
     );
   };
-  const readyClipCount = Math.max(1, activeOutputUrls.length || verticalClipCount || 1);
   const exportReadyCard = activeJob && normalizeStatus(activeJob.status) === "ready" ? (
-    <Dialog open={exportReadyOpen} onOpenChange={setExportReadyOpen}>
-      <DialogContent
-        className="max-w-[calc(100vw-1.5rem)] overflow-hidden border border-emerald-400/40 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(16,185,129,0.18),transparent_55%),linear-gradient(150deg,rgba(15,23,42,0.96),rgba(2,6,23,0.95))] p-4 shadow-[0_40px_90px_-45px_rgba(16,185,129,0.75)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
-      >
-        <div className="pointer-events-none absolute -left-14 -top-10 h-32 w-32 rounded-full bg-emerald-400/20 blur-3xl" />
-        <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-cyan-400/20 blur-3xl" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-emerald-400/10 via-transparent to-transparent" />
-        <div className="relative z-10 space-y-4">
-          <DialogHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="gap-1 border-emerald-400/45 bg-emerald-500/15 text-emerald-100">
-                    <Crown className="h-3 w-3" />
-                    Export Ready
-                  </Badge>
-                  <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">
-                    Premium Delivery
-                  </Badge>
-                </div>
-                <DialogTitle className="text-2xl font-display text-foreground">Your export is ready</DialogTitle>
-                <DialogDescription className="text-sm text-muted-foreground">
-                  {activeJob.renderMode === "vertical" && readyClipCount > 1
-                    ? `We produced ${readyClipCount} vertical clips optimized for retention.`
-                    : "Final render complete. Choose how you want to deliver it."}
-                </DialogDescription>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-muted-foreground hover:text-foreground"
-                aria-label="Close export ready popup"
-                onClick={() => setExportReadyOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-100/80">Project</p>
-              <p className="mt-1 text-sm font-semibold text-foreground">{displayName(activeJob)}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {activeJob.renderMode === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"} ·
-                Quality cap {maxQuality.toUpperCase()}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/60 bg-background/45 p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Delivery</p>
-              <p className="mt-1 text-sm font-semibold text-foreground">
-                {activeJob.renderMode === "vertical" && readyClipCount > 1
-                  ? `${readyClipCount} clips ready`
-                  : "Final MP4 ready"}
-              </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {activeJob.renderMode === "vertical"
-                  ? "Open the clip tray or download a clip now."
-                  : "Download now or open the export panel."}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button
-                className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
-                onClick={() => {
-                  setExportReadyOpen(false);
-                  if (activeJob.renderMode === "vertical") {
-                    setExportOpen(true);
-                    return;
-                  }
-                  void handleDownload(0);
-                }}
-              >
-                <Download className="h-4 w-4" />
-                {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
-              </Button>
-              {activeJob.renderMode === "vertical" ? null : (
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 sm:w-auto"
-                  onClick={() => {
-                    setExportReadyOpen(false);
-                    setExportOpen(true);
-                  }}
-                >
-                  <Crown className="h-4 w-4" />
-                  Open Export
-                </Button>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              className="w-full gap-2 sm:w-auto"
-              onClick={() => {
-                setExportReadyOpen(false);
-                handleExportXml();
-              }}
-            >
-              <FileCode className="h-4 w-4" />
-              Export XML
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3"
+    >
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-emerald-400/10 via-primary/10 to-cyan-300/10" />
+      <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-emerald-300/20 blur-2xl animate-pulse" />
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-emerald-100 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          {activeJob.renderMode === "vertical" && activeOutputUrls.length > 1
+            ? `Vertical clips are ready (${activeOutputUrls.length}).`
+            : "Export is ready. Download your final cut."}
+        </p>
+        <Button
+          className="min-h-12 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+          onClick={() => {
+            if (activeJob.renderMode === "vertical") {
+              setExportOpen(true);
+              return;
+            }
+            void handleDownload(0);
+          }}
+        >
+          <Download className="h-4 w-4" />
+          {activeJob.renderMode === "vertical" ? "Open Clips" : "Download Final MP4"}
+        </Button>
+      </div>
+    </motion.div>
   ) : null;
   const reviewPendingCard = activeJob && normalizedActiveStatus === "review" ? (
     <motion.div
@@ -19771,7 +19155,7 @@ const Editor = () => {
   ) : null;
 
   return (
-    <GlowBackdrop>
+    <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main
         className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen min-h-[100dvh] max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
@@ -20382,21 +19766,21 @@ const Editor = () => {
 
           <div className={`grid grid-cols-1 gap-6 ${(showVerticalGalleryOnlyLayout || hideJobsPanel) ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
             {!showVerticalGalleryOnlyLayout && !hideJobsPanel ? (
-              <aside className="editor-job-list-shell min-w-0 space-y-1.5 p-2">
+              <aside className="editor-job-list-shell min-w-0 space-y-2 p-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-[11px] font-semibold text-foreground">Pipeline Jobs</h2>
+                    <h2 className="text-[12px] font-semibold text-foreground">Pipeline Jobs</h2>
                     <p className="text-[9px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
                   </div>
-                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[9px] text-muted-foreground">
+                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[10px] text-muted-foreground">
                     {jobs.length}
                   </Badge>
                 </div>
-                {loadingJobs && <p className="text-[9px] text-muted-foreground">Loading jobs...</p>}
+                {loadingJobs && <p className="text-[10px] text-muted-foreground">Loading jobs...</p>}
                 {!loadingJobs && jobs.length === 0 && (
-                  <p className="text-[9px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+                  <p className="text-[10px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
                 )}
-                <div className="editor-job-scroll premium-scrollbar space-y-1 pr-1">
+                <div className="space-y-1.5">
                   {jobs.map((job) => {
                     const normalizedJobStatus = normalizeStatus(job.status);
                     const ready = normalizedJobStatus === "ready";
@@ -20415,36 +19799,36 @@ const Editor = () => {
                         data-selected={selectedJobId === job.id ? "true" : "false"}
                         data-ready={ready ? "true" : "false"}
                         data-highlighted={highlightedJobId === job.id ? "true" : "false"}
-                        className="editor-job-card w-full text-left px-2 py-1"
+                        className="editor-job-card w-full text-left px-2 py-1.5"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className={`truncate text-[11px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
+                            <p className={`truncate text-[12px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
                               {displayName(job)}
                             </p>
-                            <p className="mt-0.5 text-[7px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                            <p className="mt-0.5 text-[8px] uppercase tracking-[0.14em] text-muted-foreground/80">
                               Job {job.id.slice(0, 8)}
                             </p>
                           </div>
                           {inFlight ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[7px] font-medium text-primary">
-                              <span className="h-1 w-1 rounded-full bg-primary" />
+                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[8px] font-medium text-primary">
+                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                               Live
                             </span>
                           ) : null}
                         </div>
 
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[7px] ${statusBadgeClass(job.status)}`}>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[8px] ${statusBadgeClass(job.status)}`}>
                             {STATUS_LABELS[normalizedJobStatus] || "Queued"}
                           </Badge>
-                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[7px] text-muted-foreground">
+                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[8px] text-muted-foreground">
                             Stage: {stageLabel}
                           </Badge>
-                          <span className="ml-auto text-[7px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
+                          <span className="ml-auto text-[8px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
                         </div>
 
-                        <div className="mt-1 h-[3px] overflow-hidden rounded-full bg-background/70">
+                        <div className="mt-1.5 h-0.5 overflow-hidden rounded-full bg-background/70">
                           <div
                             className={`h-full rounded-full transition-all ${
                               normalizedJobStatus === "failed"
@@ -20457,7 +19841,7 @@ const Editor = () => {
                           />
                         </div>
 
-                        <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[8px] text-muted-foreground">
+                        <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[9px] text-muted-foreground">
                           <span className="truncate">
                             {new Date(job.createdAt).toLocaleString([], {
                               month: "short",
@@ -20466,7 +19850,7 @@ const Editor = () => {
                               minute: "2-digit",
                             })}
                           </span>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[7px]">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[8px]">
                             {job.renderMode === "vertical" ? (
                               <>
                                 <ScissorsSquare className="h-3 w-3 text-primary" />
@@ -20697,7 +20081,7 @@ const Editor = () => {
                         </div>
                         <div className="vertical-reboot-overview-metrics">
                           <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
-                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(effectivePipelineProgress)}%</span>
+                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
                           {activeVerticalJobProcessing ? (
                             <span className="vertical-reboot-mini-pill text-[10px]">Stage: {activeStageLabel}</span>
                           ) : null}
@@ -20923,7 +20307,7 @@ const Editor = () => {
                                           ? "YouTube"
                                           : "TikTok";
                                       const clipStatusLabel = clipReady ? "Ready" : clipProcessing ? "Rendering" : "Queued";
-                                      const clipProgressPct = clipReady ? 100 : clamp(Math.round(effectivePipelineProgress || 0), 0, 99);
+                                      const clipProgressPct = clipReady ? 100 : clamp(Math.round(totalPipelineProgress || 0), 0, 99);
                                       const rerenderDisabled =
                                         !!uploadingJobId ||
                                         ((activeJob && activeJob.renderMode === "vertical")
@@ -21354,14 +20738,6 @@ const Editor = () => {
                               </Badge>
                             )}
                             <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                              <span>Popup</span>
-                              <Switch
-                                checked={storyMapAgentPromptEnabled}
-                                onCheckedChange={setStoryMapAgentPromptEnabled}
-                                aria-label="Toggle story map upgrade popup"
-                              />
-                            </label>
-                            <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                               <span>Map</span>
                               <Switch
                                 checked={showStoryMapPanel}
@@ -21371,11 +20747,6 @@ const Editor = () => {
                             </label>
                           </div>
                         </div>
-                        {!storyMapAgentPromptEnabled ? (
-                          <p className="mt-2 text-[11px] text-muted-foreground">
-                            Story map upgrade prompts are off by default. Toggle Popup on to surface live fixes.
-                          </p>
-                        ) : null}
                         {!showStoryMapPanel ? (
                           <p className="mt-3 rounded-xl border border-dashed border-border/60 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
                             Story map is hidden. Toggle Map ON to inspect beat pacing.
@@ -21611,7 +20982,7 @@ const Editor = () => {
                 {/* ARIA live announcements keep screen readers updated with pipeline state changes. */}
                 <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
                   {activeJob
-                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(effectivePipelineProgress)} percent complete.`
+                    ? `Pipeline update: ${activeStatusLabel}, ${Math.round(totalPipelineProgress)} percent complete.`
                     : "No active pipeline selected."}
                 </div>
                 {normalizeStatus(activeJob?.status) === "failed" ? (
@@ -21637,7 +21008,7 @@ const Editor = () => {
                           {activeStatusLabel}
                         </Badge>
                         <Badge variant="outline" className="border-border/60 bg-muted/20 text-xs text-muted-foreground">
-                          {Math.round(effectivePipelineProgress)}%
+                          {Math.round(totalPipelineProgress)}%
                         </Badge>
                         {!isTerminalStatus(activeJob.status) ? (
                           <Badge
@@ -21667,30 +21038,6 @@ const Editor = () => {
                       </span>
                     </div>
                   ) : null}
-                  {showEditTimeComparison && editTimeComparison ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
-                        Manual edit estimate:
-                        <span className="ml-1 font-semibold text-foreground">
-                          {formatDurationClock(editTimeComparison.manualMinutes * 60)}
-                        </span>
-                      </span>
-                      <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
-                        AutoEditor {editTimeComparison.autoIsLive ? "elapsed" : "time"}:
-                        <span className="ml-1 font-semibold text-foreground">
-                          {formatDurationClock((editTimeComparison.autoMinutes ?? 0) * 60)}
-                        </span>
-                      </span>
-                      {editTimeComparison.savedMinutes !== null && editTimeComparison.savedMinutes > 0.4 ? (
-                        <span className="hero-platform-pill inline-flex items-center rounded-full border border-border/60 bg-background/55 px-2 py-0.5 text-muted-foreground">
-                          Time saved:
-                          <span className="ml-1 font-semibold text-emerald-300">
-                            {formatDurationClock(editTimeComparison.savedMinutes * 60)}
-                          </span>
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
 
                 {loadingJob && <p className="text-xs text-muted-foreground">Loading job details...</p>}
@@ -21705,13 +21052,13 @@ const Editor = () => {
                         <motion.div
                           className="h-full bg-gradient-to-r from-primary via-primary/80 to-glow-secondary"
                           initial={{ width: 0 }}
-                          animate={{ width: `${effectivePipelineProgress}%` }}
+                          animate={{ width: `${totalPipelineProgress}%` }}
                           transition={{ duration: 0.35, ease: "easeOut" }}
                         />
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                         <span className="uppercase tracking-[0.16em]">Live Pipeline Progress</span>
-                        <span>{Math.round(effectivePipelineProgress)}%</span>
+                        <span>{Math.round(totalPipelineProgress)}%</span>
                       </div>
                     </div>
 
@@ -22010,12 +21357,7 @@ const Editor = () => {
                           A-Mode quick stats are hidden. Toggle Card ON to review the latest signal summary.
                         </p>
                       ) : (
-                        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
-                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Retention score</p>
-                            <p className="mt-1 text-base font-semibold text-foreground">{retentionScoreHeadlineLabel}</p>
-                            <p className="text-[10px] text-muted-foreground">{retentionQuickStatusLabel}</p>
-                          </div>
+                        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                           <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
                             <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Facial Lift</p>
                             <p className="mt-1 text-base font-semibold text-foreground">+{facialRetentionBoostPct}%</p>
@@ -22496,8 +21838,8 @@ const Editor = () => {
         }}
       >
       {uploadModePromptOpen ? (
-        <DialogContent
-          className="relative max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-3xl border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_34px_110px_-52px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
+      <DialogContent
+          className="max-h-[92vh] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto border border-primary/45 bg-[radial-gradient(140%_220%_at_0%_0%,hsl(var(--primary)/0.32),transparent_52%),radial-gradient(130%_180%_at_100%_0%,hsl(var(--glow-secondary)/0.26),transparent_58%),linear-gradient(152deg,hsl(var(--card)/0.96),hsl(var(--card)/0.82))] p-0 shadow-[0_28px_90px_-42px_hsl(var(--primary)/0.95)] backdrop-blur-2xl sm:max-w-3xl [&>button]:hidden"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >
@@ -22505,14 +21847,13 @@ const Editor = () => {
             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
               <span className="absolute -left-16 top-[-4.5rem] h-44 w-44 rounded-full bg-primary/22 blur-3xl" />
               <span className="absolute right-[-4.25rem] top-[-3.5rem] h-36 w-36 rounded-full bg-[hsl(var(--glow-secondary)/0.18)] blur-3xl" />
-              <span className="absolute inset-x-6 top-0 h-px bg-[linear-gradient(90deg,transparent,hsl(var(--primary)/0.7),transparent)]" />
             </div>
             <DialogHeader className="relative z-10">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <Badge className="border-primary/40 bg-primary/12 text-primary">Upload Studio</Badge>
                 <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Premium Workflow</span>
               </div>
-              <DialogTitle className="text-2xl font-display text-foreground sm:text-3xl">
+              <DialogTitle className="text-xl font-display text-foreground">
                 {isVerticalUploadPrompt ? "Vertical Upload Mode" : "Choose Upload Mode"}
               </DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
@@ -22522,43 +21863,10 @@ const Editor = () => {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="relative z-10 mt-3 h-px w-full bg-[linear-gradient(90deg,transparent,hsl(var(--primary)/0.5),transparent)]" />
-
             {pendingUploadSelection ? (
-              <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-3">
-                <div className={uploadStudioSummaryCardClass}>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Selected file</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-foreground">
-                    {pendingUploadSelection.fileCount > 1
-                      ? `${pendingUploadSelection.file.name} + ${Math.max(0, pendingUploadSelection.fileCount - 1)} more`
-                      : pendingUploadSelection.file.name}
-                  </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {pendingUploadSelection.fileCount > 1
-                      ? `${pendingUploadSelection.fileCount} files queued`
-                      : "Ready to upload"}
-                  </p>
-                </div>
-                <div className={uploadStudioSummaryCardClass}>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Output format</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-sm font-semibold text-foreground">{pendingUploadModeLabel}</span>
-                    <Badge className="border-primary/35 bg-primary/12 text-primary">
-                      {pendingUploadMode === "vertical" ? "Shorts" : "Long-form"}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{recommendedUploadFormatLabel}</p>
-                </div>
-                <div className={uploadStudioSummaryCardClass}>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Upload mode</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-sm font-semibold text-foreground">{uploadModePromptActiveLabel}</span>
-                    {paidTier ? (
-                      <Badge className="border-primary/35 bg-primary/12 text-primary">Premium</Badge>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">Tap a mode below to update.</p>
-                </div>
+              <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-[linear-gradient(140deg,hsl(var(--card)/0.78),hsl(var(--card)/0.46))] px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected file</p>
+                <p className="mt-1 truncate text-sm text-foreground">{pendingUploadSelection.file.name}</p>
               </div>
             ) : null}
 
@@ -22702,10 +22010,27 @@ const Editor = () => {
                   </div>
                 </div>
 
+                <div className="relative z-10 mt-3 rounded-xl border border-border/55 bg-background/35 px-3 py-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                    onClick={() => setVerticalUploadPresetPromptOpen(true)}
+                    aria-label="Open vertical layout presets"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Layout + Webcam</p>
+                      <p className="text-xs text-muted-foreground">
+                        {activeVerticalUploadModePreset.label} · {activeVerticalUploadModePreset.tagline}
+                      </p>
+                    </div>
+                    <Badge className="border-primary/40 bg-primary/12 text-primary">
+                      {activeVerticalUploadModePreset.premiumLabel}
+                    </Badge>
+                  </button>
+                </div>
               </>
-            ) : null}
-
-            <>
+            ) : (
+              <>
             <div className="relative z-10 mt-4 rounded-xl border border-primary/35 bg-[linear-gradient(142deg,hsl(var(--primary)/0.14),hsl(var(--card)/0.56))] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -22840,7 +22165,7 @@ const Editor = () => {
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Render Settings</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Advanced encoder controls for this upload.
+                    Advanced encoder controls for this upload. Hidden by default.
                   </p>
                 </div>
                 <span className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-border/50 bg-background/45 text-foreground transition hover:border-primary/45 hover:text-primary">
@@ -22993,7 +22318,7 @@ const Editor = () => {
               </button>
               {!uploadModeExtrasOpen ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Collapse to simplify the popup.
+                  Hidden by default for a faster popup open.
                 </p>
               ) : null}
             </div>
@@ -23287,7 +22612,8 @@ const Editor = () => {
             </div>
               </>
             ) : null}
-            </>
+              </>
+            )}
 
             <div className="relative z-10 mt-4 rounded-xl border border-border/55 bg-card/35 px-3 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -23507,7 +22833,7 @@ const Editor = () => {
           if (open) {
             editorGuidePromptedRef.current = true;
             try {
-              safeLocalStorageSet(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
+              window.localStorage.setItem(EDITOR_GUIDE_AUTO_OPENED_KEY, "true");
             } catch (error) {
               // ignore storage failures
             }
@@ -24971,6 +24297,7 @@ const Editor = () => {
         ) : null}
       </Dialog>
     </GlowBackdrop>
+    </Suspense>
   );
 };
 
