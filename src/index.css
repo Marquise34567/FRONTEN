@@ -2349,6 +2349,37 @@ html[data-performance='constrained'] .trial-takeover-active * {
       0 18px 34px -26px hsl(var(--background) / 0.9);
   }
 
+  .editor-job-scroll {
+    max-height: clamp(18rem, 58vh, 32rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .premium-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--primary) / 0.55) transparent;
+  }
+
+  .premium-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .premium-scrollbar::-webkit-scrollbar-track {
+    background: hsl(var(--background) / 0.25);
+    border-radius: 999px;
+  }
+
+  .premium-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: linear-gradient(180deg, hsl(var(--primary) / 0.9), hsl(var(--glow-secondary) / 0.9));
+    border: 1px solid hsl(var(--background) / 0.5);
+  }
+
+  .premium-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, hsl(var(--primary)), hsl(var(--glow-secondary)));
+  }
+
   .editor-job-card {
     border-radius: 0.95rem;
     border: 1px solid hsl(var(--border) / 0.56);
@@ -4196,6 +4227,10 @@ html[data-performance='constrained'] .trial-takeover-active * {
     .editor-auto-short-mode .editor-job-card {
       border-radius: 0.8rem;
       padding: 0.58rem !important;
+    }
+
+    .editor-auto-short-mode .editor-job-scroll {
+      max-height: clamp(14rem, 48vh, 24rem);
     }
 
     .editor-auto-short-mode .vertical-reboot-shell {

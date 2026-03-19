@@ -20377,21 +20377,21 @@ const Editor = () => {
 
           <div className={`grid grid-cols-1 gap-6 ${(showVerticalGalleryOnlyLayout || hideJobsPanel) ? "lg:grid-cols-1" : "lg:grid-cols-[280px_1fr]"}`}>
             {!showVerticalGalleryOnlyLayout && !hideJobsPanel ? (
-              <aside className="editor-job-list-shell min-w-0 space-y-2 p-2.5">
+              <aside className="editor-job-list-shell min-w-0 space-y-1.5 p-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-[12px] font-semibold text-foreground">Pipeline Jobs</h2>
+                    <h2 className="text-[11px] font-semibold text-foreground">Pipeline Jobs</h2>
                     <p className="text-[9px] text-muted-foreground">Pick a job to view status, stage, and live progress.</p>
                   </div>
-                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[10px] text-muted-foreground">
+                  <Badge variant="secondary" className="border-border/50 bg-muted/30 text-[9px] text-muted-foreground">
                     {jobs.length}
                   </Badge>
                 </div>
-                {loadingJobs && <p className="text-[10px] text-muted-foreground">Loading jobs...</p>}
+                {loadingJobs && <p className="text-[9px] text-muted-foreground">Loading jobs...</p>}
                 {!loadingJobs && jobs.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
+                  <p className="text-[9px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
                 )}
-                <div className="space-y-1.5">
+                <div className="editor-job-scroll premium-scrollbar space-y-1 pr-1">
                   {jobs.map((job) => {
                     const normalizedJobStatus = normalizeStatus(job.status);
                     const ready = normalizedJobStatus === "ready";
@@ -20410,36 +20410,36 @@ const Editor = () => {
                         data-selected={selectedJobId === job.id ? "true" : "false"}
                         data-ready={ready ? "true" : "false"}
                         data-highlighted={highlightedJobId === job.id ? "true" : "false"}
-                        className="editor-job-card w-full text-left px-2 py-1.5"
+                        className="editor-job-card w-full text-left px-2 py-1"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className={`truncate text-[12px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
+                            <p className={`truncate text-[11px] font-semibold ${ready ? "text-success" : "text-foreground"}`}>
                               {displayName(job)}
                             </p>
-                            <p className="mt-0.5 text-[8px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                            <p className="mt-0.5 text-[7px] uppercase tracking-[0.14em] text-muted-foreground/80">
                               Job {job.id.slice(0, 8)}
                             </p>
                           </div>
                           {inFlight ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[8px] font-medium text-primary">
-                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[7px] font-medium text-primary">
+                              <span className="h-1 w-1 rounded-full bg-primary" />
                               Live
                             </span>
                           ) : null}
                         </div>
 
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[8px] ${statusBadgeClass(job.status)}`}>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className={`px-1.5 py-0.5 text-[7px] ${statusBadgeClass(job.status)}`}>
                             {STATUS_LABELS[normalizedJobStatus] || "Queued"}
                           </Badge>
-                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[8px] text-muted-foreground">
+                          <Badge variant="outline" className="border-border/60 bg-muted/20 px-1.5 py-0.5 text-[7px] text-muted-foreground">
                             Stage: {stageLabel}
                           </Badge>
-                          <span className="ml-auto text-[8px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
+                          <span className="ml-auto text-[7px] font-semibold text-muted-foreground">{Math.round(progressValue)}%</span>
                         </div>
 
-                        <div className="mt-1.5 h-0.5 overflow-hidden rounded-full bg-background/70">
+                        <div className="mt-1 h-[3px] overflow-hidden rounded-full bg-background/70">
                           <div
                             className={`h-full rounded-full transition-all ${
                               normalizedJobStatus === "failed"
@@ -20452,7 +20452,7 @@ const Editor = () => {
                           />
                         </div>
 
-                        <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[9px] text-muted-foreground">
+                        <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[8px] text-muted-foreground">
                           <span className="truncate">
                             {new Date(job.createdAt).toLocaleString([], {
                               month: "short",
@@ -20461,7 +20461,7 @@ const Editor = () => {
                               minute: "2-digit",
                             })}
                           </span>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[8px]">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/45 px-1.5 py-0.5 text-[7px]">
                             {job.renderMode === "vertical" ? (
                               <>
                                 <ScissorsSquare className="h-3 w-3 text-primary" />
