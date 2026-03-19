@@ -83,6 +83,33 @@ const readStringFrom = (source: Record<string, any> | null | undefined, keys: st
   }
   return "";
 };
+const readObjectFrom = (source: Record<string, any> | null | undefined, keys: string[]) => {
+  if (!source) return null;
+  for (const key of keys) {
+    const raw = source[key];
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, any>;
+  }
+  return null;
+};
+const isLikelyVideoUrl = (value: unknown) => {
+  if (typeof value !== "string") return false;
+  const raw = value.trim();
+  if (!raw) return false;
+  return /^https?:\/\//i.test(raw) || raw.startsWith("/") || raw.startsWith("blob:");
+};
+const pickFirstVideoUrl = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        if (isLikelyVideoUrl(item)) return String(item).trim();
+      }
+      continue;
+    }
+    if (isLikelyVideoUrl(candidate)) return String(candidate).trim();
+  }
+  return "";
+};
 const normalizeTextList = (values: unknown[]) => {
   const list = values
     .map((value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : ""))
@@ -155,6 +182,8 @@ const EditorAMode = () => {
   const [retentionBenchmarks, setRetentionBenchmarks] = useState<Record<string, any> | null>(null);
   const [applyTipsPending, setApplyTipsPending] = useState(false);
   const [applyTipsMessage, setApplyTipsMessage] = useState("");
+  const [downloadPending, setDownloadPending] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState("");
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
   const fullVideoScanProgress = useMemo(() => {
@@ -314,6 +343,26 @@ const EditorAMode = () => {
     if (!nested || typeof nested !== "object") return null;
     return nested as Record<string, any>;
   }, [jobAnalysis, jobDetail]);
+  const retentionGateSummary = useMemo(
+    () => readObjectFrom(jobAnalysis, ["retention_gate", "retentionGate", "Retention Gate"]),
+    [jobAnalysis],
+  );
+  const abWinnerSummary = useMemo(
+    () => readObjectFrom(jobAnalysis, ["a_b_winner", "abWinner", "A/B Winner"]),
+    [jobAnalysis],
+  );
+  const winnerPromotionSummary = useMemo(
+    () => readObjectFrom(jobAnalysis, ["winner_promotion", "winnerPromotion", "Winner Promotion"]),
+    [jobAnalysis],
+  );
+  const longFormGateSummary = useMemo(
+    () => readObjectFrom(jobAnalysis, ["long_form_gate", "longFormGate"]),
+    [jobAnalysis],
+  );
+  const rerenderSearchSummary = useMemo(
+    () => readObjectFrom(retentionGateSummary, ["rerender_search", "rerenderSearch"]),
+    [retentionGateSummary],
+  );
   const engagementWindows = useMemo(() => {
     if (!jobAnalysis) return [] as Record<string, any>[];
     const raw =
@@ -629,20 +678,33 @@ const EditorAMode = () => {
     }
     return [] as string[];
   }, [jobAutonomous]);
-  const retentionScoreAfter = useMemo(
-    () => clampScore(
-      readNumberFrom(jobAnalysis, [
-        "retention_score_after",
-        "retentionScoreAfter",
-        "retentionScore",
-        "retention_score",
-      ]) ?? (jobDetail?.retentionScore ?? null),
-    ),
-    [jobAnalysis, jobDetail?.retentionScore],
-  );
+  const retentionScoreAfter = useMemo(() => {
+    const fromGate = readNumberFrom(retentionGateSummary, [
+      "final_predicted_retention",
+      "selected_predicted_retention",
+      "predicted_retention",
+    ]);
+    const winnerPredicted = readNumberFrom(abWinnerSummary, ["predicted_retention", "retentionScore"]);
+    const winnerScore10 = readNumberFrom(abWinnerSummary, ["retention_score_10"]);
+    const fromWinner = winnerPredicted ?? (winnerScore10 !== null ? winnerScore10 * 10.0 : null);
+    const fromAnalysis = readNumberFrom(jobAnalysis, [
+      "retention_score_after",
+      "retentionScoreAfter",
+      "retentionScore",
+      "retention_score",
+    ]);
+    const fromJob = readNumberFrom(jobDetail as Record<string, any> | null, ["retentionScore", "retention_score"]);
+    const preferred = fromGate ?? fromWinner ?? fromAnalysis ?? fromJob;
+    return clampScore(preferred);
+  }, [abWinnerSummary, jobAnalysis, jobDetail, retentionGateSummary]);
   const retentionScoreBefore = useMemo(
-    () => clampScore(readNumberFrom(jobAnalysis, ["retention_score_before", "retentionScoreBefore"])),
-    [jobAnalysis],
+    () => clampScore(
+      readNumberFrom(retentionGateSummary, [
+        "final_predicted_retention_pre_edit",
+        "selected_predicted_retention_pre_edit",
+      ]) ?? readNumberFrom(jobAnalysis, ["retention_score_before", "retentionScoreBefore"]),
+    ),
+    [jobAnalysis, retentionGateSummary],
   );
   const retentionScoreDelta = useMemo(() => {
     const raw = readNumberFrom(jobAnalysis, ["retention_score_delta", "retentionScoreDelta", "retentionDelta"]);
@@ -650,11 +712,16 @@ const EditorAMode = () => {
       const scaled = Math.abs(raw) <= 1 ? raw * 100 : raw;
       return Number(scaled.toFixed(1));
     }
+    const gateAfter = clampScore(readNumberFrom(retentionGateSummary, ["final_predicted_retention"]));
+    const gateBefore = clampScore(readNumberFrom(retentionGateSummary, ["final_predicted_retention_pre_edit"]));
+    if (gateAfter !== null && gateBefore !== null) {
+      return Number((gateAfter - gateBefore).toFixed(1));
+    }
     if (retentionScoreAfter !== null && retentionScoreBefore !== null) {
       return Number((retentionScoreAfter - retentionScoreBefore).toFixed(1));
     }
     return null;
-  }, [jobAnalysis, retentionScoreAfter, retentionScoreBefore]);
+  }, [jobAnalysis, retentionGateSummary, retentionScoreAfter, retentionScoreBefore]);
   const hookConfidence = useMemo(
     () => clampScore(readNumberFrom(jobAnalysis, ["hook_audit_score", "hookAuditScore", "hook_score", "hookScore"])),
     [jobAnalysis],
@@ -904,6 +971,23 @@ const EditorAMode = () => {
     jobDetail,
     searchParams,
   ]);
+  const directDownloadUrl = useMemo(() => pickFirstVideoUrl(
+    jobDetail?.outputUrl,
+    (jobDetail as any)?.output_url,
+    (jobDetail as any)?.outputVideoUrl,
+    (jobDetail as any)?.output_video_url,
+    (jobDetail as any)?.downloadUrl,
+    (jobDetail as any)?.download_url,
+    (jobDetail as any)?.outputUrls,
+    (jobDetail as any)?.output_urls,
+    jobAnalysis?.outputUrl,
+    jobAnalysis?.output_url,
+    (jobAnalysis as any)?.outputVideoUrl,
+    (jobAnalysis as any)?.output_video_url,
+    (jobAnalysis as any)?.downloadUrl,
+    (jobAnalysis as any)?.download_url,
+    searchParams.get("outputUrl"),
+  ), [jobAnalysis, jobDetail, searchParams]);
   const rateScoreRows = useMemo(() => ([
     {
       key: "youtube",
@@ -938,44 +1022,183 @@ const EditorAMode = () => {
     () => rateAverageScore !== null || rateTopScore !== null || rateOverallScore !== null,
     [rateAverageScore, rateOverallScore, rateTopScore],
   );
+  const handleDownloadVideo = async () => {
+    if (downloadPending) return;
+    setDownloadPending(true);
+    setDownloadMessage("");
+    try {
+      let resolvedUrl = directDownloadUrl;
+      if (!resolvedUrl && accessToken && activeJobId) {
+        try {
+          const out = await apiFetch<{ url?: string }>(`/api/jobs/${activeJobId}/download-url`, {
+            method: "POST",
+            token: accessToken,
+          });
+          if (isLikelyVideoUrl(out?.url)) resolvedUrl = String(out?.url);
+        } catch {
+          // fallback below
+        }
+      }
+      if (!resolvedUrl && accessToken && activeJobId) {
+        const refreshed = await apiFetch<{ job?: Record<string, any> }>(`/api/jobs/${activeJobId}`, { token: accessToken });
+        if (refreshed?.job) {
+          setJobDetail(refreshed.job);
+          resolvedUrl = pickFirstVideoUrl(
+            refreshed.job.outputUrl,
+            refreshed.job.output_url,
+            refreshed.job.outputVideoUrl,
+            refreshed.job.output_video_url,
+            refreshed.job.downloadUrl,
+            refreshed.job.download_url,
+            refreshed.job.outputUrls,
+            refreshed.job.output_urls,
+            refreshed.job.analysis?.outputUrl,
+            refreshed.job.analysis?.output_url,
+            refreshed.job.analysis?.downloadUrl,
+            refreshed.job.analysis?.download_url,
+          );
+        }
+      }
+      if (!resolvedUrl) {
+        throw new Error("Download URL is not ready yet. Let this render finish, then try again.");
+      }
+      window.open(resolvedUrl, "_blank", "noopener,noreferrer");
+      setDownloadMessage("Download opened in a new tab.");
+    } catch (error: any) {
+      setDownloadMessage(error?.message || "Could not open download yet.");
+    } finally {
+      setDownloadPending(false);
+    }
+  };
   const retentionDetectionScore = useMemo(() => {
-    const preferred = retentionScoreAfter ?? rateOverallScore ?? 42;
+    const preferred = retentionScoreAfter ?? rateOverallScore;
+    if (preferred === null) return null;
     return clampPercent(preferred);
   }, [rateOverallScore, retentionScoreAfter]);
-  const autoPatchBars = useMemo(() => ([
-    22, 26, 32, 28, 36, 44, 30, 52, 58, 46, 40, 62, 68, 54, 48, 42, 38, 46, 58, 72, 66, 52, 40,
-  ]), []);
+  const autoPatchBars = useMemo(() => {
+    const rawSeries = timelineSeries
+      .map((row) => row.retention ?? Math.round((row.energy + row.emotion) / 2))
+      .filter((value): value is number => Number.isFinite(value))
+      .map((value) => clampPercent(value));
+    const size = 23;
+    if (rawSeries.length >= 4) {
+      return Array.from({ length: size }, (_, index) => {
+        const sourceIndex = Math.round((index / Math.max(1, size - 1)) * Math.max(0, rawSeries.length - 1));
+        return rawSeries[sourceIndex] ?? rawSeries[rawSeries.length - 1] ?? 30;
+      });
+    }
+    const base = retentionDetectionScore ?? 45;
+    return Array.from({ length: size }, (_, index) => {
+      const progress = index / Math.max(1, size - 1);
+      const smooth = 0.72 + progress * 0.28;
+      return clampPercent(Math.round(base * smooth));
+    });
+  }, [retentionDetectionScore, timelineSeries]);
   const autoPatchActiveIndex = useMemo(() => {
-    const progress = fullVideoScanProgress ?? retentionDetectionScore ?? 42;
+    const statusRaw = String(jobDetail?.status ?? "").trim().toLowerCase();
+    const statusProgress = statusRaw === "ready" ? 100 : statusRaw === "processing" ? 55 : statusRaw === "queued" ? 25 : null;
+    const progress = fullVideoScanProgress ?? statusProgress ?? retentionDetectionScore ?? 0;
     const maxIndex = autoPatchBars.length - 1;
     return Math.max(0, Math.min(maxIndex, Math.round((progress / 100) * maxIndex)));
-  }, [autoPatchBars, fullVideoScanProgress, retentionDetectionScore]);
-  const autoPatchLogRows = useMemo(() => ([
-    { tone: "cmd", text: "$ autoeditor --quick-fix --performance-safe" },
-    { tone: "info", text: "Scanning 14:32 of footage..." },
-    { tone: "warn", text: "7 retention drops detected" },
-    { tone: "info", text: "Removing 16s dead air at 3:42" },
-    { tone: "success", text: "Tightening cut at 0:48 (+2.1% retention)" },
-    { tone: "info", text: "Jump cut optimization at 5:20" },
-    { tone: "info", text: "Patching drop at 0:01:31" },
-    { tone: "info", text: "Adjusting pacing at 7:12" },
-  ]), []);
+  }, [autoPatchBars, fullVideoScanProgress, jobDetail?.status, retentionDetectionScore]);
+  const autoPatchLogRows = useMemo(() => {
+    const rows: { tone: "cmd" | "info" | "warn" | "success"; text: string }[] = [];
+    const renderModeLabel = String(jobDetail?.renderMode || "horizontal").toLowerCase();
+    rows.push({ tone: "cmd", text: `$ autoeditor --retention-safe --mode ${renderModeLabel}` });
+    rows.push({ tone: "info", text: fullVideoScanLabel });
+
+    if (dropoffHeatmapRows.length > 0) {
+      rows.push({ tone: "warn", text: `${dropoffHeatmapRows.length} drop-off zone(s) flagged for patching` });
+    }
+    if (retentionScoreBefore !== null && retentionScoreAfter !== null) {
+      const tone = retentionScoreAfter >= 50 ? "success" : "warn";
+      rows.push({ tone, text: `Predicted retention ${retentionScoreBefore}% -> ${retentionScoreAfter}%` });
+    } else if (retentionScoreAfter !== null) {
+      rows.push({
+        tone: retentionScoreAfter >= 50 ? "success" : "warn",
+        text: `Predicted retention now ${retentionScoreAfter}%`,
+      });
+    }
+
+    const oneMinuteTarget = normalizePercent(readNumberFrom(retentionGateSummary, ["one_minute_hold_target"]));
+    const oneMinuteEstimate = normalizePercent(readNumberFrom(longFormGateSummary, ["one_minute_hold_estimate"]));
+    if (oneMinuteTarget !== null) {
+      if (oneMinuteEstimate !== null) {
+        rows.push({
+          tone: oneMinuteEstimate >= oneMinuteTarget ? "success" : "warn",
+          text: `Minute-1 hold ${oneMinuteEstimate}% vs target ${oneMinuteTarget}%`,
+        });
+      } else {
+        rows.push({ tone: "info", text: `Minute-1 hold target ${oneMinuteTarget}% (One Minute Wall guard)` });
+      }
+    }
+
+    const qualityGateRaw = jobAutonomous?.qualityGate && typeof jobAutonomous.qualityGate === "object"
+      ? (jobAutonomous.qualityGate as Record<string, any>)
+      : readObjectFrom(jobAnalysis, ["qualityGate", "quality_gate"]);
+    const qualityGatePassedSignal = parseBooleanLike(qualityGateRaw?.passed);
+    if (qualityGatePassedSignal === true) {
+      rows.push({ tone: "success", text: "Quality gate passed; winner locked for export" });
+    } else if (qualityGatePassedSignal === false) {
+      rows.push({ tone: "warn", text: "Quality gate not passed yet; additional patching may run" });
+    }
+    const winnerPolicy = readStringFrom(winnerPromotionSummary, ["pool_reason"]).replace(/_/g, " ").trim();
+    if (winnerPolicy) {
+      rows.push({ tone: "info", text: `Winner policy: ${winnerPolicy}` });
+    }
+    const rerenderRate = normalizePercent(readNumberFrom(rerenderSearchSummary, ["rerender_rate", "rerender_attempt_rate"]));
+    const roundsUsed = readNumberFrom(rerenderSearchSummary, ["rounds_used"]);
+    const maxRounds = readNumberFrom(rerenderSearchSummary, ["max_rounds"]);
+    if (rerenderRate !== null) {
+      const roundsLabel = Number.isFinite(roundsUsed) && Number.isFinite(maxRounds) && maxRounds > 0
+        ? ` (${Math.round(roundsUsed)}/${Math.round(maxRounds)} rounds)`
+        : "";
+      rows.push({ tone: "info", text: `Re-render search rate ${rerenderRate}%${roundsLabel}` });
+    }
+
+    if (rows.length < 3) {
+      rows.push({ tone: "info", text: "Awaiting live retention diagnostics..." });
+    }
+    return rows.slice(0, 8);
+  }, [
+    dropoffHeatmapRows.length,
+    fullVideoScanLabel,
+    jobAnalysis,
+    jobAutonomous?.qualityGate,
+    jobDetail?.renderMode,
+    longFormGateSummary,
+    retentionGateSummary,
+    retentionScoreAfter,
+    retentionScoreBefore,
+    rerenderSearchSummary,
+    winnerPromotionSummary,
+  ]);
   const autoPatchStats = useMemo(() => {
     const patchCountRaw = readNumberFrom(jobAnalysis, ["patch_count", "patchCount", "editsApplied", "edits_applied"]);
-    const patchCount = patchCountRaw !== null && Number.isFinite(patchCountRaw) ? Math.max(0, Math.round(patchCountRaw)) : 7;
+    const patchCount = patchCountRaw !== null && Number.isFinite(patchCountRaw) ? Math.max(0, Math.round(patchCountRaw)) : null;
     const durationRaw = readNumberFrom(jobAnalysis, ["duration_sec", "durationSec", "sourceDurationSec", "source_duration_sec"]);
     const durationLabel = durationRaw !== null && Number.isFinite(durationRaw)
       ? formatTimelineStamp(durationRaw)
-      : "14:32";
-    const retentionLift = retentionScoreDelta !== null
-      ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta.toFixed(1)}%`
-      : "+12.4%";
+      : "--";
+    const retentionValue = retentionScoreAfter !== null
+      ? `${retentionScoreAfter}%`
+      : retentionScoreDelta !== null
+        ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta.toFixed(1)} pts`
+        : "--";
     return [
-      { label: "Patches Applied", value: String(patchCount), accent: "neutral" },
+      { label: "Patches Applied", value: patchCount === null ? "--" : String(patchCount), accent: "neutral" },
       { label: "Analyzed", value: durationLabel, accent: "neutral" },
-      { label: "Retention", value: retentionLift, accent: "good" },
+      { label: "Retention", value: retentionValue, accent: retentionScoreAfter !== null && retentionScoreAfter >= 50 ? "good" : "neutral" },
     ];
-  }, [jobAnalysis, retentionScoreDelta]);
+  }, [jobAnalysis, retentionScoreAfter, retentionScoreDelta]);
+  const autoPatchPhaseLabel = useMemo(() => {
+    const status = String(jobDetail?.status ?? "").trim().toLowerCase();
+    if (status === "ready") return "Auto-Patch Complete";
+    if (status === "failed") return "Auto-Patch Blocked";
+    if (status === "queued") return "Auto-Patch Queued";
+    if (status === "processing" || status === "running") return "Auto-Patch in Progress";
+    return "Auto-Patch Status";
+  }, [jobDetail?.status]);
   const qualityGate = useMemo(() => {
     const raw = jobAutonomous?.qualityGate ?? jobAnalysis?.qualityGate ?? jobAnalysis?.quality_gate;
     if (!raw || typeof raw !== "object") return null;
@@ -1260,7 +1483,7 @@ const EditorAMode = () => {
                 <div className="a-mode-mini-card">
                   <div className="a-mode-mini-header">
                     <span className="a-mode-mini-label">Signal</span>
-                    <span className="a-mode-mini-score">II {retentionDetectionScore}%</span>
+                    <span className="a-mode-mini-score">II {retentionDetectionScore !== null ? `${retentionDetectionScore}%` : "--"}</span>
                   </div>
                   <div className="a-mode-mini-graph">
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
@@ -1281,7 +1504,17 @@ const EditorAMode = () => {
                 </div>
               </div>
               <div className="a-mode-visual-footer">
-                <button className="a-mode-download-btn" type="button">Download Video</button>
+                <button
+                  className="a-mode-download-btn"
+                  type="button"
+                  onClick={handleDownloadVideo}
+                  disabled={downloadPending}
+                >
+                  {downloadPending ? "Preparing..." : "Download Video"}
+                </button>
+                {downloadMessage ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">{downloadMessage}</p>
+                ) : null}
               </div>
             </div>
           </article>
@@ -1298,7 +1531,7 @@ const EditorAMode = () => {
               </div>
               <div className="a-mode-visual-content">
                 <p className="a-mode-visual-kicker">Performance Mode</p>
-                <h2 className="a-mode-visual-title">Auto-Patch in Progress</h2>
+                <h2 className="a-mode-visual-title">{autoPatchPhaseLabel}</h2>
                 <div className="a-mode-bar-grid" aria-hidden="true">
                   {autoPatchBars.map((height, index) => {
                     const isActive = index === autoPatchActiveIndex;
@@ -1317,7 +1550,7 @@ const EditorAMode = () => {
                     <span className="a-mode-terminal-dot is-red" />
                     <span className="a-mode-terminal-dot is-yellow" />
                     <span className="a-mode-terminal-dot is-green" />
-                    <span className="a-mode-terminal-title">autoeditor --quick-fix --performance-safe</span>
+                    <span className="a-mode-terminal-title">autoeditor --retention-safe --performance-safe</span>
                   </div>
                   <div className="a-mode-terminal-body">
                     {autoPatchLogRows.map((row) => (
