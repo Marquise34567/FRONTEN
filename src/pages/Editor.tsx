@@ -72,6 +72,7 @@ const AUTO_DOWNLOAD_VERTICAL_MODE_KEY = "editor_auto_download_vertical_mode_v1";
 const AUTO_DOWNLOAD_LONGFORM_ONLY_KEY = "editor_auto_download_longform_only_v1";
 const AUTO_IMPORT_ENABLED_KEY = "editor_auto_import_enabled_v1";
 const MOBILE_IMPORT_WAITLIST_KEY = "editor_mobile_auto_import_waitlist_v1";
+const STORY_MAP_AGENT_PROMPT_ENABLED_KEY = "editor_story_map_agent_prompt_enabled_v1";
 const CAPTIONS_PIPELINE_ENABLED = (() => {
   const raw = String(import.meta.env.VITE_CAPTIONS_PIPELINE_ENABLED ?? "true").trim().toLowerCase();
   if (!raw) return true;
@@ -5088,6 +5089,10 @@ const Editor = () => {
   }, [mobileImportWaitlistJoined]);
 
   useEffect(() => {
+    writeLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, storyMapAgentPromptEnabled);
+  }, [storyMapAgentPromptEnabled]);
+
+  useEffect(() => {
     if (!autoImportEnabled) {
       setAutoImportStatus("idle");
       return;
@@ -5494,6 +5499,9 @@ const Editor = () => {
   const [previewTipSkipRangesByJob, setPreviewTipSkipRangesByJob] = useState<Record<string, PreviewTipSkipRange[]>>({});
   const [previewTipPlaybackRateByJob, setPreviewTipPlaybackRateByJob] = useState<Record<string, number>>({});
   const [showStoryMapPanel, setShowStoryMapPanel] = useState(true);
+  const [storyMapAgentPromptEnabled, setStoryMapAgentPromptEnabled] = useState(
+    () => readLocalStorageFlag(STORY_MAP_AGENT_PROMPT_ENABLED_KEY, false),
+  );
   const [showLiveOutcomeLoop, setShowLiveOutcomeLoop] = useState(false);
   const [showScanInsightsPanel, setShowScanInsightsPanel] = useState(true);
   const [showEnergyEmotionTimeline, setShowEnergyEmotionTimeline] = useState(true);
@@ -12716,6 +12724,18 @@ const Editor = () => {
         ? Number((retentionScoreAfterDisplay - retentionScoreBeforeDisplay).toFixed(1))
         : null
     );
+  const retentionScoreHeadline = normalizedActiveStatus === "ready"
+    ? (retentionScoreAfterDisplay ?? retentionScoreDisplay)
+    : null;
+  const retentionScoreHeadlineLabel =
+    retentionScoreHeadline !== null ? `${retentionScoreHeadline.toFixed(1)}%` : "--";
+  const retentionScoreDeltaLabel = retentionScoreDeltaDisplay !== null
+    ? `${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay.toFixed(1)} pts`
+    : null;
+  const retentionQuickStatusLabel =
+    normalizedActiveStatus === "ready"
+      ? (retentionScoreDeltaLabel ? `Delta ${retentionScoreDeltaLabel}` : "Latest retention score")
+      : "Awaiting retention score";
   const dynamicScoreBeforePopup = dynamicScoreBeforeDisplay ?? retentionScoreBeforeDisplay;
   const dynamicScoreAfterPopup = dynamicScoreAfterDisplay ?? retentionScoreAfterDisplay;
   const hookWindowLabel =
@@ -16804,6 +16824,7 @@ const Editor = () => {
   useEffect(() => {
     if (!activeJob?.id || normalizeStatus(activeJob.status) !== "ready") return;
     if (!activeStoryMapAgentSuggestion) return;
+    if (!storyMapAgentPromptEnabled) return;
     if (typeof window === "undefined") return;
     const key = `story_map_agent_prompt_shown_${activeJob.id}`;
     if (window.localStorage.getItem(key)) return;
@@ -16814,7 +16835,7 @@ const Editor = () => {
     }));
     setStoryMapAgentPromptOpen(true);
     setExportOpen(false);
-  }, [activeJob?.id, activeJob?.status, activeStoryMapAgentSuggestion]);
+  }, [activeJob?.id, activeJob?.status, activeStoryMapAgentSuggestion, storyMapAgentPromptEnabled]);
   useEffect(() => {
     if (!activeJob?.id || !canShowRealtimeHookSelector || activeHookSelectionMode !== "manual") return;
     if (hookPromptedByJob[activeJob.id]) return;
@@ -21307,6 +21328,14 @@ const Editor = () => {
                               </Badge>
                             )}
                             <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              <span>Popup</span>
+                              <Switch
+                                checked={storyMapAgentPromptEnabled}
+                                onCheckedChange={setStoryMapAgentPromptEnabled}
+                                aria-label="Toggle story map upgrade popup"
+                              />
+                            </label>
+                            <label className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                               <span>Map</span>
                               <Switch
                                 checked={showStoryMapPanel}
@@ -21316,6 +21345,11 @@ const Editor = () => {
                             </label>
                           </div>
                         </div>
+                        {!storyMapAgentPromptEnabled ? (
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Story map upgrade prompts are off by default. Toggle Popup on to surface live fixes.
+                          </p>
+                        ) : null}
                         {!showStoryMapPanel ? (
                           <p className="mt-3 rounded-xl border border-dashed border-border/60 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
                             Story map is hidden. Toggle Map ON to inspect beat pacing.
@@ -21950,7 +21984,12 @@ const Editor = () => {
                           A-Mode quick stats are hidden. Toggle Card ON to review the latest signal summary.
                         </p>
                       ) : (
-                        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+                          <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Retention score</p>
+                            <p className="mt-1 text-base font-semibold text-foreground">{retentionScoreHeadlineLabel}</p>
+                            <p className="text-[10px] text-muted-foreground">{retentionQuickStatusLabel}</p>
+                          </div>
                           <div className="rounded-lg border border-primary/20 bg-background/45 p-2.5">
                             <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Facial Lift</p>
                             <p className="mt-1 text-base font-semibold text-foreground">+{facialRetentionBoostPct}%</p>
