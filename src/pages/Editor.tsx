@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen, FileCode } from "lucide-react";
+import { Upload, Plus, Play, Download, Lock, Loader2, CheckCircle2, ScissorsSquare, Scissors, MousePointerClick, MessageCircle, X, XCircle, Map as MapIcon, RotateCcw, SlidersHorizontal, Monitor, Smartphone, Camera, Music, Gauge, Flame, Zap, Wand2, ShieldCheck, Clock, Crown, Trophy, Instagram, Youtube, Music2, FolderOpen, FileCode, Sparkles } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { API_URL, apiFetch, ApiError, getRuntimeOriginBase, shouldIncludeApiBase } from "@/lib/api";
 import { getAnalyticsSessionId, trackAnalyticsEvent } from "@/lib/analytics";
@@ -961,8 +961,6 @@ const RATE_CARD_PLATFORM_LABEL: Record<RetentionTargetPlatform, string> = {
   youtube: "YouTube",
 };
 const RATE_CARD_DOPAMINE_THRESHOLD = 86;
-const RATE_CARD_LIVE_TICK_MS = 3200;
-const RATE_CARD_LIVE_TICK_CONSTRAINED_MS = 5200;
 const PLATFORM_HELP_TEXT: Record<RetentionTargetPlatform, string> = {
   tiktok: "Fastest pacing, denser pattern interrupts, and short-form hook pressure.",
   instagram_reels: "Fast pacing with slightly smoother transitions than TikTok.",
@@ -3032,6 +3030,113 @@ const countPatternMatches = (value: string, pattern: RegExp) => {
   const matches = value.match(new RegExp(pattern.source, flags));
   return matches ? matches.length : 0;
 };
+
+const buildTranscriptHookCandidate = (cues: EditorTranscriptCue[]): HookCandidate | null => {
+  if (!Array.isArray(cues) || cues.length === 0) return null;
+  const maxWindowSec = 6.5;
+  const minWindowSec = 1.8;
+  const maxTokens = 26;
+
+  const scored = cues
+    .map((cue, index) => {
+      const start = Math.max(0, Number(cue.start));
+      const end = Number(cue.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+
+      const snippetTokens: string[] = [];
+      let windowEnd = end;
+      for (let cueIndex = index; cueIndex < cues.length; cueIndex += 1) {
+        const nextCue = cues[cueIndex];
+        const nextStart = Number(nextCue.start);
+        const nextEnd = Number(nextCue.end);
+        if (!Number.isFinite(nextStart) || !Number.isFinite(nextEnd)) continue;
+        if (nextStart - start > maxWindowSec && snippetTokens.length >= 10) break;
+        const cueText = String(nextCue.text || "").replace(/\s+/g, " ").trim();
+        if (!cueText) continue;
+        const cueTokens = cueText.split(" ").filter(Boolean);
+        if (cueTokens.length === 0) continue;
+        snippetTokens.push(...cueTokens);
+        windowEnd = Math.max(windowEnd, nextEnd);
+        if (snippetTokens.length >= maxTokens) break;
+      }
+
+      const snippetText = (snippetTokens.length > 0 ? snippetTokens.slice(0, maxTokens).join(" ") : "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!snippetText) return null;
+
+      const snippetLower = snippetText.toLowerCase();
+      const tokenCount = snippetLower.split(/[^a-z0-9']+/).filter(Boolean).length;
+      const hookHits = Math.max(
+        countPatternMatches(snippetLower, VERTICAL_DYNAMIC_HOOK_RE),
+        countPatternMatches(snippetText, VERTICAL_DYNAMIC_QUESTION_RE),
+      );
+      const emotionHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_EMOTION_RE);
+      const actionHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_ACTION_RE);
+      const humorHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_HUMOR_RE);
+      const stakesHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_STAKES_RE);
+      const conflictHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_CONFLICT_RE);
+      const surpriseHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_SURPRISE_RE);
+      const fillerHits = countPatternMatches(snippetLower, VERTICAL_DYNAMIC_FILLER_RE);
+      const punctuationHits = countPatternMatches(snippetText, /[!?]/);
+      const uppercaseHits = countPatternMatches(snippetText, /\b[A-Z]{3,}\b/);
+
+      const intensityScore =
+        hookHits * 1.6 +
+        emotionHits * 1.2 +
+        actionHits * 1.1 +
+        humorHits * 1.05 +
+        stakesHits * 0.8 +
+        conflictHits * 0.6 +
+        surpriseHits * 0.7 +
+        punctuationHits * 0.35 +
+        uppercaseHits * 0.25;
+      const fillerPenalty = fillerHits * 0.5;
+      const positionWeight = clamp(1 - start / 45, 0.35, 1);
+      const tokenBoost = clamp(tokenCount / 12, 0, 1) * 0.4;
+      const rawScore = Math.max(0, intensityScore - fillerPenalty + tokenBoost);
+      const score = clamp(0.35 + (rawScore / 7) * positionWeight, 0.2, 0.9);
+
+      const duration = clamp(windowEnd - start, minWindowSec, maxWindowSec);
+      const summaryText = snippetText.length > 140 ? `${snippetText.slice(0, 137).trim()}...` : snippetText;
+      const reasonSignals: string[] = [];
+      if (hookHits > 0) reasonSignals.push("hook phrasing");
+      if (emotionHits > 0) reasonSignals.push("emotional cue");
+      if (actionHits > 0) reasonSignals.push("action beat");
+      if (humorHits > 0) reasonSignals.push("humor spike");
+      if (stakesHits > 0) reasonSignals.push("stakes signal");
+      if (surpriseHits > 0) reasonSignals.push("surprise beat");
+      const reason = reasonSignals.length > 0
+        ? `Transcript opener with ${reasonSignals.slice(0, 3).join(", ")}.`
+        : "Transcript-based opener from early spoken line.";
+
+      return {
+        start,
+        duration,
+        score,
+        text: summaryText,
+        reason,
+      };
+    })
+    .filter((entry): entry is { start: number; duration: number; score: number; text: string; reason: string } => (
+      Boolean(entry)
+    ));
+
+  if (scored.length === 0) return null;
+  scored.sort((left, right) => right.score - left.score || left.start - right.start);
+  const best = scored[0];
+  return {
+    start: best.start,
+    duration: best.duration,
+    score: best.score,
+    auditScore: best.score,
+    auditPassed: best.score >= 0.62,
+    text: best.text,
+    reason: best.reason,
+    synthetic: true,
+  };
+};
+
 const PACKAGING_POWER_WORDS = [
   "Insane",
   "Forbidden",
@@ -5086,7 +5191,6 @@ const Editor = () => {
   const [feedbackDeepDiveOpen, setFeedbackDeepDiveOpen] = useState(false);
   const [feedbackDeepDiveSection, setFeedbackDeepDiveSection] = useState<FeedbackDeepDiveSection>("retention_vs_emotion");
   const [platformRateCardEnabled, setPlatformRateCardEnabled] = useState(true);
-  const [platformRateRealtimeTick, setPlatformRateRealtimeTick] = useState(0);
   const [platformRateUpdatedAtMs, setPlatformRateUpdatedAtMs] = useState(() => Date.now());
   const [rateSuggestionSelectionsByJob, setRateSuggestionSelectionsByJob] = useState<Record<string, string[]>>({});
   const [smartZoomEnabled, setSmartZoomEnabled] = useState(true);
@@ -5170,6 +5274,8 @@ const Editor = () => {
   const realtimeBugFixCooldownRef = useRef<Record<string, number>>({});
   const [resolvedPreviewOutputUrl, setResolvedPreviewOutputUrl] = useState<string>("");
   const [resolvedVerticalVariantOutputUrls, setResolvedVerticalVariantOutputUrls] = useState<string[]>([]);
+  const [verticalClipPreviewErrorByIndex, setVerticalClipPreviewErrorByIndex] = useState<Record<number, boolean>>({});
+  const [verticalClipPreviewLoadedByIndex, setVerticalClipPreviewLoadedByIndex] = useState<Record<number, boolean>>({});
   const [previewVideoDurationSec, setPreviewVideoDurationSec] = useState<number | null>(null);
   const [previewCurrentTimeSec, setPreviewCurrentTimeSec] = useState(0);
   const [previewImprovementTipIndex, setPreviewImprovementTipIndex] = useState(0);
@@ -10912,6 +11018,10 @@ const Editor = () => {
         .join("|"),
     [activeOutputUrls],
   );
+  useEffect(() => {
+    setVerticalClipPreviewErrorByIndex({});
+    setVerticalClipPreviewLoadedByIndex({});
+  }, [activeVerticalOutputUrlIdentity]);
   const activeJobReadyForDownload = Boolean(activeJob && normalizedActiveStatus === "ready");
   const isActiveVerticalJob = Boolean(activeJob && activeJob.renderMode === "vertical");
   const activeVerticalJobReadyForDownload = Boolean(isActiveVerticalJob && activeJobReadyForDownload);
@@ -10949,6 +11059,14 @@ const Editor = () => {
         : "Preparing...";
   const analyzeUnlockedForActiveJob = Boolean(activeJob?.id && analyzeUnlockedByJob[activeJob.id]);
   const activeAnalysis = (activeJob?.analysis ?? {}) as any;
+  const activeAnalysisUpdatedAt =
+    activeAnalysis?.rateUpdatedAt ??
+    activeAnalysis?.rate_updated_at ??
+    activeAnalysis?.pipelineUpdatedAt ??
+    activeAnalysis?.updatedAt ??
+    activeAnalysis?.retentionUpdatedAt ??
+    null;
+  const activeJobUpdatedAt = (activeJob as any)?.updated_at ?? activeJob?.updatedAt ?? null;
   const activeYouTubeSync = activeAnalysis?.youtube_sync && typeof activeAnalysis.youtube_sync === "object"
     ? (activeAnalysis.youtube_sync as Record<string, unknown>)
     : null;
@@ -12305,7 +12423,7 @@ const Editor = () => {
     : Array.isArray(metadataNiche?.rationale)
       ? metadataNiche.rationale.filter((line: unknown) => typeof line === "string").slice(0, 3)
       : [];
-  const hookVariants = normalizeHookCandidates(
+  const hookCandidatesFromAnalysis = useMemo(() => normalizeHookCandidates(
     activeAnalysis?.hook_variants ||
     activeAnalysis?.hook_candidates ||
     activeAnalysis?.editPlan?.hookVariants ||
@@ -12314,8 +12432,16 @@ const Editor = () => {
     activeAnalysis?.pipelineSteps?.BEST_MOMENT_SCORING?.meta?.topCandidates ||
     (activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
       ? [activeAnalysis.pipelineSteps.HOOK_SELECT_AND_AUDIT.meta.selectedHook]
-      : [])
-  ).slice(0, 3);
+      : []),
+  ), [activeAnalysis]);
+  const transcriptHookCandidate = useMemo(
+    () => buildTranscriptHookCandidate(activeTranscriptCues),
+    [activeTranscriptCues],
+  );
+  const hookVariants = useMemo(() => {
+    if (hookCandidatesFromAnalysis.length > 0) return hookCandidatesFromAnalysis.slice(0, 3);
+    return transcriptHookCandidate ? [transcriptHookCandidate] : [];
+  }, [hookCandidatesFromAnalysis, transcriptHookCandidate]);
   const selectedHookFromPipeline =
     normalizeHookCandidates(
       activeAnalysis?.pipelineSteps?.HOOK_SELECT_AND_AUDIT?.meta?.selectedHook
@@ -12558,7 +12684,13 @@ const Editor = () => {
     () => normalizeEnergyMoments(energyMomentsSource),
     [energyMomentsSource],
   );
-  const fallbackEnergyAnchorSec = selectedHookCandidate?.start ?? 252;
+  const fallbackEnergyAnchorSec = clamp(
+    firstFiniteNumber(selectedHookCandidate?.start, transcriptHookCandidate?.start, 18) ?? 18,
+    6,
+    Number.isFinite(verticalMomentSourceDurationSec)
+      ? Math.max(6, Number(verticalMomentSourceDurationSec) - 4)
+      : 360,
+  );
   const energyTimelineMoments = useMemo(() => {
     if (energyMomentsFromAnalysis.length > 0) return energyMomentsFromAnalysis;
     const synthetic = [
@@ -12650,8 +12782,17 @@ const Editor = () => {
   const fullScanProgressLabel = analyzedFrames !== null && totalFrames !== null && totalFrames > 0
     ? `${Math.round(analyzedFrames)} / ${Math.round(totalFrames)} frames analyzed`
     : `Full scan ${Math.round(fullScanProgress)}% complete`;
-  const autoHookTimestampSec = highestEnergyMoment?.timestampSec ?? selectedHookCandidate?.start ?? 252;
-  const autoHookSummaryLine = `Highest energy at ${formatTimelineClock(autoHookTimestampSec)} - moved to start for max retention boost`;
+  const autoHookTimestampSec = firstFiniteNumber(
+    selectedHookCandidate?.start,
+    highestEnergyMoment?.timestampSec,
+    transcriptHookCandidate?.start,
+    8,
+  ) ?? 8;
+  const autoHookSummaryLine = selectedHookCandidate
+    ? `Auto-hook selected at ${formatTimelineClock(autoHookTimestampSec)} for the strongest opener signal.`
+    : highestEnergyMoment
+      ? `Highest energy at ${formatTimelineClock(autoHookTimestampSec)} - moved to start for max retention boost.`
+      : "Auto-hook placed near the opening to maximize scroll-stop speed.";
   const removedFillerPercent = toPercent(
     firstFiniteNumber(
       activeAnalysis?.boredom_removed_ratio,
@@ -14499,6 +14640,11 @@ const Editor = () => {
     if (raw === "retention-king" || raw === "retention_king") return "retention_king";
     return "standard";
   }, [activeAnalysis, pipelinePowerMode]);
+  const rateCardModeLabel = activePipelinePowerMode === "ultra"
+    ? "Fast"
+    : activePipelinePowerMode === "retention_king"
+      ? "Quality"
+      : "Standard";
   const modeMomentumScore = clamp(
     Math.round(
       (latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? 72) * 0.55 +
@@ -14528,15 +14674,6 @@ const Editor = () => {
   );
   const selectedRateSuggestionIds = activeJob?.id ? (rateSuggestionSelectionsByJob[activeJob.id] || []) : [];
   const selectedRateSuggestionIdSet = useMemo(() => new Set(selectedRateSuggestionIds), [selectedRateSuggestionIds]);
-  const platformRateLiveWave = useMemo(() => {
-    if (!activeJob?.id) return 0;
-    let seed = 0;
-    for (let index = 0; index < activeJob.id.length; index += 1) {
-      seed += activeJob.id.charCodeAt(index);
-    }
-    const phase = (platformRateRealtimeTick + (seed % 23)) * 0.58;
-    return Math.sin(phase) * 1.3 + Math.cos(phase * 0.47) * 0.8;
-  }, [activeJob?.id, platformRateRealtimeTick]);
   const editorRateSuggestions = useMemo<EditorRateSuggestion[]>(() => {
     const suggestions: EditorRateSuggestion[] = [];
     if (!aModeEnabled) {
@@ -14688,67 +14825,164 @@ const Editor = () => {
     activeStoryMapAgentSuggestion && selectedRateSuggestionIdSet.has(activeStoryMapAgentSuggestion.id),
   );
   const platformRateDecisionReady = Boolean(activeJob && normalizeStatus(activeJob.status) === "ready");
+  const platformForecastEntries = useMemo(() => {
+    const raw =
+      activeAnalysis?.platform_forecast ??
+      activeAnalysis?.platformForecast ??
+      activeAnalysis?.platform_outcome_forecast ??
+      activeAnalysis?.platformOutcomeForecast;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry: any, index: number) => {
+        if (!entry || typeof entry !== "object") return null;
+        const labelRaw = String(entry.label ?? entry.platform ?? entry.name ?? "").trim();
+        const platform = normalizeRatePlatformKey(entry.platform ?? entry.key ?? entry.id ?? labelRaw);
+        const before = normalizePercentValue(entry.before ?? entry.baseline ?? entry.current ?? entry.score_before);
+        const after = normalizePercentValue(entry.after ?? entry.projected ?? entry.score_after ?? entry.predicted);
+        let liftLabel = "";
+        if (typeof entry.lift === "string" && entry.lift.trim()) {
+          liftLabel = entry.lift.trim();
+        } else {
+          const liftValue = normalizePercentValue(entry.lift);
+          if (liftValue !== null) liftLabel = `${liftValue >= 0 ? "+" : ""}${liftValue}`;
+          else if (before !== null && after !== null) {
+            const diff = Math.round(after - before);
+            liftLabel = `${diff >= 0 ? "+" : ""}${diff}`;
+          }
+        }
+        const note = typeof entry.note === "string" && entry.note.trim()
+          ? entry.note.trim()
+          : typeof entry.reason === "string" && entry.reason.trim()
+            ? entry.reason.trim()
+            : "";
+        return {
+          platform,
+          label: labelRaw || (platform ? RATE_CARD_PLATFORM_LABEL[platform] : `Platform ${index + 1}`),
+          before,
+          after,
+          liftLabel,
+          note,
+        };
+      })
+      .filter((entry): entry is {
+        platform: RetentionTargetPlatform | null;
+        label: string;
+        before: number | null;
+        after: number | null;
+        liftLabel: string;
+        note: string;
+      } => Boolean(entry));
+  }, [activeAnalysis]);
+  const platformForecastByPlatform = useMemo(() => {
+    const byPlatform: Partial<Record<RetentionTargetPlatform, { score: number; note: string }>> = {};
+    for (const entry of platformForecastEntries) {
+      const platformKey = entry.platform ?? normalizeRatePlatformKey(entry.label);
+      if (!platformKey) continue;
+      const score = entry.after ?? entry.before;
+      if (score === null) continue;
+      const noteParts: string[] = [];
+      if (entry.before !== null && entry.after !== null) {
+        noteParts.push(
+          `Forecast ${entry.before}→${entry.after}${entry.liftLabel ? ` (${entry.liftLabel})` : ""}`,
+        );
+      } else if (entry.after !== null) {
+        noteParts.push(`Forecast score ${entry.after}/100`);
+      } else if (entry.before !== null) {
+        noteParts.push(`Baseline ${entry.before}/100`);
+      }
+      if (entry.note) noteParts.push(entry.note);
+      byPlatform[platformKey] = { score, note: noteParts.join(" · ") };
+    }
+    return byPlatform;
+  }, [platformForecastEntries]);
   const platformRateScores = useMemo(() => {
-    const scoreSignalBase = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? 62;
+    const baseRetention = latestRetentionPoint?.predicted ?? retentionScoreAfterDisplay ?? retentionScoreDisplay ?? null;
+    const baseMomentum = energyMomentsFromAnalysis.length > 0 ? timelineMomentumScore : null;
+    const baseHook = hookConfidenceScore > 0 ? hookConfidenceScore : null;
+    const baseQuality = autonomousCutQualityPercent ?? null;
+    const scoreSignalBase = firstFiniteNumber(baseRetention, baseMomentum, baseHook, baseQuality);
     const scoreSignalDelta = retentionScoreDeltaDisplay ?? 0;
     const trustSignal = activeYouTubeTrustPercent ?? (youtubeConnected ? 56 : 38);
-    const baseScores: Record<RetentionTargetPlatform, number> = {
-      youtube: clamp(
-        Math.round(
-          scoreSignalBase * 0.45 +
-          modeConsistencyScore * 0.2 +
-          modeCompletionScore * 0.15 +
-          hookConfidenceScore * 0.12 +
-          trustSignal * 0.08 +
-          (retentionTargetPlatform === "youtube" ? 4 : 0) +
-          scoreSignalDelta * 1.2 +
-          platformRateLiveWave,
-        ),
-        0,
-        100,
-      ),
-      tiktok: clamp(
-        Math.round(
-          scoreSignalBase * 0.34 +
-          modeMomentumScore * 0.26 +
-          modePackagingScore * 0.2 +
-          hookConfidenceScore * 0.11 +
-          modeCompletionScore * 0.09 +
-          (retentionStrategyProfile === "viral" ? 4 : 0) +
-          (retentionTargetPlatform === "tiktok" ? 5 : 0) +
-          scoreSignalDelta * 1.6 +
-          platformRateLiveWave * 1.2,
-        ),
-        0,
-        100,
-      ),
-      instagram_reels: clamp(
+    const baseNoteParts: string[] = [];
+    if (baseRetention !== null) baseNoteParts.push(`Retention ${Math.round(baseRetention)}%`);
+    if (baseHook !== null) baseNoteParts.push(`Hook ${Math.round(baseHook)}%`);
+    if (baseMomentum !== null) baseNoteParts.push(`Momentum ${Math.round(baseMomentum)}%`);
+    if (baseQuality !== null) baseNoteParts.push(`Cut quality ${Math.round(baseQuality)}%`);
+    if (retentionScoreDeltaDisplay !== null && retentionScoreDeltaDisplay !== 0) {
+      baseNoteParts.push(`Δ${retentionScoreDeltaDisplay > 0 ? "+" : ""}${retentionScoreDeltaDisplay} pts`);
+    }
+    if (rateCardModeLabel !== "Standard") baseNoteParts.push(`Mode ${rateCardModeLabel}`);
+    const modeWeights = activePipelinePowerMode === "ultra"
+      ? { momentum: 1.12, consistency: 0.9, completion: 0.92, packaging: 1.05 }
+      : activePipelinePowerMode === "retention_king"
+        ? { momentum: 0.95, consistency: 1.15, completion: 1.12, packaging: 0.98 }
+        : { momentum: 1, consistency: 1, completion: 1, packaging: 1 };
+    const buildFallbackScore = (platform: RetentionTargetPlatform) => {
+      if (scoreSignalBase === null) return 0;
+      if (platform === "youtube") {
+        return clamp(
+          Math.round(
+            scoreSignalBase * 0.45 +
+            modeConsistencyScore * 0.2 * modeWeights.consistency +
+            modeCompletionScore * 0.15 * modeWeights.completion +
+            hookConfidenceScore * 0.12 +
+            trustSignal * 0.08 +
+            (retentionTargetPlatform === "youtube" ? 4 : 0) +
+            scoreSignalDelta * 1.2,
+          ),
+          0,
+          100,
+        );
+      }
+      if (platform === "tiktok") {
+        return clamp(
+          Math.round(
+            scoreSignalBase * 0.34 +
+            modeMomentumScore * 0.26 * modeWeights.momentum +
+            modePackagingScore * 0.2 * modeWeights.packaging +
+            hookConfidenceScore * 0.11 +
+            modeCompletionScore * 0.09 * modeWeights.completion +
+            (retentionStrategyProfile === "viral" ? 4 : 0) +
+            (retentionTargetPlatform === "tiktok" ? 5 : 0) +
+            scoreSignalDelta * 1.6,
+          ),
+          0,
+          100,
+        );
+      }
+      return clamp(
         Math.round(
           scoreSignalBase * 0.38 +
-          modePackagingScore * 0.22 +
-          modeConsistencyScore * 0.16 +
-          modeMomentumScore * 0.12 +
+          modePackagingScore * 0.22 * modeWeights.packaging +
+          modeConsistencyScore * 0.16 * modeWeights.consistency +
+          modeMomentumScore * 0.12 * modeWeights.momentum +
           hookConfidenceScore * 0.12 +
           (retentionTargetPlatform === "instagram_reels" ? 5 : 0) +
-          scoreSignalDelta * 1.35 +
-          platformRateLiveWave * 0.9,
+          scoreSignalDelta * 1.35,
         ),
         0,
         100,
-      ),
+      );
+    };
+    const buildFallbackNote = (platform: RetentionTargetPlatform) => {
+      const parts = [...baseNoteParts];
+      if (retentionTargetPlatform === platform) parts.push("Targeted platform");
+      if (platform === "tiktok" && retentionStrategyProfile === "viral") parts.push("Viral pacing");
+      if (platform === "youtube" && youtubeConnected) parts.push("YT outcome trust");
+      return parts.length > 0 ? parts.join(" · ") : "Awaiting retention + hook analysis to score this platform.";
     };
     const entries = (["youtube", "tiktok", "instagram_reels"] as RetentionTargetPlatform[]).map((platform) => {
-      const boosted = clamp(Math.round(baseScores[platform] + selectedRateSuggestionLift[platform]), 0, 100);
-      const note = platform === "youtube"
-        ? (youtubeConnected ? "Strengthened by linked outcome trust and completion stability." : "Connect YouTube to improve confidence with real outcomes.")
-        : platform === "tiktok"
-          ? "Benefits from speed, pattern interrupts, and higher hook pressure."
-          : "Rewards balanced pacing with smooth transitions and quick payoff.";
+      const forecast = platformForecastByPlatform[platform];
+      const suggestedLift = Number(selectedRateSuggestionLift[platform] || 0);
+      const baseScore = forecast?.score ?? buildFallbackScore(platform);
+      const boosted = clamp(Math.round(baseScore + suggestedLift), 0, 100);
+      const note = forecast?.note || buildFallbackNote(platform);
+      const noteWithLift = suggestedLift > 0 ? `${note} · Suggestions +${suggestedLift}` : note;
       return {
         platform,
         label: RATE_CARD_PLATFORM_LABEL[platform],
         score: boosted,
-        note,
+        note: noteWithLift,
       };
     });
     const topEntry = entries.reduce((best, current) => (current.score > best.score ? current : best), entries[0]);
@@ -14770,14 +15004,18 @@ const Editor = () => {
     };
   }, [
     activeJob?.status,
+    activePipelinePowerMode,
     activeYouTubeTrustPercent,
+    autonomousCutQualityPercent,
+    energyMomentsFromAnalysis.length,
     hookConfidenceScore,
     latestRetentionPoint?.predicted,
     modeCompletionScore,
     modeConsistencyScore,
     modeMomentumScore,
     modePackagingScore,
-    platformRateLiveWave,
+    platformForecastByPlatform,
+    rateCardModeLabel,
     retentionScoreAfterDisplay,
     retentionScoreDeltaDisplay,
     retentionScoreDisplay,
@@ -14785,12 +15023,19 @@ const Editor = () => {
     retentionTargetPlatform,
     selectedRateSuggestionLift,
     platformRateDecisionReady,
+    timelineMomentumScore,
     youtubeConnected,
   ]);
-  const platformRateUpdatedLabel = useMemo(
-    () => new Date(platformRateUpdatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }),
-    [platformRateUpdatedAtMs],
-  );
+  const platformRateUpdatedLabel = useMemo(() => {
+    const raw = activeAnalysisUpdatedAt ?? activeJobUpdatedAt;
+    if (raw) {
+      const parsed = new Date(String(raw));
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      }
+    }
+    return new Date(platformRateUpdatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  }, [activeAnalysisUpdatedAt, activeJobUpdatedAt, platformRateUpdatedAtMs]);
   const dopamineRateActive = platformRateScores.overallScore !== null && platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
   const aModePageHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -16102,7 +16347,6 @@ const Editor = () => {
       return;
     }
 
-    setPlatformRateRealtimeTick((prev) => prev + 1);
     setPlatformRateUpdatedAtMs(Date.now());
     if (previewImprovementTips.length > 1) {
       setPreviewImprovementTipIndex((current) => (current + 1) % previewImprovementTips.length);
@@ -17496,21 +17740,16 @@ const Editor = () => {
 
   useEffect(() => {
     if (!activeJob?.id) return;
-    if (typeof window === "undefined") return;
-    if (!isPageVisible) return;
-    const intervalMs = performanceConstrained ? RATE_CARD_LIVE_TICK_CONSTRAINED_MS : RATE_CARD_LIVE_TICK_MS;
-    const timer = window.setInterval(() => {
-      setPlatformRateRealtimeTick((prev) => prev + 1);
-      setPlatformRateUpdatedAtMs(Date.now());
-    }, intervalMs);
-    return () => window.clearInterval(timer);
-  }, [activeJob?.id, performanceConstrained, isPageVisible]);
-
-  useEffect(() => {
-    if (!activeJob?.id) return;
-    setPlatformRateRealtimeTick(0);
+    const raw = activeAnalysisUpdatedAt ?? activeJobUpdatedAt;
+    if (raw) {
+      const parsed = new Date(String(raw));
+      if (!Number.isNaN(parsed.getTime())) {
+        setPlatformRateUpdatedAtMs(parsed.getTime());
+        return;
+      }
+    }
     setPlatformRateUpdatedAtMs(Date.now());
-  }, [activeJob?.id]);
+  }, [activeAnalysisUpdatedAt, activeJob?.id, activeJobUpdatedAt]);
 
   const handleApplyEditorRateSuggestion = useCallback((suggestion: EditorRateSuggestion) => {
     if (!activeJob?.id) return;
@@ -17566,7 +17805,6 @@ const Editor = () => {
         break;
     }
 
-    setPlatformRateRealtimeTick((prev) => prev + 1);
     setPlatformRateUpdatedAtMs(Date.now());
     toast({
       title: "Suggestion added",
@@ -17848,6 +18086,7 @@ const Editor = () => {
       VERTICAL_SHORT_FORM_MODE_PRESETS[0],
     [verticalSelectionMode],
   );
+  const activeVerticalShortFormPresetLabel = activeVerticalShortFormPreset?.label ?? "Vertical Mode";
   const applyVerticalUploadModePreset = useCallback((
     presetId: VerticalUploadPresetId,
     source: "mode_select" | "preset_popup" | "preset_chip" = "preset_popup",
@@ -18937,7 +19176,7 @@ const Editor = () => {
     PLATFORM_OPTIONS.find((platform) => platform.value === retentionTargetPlatform)?.label ?? "TikTok";
   const renderEditorAgentRateCard = ({
     title = "Editor Agent Rate Card",
-    subtitle = "Realtime prediction for YouTube, TikTok, and IG Reels. Add agent suggestions to boost scores instantly.",
+    subtitle = `Realtime prediction for YouTube, TikTok, and IG Reels. Score mode: ${rateCardModeLabel}.`,
     compact = false,
     className = "",
   }: {
@@ -20228,7 +20467,7 @@ const Editor = () => {
                         <div className="vertical-opus-hero-card">
                           <div className="vertical-opus-hero-card-header">
                             <p className="vertical-opus-hero-card-kicker">Live Clip Score</p>
-                            <Badge className="vertical-opus-hero-card-pill">{activeVerticalShortFormPreset.label}</Badge>
+                            <Badge className="vertical-opus-hero-card-pill">{activeVerticalShortFormPresetLabel}</Badge>
                           </div>
                           <div className="vertical-opus-hero-metrics">
                             <div className="vertical-opus-hero-metric">
@@ -20330,6 +20569,10 @@ const Editor = () => {
                                       const variantMeta = getVerticalVariantMeta(variantKey);
                                       const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
                                       const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
+                                      const clipPreviewError = Boolean(verticalClipPreviewErrorByIndex[clipIndex]);
+                                      const clipVideoReady = clipReady && !clipPreviewError;
+                                      const clipPreviewLoaded = Boolean(verticalClipPreviewLoadedByIndex[clipIndex]);
+                                      const showClipLoading = clipVideoReady && !clipPreviewLoaded;
                                       const slotKey = getVerticalVariantSlotKeyForClipIndex(clipIndex);
                                       const clipCaptionRaw = String(verticalClipCaptionTextBySlot[slotKey] || "");
                                       const normalizedVariantCaption = normalizeVerticalCaptionTextForJob(
@@ -20441,7 +20684,10 @@ const Editor = () => {
                                       const clipPreviewLetterSpacing = clipPreviewCaption.length > 36 ? 0.01 : 0.02;
                                       const clipCaptionSelected =
                                         selectedCaptionClipSlotKeySet.has(slotKey) || resolvedCaptionPreviewClipIndex === clipIndex;
-                                      const showPreviewCaptionOverlay = Boolean(clipPreviewCaption) && (clipReady || showVerticalGalleryOnlyLayout);
+                                      const showPreviewCaptionOverlay =
+                                        Boolean(clipPreviewCaption) &&
+                                        (clipReady || showVerticalGalleryOnlyLayout) &&
+                                        !clipPreviewError;
                                       const clipCaptionAnimationEnabled = !runtimeProfile.reducedMotion;
                                       const clipCaptionDynamicIntensityBase = verticalCaptionDynamicMode === "kinetic_word"
                                         ? 1.24
@@ -20514,7 +20760,13 @@ const Editor = () => {
                                         : variantKey === "youtube"
                                           ? "YouTube"
                                           : "TikTok";
-                                      const clipStatusLabel = clipReady ? "Ready" : clipProcessing ? "Rendering" : "Queued";
+                                      const clipStatusLabel = clipPreviewError
+                                        ? "Preview error"
+                                        : clipReady
+                                          ? "Ready"
+                                          : clipProcessing
+                                            ? "Rendering"
+                                            : "Queued";
                                       const clipProgressPct = clipReady ? 100 : clamp(Math.round(totalPipelineProgress || 0), 0, 99);
                                       const rerenderDisabled =
                                         !!uploadingJobId ||
@@ -20548,16 +20800,47 @@ const Editor = () => {
                                             </span>
                                           </p>
                                           <div className="vertical-variant-preview-media vertical-variant-subversion-media">
-                                            {clipReady ? (
-                                              <video
-                                                src={clipUrl}
-                                                preload="metadata"
-                                                controls
-                                                playsInline
-                                                className="vertical-variant-preview-video cursor-pointer"
-                                                onClick={() => openCaptionSettingsForClip(clipIndex)}
-                                                title={`Open captions for clip #${clipIndex + 1}`}
-                                              />
+                                            {clipVideoReady ? (
+                                              <>
+                                                <video
+                                                  src={clipUrl}
+                                                  preload="metadata"
+                                                  controls
+                                                  playsInline
+                                                  className="vertical-variant-preview-video cursor-pointer"
+                                                  onClick={() => openCaptionSettingsForClip(clipIndex)}
+                                                  title={`Open captions for clip #${clipIndex + 1}`}
+                                                  onLoadedData={() => {
+                                                    setVerticalClipPreviewLoadedByIndex((prev) => (
+                                                      prev[clipIndex] ? prev : { ...prev, [clipIndex]: true }
+                                                    ));
+                                                    setVerticalClipPreviewErrorByIndex((prev) => {
+                                                      if (!prev[clipIndex]) return prev;
+                                                      const next = { ...prev };
+                                                      delete next[clipIndex];
+                                                      return next;
+                                                    });
+                                                  }}
+                                                  onError={() => {
+                                                    setVerticalClipPreviewLoadedByIndex((prev) => {
+                                                      if (!prev[clipIndex]) return prev;
+                                                      const next = { ...prev };
+                                                      delete next[clipIndex];
+                                                      return next;
+                                                    });
+                                                    setVerticalClipPreviewErrorByIndex((prev) => ({
+                                                      ...prev,
+                                                      [clipIndex]: true,
+                                                    }));
+                                                  }}
+                                                />
+                                                {showClipLoading ? (
+                                                  <div className="vertical-variant-preview-loading" aria-live="polite">
+                                                    <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
+                                                    <p className="vertical-variant-preview-loading-text">Loading preview</p>
+                                                  </div>
+                                                ) : null}
+                                              </>
                                             ) : (
                                               <div
                                                 className="vertical-variant-preview-empty cursor-pointer"
@@ -20574,11 +20857,17 @@ const Editor = () => {
                                               >
                                                 {clipProcessing ? (
                                                   <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden />
+                                                ) : clipPreviewError ? (
+                                                  <XCircle className="h-4 w-4 text-muted-foreground" aria-hidden />
                                                 ) : (
                                                   <Play className="h-4 w-4 text-muted-foreground" aria-hidden />
                                                 )}
                                                 <p className="vertical-variant-preview-empty-text">
-                                                  {clipProcessing ? "Rendering clip..." : "Render to preview this clip"}
+                                                  {clipProcessing
+                                                    ? "Rendering clip..."
+                                                    : clipPreviewError
+                                                      ? "Preview unavailable"
+                                                      : "Render to preview this clip"}
                                                 </p>
                                               </div>
                                             )}
@@ -22242,7 +22531,7 @@ const Editor = () => {
                       <p className="mt-1 text-xs text-muted-foreground">Choose the pacing + clip selection profile for this upload.</p>
                     </div>
                     <Badge className="border-primary/40 bg-primary/12 text-primary">
-                      {activeVerticalShortFormPreset.label}
+                      {activeVerticalShortFormPresetLabel}
                     </Badge>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -22373,7 +22662,7 @@ const Editor = () => {
                         <p className="text-[11px] text-muted-foreground">Applies to vertical clip selection and ranking.</p>
                       </div>
                       <Badge className="border-primary/40 bg-primary/12 text-primary">
-                        {activeVerticalShortFormPreset.label}
+                        {activeVerticalShortFormPresetLabel}
                       </Badge>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -23241,6 +23530,9 @@ const Editor = () => {
                       {captionPopupClipIndexes.map((clipIndex) => {
                         const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
                         const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
+                        const clipPreviewError = Boolean(verticalClipPreviewErrorByIndex[clipIndex]);
+                        const clipPreviewLoaded = Boolean(verticalClipPreviewLoadedByIndex[clipIndex]);
+                        const clipVideoReady = clipReady && !clipPreviewError;
                         const selected = resolvedCaptionPreviewClipIndex === clipIndex;
                         return (
                           <button
@@ -23253,18 +23545,48 @@ const Editor = () => {
                             }`}
                             onClick={() => handleCaptionPreviewSourceChange(clipIndex)}
                           >
-                            <div className="overflow-hidden rounded-md border border-border/55 bg-black/70">
-                              {clipReady ? (
-                                <video
-                                  src={clipUrl}
-                                  muted
-                                  playsInline
-                                  preload="none"
-                                  className="h-16 w-full object-cover"
-                                />
+                            <div className="relative overflow-hidden rounded-md border border-border/55 bg-black/70">
+                              {clipVideoReady ? (
+                                <>
+                                  <video
+                                    src={clipUrl}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    className="h-16 w-full object-cover"
+                                    onLoadedData={() => {
+                                      setVerticalClipPreviewLoadedByIndex((prev) => (
+                                        prev[clipIndex] ? prev : { ...prev, [clipIndex]: true }
+                                      ));
+                                      setVerticalClipPreviewErrorByIndex((prev) => {
+                                        if (!prev[clipIndex]) return prev;
+                                        const next = { ...prev };
+                                        delete next[clipIndex];
+                                        return next;
+                                      });
+                                    }}
+                                    onError={() => {
+                                      setVerticalClipPreviewLoadedByIndex((prev) => {
+                                        if (!prev[clipIndex]) return prev;
+                                        const next = { ...prev };
+                                        delete next[clipIndex];
+                                        return next;
+                                      });
+                                      setVerticalClipPreviewErrorByIndex((prev) => ({
+                                        ...prev,
+                                        [clipIndex]: true,
+                                      }));
+                                    }}
+                                  />
+                                  {!clipPreviewLoaded ? (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] text-muted-foreground">
+                                      Loading...
+                                    </div>
+                                  ) : null}
+                                </>
                               ) : (
                                 <div className="flex h-16 items-center justify-center text-[11px] text-muted-foreground">
-                                  Clip preview pending
+                                  {clipPreviewError ? "Preview unavailable" : "Clip preview pending"}
                                 </div>
                               )}
                             </div>

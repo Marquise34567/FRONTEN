@@ -35,6 +35,26 @@ const normalizePercent = (value: unknown) => {
   const scaled = Math.abs(raw) <= 1 ? raw * 100 : raw;
   return clampPercent(Math.round(scaled));
 };
+type RatePlatformKey = "youtube" | "tiktok" | "instagramReels";
+const normalizeRatePlatformKey = (value: unknown): RatePlatformKey | null => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "youtube" || normalized === "yt" || normalized.includes("youtube")) return "youtube";
+  if (normalized === "tiktok" || normalized === "tt" || normalized.includes("tiktok") || normalized.includes("tik tok")) {
+    return "tiktok";
+  }
+  if (
+    normalized === "instagram" ||
+    normalized === "ig" ||
+    normalized === "reels" ||
+    normalized === "instagram_reels" ||
+    normalized.includes("instagram") ||
+    normalized.includes("reel")
+  ) {
+    return "instagramReels";
+  }
+  return null;
+};
 const readOptionalPercentParam = (params: URLSearchParams, key: string) => {
   const raw = Number(params.get(key));
   if (!Number.isFinite(raw)) return null;
@@ -183,69 +203,80 @@ const EditorAMode = () => {
     const status = String(jobDetail?.status || "").trim().toLowerCase();
     return status === "ready";
   }, [jobDetail?.status, searchParams]);
-  const rateOverallScore = useMemo(() => {
-    return normalizePercent(searchParams.get("rateOverall"));
-  }, [searchParams]);
-  const rateAverageScore = useMemo(() => readOptionalPercentParam(searchParams, "rateAverage"), [searchParams]);
-  const rateByPlatform = useMemo(() => ({
+  const platformForecast = useMemo(() => {
+    const analysis = jobDetail?.analysis;
+    if (!analysis || typeof analysis !== "object") return [] as {
+      platformKey: RatePlatformKey | null;
+      label: string;
+      before: number | null;
+      after: number | null;
+      lift: string;
+      note: string;
+    }[];
+    const raw =
+      (analysis as Record<string, any>).platform_forecast ??
+      (analysis as Record<string, any>).platformForecast ??
+      (analysis as Record<string, any>).platform_outcome_forecast ??
+      (analysis as Record<string, any>).platformOutcomeForecast;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry: any, index: number) => {
+        if (!entry || typeof entry !== "object") return null;
+        const labelRaw = String(entry.label ?? entry.platform ?? entry.name ?? "").trim();
+        const label = labelRaw || `Platform ${index + 1}`;
+        const platformKey = normalizeRatePlatformKey(entry.platform ?? entry.key ?? entry.id ?? labelRaw);
+        const before = normalizePercent(entry.before ?? entry.baseline ?? entry.current ?? entry.score_before);
+        const after = normalizePercent(entry.after ?? entry.projected ?? entry.score_after ?? entry.predicted);
+        let lift = "";
+        if (typeof entry.lift === "string" && entry.lift.trim()) {
+          lift = entry.lift.trim();
+        } else {
+          const liftValue = normalizePercent(entry.lift);
+          if (liftValue !== null) lift = `${liftValue >= 0 ? "+" : ""}${liftValue}`;
+          else if (before !== null && after !== null) {
+            const diff = Math.round(after - before);
+            lift = `${diff >= 0 ? "+" : ""}${diff}`;
+          }
+        }
+        const note = typeof entry.note === "string" && entry.note.trim()
+          ? entry.note.trim()
+          : typeof entry.reason === "string" && entry.reason.trim()
+            ? entry.reason.trim()
+            : "";
+        return { platformKey, label, before, after, lift, note };
+      })
+      .filter((entry): entry is {
+        platformKey: RatePlatformKey | null;
+        label: string;
+        before: number | null;
+        after: number | null;
+        lift: string;
+        note: string;
+      } => Boolean(entry))
+      .slice(0, 5);
+  }, [jobDetail]);
+  const scoreModeLabel = useMemo(() => {
+    const analysis = jobDetail?.analysis as Record<string, any> | null | undefined;
+    const raw = String(
+      analysis?.pipelinePowerMode ??
+      analysis?.pipeline_power_mode ??
+      analysis?.pipeline_mode_playbook ??
+      analysis?.mode_playbook ??
+      analysis?.editorMode ??
+      analysis?.editor_mode ??
+      "",
+    ).trim().toLowerCase();
+    if (raw === "ultra") return "Fast";
+    if (raw === "retention-king" || raw === "retention_king") return "Quality";
+    return "Standard";
+  }, [jobDetail]);
+  const queryRateOverallScore = useMemo(() => normalizePercent(searchParams.get("rateOverall")), [searchParams]);
+  const queryRateAverageScore = useMemo(() => readOptionalPercentParam(searchParams, "rateAverage"), [searchParams]);
+  const queryRateByPlatform = useMemo(() => ({
     youtube: readOptionalPercentParam(searchParams, "rateYoutube"),
     tiktok: readOptionalPercentParam(searchParams, "rateTiktok"),
     instagramReels: readOptionalPercentParam(searchParams, "rateInstagram"),
   }), [searchParams]);
-  const rateTopLabel = useMemo(() => {
-    const explicit = String(searchParams.get("rateTopLabel") || "").trim();
-    if (explicit) return explicit.slice(0, 48);
-    const rows = [
-      { label: "YouTube", score: rateByPlatform.youtube },
-      { label: "TikTok", score: rateByPlatform.tiktok },
-      { label: "IG Reels", score: rateByPlatform.instagramReels },
-    ].filter((row) => row.score !== null);
-    if (!rows.length) return "Pending";
-    return rows.reduce((best, row) => ((row.score ?? 0) > (best.score ?? 0) ? row : best), rows[0]).label;
-  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
-  const rateTopScore = useMemo(() => {
-    const raw = normalizePercent(searchParams.get("rateTopScore"));
-    if (raw !== null) return raw;
-    const scores = [rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels].filter(
-      (score): score is number => score !== null,
-    );
-    if (!scores.length) return null;
-    return Math.max(...scores);
-  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, searchParams]);
-  const rateSelectedCount = useMemo(() => readCountParam(searchParams, "rateSelected", 0), [searchParams]);
-  const rateSuggestionCount = useMemo(
-    () => Math.max(rateSelectedCount, readCountParam(searchParams, "rateSuggestions", 0)),
-    [rateSelectedCount, searchParams],
-  );
-  const rateUpdatedLabel = useMemo(() => {
-    const raw = String(searchParams.get("rateUpdated") || "").trim();
-    if (!raw) return "Awaiting first live update";
-    return raw.slice(0, 40);
-  }, [searchParams]);
-  const rateScoreRows = useMemo(() => ([
-    {
-      key: "youtube",
-      label: "YouTube",
-      score: rateByPlatform.youtube,
-      barClassName: "from-rose-300/85 to-red-400/85",
-    },
-    {
-      key: "tiktok",
-      label: "TikTok",
-      score: rateByPlatform.tiktok,
-      barClassName: "from-cyan-300/85 to-blue-400/85",
-    },
-    {
-      key: "instagram",
-      label: "IG Reels",
-      score: rateByPlatform.instagramReels,
-      barClassName: "from-fuchsia-300/85 to-pink-400/85",
-    },
-  ]), [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
-  const hasRateCard = useMemo(
-    () => rateAverageScore !== null || rateTopScore !== null || rateOverallScore !== null,
-    [rateAverageScore, rateOverallScore, rateTopScore],
-  );
   const jobAnalysis = useMemo(() => {
     const raw = jobDetail?.analysis;
     if (!raw || typeof raw !== "object") return null;
@@ -399,37 +430,6 @@ const EditorAMode = () => {
     if (!retentionMiniPoints) return "";
     return `${retentionMiniPoints} 100,100 0,100`;
   }, [retentionMiniPoints]);
-  const platformForecast = useMemo(() => {
-    if (!jobAnalysis) return [] as { label: string; before: number | null; after: number | null; lift: string }[];
-    const raw =
-      jobAnalysis.platform_forecast ??
-      jobAnalysis.platformForecast ??
-      jobAnalysis.platform_outcome_forecast ??
-      jobAnalysis.platformOutcomeForecast;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((entry: any, index: number) => {
-        if (!entry || typeof entry !== "object") return null;
-        const labelRaw = String(entry.label ?? entry.platform ?? entry.name ?? "").trim();
-        const label = labelRaw || `Platform ${index + 1}`;
-        const before = normalizePercent(entry.before ?? entry.baseline ?? entry.current ?? entry.score_before);
-        const after = normalizePercent(entry.after ?? entry.projected ?? entry.score_after ?? entry.predicted);
-        let lift = "";
-        if (typeof entry.lift === "string" && entry.lift.trim()) {
-          lift = entry.lift.trim();
-        } else {
-          const liftValue = normalizePercent(entry.lift);
-          if (liftValue !== null) lift = `${liftValue >= 0 ? "+" : ""}${liftValue}`;
-          else if (before !== null && after !== null) {
-            const diff = Math.round(after - before);
-            lift = `${diff >= 0 ? "+" : ""}${diff}`;
-          }
-        }
-        return { label, before, after, lift };
-      })
-      .filter((entry): entry is { label: string; before: number | null; after: number | null; lift: string } => Boolean(entry))
-      .slice(0, 5);
-  }, [jobAnalysis]);
   const facialZones = useMemo(() => {
     if (!jobAnalysis) return [] as { label: string; at: string; intensity: number; detail: string }[];
     const raw =
@@ -584,6 +584,201 @@ const EditorAMode = () => {
     if (raw.includes("youtube")) return "YouTube";
     return raw.replace(/_/g, " ");
   }, [jobAnalysis]);
+  const rateForecastByPlatform = useMemo(() => {
+    const base = { youtube: null, tiktok: null, instagramReels: null } as Record<RatePlatformKey, number | null>;
+    for (const entry of platformForecast) {
+      const key = entry.platformKey ?? normalizeRatePlatformKey(entry.label);
+      if (!key) continue;
+      const score = entry.after ?? entry.before;
+      if (score === null) continue;
+      base[key] = score;
+    }
+    return base;
+  }, [platformForecast]);
+  const rateEstimateBase = useMemo(() => {
+    const signals = [retentionScoreAfter, hookConfidence, avgEmotion, cutQualityPercent]
+      .filter((value): value is number => value !== null);
+    if (signals.length === 0) return null;
+    const average = signals.reduce((sum, value) => sum + value, 0) / signals.length;
+    return clampPercent(Math.round(average));
+  }, [avgEmotion, cutQualityPercent, hookConfidence, retentionScoreAfter]);
+  const rateEstimateByPlatform = useMemo(() => {
+    if (rateEstimateBase === null) {
+      return { youtube: null, tiktok: null, instagramReels: null } as Record<RatePlatformKey, number | null>;
+    }
+    const youtubeBoost = retentionTargetPlatformLabel === "YouTube" ? 4 : 0;
+    const tiktokBoost = retentionTargetPlatformLabel === "TikTok" ? 5 : 0;
+    const reelsBoost = retentionTargetPlatformLabel === "IG Reels" ? 4 : 0;
+    const modeBoost = scoreModeLabel === "Fast"
+      ? { youtube: -2, tiktok: 3, instagramReels: 1 }
+      : scoreModeLabel === "Quality"
+        ? { youtube: 3, tiktok: -1, instagramReels: 2 }
+        : { youtube: 0, tiktok: 0, instagramReels: 0 };
+    return {
+      youtube: clampPercent(Math.round(
+        rateEstimateBase * 0.96 +
+        youtubeBoost +
+        modeBoost.youtube +
+        (cutQualityPercent ? cutQualityPercent * 0.05 : 0),
+      )),
+      tiktok: clampPercent(Math.round(
+        rateEstimateBase * 0.94 +
+        tiktokBoost +
+        modeBoost.tiktok +
+        (hookConfidence ? hookConfidence * 0.08 : 0),
+      )),
+      instagramReels: clampPercent(Math.round(
+        rateEstimateBase * 0.95 +
+        reelsBoost +
+        modeBoost.instagramReels +
+        (avgEmotion ? avgEmotion * 0.07 : 0),
+      )),
+    };
+  }, [
+    avgEmotion,
+    cutQualityPercent,
+    hookConfidence,
+    rateEstimateBase,
+    retentionTargetPlatformLabel,
+    scoreModeLabel,
+  ]);
+  const rateByPlatform = useMemo(() => ({
+    youtube: rateForecastByPlatform.youtube ?? rateEstimateByPlatform.youtube ?? queryRateByPlatform.youtube,
+    tiktok: rateForecastByPlatform.tiktok ?? rateEstimateByPlatform.tiktok ?? queryRateByPlatform.tiktok,
+    instagramReels: rateForecastByPlatform.instagramReels ?? rateEstimateByPlatform.instagramReels ?? queryRateByPlatform.instagramReels,
+  }), [queryRateByPlatform, rateEstimateByPlatform, rateForecastByPlatform]);
+  const rateTopScore = useMemo(() => {
+    const scores = [rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels].filter(
+      (score): score is number => score !== null,
+    );
+    if (!scores.length) return null;
+    return Math.max(...scores);
+  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
+  const rateTopLabel = useMemo(() => {
+    const explicit = String(searchParams.get("rateTopLabel") || "").trim();
+    if (explicit && rateTopScore === null) return explicit.slice(0, 48);
+    const rows = [
+      { label: "YouTube", score: rateByPlatform.youtube },
+      { label: "TikTok", score: rateByPlatform.tiktok },
+      { label: "IG Reels", score: rateByPlatform.instagramReels },
+    ].filter((row) => row.score !== null);
+    if (!rows.length) return "Pending";
+    return rows.reduce((best, row) => ((row.score ?? 0) > (best.score ?? 0) ? row : best), rows[0]).label;
+  }, [rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube, rateTopScore, searchParams]);
+  const rateAverageScore = useMemo(() => {
+    const scores = [rateByPlatform.youtube, rateByPlatform.tiktok, rateByPlatform.instagramReels].filter(
+      (score): score is number => score !== null,
+    );
+    if (!scores.length) return queryRateAverageScore;
+    return Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length);
+  }, [queryRateAverageScore, rateByPlatform.instagramReels, rateByPlatform.tiktok, rateByPlatform.youtube]);
+  const rateOverallScore = useMemo(() => {
+    if (rateTopScore === null || rateAverageScore === null) return queryRateOverallScore;
+    return clampPercent(Math.round(rateTopScore * 0.58 + rateAverageScore * 0.42));
+  }, [queryRateOverallScore, rateAverageScore, rateTopScore]);
+  const rateSelectedCount = useMemo(() => readCountParam(searchParams, "rateSelected", 0), [searchParams]);
+  const rateSuggestionCount = useMemo(
+    () => Math.max(rateSelectedCount, readCountParam(searchParams, "rateSuggestions", 0)),
+    [rateSelectedCount, searchParams],
+  );
+  const rateNotesByPlatform = useMemo(() => {
+    const baseParts: string[] = [];
+    if (retentionScoreAfter !== null) baseParts.push(`Retention ${retentionScoreAfter}%`);
+    if (hookConfidence !== null) baseParts.push(`Hook ${hookConfidence}%`);
+    if (avgEmotion !== null) baseParts.push(`Emotion ${avgEmotion}%`);
+    if (cutQualityPercent !== null) baseParts.push(`Cut quality ${cutQualityPercent}%`);
+    if (retentionScoreDelta !== null && retentionScoreDelta !== 0) {
+      baseParts.push(`Δ${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta} pts`);
+    }
+    if (scoreModeLabel !== "Standard") baseParts.push(`Mode ${scoreModeLabel}`);
+    const fallback = baseParts.length > 0 ? baseParts.join(" · ") : "Awaiting full analysis.";
+    const notes: Record<RatePlatformKey, string> = {
+      youtube: fallback,
+      tiktok: fallback,
+      instagramReels: fallback,
+    };
+    for (const entry of platformForecast) {
+      const key = entry.platformKey ?? normalizeRatePlatformKey(entry.label);
+      if (!key) continue;
+      const noteParts: string[] = [];
+      if (entry.before !== null && entry.after !== null) {
+        noteParts.push(`Forecast ${entry.before}→${entry.after}${entry.lift ? ` (${entry.lift})` : ""}`);
+      } else if (entry.after !== null) {
+        noteParts.push(`Forecast score ${entry.after}/100`);
+      } else if (entry.before !== null) {
+        noteParts.push(`Baseline ${entry.before}/100`);
+      }
+      if (entry.note) noteParts.push(entry.note);
+      if (scoreModeLabel !== "Standard") noteParts.push(`Mode ${scoreModeLabel}`);
+      notes[key] = noteParts.length > 0 ? noteParts.join(" · ") : fallback;
+    }
+    if (retentionTargetPlatformLabel === "YouTube") notes.youtube = `${notes.youtube} · Targeted platform`;
+    if (retentionTargetPlatformLabel === "TikTok") notes.tiktok = `${notes.tiktok} · Targeted platform`;
+    if (retentionTargetPlatformLabel === "IG Reels") notes.instagramReels = `${notes.instagramReels} · Targeted platform`;
+    return notes;
+  }, [
+    avgEmotion,
+    cutQualityPercent,
+    hookConfidence,
+    platformForecast,
+    retentionScoreAfter,
+    retentionScoreDelta,
+    retentionTargetPlatformLabel,
+    scoreModeLabel,
+  ]);
+  const rateUpdatedLabel = useMemo(() => {
+    const analysis = jobDetail?.analysis as Record<string, any> | null | undefined;
+    const raw =
+      analysis?.rate_updated_at ??
+      analysis?.rateUpdatedAt ??
+      analysis?.editor_last_updated_at ??
+      analysis?.editorLastUpdatedAt ??
+      jobDetail?.updatedAt ??
+      (jobDetail as any)?.updated_at ??
+      searchParams.get("rateUpdated");
+    const formatted = formatOptionalDateTime(raw);
+    if (formatted) return formatted;
+    const fallback = String(searchParams.get("rateUpdated") || "").trim();
+    if (fallback) return fallback.slice(0, 40);
+    return "Awaiting analysis update";
+  }, [
+    jobDetail,
+    searchParams,
+  ]);
+  const rateScoreRows = useMemo(() => ([
+    {
+      key: "youtube",
+      label: "YouTube",
+      score: rateByPlatform.youtube,
+      barClassName: "from-rose-300/85 to-red-400/85",
+      note: rateNotesByPlatform.youtube,
+    },
+    {
+      key: "tiktok",
+      label: "TikTok",
+      score: rateByPlatform.tiktok,
+      barClassName: "from-cyan-300/85 to-blue-400/85",
+      note: rateNotesByPlatform.tiktok,
+    },
+    {
+      key: "instagram",
+      label: "IG Reels",
+      score: rateByPlatform.instagramReels,
+      barClassName: "from-fuchsia-300/85 to-pink-400/85",
+      note: rateNotesByPlatform.instagramReels,
+    },
+  ]), [
+    rateByPlatform.instagramReels,
+    rateByPlatform.tiktok,
+    rateByPlatform.youtube,
+    rateNotesByPlatform.instagramReels,
+    rateNotesByPlatform.tiktok,
+    rateNotesByPlatform.youtube,
+  ]);
+  const hasRateCard = useMemo(
+    () => rateAverageScore !== null || rateTopScore !== null || rateOverallScore !== null,
+    [rateAverageScore, rateOverallScore, rateTopScore],
+  );
   const retentionDetectionScore = useMemo(() => {
     const preferred = retentionScoreAfter ?? rateOverallScore ?? 42;
     return clampPercent(preferred);
@@ -976,6 +1171,9 @@ const EditorAMode = () => {
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Suggestions selected {rateSelectedCount}/{rateSuggestionCount}
               </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Score mode: {scoreModeLabel}
+              </p>
               <div className="mt-2.5 space-y-2">
                 {rateScoreRows.map((row) => (
                   <div key={row.key} className="rounded-lg border border-border/55 bg-background/45 p-2">
@@ -989,6 +1187,7 @@ const EditorAMode = () => {
                         style={{ width: `${row.score ?? 0}%` }}
                       />
                     </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p>
                   </div>
                 ))}
               </div>
