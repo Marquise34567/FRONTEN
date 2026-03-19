@@ -10,6 +10,25 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // using `export` inside a block (which causes a syntax error).
 export let supabase: any;
 
+const safeLocalStorage: Storage = (() => {
+  const fallback: Storage = {
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+    clear: () => undefined,
+    key: () => null,
+    length: 0,
+  };
+  try {
+    if (typeof localStorage === "undefined") return fallback;
+    // Accessing localStorage can throw in privacy-restricted environments.
+    localStorage.getItem("__ae_storage_probe__");
+    return localStorage;
+  } catch {
+    return fallback;
+  }
+})();
+
 const REALTIME_RECONNECT_COOLDOWN_MS = 5000;
 let lastRealtimeReconnectAt = 0;
 
@@ -67,7 +86,7 @@ const attachRealtimeSubscribeLogging = (client: any) => {
 if (SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
   supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
-      storage: localStorage,
+      storage: safeLocalStorage,
       persistSession: true,
       autoRefreshToken: true,
     },

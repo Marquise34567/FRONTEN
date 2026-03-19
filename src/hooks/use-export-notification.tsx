@@ -34,6 +34,24 @@ type UseExportNotificationOptions = {
 const PROMPTED_STORAGE_KEY = "autoeditor_export_notification_prompted_v1";
 const HINT_DISMISSED_STORAGE_KEY = "autoeditor_export_notification_hint_dismissed_v1";
 
+const safeLocalStorageGet = (key: string) => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeLocalStorageSet = (key: string, value: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures (private mode / blocked storage).
+  }
+};
+
 const canUseNotificationApi = () =>
   typeof window !== "undefined" && typeof Notification !== "undefined";
 
@@ -322,9 +340,7 @@ export const useExportNotification = ({
       return current;
     }
     if (current === "denied") {
-      const dismissed =
-        typeof window !== "undefined" &&
-        window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
+      const dismissed = safeLocalStorageGet(HINT_DISMISSED_STORAGE_KEY) === "true";
       setShowEnableHint(!dismissed);
       return current;
     }
@@ -336,13 +352,7 @@ export const useExportNotification = ({
     if (promptedRef.current && source === "app_load") return current;
 
     promptedRef.current = true;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(PROMPTED_STORAGE_KEY, "true");
-      } catch {
-        // ignore storage failures
-      }
-    }
+    safeLocalStorageSet(PROMPTED_STORAGE_KEY, "true");
 
     try {
       const next = await Notification.requestPermission();
@@ -361,11 +371,7 @@ export const useExportNotification = ({
   const dismissEnableHint = useCallback(() => {
     setShowEnableHint(false);
     if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(HINT_DISMISSED_STORAGE_KEY, "true");
-    } catch {
-      // ignore storage failures
-    }
+    safeLocalStorageSet(HINT_DISMISSED_STORAGE_KEY, "true");
   }, []);
 
   const notifyExportComplete = useCallback(async (payload: ExportCompleteNotificationPayload) => {
@@ -394,24 +400,20 @@ export const useExportNotification = ({
       return;
     }
     if (resolvedPermission === "default") {
-      const dismissed =
-        typeof window !== "undefined" &&
-        window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
+      const dismissed = safeLocalStorageGet(HINT_DISMISSED_STORAGE_KEY) === "true";
       if (!dismissed) setShowEnableHint(true);
       return;
     }
     if (resolvedPermission === "denied") {
-      const dismissed =
-        typeof window !== "undefined" &&
-        window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
+      const dismissed = safeLocalStorageGet(HINT_DISMISSED_STORAGE_KEY) === "true";
       if (!dismissed) setShowEnableHint(true);
     }
   }, [ensureNotificationPermission, permission, playSuccessTone, renderToast, showSystemNotification, startTitleFlash]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    promptedRef.current = window.localStorage.getItem(PROMPTED_STORAGE_KEY) === "true";
-    const dismissedHint = window.localStorage.getItem(HINT_DISMISSED_STORAGE_KEY) === "true";
+    promptedRef.current = safeLocalStorageGet(PROMPTED_STORAGE_KEY) === "true";
+    const dismissedHint = safeLocalStorageGet(HINT_DISMISSED_STORAGE_KEY) === "true";
 
     if (!canUseNotificationApi()) {
       setPermission("unsupported");
