@@ -12658,6 +12658,35 @@ const Editor = () => {
     ),
     28,
   );
+  const pipelineRemovedSeconds = firstFiniteNumber(
+    metadataSummary?.timeline?.removedSeconds,
+    metadataSummary?.timeline?.removed_seconds,
+    activeAnalysis?.removed_seconds,
+    activeAnalysis?.removedSeconds,
+    activeAnalysis?.pipelineSteps?.BOREDOM_SCORING?.meta?.totalRemovedSeconds,
+    activeAnalysis?.pipelineSteps?.BOREDOM_SCORING?.meta?.total_removed_seconds,
+  );
+  const removedRatioRaw = firstFiniteNumber(
+    activeAnalysis?.boredom_removed_ratio,
+    activeAnalysis?.boredomRemovedRatio,
+    activeAnalysis?.low_engagement_removed_pct,
+    activeAnalysis?.lowEngagementRemovedPct,
+    metadataSummary?.timeline?.boredomRemovedRatio,
+    metadataSummary?.timeline?.boredom_removed_ratio,
+  );
+  const predictedTimeSavedSec = (() => {
+    if (pipelineRemovedSeconds !== null && pipelineRemovedSeconds >= 0) {
+      return pipelineRemovedSeconds;
+    }
+    if (removedRatioRaw !== null && estimatedDurationSec !== null && estimatedDurationSec > 0) {
+      const ratio = removedRatioRaw > 1 ? removedRatioRaw / 100 : removedRatioRaw;
+      return Math.max(0, estimatedDurationSec * ratio);
+    }
+    return null;
+  })();
+  const predictedTimeSavedLabel = predictedTimeSavedSec !== null && predictedTimeSavedSec >= 1
+    ? formatDurationClock(predictedTimeSavedSec)
+    : null;
   const facialFocusSec = firstFiniteNumber(
     activeAnalysis?.facial_focus_time_sec,
     activeAnalysis?.facialFocusTimeSec,
@@ -14834,8 +14863,10 @@ const Editor = () => {
           : "Scoring high-energy opener candidates",
     cutting:
       cutsApplied !== null
-        ? `Applied ${Math.round(cutsApplied)} cuts (${removedFillerPercent}% low-engagement filler removed)`
-        : "Auto-cut boring/silent/filler segments",
+        ? `Applied ${Math.round(cutsApplied)} cuts (${removedFillerPercent}% low-engagement filler removed${predictedTimeSavedLabel ? `, ~${predictedTimeSavedLabel} saved` : ""})`
+        : predictedTimeSavedLabel
+          ? `Auto-cut boring/silent/filler segments (~${predictedTimeSavedLabel} saved)`
+          : "Auto-cut boring/silent/filler segments",
     pacing: `Binge optimization: cliffhangers, emotional arcs, and re-hooks every ${rehookIntervalSec}s`,
     story: "Binge optimization and continuity checks",
     subtitling:
@@ -14958,6 +14989,14 @@ const Editor = () => {
           {
             level: "success" as const,
             message: `Applied ${Math.round(cutsApplied)} cuts`,
+          },
+        ]
+      : []),
+    ...(predictedTimeSavedLabel
+      ? [
+          {
+            level: "success" as const,
+            message: `Predicted time saved ~${predictedTimeSavedLabel}`,
           },
         ]
       : []),
