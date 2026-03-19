@@ -20,6 +20,8 @@ const toPoints = (rows: readonly { energy: number; emotion: number }[], key: "en
     .join(" ")
 );
 const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+const clampUnit = (value: number) => Math.max(0, Math.min(1, value));
+const isObjectRecord = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const toValuePoints = (values: number[]) =>
   values
     .map((value, index) => {
@@ -150,6 +152,9 @@ const EditorAMode = () => {
   const [searchParams] = useSearchParams();
   const { accessToken } = useAuth();
   const [jobDetail, setJobDetail] = useState<Record<string, any> | null>(null);
+  const [retentionBenchmarks, setRetentionBenchmarks] = useState<Record<string, any> | null>(null);
+  const [applyTipsPending, setApplyTipsPending] = useState(false);
+  const [applyTipsMessage, setApplyTipsMessage] = useState("");
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
   const fullVideoScanProgress = useMemo(() => {
@@ -193,6 +198,25 @@ const EditorAMode = () => {
       cancelled = true;
     };
   }, [accessToken, activeJobId]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!accessToken) {
+      setRetentionBenchmarks(null);
+      return;
+    }
+    apiFetch<{ benchmarks?: Record<string, any> }>("/api/retention/benchmarks", { token: accessToken })
+      .then((data) => {
+        if (cancelled) return;
+        setRetentionBenchmarks(isObjectRecord(data?.benchmarks) ? data.benchmarks : null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRetentionBenchmarks(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
   const backToEditorHref = useMemo(() => {
     if (!activeJobId) return "/editor";
     return `/editor?jobId=${encodeURIComponent(activeJobId)}`;
@@ -430,6 +454,74 @@ const EditorAMode = () => {
     if (!retentionMiniPoints) return "";
     return `${retentionMiniPoints} 100,100 0,100`;
   }, [retentionMiniPoints]);
+  const dropoffHeatmapRows = useMemo(() => {
+    if (!jobAnalysis) return [] as { label: string; range: string; risk: number; detail: string }[];
+    const explicitSpans =
+      jobAnalysis?.dropoff_heatmap?.spans ??
+      jobAnalysis?.dropoffHeatmap?.spans ??
+      jobAnalysis?.heatmap?.spans ??
+      jobAnalysis?.heat_map?.spans ??
+      jobAnalysis?.retention_heatmap?.spans ??
+      jobAnalysis?.retentionHeatmap?.spans ??
+      jobAnalysis?.debug?.heatmap?.spans ??
+      jobAnalysis?.raw_debug?.heatmap?.spans ??
+      jobAnalysis?.rawDebug?.heatmap?.spans;
+    if (Array.isArray(explicitSpans) && explicitSpans.length > 0) {
+      return explicitSpans
+        .map((entry: any, index: number) => {
+          if (!entry || typeof entry !== "object") return null;
+          const start = Number(entry.start ?? entry.t0 ?? entry.from ?? entry.range_start);
+          const end = Number(entry.end ?? entry.t1 ?? entry.to ?? entry.range_end);
+          const riskFromHeat = normalizePercent(entry.heat ?? entry.risk ?? entry.dropoffRisk ?? entry.dropoff_risk);
+          const scoreFromEngagement = normalizePercent(entry.score ?? entry.engagement ?? entry.retention);
+          const risk = riskFromHeat ?? (scoreFromEngagement !== null ? clampPercent(100 - scoreFromEngagement) : null);
+          if (risk === null) return null;
+          const range = formatRangeLabel(Number.isFinite(start) ? start : null, Number.isFinite(end) ? end : null);
+          const detail = String(entry.reason ?? entry.note ?? entry.detail ?? "").trim();
+          return {
+            label: `Drop Zone ${index + 1}`,
+            range,
+            risk,
+            detail,
+          };
+        })
+        .filter((entry): entry is { label: string; range: string; risk: number; detail: string } => Boolean(entry))
+        .sort((a, b) => b.risk - a.risk)
+        .slice(0, 6);
+    }
+    if (!engagementWindows.length) return [];
+    return engagementWindows
+      .map((entry) => {
+        const time = Number(entry.time ?? entry.t ?? entry.second ?? entry.seconds);
+        if (!Number.isFinite(time)) return null;
+        const score = normalizePercent(entry.score ?? entry.hookScore ?? entry.engagementScore ?? entry.engagement_score);
+        if (score === null) return null;
+        const risk = clampPercent(100 - score);
+        if (risk < 18) return null;
+        const emotion = normalizePercent(entry.emotionIntensity ?? entry.emotionalSpike ?? entry.transcriptEmotion);
+        const audio = normalizePercent(entry.audioEnergy ?? entry.motionScore ?? entry.visualImpact);
+        const detailParts: string[] = [];
+        if (score !== null) detailParts.push(`Engagement ${score}%`);
+        if (emotion !== null) detailParts.push(`Emotion ${emotion}%`);
+        if (audio !== null) detailParts.push(`Energy ${audio}%`);
+        return {
+          label: "Drop Zone",
+          range: formatRangeLabel(time, time + 8),
+          risk,
+          detail: detailParts.join(" · "),
+          time,
+        };
+      })
+      .filter((entry): entry is { label: string; range: string; risk: number; detail: string; time: number } => Boolean(entry))
+      .sort((a, b) => b.risk - a.risk)
+      .slice(0, 6)
+      .map((entry, index) => ({
+        label: `${entry.label} ${index + 1}`,
+        range: entry.range,
+        risk: entry.risk,
+        detail: entry.detail,
+      }));
+  }, [engagementWindows, jobAnalysis]);
   const facialZones = useMemo(() => {
     if (!jobAnalysis) return [] as { label: string; at: string; intensity: number; detail: string }[];
     const raw =
@@ -584,6 +676,73 @@ const EditorAMode = () => {
     if (raw.includes("youtube")) return "YouTube";
     return raw.replace(/_/g, " ");
   }, [jobAnalysis]);
+  const benchmarkTargets = useMemo(() => {
+    if (!retentionBenchmarks) return null as null | {
+      label: string;
+      averageTarget: number;
+      goodTarget: number;
+      viralTarget: number;
+      source: string;
+    };
+    const durationSec = readNumberFrom(jobAnalysis, [
+      "duration_sec",
+      "durationSec",
+      "sourceDurationSec",
+      "source_duration_sec",
+      "runtime_seconds",
+      "runtimeSeconds",
+      "video_duration_sec",
+      "videoDurationSec",
+    ]) ?? readNumberFrom(jobDetail, ["durationSec", "duration_sec", "sourceDurationSec"]);
+    const formatRaw = String(
+      jobDetail?.renderMode ??
+      jobAnalysis?.renderMode ??
+      jobAnalysis?.render_mode ??
+      jobAnalysis?.format ??
+      jobAnalysis?.format_choice ??
+      "",
+    ).toLowerCase();
+    const isShortForm = formatRaw.includes("vertical") || formatRaw.includes("short") || (durationSec !== null && durationSec <= 65);
+    const source = String(retentionBenchmarks.source ?? "retention_dataset_2026").trim() || "retention_dataset_2026";
+
+    if (isShortForm) {
+      const shortsTiers = isObjectRecord(retentionBenchmarks.shorts_length_tiers)
+        ? (retentionBenchmarks.shorts_length_tiers as Record<string, any>)
+        : {};
+      const primaryTier = isObjectRecord(shortsTiers.under_60s)
+        ? shortsTiers.under_60s
+        : (Object.values(shortsTiers).find((entry) => isObjectRecord(entry)) as Record<string, any> | undefined) ?? {};
+      const averageTarget = normalizePercent(primaryTier.avg_end ?? retentionBenchmarks.shorts_average?.overall_avg ?? 73) ?? 73;
+      const goodTarget = normalizePercent(primaryTier.good_end ?? retentionBenchmarks.templates?.good?.overall_avg ?? 80) ?? 80;
+      const viralTarget = normalizePercent(primaryTier.viral_end ?? retentionBenchmarks.shorts_viral?.overall_avg ?? 88) ?? 88;
+      return {
+        label: String(primaryTier.label ?? "Shorts < 60s"),
+        averageTarget,
+        goodTarget,
+        viralTarget: Math.max(viralTarget, goodTarget + 1),
+        source,
+      };
+    }
+
+    const longTiers = isObjectRecord(retentionBenchmarks.length_tiers)
+      ? (retentionBenchmarks.length_tiers as Record<string, any>)
+      : {};
+    const duration = durationSec ?? 0;
+    const tierKey = duration < 300 ? "under_5" : duration < 600 ? "5_10" : duration < 1200 ? "10_20" : "20_plus";
+    const tier = isObjectRecord(longTiers[tierKey])
+      ? longTiers[tierKey]
+      : (Object.values(longTiers).find((entry) => isObjectRecord(entry)) as Record<string, any> | undefined) ?? {};
+    const averageTarget = normalizePercent(tier.avg_end ?? retentionBenchmarks.non_viral?.overall_avg ?? retentionBenchmarks.templates?.average?.overall_avg ?? 30) ?? 30;
+    const goodTarget = normalizePercent(tier.good_end ?? retentionBenchmarks.templates?.good?.overall_avg ?? 55) ?? 55;
+    const viralTarget = normalizePercent(tier.viral_end ?? retentionBenchmarks.viral?.overall_avg ?? retentionBenchmarks.templates?.viral?.overall_avg ?? 60) ?? 60;
+    return {
+      label: String(tier.label ?? "Long-form"),
+      averageTarget,
+      goodTarget,
+      viralTarget: Math.max(viralTarget, goodTarget + 1),
+      source,
+    };
+  }, [jobAnalysis, jobDetail, retentionBenchmarks]);
   const rateForecastByPlatform = useMemo(() => {
     const base = { youtube: null, tiktok: null, instagramReels: null } as Record<RatePlatformKey, number | null>;
     for (const entry of platformForecast) {
@@ -831,6 +990,61 @@ const EditorAMode = () => {
     }
     return null;
   }, [qualityGate?.passedChecks, qualityGate?.passed_checks, qualityGate?.totalChecks, qualityGate?.total_checks]);
+  const highRetentionLikelihood = useMemo(() => {
+    const targets = benchmarkTargets;
+    const observedRetention = retentionScoreAfter ?? rateOverallScore;
+    if (!targets || observedRetention === null) return null as null | {
+      score: number;
+      bandLabel: string;
+      detailLine: string;
+      benchmarkLine: string;
+    };
+
+    const avgTarget = targets.averageTarget;
+    const goodTarget = targets.goodTarget;
+    const viralTarget = targets.viralTarget;
+    const datasetClimb = clampUnit((observedRetention - avgTarget) / Math.max(8, goodTarget - avgTarget));
+    const viralClimb = clampUnit((observedRetention - goodTarget) / Math.max(6, viralTarget - goodTarget));
+    const benchmarkAlignment = clampUnit(datasetClimb * 0.55 + viralClimb * 0.45);
+
+    const retentionLift = retentionScoreDelta ?? 0;
+    const liftSignal = clampUnit((retentionLift + 8) / 22);
+    const hookSignal = clampUnit((hookConfidence ?? 50) / 100);
+    const cutSignal = clampUnit((cutQualityPercent ?? 50) / 100);
+    const gateSignal = qualityGatePassed === true ? 1 : qualityGatePassed === false ? 0.2 : 0.55;
+    const editsAppliedRaw = readNumberFrom(jobAnalysis, ["patch_count", "patchCount", "editsApplied", "edits_applied"]);
+    const editsSignal = editsAppliedRaw !== null
+      ? clampUnit(Math.log1p(Math.max(0, editsAppliedRaw)) / Math.log(12))
+      : 0.5;
+    const editExecution = clampUnit(
+      0.28 * liftSignal +
+      0.22 * hookSignal +
+      0.2 * cutSignal +
+      0.16 * gateSignal +
+      0.14 * editsSignal,
+    );
+
+    const score = clampPercent(Math.round((benchmarkAlignment * 0.62 + editExecution * 0.38) * 100));
+    const bandLabel = score >= 82
+      ? "Very high"
+      : score >= 68
+        ? "High"
+        : score >= 52
+          ? "Moderate"
+          : "Low";
+    const detailLine = `Upload vs tier: ${observedRetention}% (good ${goodTarget}% · viral ${viralTarget}%)`;
+    const benchmarkLine = `Dataset: ${targets.label} · source ${targets.source}`;
+    return { score, bandLabel, detailLine, benchmarkLine };
+  }, [
+    benchmarkTargets,
+    cutQualityPercent,
+    hookConfidence,
+    jobAnalysis,
+    qualityGatePassed,
+    rateOverallScore,
+    retentionScoreAfter,
+    retentionScoreDelta,
+  ]);
   const humanReviewRequired = useMemo(() => {
     return parseBooleanLike(
       jobAnalysis?.humanReviewRequired ??
@@ -878,6 +1092,96 @@ const EditorAMode = () => {
     ]);
     return normalizeTextList([...(fromPlan || []), ...fromReview]);
   }, [editorInstructionPlan?.notes, humanReviewState]);
+  const retentionJudge = useMemo(() => {
+    const raw = jobAnalysis?.retention_judge ?? jobAnalysis?.retentionJudge;
+    if (!raw || typeof raw !== "object") return null;
+    return raw as Record<string, any>;
+  }, [jobAnalysis]);
+  const recommendedEditTips = useMemo(() => {
+    const tips: string[] = [];
+    const fixes = retentionJudge?.required_fixes ?? retentionJudge?.requiredFixes;
+    if (isObjectRecord(fixes)) {
+      if (parseBooleanLike(fixes.stronger_hook)) tips.push("Strengthen the first 3-8 seconds with a clearer hook and payoff preview.");
+      if (parseBooleanLike(fixes.raise_emotion)) tips.push("Raise emotional pull early with higher-intensity moments and reactions.");
+      if (parseBooleanLike(fixes.improve_pacing)) tips.push("Increase pacing by tightening low-energy stretches and accelerating cut rhythm.");
+      if (parseBooleanLike(fixes.increase_interrupts)) tips.push("Add more pattern interrupts to avoid flat sections and reduce early drop-off.");
+    }
+    if (Array.isArray(retentionJudge?.what_is_generic)) {
+      for (const line of retentionJudge.what_is_generic) {
+        if (typeof line === "string" && line.trim()) tips.push(line.trim());
+      }
+    }
+    if (Array.isArray(retentionJudge?.why_keep_watching)) {
+      for (const line of retentionJudge.why_keep_watching) {
+        if (typeof line === "string" && line.trim()) tips.push(`Preserve: ${line.trim()}`);
+      }
+    }
+    for (const line of agentTaskNotes) {
+      if (typeof line === "string" && line.trim()) tips.push(line.trim());
+    }
+    for (const line of decisionNotes) {
+      if (typeof line === "string" && line.trim()) tips.push(line.trim());
+    }
+    return normalizeTextList(tips).slice(0, 7);
+  }, [agentTaskNotes, decisionNotes, retentionJudge]);
+  const recommendedReprocessPayload = useMemo(() => {
+    const fixes = retentionJudge?.required_fixes ?? retentionJudge?.requiredFixes;
+    const needsHook = isObjectRecord(fixes) ? parseBooleanLike(fixes.stronger_hook) === true : false;
+    const needsEmotion = isObjectRecord(fixes) ? parseBooleanLike(fixes.raise_emotion) === true : false;
+    const needsPacing = isObjectRecord(fixes) ? parseBooleanLike(fixes.improve_pacing) === true : false;
+    const needsInterrupts = isObjectRecord(fixes) ? parseBooleanLike(fixes.increase_interrupts) === true : false;
+    const severityCount = [needsHook, needsEmotion, needsPacing, needsInterrupts].filter(Boolean).length;
+    const aggression = severityCount >= 3 ? "viral" : severityCount >= 1 ? "high" : "medium";
+    const strategy = needsHook || needsInterrupts || needsPacing ? "viral" : "balanced";
+    const pacingHeavy = needsPacing || needsInterrupts;
+    const recommendedMaxCuts = pacingHeavy ? 30 : 22;
+    const instructionLines = [
+      "Apply editor recommended retention fixes on this upload before rerender.",
+      ...recommendedEditTips.slice(0, 5).map((tip) => `- ${tip}`),
+      "Prioritize first 30-60s stability and smoother pacing through the mid-section.",
+    ];
+    const payload: Record<string, any> = {
+      forceReanalyze: true,
+      retentionAggressionLevel: aggression,
+      retentionStrategyProfile: strategy,
+      maxCuts: recommendedMaxCuts,
+      editorInstructionPrompt: instructionLines.join("\n"),
+    };
+    if (needsHook) payload.hookSelectionMode = "auto";
+    return payload;
+  }, [recommendedEditTips, retentionJudge]);
+  const canApplyRecommendedEdits = Boolean(accessToken && activeJobId && rateDecisionReady && !applyTipsPending);
+  const applyRecommendedEdits = async () => {
+    if (!accessToken || !activeJobId || applyTipsPending) return;
+    setApplyTipsPending(true);
+    setApplyTipsMessage("");
+    try {
+      const result = await apiFetch<{
+        ok?: boolean;
+        queued?: boolean;
+        rerenderUsage?: {
+          rerendersRemaining?: number | null;
+          rerendersLimit?: number | null;
+        };
+      }>(`/api/jobs/${activeJobId}/reprocess`, {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify(recommendedReprocessPayload),
+      });
+      const remaining = Number(result?.rerenderUsage?.rerendersRemaining);
+      const limit = Number(result?.rerenderUsage?.rerendersLimit);
+      const usageLine = Number.isFinite(remaining) && Number.isFinite(limit) && limit > 0
+        ? ` ${remaining} of ${limit} re-renders left today.`
+        : "";
+      setApplyTipsMessage(`Recommended edits queued. Re-render started.${usageLine}`);
+      setJobDetail((prev) => (prev ? { ...prev, status: "queued" } : prev));
+    } catch (error: any) {
+      const message = error?.message || "Could not queue re-render with recommended edits.";
+      setApplyTipsMessage(String(message));
+    } finally {
+      setApplyTipsPending(false);
+    }
+  };
   return (
     <GlowBackdrop>
       <Navbar />
@@ -1037,7 +1341,7 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-5"
+          className="mx-auto mt-4 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-6"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4 }}
@@ -1050,6 +1354,23 @@ const EditorAMode = () => {
             <p className="text-[10px] text-muted-foreground">
               {retentionScoreAfter !== null ? "Latest retention score" : "Awaiting retention score"}
             </p>
+          </article>
+          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">High-retention likelihood</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">
+              {highRetentionLikelihood ? `${highRetentionLikelihood.score}%` : "--"}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              {highRetentionLikelihood ? `${highRetentionLikelihood.bandLabel} confidence` : "Awaiting benchmark + edit signals"}
+            </p>
+            {highRetentionLikelihood ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {highRetentionLikelihood.detailLine}
+              </p>
+            ) : null}
+            {highRetentionLikelihood ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">{highRetentionLikelihood.benchmarkLine}</p>
+            ) : null}
           </article>
           <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
             <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Peak energy</p>
@@ -1330,6 +1651,43 @@ const EditorAMode = () => {
           <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <Activity className="h-3.5 w-3.5 text-primary" />
+                Audience Drop-off Heatmap
+              </p>
+              <Badge className="border-primary/35 bg-primary/10 text-foreground">
+                {dropoffHeatmapRows.length > 0 ? "Heatmap ready" : "Heatmap pending"}
+              </Badge>
+            </div>
+            {dropoffHeatmapRows.length > 0 ? (
+              <div className="mt-2.5 space-y-2">
+                {dropoffHeatmapRows.map((zone) => (
+                  <div key={`${zone.label}-${zone.range}`} className="rounded-lg border border-border/60 bg-background/60 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{zone.label} · {zone.range}</p>
+                      <Badge className="border-rose-300/40 bg-rose-500/12 text-rose-100">{zone.risk}% risk</Badge>
+                    </div>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-muted/70">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-amber-300/85 via-orange-300/85 to-rose-300/90"
+                        style={{ width: `${zone.risk}%` }}
+                      />
+                    </div>
+                    {zone.detail ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{zone.detail}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2.5 rounded-lg border border-border/60 bg-background/60 p-2.5 text-xs text-muted-foreground">
+                Drop-off heatmap appears here after engagement windows are available.
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 <ScanFace className="h-3.5 w-3.5 text-primary" />
                 Facial Signal Heatmap
               </p>
@@ -1402,7 +1760,7 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-3 grid max-w-6xl gap-3 lg:grid-cols-2"
+          className="mx-auto mt-3 grid max-w-6xl gap-3 lg:grid-cols-3"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.38 }}
@@ -1496,6 +1854,45 @@ const EditorAMode = () => {
                 <p className="mt-2 text-xs text-muted-foreground">No agent action items found.</p>
               )}
             </div>
+          </article>
+
+          <article className="rounded-2xl border border-primary/25 bg-background/55 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <Wand2 className="h-3.5 w-3.5 text-primary" />
+                Recommended Edit Apply
+              </p>
+              <Badge className="border-primary/35 bg-primary/10 text-foreground">A-Mode action card</Badge>
+            </div>
+            {recommendedEditTips.length > 0 ? (
+              <div className="mt-2.5 space-y-2">
+                {recommendedEditTips.map((tip, index) => (
+                  <div key={`${tip}-${index}`} className="rounded-lg border border-border/55 bg-background/45 px-3 py-1.5 text-xs text-foreground/90">
+                    {tip}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2.5 text-xs text-muted-foreground">
+                Waiting for editor recommendations from the latest upload analysis.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={applyRecommendedEdits}
+                disabled={!canApplyRecommendedEdits}
+                className="h-8 px-3 text-xs"
+              >
+                {applyTipsPending ? "Applying + re-rendering..." : "Apply Recommended Edits + Re-render"}
+              </Button>
+              {!rateDecisionReady ? (
+                <span className="text-[11px] text-muted-foreground">Wait until this upload is fully ready.</span>
+              ) : null}
+            </div>
+            {applyTipsMessage ? (
+              <p className="mt-2 text-[11px] text-muted-foreground">{applyTipsMessage}</p>
+            ) : null}
           </article>
         </motion.section>
 
