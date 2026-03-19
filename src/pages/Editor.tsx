@@ -22190,56 +22190,50 @@ const Editor = () => {
                 </div>
               )}
               {pendingUploadMode === "vertical" ? (
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-2">
                   <button
                     type="button"
-                    className={`${uploadFormatCardClass(true, true)} w-full`}
+                    className={`${uploadFormatCardClass(true, true)} w-full min-h-[80px] py-2`}
                     onClick={() => setVerticalUploadPresetPromptOpen(true)}
                     aria-label="Open vertical style preset popup"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
                         <p className="text-sm font-semibold text-foreground">Vertical Style Preset</p>
-                        <p className="text-xs text-muted-foreground">
-                          {activeVerticalUploadModePreset.label} - {activeVerticalUploadModePreset.tagline}
-                        </p>
                         <p className="text-[11px] text-muted-foreground">
+                          {activeVerticalUploadModePreset.label} · {activeVerticalUploadModePreset.tagline}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
                           Webcam {verticalWebcamPlacement} · Font {activeVerticalUploadModePreset.fontId.replace("_", " ")} · Zoom {verticalZoomProfile}
                         </p>
                       </div>
-                      <Badge className="border-primary/45 bg-primary/12 text-primary">
+                      <Badge className="border-primary/45 bg-primary/12 text-[10px] text-primary">
                         {activeVerticalUploadModePreset.premiumLabel}
                       </Badge>
                     </div>
                   </button>
-                  <div className={`${uploadFormatCardClass(false, true)} space-y-3`}>
-                    <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className={`${uploadFormatCardClass(false, true)} min-h-[80px] py-2 space-y-2`}>
+                    <div className="flex flex-wrap items-start justify-between gap-1.5">
                       <div className="space-y-1">
                         <p className="text-sm font-semibold text-foreground">Clip Style</p>
-                        <p className="text-xs text-muted-foreground">
-                          Applies to vertical clip selection and ranking for this upload.
-                        </p>
+                        <p className="text-[11px] text-muted-foreground">Applies to vertical clip selection and ranking.</p>
                       </div>
                       <Badge className="border-primary/40 bg-primary/12 text-primary">
                         {activeVerticalShortFormPreset.label}
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="flex flex-wrap gap-2">
                       {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
                         <button
                           key={`upload-vertical-style-${preset.id}`}
                           type="button"
-                          className={sectionPillClass(verticalSelectionMode === preset.id)}
+                          className={verticalModeChipClass(verticalSelectionMode === preset.id)}
                           onClick={() => applyVerticalShortFormPreset(preset.id)}
                           aria-label={`Select ${preset.label} clip style`}
                           aria-pressed={verticalSelectionMode === preset.id}
+                          title={preset.description}
                         >
-                          <div className="flex flex-col items-center">
-                            <span className="text-[11px] font-semibold">{preset.label}</span>
-                            <span className="mt-1 text-center text-[10px] text-muted-foreground">
-                              {preset.description}
-                            </span>
-                          </div>
+                          {preset.label}
                         </button>
                       ))}
                     </div>
