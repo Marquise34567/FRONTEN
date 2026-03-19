@@ -2259,6 +2259,37 @@ type RetentionPoint = {
   description?: string | null;
   watchedPct?: number | null;
 };
+type RetentionBenchmarkAnchor =
+  | [number | "end", number]
+  | {
+      time?: number | "end";
+      at?: number;
+      atSec?: number;
+      timestampSec?: number;
+      value?: number;
+      retention?: number;
+      percent?: number;
+      pct?: number;
+    };
+type RetentionBenchmarkProfile = {
+  label?: string;
+  overall_avg?: number;
+  anchors?: RetentionBenchmarkAnchor[];
+  primary_dropoff?: string;
+};
+type RetentionBenchmarks = {
+  source?: string;
+  updatedAt?: string;
+  non_viral?: RetentionBenchmarkProfile;
+  viral?: RetentionBenchmarkProfile;
+  insights?: Record<string, string>;
+};
+type RetentionBenchmarksResponse = {
+  benchmarks?: RetentionBenchmarks;
+  source?: string;
+  updatedAt?: string;
+  path?: string;
+};
 type RetentionTimelineCategory = "best" | "skip_risk" | "weak" | "steady";
 type RetentionTimelineSegment = {
   id: string;
@@ -4174,6 +4205,126 @@ const normalizeRetentionCurve = (raw: unknown): RetentionPoint[] => {
     .sort((a, b) => a.atSec - b.atSec);
 };
 
+type BenchmarkAnchorPoint = { atSec: number; value: number };
+
+const normalizeBenchmarkPercent = (value: number) => {
+  const normalized = value <= 1 ? value * 100 : value;
+  return clamp(Number(normalized), 0, 100);
+};
+
+const resolveBenchmarkProfile = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const candidate = toObjectRecord(record[key]);
+    if (candidate) return candidate as RetentionBenchmarkProfile;
+  }
+  return null;
+};
+
+const normalizeRetentionBenchmarks = (raw: unknown): RetentionBenchmarks | null => {
+  const record = toObjectRecord(raw);
+  if (!record) return null;
+  const nested = toObjectRecord(record.benchmarks) ?? record;
+  const nonViral = resolveBenchmarkProfile(nested, ["non_viral", "nonViral", "non-viral", "average", "nonviral"]);
+  const viral = resolveBenchmarkProfile(nested, ["viral", "high_performing", "highPerforming", "high-performing"]);
+  const insightsRaw = toObjectRecord(nested.insights);
+  const insights = insightsRaw
+    ? Object.entries(insightsRaw).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (typeof value === "string" && value.trim()) {
+          acc[key] = value.trim();
+        }
+        return acc;
+      }, {})
+    : null;
+  const source =
+    typeof nested.source === "string"
+      ? nested.source
+      : typeof record.source === "string"
+        ? record.source
+        : undefined;
+  const updatedAt =
+    typeof nested.updatedAt === "string"
+      ? nested.updatedAt
+      : typeof record.updatedAt === "string"
+        ? record.updatedAt
+        : undefined;
+  if (!nonViral && !viral && !insights) return null;
+  return {
+    source,
+    updatedAt,
+    non_viral: nonViral ?? undefined,
+    viral: viral ?? undefined,
+    insights: insights ?? undefined,
+  };
+};
+
+const normalizeBenchmarkAnchors = (raw: unknown, durationSec: number): BenchmarkAnchorPoint[] => {
+  if (!Array.isArray(raw)) return [];
+  const safeDuration = Math.max(1, Number.isFinite(durationSec) ? durationSec : 1);
+  const anchors = raw
+    .map((entry) => {
+      let timeRaw: unknown = null;
+      let valueRaw: unknown = null;
+      if (Array.isArray(entry) && entry.length >= 2) {
+        timeRaw = entry[0];
+        valueRaw = entry[1];
+      } else {
+        const record = toObjectRecord(entry);
+        if (!record) return null;
+        timeRaw =
+          record.time ??
+          record.at ??
+          record.atSec ??
+          record.timestampSec ??
+          record.timestamp_seconds ??
+          record.second ??
+          record.seconds;
+        valueRaw =
+          record.value ??
+          record.retention ??
+          record.percent ??
+          record.pct ??
+          record.percentage ??
+          record.score;
+      }
+      const value = firstFiniteNumber(valueRaw);
+      if (value === null) return null;
+      let atSec: number | null = null;
+      if (typeof timeRaw === "string" && timeRaw.toLowerCase() === "end") {
+        atSec = safeDuration;
+      } else {
+        atSec = firstFiniteNumber(timeRaw);
+      }
+      if (atSec === null) return null;
+      return {
+        atSec: Math.max(0, atSec),
+        value: normalizeBenchmarkPercent(value),
+      } as BenchmarkAnchorPoint;
+    })
+    .filter((item): item is BenchmarkAnchorPoint => Boolean(item))
+    .sort((a, b) => a.atSec - b.atSec);
+  if (anchors.length === 0) return [];
+  const padded = anchors.slice();
+  if (padded[0].atSec > 0) {
+    padded.unshift({ atSec: 0, value: padded[0].value });
+  }
+  if (padded[padded.length - 1].atSec < safeDuration) {
+    padded.push({ atSec: safeDuration, value: padded[padded.length - 1].value });
+  }
+  return padded;
+};
+
+const buildBenchmarkLinePoints = (anchors: BenchmarkAnchorPoint[], maxSec: number) => {
+  if (anchors.length < 2) return "";
+  const safeMax = Math.max(1, maxSec || 1);
+  return anchors
+    .map((point) => {
+      const x = clamp((point.atSec / safeMax) * 100, 0, 100);
+      const y = 100 - clamp(point.value, 0, 100);
+      return `${x},${y}`;
+    })
+    .join(" ");
+};
+
 const RETENTION_TIMELINE_CATEGORY_META: Record<
   RetentionTimelineCategory,
   {
@@ -5177,6 +5328,9 @@ const Editor = () => {
   ));
   const [pipelineLogOpen, setPipelineLogOpen] = useState(false);
   const [retentionDetailsOpen, setRetentionDetailsOpen] = useState(false);
+  const [retentionBenchmarks, setRetentionBenchmarks] = useState<RetentionBenchmarks | null>(null);
+  const [retentionBenchmarksLoading, setRetentionBenchmarksLoading] = useState(false);
+  const [retentionBenchmarksError, setRetentionBenchmarksError] = useState<string | null>(null);
   const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
   const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
   const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
@@ -6143,6 +6297,33 @@ const Editor = () => {
     }
   }, [accessToken, signOut, toast]);
 
+  const fetchRetentionBenchmarks = useCallback(async () => {
+    if (!accessToken) {
+      setRetentionBenchmarks(null);
+      setRetentionBenchmarksError(null);
+      return;
+    }
+    setRetentionBenchmarksLoading(true);
+    setRetentionBenchmarksError(null);
+    try {
+      const data = await apiFetch<RetentionBenchmarksResponse>("/api/retention/benchmarks", {
+        token: accessToken,
+      });
+      const normalized = normalizeRetentionBenchmarks(data?.benchmarks ?? data);
+      setRetentionBenchmarks(normalized);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setRetentionBenchmarks(null);
+        setRetentionBenchmarksError("missing");
+        return;
+      }
+      console.warn("retention benchmarks fetch failed", err);
+      setRetentionBenchmarksError(err instanceof Error ? err.message : "benchmarks_fetch_failed");
+    } finally {
+      setRetentionBenchmarksLoading(false);
+    }
+  }, [accessToken]);
+
   const handleConnectYouTubeOAuth = useCallback(async () => {
     if (!accessToken) return;
     setYouTubeOAuthBusyAction("connect");
@@ -6774,6 +6955,15 @@ const Editor = () => {
     }
     void fetchYouTubeOAuthStatus();
   }, [accessToken, authError, fetchYouTubeOAuthStatus]);
+
+  useEffect(() => {
+    if (!accessToken || authError) {
+      setRetentionBenchmarks(null);
+      setRetentionBenchmarksLoading(false);
+      return;
+    }
+    void fetchRetentionBenchmarks();
+  }, [accessToken, authError, fetchRetentionBenchmarks]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -12959,9 +13149,12 @@ const Editor = () => {
     verticalClipPredictions,
     verticalPredictedAverage,
   ]);
+  const retentionLineMaxSec = useMemo(() => (
+    Math.max(retentionCurvePoints[retentionCurvePoints.length - 1]?.atSec || 1, 1)
+  ), [retentionCurvePoints]);
   const retentionLinePoints = useMemo(() => {
     if (retentionCurvePoints.length < 2) return "";
-    const maxSec = Math.max(retentionCurvePoints[retentionCurvePoints.length - 1]?.atSec || 1, 1);
+    const maxSec = retentionLineMaxSec;
     return retentionCurvePoints
       .map((point) => {
         const x = clamp((point.atSec / maxSec) * 100, 0, 100);
@@ -12969,7 +13162,26 @@ const Editor = () => {
         return `${x},${y}`;
       })
       .join(" ");
-  }, [retentionCurvePoints]);
+  }, [retentionCurvePoints, retentionLineMaxSec]);
+  const canShowBaselineOverlays = retentionCurvePoints.length >= 2;
+  const viralBaselineAnchors = useMemo(() => (
+    canShowBaselineOverlays && retentionBenchmarks?.viral?.anchors
+      ? normalizeBenchmarkAnchors(retentionBenchmarks.viral.anchors, retentionLineMaxSec)
+      : []
+  ), [canShowBaselineOverlays, retentionBenchmarks, retentionLineMaxSec]);
+  const nonViralBaselineAnchors = useMemo(() => (
+    canShowBaselineOverlays && retentionBenchmarks?.non_viral?.anchors
+      ? normalizeBenchmarkAnchors(retentionBenchmarks.non_viral.anchors, retentionLineMaxSec)
+      : []
+  ), [canShowBaselineOverlays, retentionBenchmarks, retentionLineMaxSec]);
+  const viralBaselineLinePoints = useMemo(
+    () => buildBenchmarkLinePoints(viralBaselineAnchors, retentionLineMaxSec),
+    [retentionLineMaxSec, viralBaselineAnchors],
+  );
+  const nonViralBaselineLinePoints = useMemo(
+    () => buildBenchmarkLinePoints(nonViralBaselineAnchors, retentionLineMaxSec),
+    [nonViralBaselineAnchors, retentionLineMaxSec],
+  );
   const latestRetentionPoint = retentionCurvePoints.length > 0
     ? retentionCurvePoints[retentionCurvePoints.length - 1]
     : null;
@@ -22081,6 +22293,12 @@ const Editor = () => {
                             <div className="flex flex-wrap gap-1.5">
                               <Badge className="border-primary/35 bg-primary/12 text-foreground">Retention</Badge>
                               <Badge className="border-[hsl(var(--glow-secondary)/0.45)] bg-[hsl(var(--glow-secondary)/0.14)] text-foreground">Emotion</Badge>
+                              {viralBaselineLinePoints ? (
+                                <Badge className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">Viral Baseline</Badge>
+                              ) : null}
+                              {nonViralBaselineLinePoints ? (
+                                <Badge className="border-amber-400/45 bg-amber-500/12 text-amber-100">Non-Viral Baseline</Badge>
+                              ) : null}
                             </div>
                           </div>
                           <div className="deepdive-graph mt-3 h-40 rounded-lg p-2">
@@ -22094,6 +22312,28 @@ const Editor = () => {
                                 strokeDasharray="3 3"
                                 strokeWidth="1"
                               />
+                              {nonViralBaselineLinePoints ? (
+                                <polyline
+                                  points={nonViralBaselineLinePoints}
+                                  fill="none"
+                                  stroke="rgba(251, 191, 36, 0.75)"
+                                  strokeWidth="1.6"
+                                  strokeDasharray="6 4"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              ) : null}
+                              {viralBaselineLinePoints ? (
+                                <polyline
+                                  points={viralBaselineLinePoints}
+                                  fill="none"
+                                  stroke="rgba(34, 197, 94, 0.8)"
+                                  strokeWidth="1.7"
+                                  strokeDasharray="5 3"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              ) : null}
                               <polyline
                                 points={retentionLinePoints}
                                 fill="none"
