@@ -374,9 +374,9 @@ const topBurstPoints = [
 ] as const;
 
 const HOME_SEO_DESCRIPTION =
-  "AutoEditor is an AI video editor for creators. Detect hooks, remove dead air, add captions, improve pacing, and export faster for YouTube, TikTok, Shorts, and Reels.";
+  "Your Watch Time is Killing Your Views. Stop Guessing. Use the world's only autonomous retention engine to edit like a pro and dominate the algorithm—instantly.";
 const HOME_SEO_KEYWORDS =
-  "AI video editor, YouTube video editor, TikTok editor, Shorts editor, Reels editor, dead air remover, auto captions, creator growth editing";
+  "autonomous video editor, retention engine, beat the youtube algorithm, AI hook generator, viral video pacing, stop guessing watch time";
 const HOME_SEO_JSON_LD = [
   {
     "@context": "https://schema.org",
@@ -1254,7 +1254,7 @@ const Index = () => {
     <MotionConfig reducedMotion={lowEndMotionMode ? "always" : "never"}>
       <GlowBackdrop>
         <SeoHead
-          title="AI Video Editor for YouTube, TikTok, Shorts & Reels | AutoEditor"
+          title="AutoEditor.app | Beat the Algorithm. Stop Guessing. Win."
           description={HOME_SEO_DESCRIPTION}
           keywords={HOME_SEO_KEYWORDS}
           path="/"
@@ -1412,7 +1412,7 @@ const Index = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.34, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  Your Videos Don't Need More Effort.
+                  STOP FEEDING THE SCROLL.
                 </motion.span>
                 <motion.span
                   className="hero-highlight-text block"
@@ -1420,7 +1420,7 @@ const Index = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.44, duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  They Need Smarter Editing.
+                  Your Watch Time is Killing Your Views.
                 </motion.span>
               </motion.h1>
 
@@ -1489,10 +1489,7 @@ const Index = () => {
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               transition={{ delay: 0.54, duration: 0.62 }}
             >
-              Upload one long video and get creator-ready cuts with{" "}
-              <span className="hero-keyword">hook detection</span>,{" "}
-              <span className="hero-keyword hero-keyword-delay-1">dead-air removal</span>,{" "}
-              <span className="hero-keyword hero-keyword-delay-2">captions</span>, and pacing tuned for audience retention.
+              The world's only autonomous retention engine is here. Edit like a pro, dominate the algorithm, and win the attention war—instantly.
             </motion.p>
 
             <motion.div
@@ -1585,7 +1582,7 @@ const Index = () => {
                         : "bg-primary text-primary-foreground glow-sm hover:bg-primary/90"
                     }`}
                   >
-                    Start Free Trial
+                    Get the Unfair Advantage
                     <ArrowRight className="hero-cta-arrow w-4 h-4" />
                   </Button>
                 </Link>
@@ -1616,16 +1613,6 @@ const Index = () => {
                   >
                     <SquarePlay className="h-4 w-4" />
                     Vertical Mode
-                  </Button>
-                </Link>
-                <Link to="/pricing" className="w-full sm:w-auto">
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="group w-full gap-2 rounded-full border-amber-300/80 bg-amber-200/90 px-6 text-slate-950 hover:bg-amber-200 sm:w-auto"
-                  >
-                    <Flame className="h-4 w-4" />
-                    Premium
                   </Button>
                 </Link>
               </div>
