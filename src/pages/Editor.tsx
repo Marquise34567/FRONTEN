@@ -19850,7 +19850,7 @@ const Editor = () => {
                 {!loadingJobs && jobs.length === 0 && (
                   <p className="text-[10px] text-muted-foreground">No jobs yet. Upload a video to get started.</p>
                 )}
-                <div className="space-y-1.5">
+                <div className="editor-job-scroll premium-scrollbar space-y-1.5 pr-1">
                   {jobs.map((job) => {
                     const normalizedJobStatus = normalizeStatus(job.status);
                     const ready = normalizedJobStatus === "ready";
@@ -20149,9 +20149,9 @@ const Editor = () => {
                               : "Review all 8 vertical candidates before finalizing."}
                           </p>
                         </div>
-                        <div className="vertical-reboot-overview-metrics">
-                          <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
-                          <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
+                      <div className="vertical-reboot-overview-metrics">
+                        <span className="vertical-reboot-mini-pill text-[10px]">{verticalVariantStatusLabel}</span>
+                        <span className="vertical-reboot-mini-pill text-[10px]">{Math.round(totalPipelineProgress)}%</span>
                           {activeVerticalJobProcessing ? (
                             <span className="vertical-reboot-mini-pill text-[10px]">Stage: {activeStageLabel}</span>
                           ) : null}
@@ -20172,6 +20172,7 @@ const Editor = () => {
                           </Button>
                         </div>
                       </div>
+                      {activeVerticalJobReadyForDownload ? exportReadyCard : null}
                       <div className="vertical-variant-preview-list">
                         {VERTICAL_VARIANT_CARD_META.slice(0, 1).map((variant) => {
                           const Icon = Trophy;
@@ -24163,19 +24164,17 @@ const Editor = () => {
       </Dialog>
 
       <Dialog
-        open={exportOpen && activeJob?.renderMode !== "vertical"}
+        open={exportOpen}
         onOpenChange={(open) => {
-          if (activeJob?.renderMode === "vertical") {
-            setExportOpen(false);
+          if (!open) {
             setExportFeedbackOpen(false);
+            setExportOpen(false);
             return;
           }
-          if (open) {
-            setExportOpen(true);
-          }
+          setExportOpen(true);
         }}
       >
-        {exportOpen && activeJob?.renderMode !== "vertical" ? (
+        {exportOpen && activeJob ? (
           <DialogContent
             className="max-w-[calc(100vw-1rem)] overflow-hidden border border-border/60 bg-background/95 p-4 shadow-[0_24px_50px_-32px_rgba(15,23,42,0.7)] backdrop-blur-xl sm:max-w-lg sm:p-6 [&>button]:hidden"
             onInteractOutside={(event) => event.preventDefault()}
