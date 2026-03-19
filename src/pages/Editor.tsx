@@ -3698,6 +3698,21 @@ const PIPELINE_STAGE_STEP_CANDIDATES: Record<string, string[]> = {
   rendering: ["RENDER_FINAL", "RENDER", "RENDERING"],
 };
 
+const PIPELINE_STATUS_ORDER = [
+  "queued",
+  "uploading",
+  "analyzing",
+  "hooking",
+  "cutting",
+  "pacing",
+  "story",
+  "subtitling",
+  "audio",
+  "retention",
+  "review",
+  "rendering",
+] as const;
+
 const resolvePipelineStepTimingMs = (analysis: Record<string, unknown>) => {
   const steps = toObjectRecord((analysis as any)?.pipelineSteps);
   if (!steps) return null;
@@ -3728,6 +3743,101 @@ const resolvePipelineStepTimingMs = (analysis: Record<string, unknown>) => {
   return {
     startMs: starts.length ? Math.min(...starts) : null,
     endMs: ends.length ? Math.max(...ends) : null,
+  };
+};
+
+const resolvePipelineStepStage = (stepKey: string) => {
+  const normalized = String(stepKey || "").trim().toUpperCase();
+  if (!normalized) return null;
+  for (const [stage, steps] of Object.entries(PIPELINE_STAGE_STEP_CANDIDATES)) {
+    if (steps.includes(normalized)) return stage;
+  }
+  return null;
+};
+
+const resolvePipelineStageDurationsSeconds = (analysis: Record<string, unknown>) => {
+  const steps = toObjectRecord((analysis as any)?.pipelineSteps);
+  if (!steps) return null;
+  const durations: Record<string, number> = {};
+  Object.entries(steps).forEach(([stepKey, entry]) => {
+    const stage = resolvePipelineStepStage(stepKey);
+    if (!stage) return;
+    const row = toObjectRecord(entry);
+    if (!row) return;
+    const startedAt = parseEpochMs(
+      (row as any).startedAt ??
+      (row as any).started_at ??
+      (row as any).started,
+    );
+    const completedAt = parseEpochMs(
+      (row as any).completedAt ??
+      (row as any).completed_at ??
+      (row as any).completed,
+    );
+    const updatedAt = parseEpochMs((row as any).updatedAt ?? (row as any).updated_at);
+    const status = String((row as any).status || "").toLowerCase();
+    const endAt =
+      completedAt ??
+      ((status === "completed" || status === "failed") ? updatedAt : null);
+    if (startedAt === null || endAt === null || endAt < startedAt) return;
+    const durationSeconds = (endAt - startedAt) / 1000;
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
+    durations[stage] = (durations[stage] ?? 0) + durationSeconds;
+  });
+  return durations;
+};
+
+const estimatePipelineRemainingSeconds = ({
+  analysis,
+  status,
+  fileSizeBytes,
+  quality,
+  stageElapsedSeconds,
+}: {
+  analysis: Record<string, unknown> | null;
+  status: string;
+  fileSizeBytes?: number | null;
+  quality?: ExportQuality | null;
+  stageElapsedSeconds: number;
+}) => {
+  if (!analysis) return null;
+  const order = PIPELINE_STATUS_ORDER as readonly string[];
+  const currentIndex = order.indexOf(status);
+  if (currentIndex === -1) return null;
+
+  const stageDurations = resolvePipelineStageDurationsSeconds(analysis) ?? {};
+  const baselineForStage = (stageKey: string) =>
+    computeStageEtaBaseline({ status: stageKey, fileSizeBytes, quality });
+  const completedStages = order.slice(0, currentIndex);
+  const observedSeconds = completedStages.reduce(
+    (sum, stageKey) => sum + (stageDurations[stageKey] ?? 0),
+    0,
+  );
+  const baselineSeconds = completedStages.reduce(
+    (sum, stageKey) => sum + baselineForStage(stageKey),
+    0,
+  );
+  const speedRatio =
+    baselineSeconds > 0 && observedSeconds > 0
+      ? clamp(observedSeconds / baselineSeconds, 0.35, 2.6)
+      : 1;
+
+  let remaining = 0;
+  for (let index = currentIndex; index < order.length; index += 1) {
+    const stageKey = order[index];
+    const base = baselineForStage(stageKey) * speedRatio;
+    if (stageKey === status) {
+      remaining += Math.max(0, base - stageElapsedSeconds);
+    } else {
+      remaining += base;
+    }
+  }
+  if (!Number.isFinite(remaining)) return null;
+  const observedStageCount = Object.keys(stageDurations).length;
+  const confidence = clamp(0.25 + observedStageCount * 0.08, 0.25, 0.8);
+  return {
+    remainingSeconds: Math.max(0, Math.round(remaining)),
+    confidence,
   };
 };
 
@@ -12691,10 +12801,7 @@ const Editor = () => {
     if (normalized === "failed") return clamp(progressFromJob, 6, 99);
     if (!TIME_DRIVEN_STAGE_STATUSES.has(normalized)) return progressFromJob;
 
-    const analysisStageStartMs = resolvePipelineStageStartMs(
-      activeJob.analysis && typeof activeJob.analysis === "object" ? (activeJob.analysis as Record<string, unknown>) : null,
-      normalized,
-    );
+    const analysisStageStartMs = resolvePipelineStageStartMs(analysisRecord, normalized);
     const stageStartedAt =
       analysisStageStartMs ??
       (marker && marker.status === normalized ? marker.startedAt : new Date(activeJob.createdAt).getTime());
@@ -17139,6 +17246,10 @@ const Editor = () => {
       return lockedEta;
     };
     const nowMs = Date.now();
+    const analysisRecord =
+      activeJob.analysis && typeof activeJob.analysis === "object"
+        ? (activeJob.analysis as Record<string, unknown>)
+        : null;
     const directEtaSeconds = firstFiniteNumber(
       (activeJob as any)?.etaSeconds,
       (activeJob as any)?.eta_seconds,
@@ -17203,12 +17314,9 @@ const Editor = () => {
     }
 
     const runtimeFromAnalysisMs = (() => {
-      const analysis = activeJob.analysis && typeof activeJob.analysis === "object"
-        ? (activeJob.analysis as Record<string, unknown>)
-        : null;
       const runtimeRaw =
-        (analysis?.pipeline_runtime as Record<string, unknown> | undefined) ||
-        (analysis?.pipelineRuntime as Record<string, unknown> | undefined) ||
+        (analysisRecord?.pipeline_runtime as Record<string, unknown> | undefined) ||
+        (analysisRecord?.pipelineRuntime as Record<string, unknown> | undefined) ||
         null;
       const startedAtRaw = runtimeRaw?.startedAt;
       const parsed = startedAtRaw ? new Date(String(startedAtRaw)).getTime() : Number.NaN;
@@ -17237,13 +17345,39 @@ const Editor = () => {
           ? Math.round((elapsed * (100 - jobProgress)) / jobProgress)
           : null;
 
+    const pipelineEstimate = estimatePipelineRemainingSeconds({
+      analysis: analysisRecord,
+      status: normalized,
+      fileSizeBytes: fileSize,
+      quality: targetQuality,
+      stageElapsedSeconds: stageElapsed,
+    });
+    const pipelineRemaining = pipelineEstimate?.remainingSeconds ?? null;
+    const pipelineWeight = pipelineEstimate?.confidence ?? 0;
+
     let candidate = baselineRemaining;
-    if (durationDrivenRemaining !== null && progressDrivenRemaining !== null) {
-      const progressWeight = clamp(clampedProgress / 100, 0.25, 0.85);
-      candidate = Math.round(
-        progressDrivenRemaining * progressWeight +
-        durationDrivenRemaining * (1 - progressWeight),
-      );
+    const weightedCandidates: Array<{ value: number; weight: number }> = [];
+    if (pipelineRemaining !== null) {
+      const blended = clamp(pipelineWeight + clampedProgress / 200, pipelineWeight, 0.85);
+      weightedCandidates.push({ value: pipelineRemaining, weight: blended });
+    }
+    if (progressDrivenRemaining !== null) {
+      weightedCandidates.push({
+        value: progressDrivenRemaining,
+        weight: clamp(0.2 + clampedProgress / 150, 0.2, 0.6),
+      });
+    }
+    if (durationDrivenRemaining !== null) {
+      weightedCandidates.push({ value: durationDrivenRemaining, weight: 0.2 });
+    }
+
+    if (weightedCandidates.length) {
+      const totalWeight = weightedCandidates.reduce((sum, entry) => sum + entry.weight, 0);
+      if (totalWeight > 0) {
+        candidate = Math.round(
+          weightedCandidates.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / totalWeight,
+        );
+      }
     } else if (progressDrivenRemaining !== null) {
       candidate = progressDrivenRemaining;
     } else if (durationDrivenRemaining !== null) {
@@ -17258,27 +17392,27 @@ const Editor = () => {
   }, [activeJob, etaTick, estimatedDurationSec, uploadBytesUploaded, uploadBytesTotal]);
 
   const formatEta = (seconds: number | null) => {
-    if (seconds === null) return "Calculating... kind of";
-    if (seconds <= 0) return "Finalizing... probably";
+    if (seconds === null) return "Calculating ETA...";
+    if (seconds <= 0) return "Finalizing...";
     const mins = Math.floor(seconds / 60);
     const hrs = Math.floor(mins / 60);
     const remMins = mins % 60;
     const remSecs = seconds % 60;
-    if (hrs > 0) return `${hrs}h ${remMins}m (give or take a bit)`;
-    if (mins > 0) return `${mins}m ${remSecs}s (ish)`;
-    return `${remSecs}s (probably?)`;
+    if (hrs > 0) return `${hrs}h ${remMins}m`;
+    if (mins > 0) return `${mins}m ${remSecs}s`;
+    return `${remSecs}s`;
   };
 
   const etaLabel = formatEta(etaSeconds);
   const etaDurationLabel = etaSeconds === null ? "--" : formatDurationClock(etaSeconds);
   const etaQueuePosition = firstFiniteNumber(activeJob?.queuePosition);
   const etaContextLabel = normalizedActiveStatus === "queued" && etaQueuePosition !== null && etaQueuePosition > 0
-    ? `Queue position #${Math.round(etaQueuePosition)} (standing here politely, but digitally).`
+    ? `Queue position #${Math.round(etaQueuePosition)}. ETA updates as slots open.`
     : normalizedActiveStatus === "uploading"
-      ? "Uploading the file so the rest of the pipeline can, eventually, start doing its thing."
+      ? "ETA updates with your current upload speed."
       : estimatedDurationSec !== null
-        ? `Based on ${formatDurationClock(estimatedDurationSec)} of source runtime and whatever the pipeline is feeling today.`
-        : "Based on live pipeline speed, which is a fancy way of saying this is our best guess.";
+        ? `Based on ${formatDurationClock(estimatedDurationSec)} of source runtime and current pipeline speed.`
+        : "Based on live pipeline speed and recent stage timings.";
   const etaBadgeLabel = etaSeconds !== null && etaSeconds > 0 ? `${etaLabel} remaining` : etaLabel;
   const editTimeComparison = resolveEditTimeComparison({
     job: activeJob,
