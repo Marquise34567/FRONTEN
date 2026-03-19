@@ -89,10 +89,10 @@ const Pricing = () => {
   return (
     <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
-      <main className="responsive-main min-h-screen px-4 pt-24 pb-20">
+      <main className="responsive-main min-h-screen px-4 pt-16 pb-20 sm:pt-20">
         <Suspense fallback={<Fragment />}>
         <motion.div
-          className="mx-auto mb-14 max-w-2xl text-center"
+          className="mx-auto mb-10 max-w-2xl text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -121,7 +121,7 @@ const Pricing = () => {
           </div>
         </motion.div>
 
-        <div className="mb-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <div className="mb-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
             <button
               type="button"
@@ -148,7 +148,7 @@ const Pricing = () => {
           </div>
           <span className="text-center text-xs text-muted-foreground">Switch to annual billing</span>
         </div>
-        <div className="flex flex-col items-center gap-2 mb-8">
+        <div className="flex flex-col items-center gap-2 mb-6">
           <Button
             type="button"
             onClick={handleStartFreeTrial}
