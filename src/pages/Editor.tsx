@@ -471,7 +471,7 @@ const WATCH_FEEDBACK_PROGRESS_STEP = 0.08;
 const MIN_WATCH_FEEDBACK_PROGRESS = 0.08;
 const HOOK_PREVIEW_RETRY_DELAY_MS = 3000;
 const EDITOR_GUIDE_AUTO_OPENED_KEY = "editor_help_auto_opened_v1";
-const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v3";
+const EDITOR_SETTINGS_COLLAPSED_KEY = "editor_settings_collapsed_v4";
 const LIVE_TRANSCRIPT_EDITOR_VISIBLE_KEY = "editor_live_transcript_visible_v1";
 const LIVE_OUTCOME_LOOP_VISIBLE_KEY = "editor_live_outcome_loop_visible_v1";
 const ANALYZE_UNLOCKED_JOBS_KEY = "editor_analyze_unlocked_jobs_v1";
@@ -20330,6 +20330,16 @@ const Editor = () => {
                     >
                       <MapIcon className="h-4 w-4" />
                       <span>Help</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topToolbarToggleClass(feedbackDeepDiveOpen)}
+                      onClick={() => openFeedbackDeepDiveSection("retention_vs_emotion")}
+                      aria-pressed={feedbackDeepDiveOpen}
+                    >
+                      <Gauge className="h-4 w-4" />
+                      <span>Metrics</span>
                     </Button>
                     <Button
                       type="button"
