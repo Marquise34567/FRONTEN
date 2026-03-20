@@ -6,8 +6,8 @@
   "outputDirectory": "dist",
   "routes": [
     { "handle": "filesystem" },
-    { "src": "^/api/(.*)$", "dest": "https://editor-backend-production-8e6e.up.railway.app/api/$1" },
-    { "src": "^/ws$", "dest": "https://editor-backend-production-8e6e.up.railway.app/ws" },
+    { "src": "^/api/(.*)$", "dest": "https://auto-editor-pro-production.up.railway.app/api/$1" },
+    { "src": "^/ws$", "dest": "https://auto-editor-pro-production.up.railway.app/ws" },
     { "src": "^/$", "dest": "/index.html" },
     { "src": "^/pricing/?$", "dest": "/pricing.html" },
     { "src": "^/privacy-policy/?$", "dest": "/privacy-policy.html" },
