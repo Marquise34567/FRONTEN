@@ -8565,6 +8565,8 @@ const Editor = () => {
             ...(requestedMode === "vertical" ? { verticalCaptionText: verticalCaptionTextForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalCaptions: verticalCaptionsPayload } : {}),
             ...(requestedMode === "vertical" ? { verticalVariantCaptionPositions: verticalCaptionsPayload?.variantPositions } : {}),
+            ...(requestedMode === "vertical" ? { verticalVariantClipCaptions: verticalClipCaptionTextBySlotForJob } : {}),
+            ...(requestedMode === "vertical" ? { verticalClipCaptionOverlayBySlot: verticalClipCaptionOverlayBySlotForJob } : {}),
             ...(requestedMode === "vertical" ? { verticalClipDurationSeconds: renderOptions?.verticalClipDurationSeconds ?? verticalClipDurationSeconds } : {}),
             ...(requestedMode === "vertical" ? {
               verticalVariantMoments: Array.isArray(renderOptions?.verticalVariantMoments)
@@ -9080,6 +9082,14 @@ const Editor = () => {
     const canvasHeight = Math.round((DEFAULT_VERTICAL_OUTPUT.height / DEFAULT_VERTICAL_OUTPUT.width) * canvasWidth);
     const topHeight = Math.round((topHeightPx / DEFAULT_VERTICAL_OUTPUT.height) * canvasHeight);
     const bottomHeight = canvasHeight - topHeight;
+    const webcamStripAtTop = verticalWebcamPlacement !== "bottom";
+    const webcamDestRect = webcamStripAtTop
+      ? { x: 0, y: 0, w: canvasWidth, h: topHeight }
+      : { x: 0, y: bottomHeight, w: canvasWidth, h: topHeight };
+    const contentDestRect = webcamStripAtTop
+      ? { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight }
+      : { x: 0, y: 0, w: canvasWidth, h: bottomHeight };
+    const dividerY = webcamStripAtTop ? topHeight : bottomHeight;
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
     const captionPalette =
@@ -9608,8 +9618,8 @@ const Editor = () => {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
         let drewVideoFrame = false;
-        let drewTop = false;
-        let drewBottom = false;
+        let drewWebcam = false;
+        let drewContent = false;
         let usedWebGpu = false;
         const liveWebGpuRenderer = webGpuPreviewFailedRef.current ? null : webGpuPreviewRendererRef.current;
         const canUseGpuThisFrame = Boolean(liveWebGpuRenderer && videoCanvas);
@@ -9641,10 +9651,10 @@ const Editor = () => {
             if (singleDraw) draws.push(singleDraw);
           } else {
             const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
-            const topDraw = correctedEffectiveWebcamCrop
+            const webcamDraw = correctedEffectiveWebcamCrop
               ? computeVideoDraw(
                 correctedEffectiveWebcamCrop,
-                { x: 0, y: 0, w: canvasWidth, h: topHeight },
+                webcamDestRect,
                 "cover",
                 {
                   sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
@@ -9653,19 +9663,19 @@ const Editor = () => {
                 },
               )
               : null;
-            if (topDraw) {
-              draws.push(topDraw);
-              drewTop = true;
+            if (webcamDraw) {
+              draws.push(webcamDraw);
+              drewWebcam = true;
             }
-            const bottomDraw = computeVideoDraw(
+            const contentDraw = computeVideoDraw(
               { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
-              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              contentDestRect,
               effectiveVerticalBottomFitMode,
               { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
             );
-            if (bottomDraw) {
-              draws.push(bottomDraw);
-              drewBottom = true;
+            if (contentDraw) {
+              draws.push(contentDraw);
+              drewContent = true;
             }
           }
           if (draws.length > 0) {
@@ -9711,9 +9721,9 @@ const Editor = () => {
             );
           } else {
             const useTightWebcamInset = !(webcamCropWasAdjusted || webcamPaddingPx > 0);
-            drewTop = drawVideoRegion(
+            drewWebcam = drawVideoRegion(
               correctedEffectiveWebcamCrop,
-              { x: 0, y: 0, w: canvasWidth, h: topHeight },
+              webcamDestRect,
               "cover",
               {
                 sourceInsetXRatio: useTightWebcamInset ? 0.018 : 0,
@@ -9721,13 +9731,13 @@ const Editor = () => {
                 destBleedPx: 2,
               },
             );
-            drewBottom = drawVideoRegion(
+            drewContent = drawVideoRegion(
               { x: 0, y: 0, w: resolvedSourceMeta.width, h: resolvedSourceMeta.height },
-              { x: 0, y: topHeight, w: canvasWidth, h: bottomHeight },
+              contentDestRect,
               effectiveVerticalBottomFitMode,
               { sourceInsetRatio: 0.006, destBleedPx: 1.5 },
             );
-            drewVideoFrame = drewTop || drewBottom;
+            drewVideoFrame = drewWebcam || drewContent;
           }
         }
 
@@ -9739,12 +9749,12 @@ const Editor = () => {
         }
         clearDrawFailure();
 
-        if (!singleLayout && drewTop && drewBottom) {
+        if (!singleLayout && drewWebcam && drewContent) {
           ctx.strokeStyle = "rgba(255,255,255,0.35)";
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(0, topHeight + 0.5);
-          ctx.lineTo(canvasWidth, topHeight + 0.5);
+          ctx.moveTo(0, dividerY + 0.5);
+          ctx.lineTo(canvasWidth, dividerY + 0.5);
           ctx.stroke();
         }
 
@@ -10019,6 +10029,7 @@ const Editor = () => {
     correctedEffectiveWebcamCrop,
     effectiveVerticalBottomFitMode,
     topHeightPx,
+    verticalWebcamPlacement,
     skipManualWebcamCrop,
     webcamCropWasAdjusted,
     webcamPaddingPx,
@@ -16171,8 +16182,8 @@ const Editor = () => {
     const normalized = normalizeVerticalCaptionTextForJob(captionBulkClipText);
     if (!normalized) {
       toast({
-        title: "Add caption text",
-        description: "Type caption text before applying to selected clips.",
+        title: "Edit captions",
+        description: "Add or adjust caption copy before applying to selected clips.",
       });
       return;
     }
@@ -24377,7 +24388,7 @@ const Editor = () => {
 
                         <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-foreground">Caption text</p>
+                            <p className="text-sm font-semibold text-foreground">Edit captions</p>
                             <div className="relative flex items-center gap-1.5">
                               <Badge variant="outline" className="border-border/60 bg-background/50 text-[10px] text-muted-foreground">
                                 Clip-linked
@@ -24569,7 +24580,7 @@ const Editor = () => {
                           <Textarea
                             value={selectedCaptionClipCustomText}
                             onChange={(event) => updateSelectedClipCaptionText(event.target.value)}
-                            placeholder="Type caption text for the selected clip."
+                            placeholder="Edit caption text for the selected clip."
                             className="mt-2 min-h-[88px] border-border/60 bg-background/60 text-xs text-foreground placeholder:text-muted-foreground"
                           />
                           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -24594,6 +24605,25 @@ const Editor = () => {
                               Clear Override
                             </Button>
                           </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="mt-2 h-8 w-full text-[11px]"
+                            onClick={() => {
+                              if (!activeJob || activeJob.renderMode !== "vertical") return;
+                              if (selectedCaptionClipIndex < 0) return;
+                              void handleRedoRender(activeJob, { clipIndex: selectedCaptionClipIndex });
+                            }}
+                            disabled={
+                              !activeJob ||
+                              activeJob.renderMode !== "vertical" ||
+                              normalizeStatus(activeJob.status) !== "ready" ||
+                              selectedCaptionClipIndex < 0 ||
+                              reprocessingJobId === activeJob.id
+                            }
+                          >
+                            {reprocessingJobId === activeJob?.id ? "Re-rendering..." : "Re-render with caption edits"}
+                          </Button>
                           {SHOW_CAPTION_STYLE_OPTIONS ? (
                           <div className="mt-3 space-y-2 rounded-lg border border-border/55 bg-background/45 p-2.5">
                             <div className="flex flex-wrap items-center justify-between gap-2">
