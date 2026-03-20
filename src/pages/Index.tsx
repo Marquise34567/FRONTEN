@@ -1263,7 +1263,7 @@ const Index = () => {
         <div className="relative min-h-screen overflow-hidden">
           <div className="relative z-10">
             <Navbar />
-            <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-24 pb-24">
+            <main className="responsive-main relative min-h-screen overflow-hidden px-4 pt-10 pb-24 sm:pt-14">
         {showBackdrop && !lowEndMotionMode ? <ViralBackdrop /> : null}
         <AnimatePresence>
           {isTrialHoverTakeoverActive ? (
