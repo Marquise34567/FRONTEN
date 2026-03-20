@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 
 type PremiumTitleLengthStatus = "optimal" | "strong" | "outside" | "too_long";
 
@@ -174,6 +173,7 @@ const PremiumTitleGenerator = () => {
     () => (result?.framework?.length ? result.framework : DEFAULT_FRAMEWORK),
     [result?.framework]
   );
+  const quickChecklist = useMemo(() => frameworkRows.slice(0, 5), [frameworkRows]);
 
   const handleCopy = async (title: string) => {
     try {
@@ -204,9 +204,9 @@ const PremiumTitleGenerator = () => {
         toast({ title: "Invalid file", description: "Upload a video file (mp4, mov, mkv, webm)." });
         return;
       }
-      const maxBytes = 180 * 1024 * 1024;
+      const maxBytes = 1024 * 1024 * 1024;
       if (videoFile.size > maxBytes) {
-        toast({ title: "Video too large", description: "Use a clip under 180MB for Gemini Vision skim." });
+        toast({ title: "Video too large", description: "Use a clip up to 1GB for Gemini Vision skim." });
         return;
       }
     }
@@ -327,111 +327,30 @@ const PremiumTitleGenerator = () => {
             </div>
             <h1 className="mt-3 text-3xl font-bold font-display text-foreground sm:text-4xl">Premium Title Generator</h1>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Generate title variants for any topic with Gemini using your 2026 CTR framework: under-50 aggressive hooks,
-              loss aversion, curiosity gaps, villain framing, thumbnail-title synergy, and A/B testing logic.
+              Mini-list workflow: enter topic, generate, copy. Expand advanced fields only when needed.
             </p>
           </div>
         </motion.div>
 
-        <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[1.15fr_0.85fr]">
           <Card className="border-border/60 bg-card/60">
             <CardHeader>
-              <CardTitle className="text-xl">Generate</CardTitle>
-              <CardDescription>Add your video context. The model will generate premium title variants.</CardDescription>
+              <CardTitle className="text-xl">Quick Generate</CardTitle>
+              <CardDescription>Fast path first. Use Advanced only when you want tighter targeting.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Topic</p>
-                <Input
-                  value={topic}
-                  onChange={(event) => setTopic(event.target.value)}
-                  placeholder="Example: faceless YouTube automation with AI tools"
-                  maxLength={220}
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Summary (optional)</p>
-                <Textarea
-                  value={videoSummary}
-                  onChange={(event) => setVideoSummary(event.target.value)}
-                  placeholder="Briefly describe what the viewer will learn, outcome, and tone."
-                  rows={3}
-                  maxLength={1600}
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
                 <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Peak Emotion Quote</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Topic</p>
                   <Input
-                    value={peakEmotionQuote}
-                    onChange={(event) => setPeakEmotionQuote(event.target.value)}
-                    placeholder='Example: "I almost quit."'
-                    maxLength={240}
+                    value={topic}
+                    onChange={(event) => setTopic(event.target.value)}
+                    placeholder="What is this video about?"
+                    maxLength={220}
                   />
                 </div>
                 <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Aha Moment</p>
-                  <Input
-                    value={ahaMoment}
-                    onChange={(event) => setAhaMoment(event.target.value)}
-                    placeholder="Example: one change doubled retention"
-                    maxLength={240}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Villain</p>
-                  <Input
-                    value={villain}
-                    onChange={(event) => setVillain(event.target.value)}
-                    placeholder="Example: slow editing"
-                    maxLength={140}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Thumbnail Context (optional)</p>
-                <Textarea
-                  value={thumbnailContext}
-                  onChange={(event) => setThumbnailContext(event.target.value)}
-                  placeholder='Example: Thumbnail text says "99% Fail". Image shows shocked face + red arrow.'
-                  rows={3}
-                  maxLength={360}
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Upload For Gemini Vision (optional)</p>
-                <Input
-                  type="file"
-                  accept="video/*"
-                  onChange={(event) => setVideoFile(event.target.files?.[0] || null)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Upload a clip and Gemini will skim key frames before generating titles. Max 180MB.
-                  {videoFile ? ` Selected: ${videoFile.name}` : ""}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Previous Winning Titles (optional)</p>
-                <Textarea
-                  value={previousTitles}
-                  onChange={(event) => setPreviousTitles(event.target.value)}
-                  placeholder="Paste one title per line from your channel that already performed well."
-                  rows={4}
-                  maxLength={2200}
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Target Audience</p>
-                  <Input
-                    value={targetAudience}
-                    onChange={(event) => setTargetAudience(event.target.value)}
-                    placeholder="Example: beginner creators"
-                    maxLength={180}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Variant Count</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Variants</p>
                   <select
                     value={count}
                     onChange={(event) => setCount(Number(event.target.value))}
@@ -443,22 +362,100 @@ const PremiumTitleGenerator = () => {
                     <option value={12}>12 variants</option>
                   </select>
                 </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Action</p>
+                  <Button
+                    onClick={() => void handleGenerate()}
+                    disabled={loading || !premiumUnlocked || !topic.trim()}
+                    className="w-full gap-2"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {loading ? "Generating..." : "Generate"}
+                  </Button>
+                </div>
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Extra Instructions (optional)</p>
-                <Textarea
-                  value={extraInstructions}
-                  onChange={(event) => setExtraInstructions(event.target.value)}
-                  placeholder="Example: make it more fear-based, Shorts-first, or educational tone."
-                  rows={2}
-                  maxLength={420}
-                />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Target Audience (optional)</p>
+                  <Input
+                    value={targetAudience}
+                    onChange={(event) => setTargetAudience(event.target.value)}
+                    placeholder="Example: beginner creators"
+                    maxLength={180}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Upload For Gemini Vision (optional)</p>
+                  <Input
+                    type="file"
+                    accept="video/*"
+                    onChange={(event) => setVideoFile(event.target.files?.[0] || null)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Max 1GB{videoFile ? ` · ${videoFile.name}` : ""}.
+                  </p>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <Button onClick={() => void handleGenerate()} disabled={loading || !premiumUnlocked || !topic.trim()} className="gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  {loading ? "Generating..." : "Generate Premium Titles"}
-                </Button>
+
+              <details className="rounded-lg border border-border/60 bg-background/35 p-3">
+                <summary className="cursor-pointer text-sm font-medium text-foreground">Advanced Context (optional)</summary>
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Summary</p>
+                    <Textarea
+                      value={videoSummary}
+                      onChange={(event) => setVideoSummary(event.target.value)}
+                      placeholder="Brief summary of what happens in this video."
+                      rows={2}
+                      maxLength={1600}
+                    />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Input
+                      value={peakEmotionQuote}
+                      onChange={(event) => setPeakEmotionQuote(event.target.value)}
+                      placeholder='Peak emotion quote'
+                      maxLength={240}
+                    />
+                    <Input
+                      value={ahaMoment}
+                      onChange={(event) => setAhaMoment(event.target.value)}
+                      placeholder="Aha moment"
+                      maxLength={240}
+                    />
+                    <Input
+                      value={villain}
+                      onChange={(event) => setVillain(event.target.value)}
+                      placeholder="Villain (e.g., low views)"
+                      maxLength={140}
+                    />
+                  </div>
+                  <Textarea
+                    value={thumbnailContext}
+                    onChange={(event) => setThumbnailContext(event.target.value)}
+                    placeholder="Thumbnail context"
+                    rows={2}
+                    maxLength={360}
+                  />
+                  <Textarea
+                    value={previousTitles}
+                    onChange={(event) => setPreviousTitles(event.target.value)}
+                    placeholder="Previous winning titles (one per line)"
+                    rows={3}
+                    maxLength={2200}
+                  />
+                  <Textarea
+                    value={extraInstructions}
+                    onChange={(event) => setExtraInstructions(event.target.value)}
+                    placeholder="Extra instructions"
+                    rows={2}
+                    maxLength={420}
+                  />
+                </div>
+              </details>
+
+              <div className="flex flex-wrap items-center gap-3">
                 {!premiumUnlocked ? (
                   <Link to="/pricing" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
                     Upgrade to Starter+ to unlock this tool
@@ -470,21 +467,19 @@ const PremiumTitleGenerator = () => {
 
           <Card className="border-border/60 bg-card/60">
             <CardHeader>
-              <CardTitle className="text-xl">2026 Framework</CardTitle>
-              <CardDescription>Your premium title ruleset used for generation and scoring.</CardDescription>
+              <CardTitle className="text-xl">Mini Playbook</CardTitle>
+              <CardDescription>Quick reminders while you package titles.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {frameworkRows.map((row) => (
-                <div key={`${row.section}-${row.signal}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{row.section}</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{row.signal}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Baseline: {row.baseline}</p>
-                  <p className="text-xs text-muted-foreground">Optimized: {row.optimized}</p>
-                  <p className="text-xs text-muted-foreground">Elite: {row.elite}</p>
-                  <p className="mt-1 text-xs text-foreground/90">Example: {row.example}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground/90">Source: {row.source}</p>
+              {quickChecklist.map((row) => (
+                <div key={`${row.section}-${row.signal}`} className="rounded-lg border border-border/60 bg-background/40 p-2.5">
+                  <p className="text-xs font-medium text-foreground">{row.signal}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Elite: {row.elite}</p>
                 </div>
               ))}
+              <p className="text-xs text-muted-foreground">
+                Focus order: Hook first, clarity second, novelty third.
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -492,64 +487,56 @@ const PremiumTitleGenerator = () => {
         <section className="mx-auto mt-6 max-w-6xl space-y-4">
           <Card className="border-border/60 bg-card/60">
             <CardHeader>
-              <CardTitle className="text-xl">Generated Title Variants</CardTitle>
+              <CardTitle className="text-xl">Generated Mini List</CardTitle>
               <CardDescription>
                 {result
                   ? `Provider: ${result.provider}${result.model ? ` (${result.model})` : ""}${result.usedFallback ? " · fallback assist active" : ""}${result.visionUsed ? ` · vision frames: ${result.visionFrameCount}` : ""}`
                   : "Run generation to get scored title ideas."}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {result?.titles?.length ? (
                 result.titles.map((idea, index) => (
-                  <div key={`${idea.title}-${index}`} className="rounded-xl border border-border/60 bg-background/35 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-base font-semibold text-foreground">{idea.title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{idea.whyItShouldWork}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">Hook (0-15s):</span> "{idea.hookScript}"
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">Thumbnail idea:</span> {idea.thumbnailIdea}
-                        </p>
+                  <div key={`${idea.title}-${index}`} className="rounded-lg border border-border/60 bg-background/35 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
+                        {index + 1}. {idea.title}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary-foreground">
+                          {idea.score}
+                        </Badge>
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2.5" onClick={() => void handleCopy(idea.title)}>
+                          <Copy className="h-3.5 w-3.5" />
+                          Copy
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => void handleCopy(idea.title)}>
-                        <Copy className="h-3.5 w-3.5" />
-                        Copy
-                      </Button>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary-foreground">
-                        Score {idea.score}
-                      </Badge>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{idea.charCount} chars</Badge>
-                      <Badge variant="outline">{idea.wordCount} words</Badge>
                       <Badge variant="outline" className={statusClass(idea.lengthStatus)}>
                         {statusLabel(idea.lengthStatus)}
                       </Badge>
-                      {idea.hasOddNumber ? <Badge className="border border-emerald-300/40 bg-emerald-500/15 text-emerald-100">Odd Number</Badge> : null}
+                      {idea.hasOddNumber ? <Badge className="border border-emerald-300/40 bg-emerald-500/15 text-emerald-100">Odd</Badge> : null}
                       {idea.isEmotionalBanger ? (
-                        <Badge className="border border-rose-300/40 bg-rose-500/15 text-rose-100">Emotional Banger</Badge>
-                      ) : null}
-                      {idea.powerWordHits.length ? (
-                        <Badge className="border border-fuchsia-300/35 bg-fuchsia-500/15 text-fuchsia-100">
-                          Power Words: {idea.powerWordHits.slice(0, 2).join(", ")}
-                        </Badge>
+                        <Badge className="border border-rose-300/40 bg-rose-500/15 text-rose-100">Top Pick</Badge>
                       ) : null}
                     </div>
-                    <Separator className="my-3" />
-                    <p className="text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">Formula:</span> {idea.formula}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">CTR Band:</span> {idea.predictedCtrBand}
-                    </p>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-muted-foreground">Show details</summary>
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p>{idea.whyItShouldWork}</p>
+                        <p><span className="font-medium text-foreground">Hook:</span> "{idea.hookScript}"</p>
+                        <p><span className="font-medium text-foreground">Thumb:</span> {idea.thumbnailIdea}</p>
+                        <p><span className="font-medium text-foreground">Formula:</span> {idea.formula}</p>
+                        <p><span className="font-medium text-foreground">CTR Band:</span> {idea.predictedCtrBand}</p>
+                      </div>
+                    </details>
                   </div>
                 ))
               ) : (
                 <div className="rounded-xl border border-dashed border-border/70 bg-background/25 p-6 text-sm text-muted-foreground">
-                  No titles yet. Add your topic and click <span className="font-medium text-foreground">Generate Premium Titles</span>.
+                  No titles yet. Add topic and click <span className="font-medium text-foreground">Generate</span>.
                 </div>
               )}
             </CardContent>
