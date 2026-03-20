@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   Area,
@@ -13,11 +13,12 @@ import {
   YAxis
 } from "recharts"
 import { motion } from "framer-motion"
-import { Eye, Globe2, ShieldAlert, Timer, Users } from "lucide-react"
+import { Copy, Eye, Globe2, TicketPlus, Timer, Users } from "lucide-react"
 import Navbar from "@/components/Navbar"
 import ControlPanelPageNav from "@/components/control-panel/ControlPanelPageNav"
 import LiveUsersGlobe from "@/components/control-panel/LiveUsersGlobe"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/providers/AuthProvider"
 import { apiFetch } from "@/lib/api"
@@ -40,10 +41,36 @@ const PLAN_COLORS = [
   "hsl(268 78% 68%)"
 ]
 
+type PromoCodeEntry = {
+  code: string
+  tier: string
+  trialDays: number
+  active: boolean
+  createdAt: string
+  createdBy: string | null
+  source?: "internal" | "stripe"
+  stripePromotionCodeId?: string | null
+  stripeCouponId?: string | null
+}
+
+type PromoCodesResponse = {
+  codes: PromoCodeEntry[]
+  updatedAt: string
+}
+
+type GeneratePromoCodeResponse = {
+  ok: boolean
+  code: PromoCodeEntry
+}
+
 const ControlPanelAudience = () => {
   const { accessToken } = useAuth()
   const canLoad = Boolean(accessToken)
   const realtime = useAdminRealtimeStream(accessToken, 4000)
+  const [promoGenerating, setPromoGenerating] = useState(false)
+  const [promoStatus, setPromoStatus] = useState<string | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+  const [copyingCode, setCopyingCode] = useState<string | null>(null)
 
   const commandCenterQuery = useQuery({
     queryKey: ["control-panel-audience-command-center"],
@@ -64,6 +91,13 @@ const ControlPanelAudience = () => {
     queryFn: () => apiFetch<LiveGeoResponse>("/api/admin/live-geo", { token: accessToken || "" }),
     enabled: canLoad,
     refetchInterval: 20000
+  })
+
+  const promoCodesQuery = useQuery({
+    queryKey: ["control-panel-audience-promo-codes"],
+    queryFn: () => apiFetch<PromoCodesResponse>("/api/admin/promo-codes?activeOnly=true&limit=25", { token: accessToken || "" }),
+    enabled: canLoad,
+    refetchInterval: 30000
   })
 
   const liveUsers = commandCenterQuery.data?.liveUsers
@@ -109,6 +143,50 @@ const ControlPanelAudience = () => {
 
   const hasPlanMix = planPie.some((item) => item.value > 0)
 
+  const handleGeneratePromoCode = async () => {
+    if (!accessToken) return
+    setPromoGenerating(true)
+    setPromoStatus(null)
+    setPromoError(null)
+    try {
+      const response = await apiFetch<GeneratePromoCodeResponse>("/api/admin/promo-codes/generate", {
+        method: "POST",
+        token: accessToken,
+        body: JSON.stringify({ trialDays: 14 })
+      })
+      const generatedCode = response?.code?.code
+      if (generatedCode) {
+        setPromoStatus(`Generated promo code ${generatedCode}`)
+      } else {
+        setPromoStatus("Generated a new promo code.")
+      }
+      await promoCodesQuery.refetch()
+    } catch (error: any) {
+      setPromoError(error?.message || "Failed to generate promo code.")
+    } finally {
+      setPromoGenerating(false)
+    }
+  }
+
+  const handleCopyPromoCode = async (code: string) => {
+    const safeCode = String(code || "").trim()
+    if (!safeCode) return
+    setCopyingCode(safeCode)
+    setPromoStatus(null)
+    setPromoError(null)
+    try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error("Clipboard is unavailable in this browser.")
+      }
+      await navigator.clipboard.writeText(safeCode)
+      setPromoStatus(`Copied ${safeCode}`)
+    } catch (error: any) {
+      setPromoError(error?.message || "Could not copy promo code.")
+    } finally {
+      setCopyingCode(null)
+    }
+  }
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(120%_100%_at_14%_6%,hsl(201_98%_62%/0.18),transparent_45%),radial-gradient(130%_110%_at_90%_14%,hsl(177_82%_48%/0.14),transparent_42%),linear-gradient(180deg,hsl(219_34%_9%)_0%,hsl(225_36%_5%)_100%)]">
       <Navbar />
@@ -143,6 +221,73 @@ const ControlPanelAudience = () => {
             {realtime.payload?.t ? `• ${formatShortTime(realtime.payload.t)}` : ""}
           </p>
         ) : null}
+
+        <section className="mt-4">
+          <Card className="glass-card border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                <TicketPlus className="h-4 w-4 text-amber-200" />
+                Subscription Promo Codes
+                <Badge className="border-amber-200/40 bg-amber-200/20 text-[10px] uppercase text-amber-100">
+                  Control Panel only
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Generate private referral/promo codes for Starter subscriptions. These codes stay hidden from the pricing UI.
+                </p>
+                <Button
+                  type="button"
+                  onClick={handleGeneratePromoCode}
+                  disabled={!canLoad || promoGenerating}
+                  className="w-full sm:w-auto"
+                >
+                  {promoGenerating ? "Generating..." : "Generate 14-day Starter code"}
+                </Button>
+              </div>
+
+              {promoError ? <p className="text-xs text-rose-300">{promoError}</p> : null}
+              {promoStatus ? <p className="text-xs text-emerald-300">{promoStatus}</p> : null}
+              {promoCodesQuery.isError ? (
+                <p className="text-xs text-rose-300">Could not load promo codes right now.</p>
+              ) : null}
+
+              <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                {(promoCodesQuery.data?.codes || []).map((entry) => (
+                  <div
+                    key={entry.code}
+                    className="flex flex-col gap-2 rounded-md border border-border/50 bg-card/35 p-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm text-foreground">{entry.code}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {entry.trialDays > 0 ? `${entry.trialDays}d Starter trial` : "Starter promo code"} •{" "}
+                        {entry.source === "stripe" || entry.stripePromotionCodeId ? "Stripe-backed" : "Internal only"} •{" "}
+                        {formatShortTime(entry.createdAt)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopyPromoCode(entry.code)}
+                      disabled={copyingCode === entry.code}
+                      className="gap-1.5 self-start sm:self-center"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {copyingCode === entry.code ? "Copying..." : "Copy"}
+                    </Button>
+                  </div>
+                ))}
+                {!promoCodesQuery.isLoading && !(promoCodesQuery.data?.codes || []).length ? (
+                  <EmptyStateNote text="No promo codes generated yet." />
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
         <section className="mt-4 grid gap-4 xl:grid-cols-5">
           <Card className="glass-card border-border/60">

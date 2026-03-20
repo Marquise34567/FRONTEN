@@ -44,12 +44,48 @@
 
     <meta name="theme-color" content="#0b1220" />
 
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-PVX6W0EGE5"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-PVX6W0EGE5');
+      (function () {
+        var GA_ID = "G-PVX6W0EGE5";
+        var loaded = false;
+        var idleHandle = null;
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+        window.gtag("js", new Date());
+
+        var appendScript = function (src) {
+          var script = document.createElement("script");
+          script.async = true;
+          script.src = src;
+          document.head.appendChild(script);
+        };
+
+        var loadAnalytics = function () {
+          if (loaded) return;
+          loaded = true;
+          appendScript("https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(GA_ID));
+          window.gtag("config", GA_ID, { transport_type: "beacon" });
+          removeListeners();
+        };
+
+        var removeListeners = function () {
+          window.removeEventListener("pointerdown", loadAnalytics);
+          window.removeEventListener("keydown", loadAnalytics);
+          window.removeEventListener("scroll", loadAnalytics);
+          if (idleHandle !== null && "cancelIdleCallback" in window) {
+            window.cancelIdleCallback(idleHandle);
+          }
+        };
+
+        window.addEventListener("pointerdown", loadAnalytics, { once: true, passive: true });
+        window.addEventListener("keydown", loadAnalytics, { once: true });
+        window.addEventListener("scroll", loadAnalytics, { once: true, passive: true });
+        if ("requestIdleCallback" in window) {
+          idleHandle = window.requestIdleCallback(loadAnalytics, { timeout: 4500 });
+        } else {
+          window.setTimeout(loadAnalytics, 4500);
+        }
+      })();
     </script>
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260319" />

@@ -260,18 +260,68 @@ const AuthenticatedRoutePrefetch = () => {
 
   useEffect(() => {
     if (!user?.id) return;
+    const nav = navigator as Navigator & {
+      connection?: {
+        saveData?: boolean;
+        effectiveType?: string;
+      };
+      deviceMemory?: number;
+    };
+    const connection = nav.connection;
+    const effectiveType = String(connection?.effectiveType || "").toLowerCase();
+    const saveDataEnabled = Boolean(connection?.saveData);
+    const lowMemoryDevice = Number.isFinite(Number(nav.deviceMemory)) && Number(nav.deviceMemory) <= 2;
+    const slowConnection = effectiveType.includes("2g") || effectiveType.includes("slow-2g");
+    if (saveDataEnabled || lowMemoryDevice || slowConnection) return;
 
-    const timer = window.setTimeout(() => {
-      void import("./pages/Editor");
-      void import("./pages/EditorAMode");
-      void import("./pages/VerticalExtras");
-      void import("./pages/PremiumTitleGenerator");
-      void import("./pages/Settings");
-      void import("./pages/JobDetail");
-    }, 700);
+    const queue: Array<() => Promise<unknown>> = [
+      () => import("./pages/Editor"),
+      () => import("./pages/Settings"),
+      () => import("./pages/VerticalExtras"),
+    ];
+
+    let canceled = false;
+    let warmupTimer: number | null = null;
+    let stepTimer: number | null = null;
+    let idleId: number | null = null;
+    let cursor = 0;
+
+    const runNext = () => {
+      if (canceled || cursor >= queue.length) return;
+      const task = queue[cursor];
+      cursor += 1;
+      void task().catch(() => null);
+      if (cursor >= queue.length) return;
+
+      const scheduleStep = () => {
+        if (canceled) return;
+        runNext();
+      };
+
+      if ("requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(scheduleStep, { timeout: 2000 });
+      } else {
+        stepTimer = window.setTimeout(scheduleStep, 1200);
+      }
+    };
+
+    warmupTimer = window.setTimeout(() => {
+      if (canceled) return;
+      const start = () => runNext();
+      if ("requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(start, { timeout: 3000 });
+      } else {
+        start();
+      }
+    }, 2200);
 
     return () => {
-      window.clearTimeout(timer);
+      canceled = true;
+      if (warmupTimer !== null) window.clearTimeout(warmupTimer);
+      if (stepTimer !== null) window.clearTimeout(stepTimer);
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
     };
   }, [user?.id]);
 

@@ -14,8 +14,6 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { PlanTier } from "@shared/planConfig";
 import { ArrowRight, ZoomIn } from "lucide-react";
-
-const STARTER_TWO_WEEK_PROMO_CODE = "STARTER2W-9Q7KX4";
 const normalizeBillingCode = (value: unknown) =>
   String(value || "")
     .trim()
@@ -162,32 +160,6 @@ const Pricing = () => {
             </Badge>
           </div>
         </motion.div>
-        <motion.div
-          className="max-w-2xl mx-auto mb-6"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12, duration: 0.45 }}
-        >
-          <div className="rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3">
-            <p className="text-sm text-foreground">
-              Promo live: <span className="font-semibold">{STARTER_TWO_WEEK_PROMO_CODE}</span> for 2 weeks of Starter free.
-            </p>
-          </div>
-        </motion.div>
-        <div className="max-w-2xl mx-auto mb-6">
-          <label className="block text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">
-            Referral / Promo Code
-          </label>
-          <Input
-            value={billingCodeInput}
-            onChange={(event) => setBillingCodeInput(normalizeBillingCode(event.target.value))}
-            placeholder="Enter referral or promo code"
-            className="h-11"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            If valid, this code will apply automatically at checkout.
-          </p>
-        </div>
         <div className="mb-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
             <button
@@ -239,6 +211,20 @@ const Pricing = () => {
             billingInterval={billingInterval}
             founderSlotsRemaining={founderSlotsRemaining}
           />
+        </div>
+        <div className="max-w-3xl mx-auto mt-6 mb-2">
+          <label className="block text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">
+            Referral / Promo Code
+          </label>
+          <Input
+            value={billingCodeInput}
+            onChange={(event) => setBillingCodeInput(normalizeBillingCode(event.target.value))}
+            placeholder="Enter referral or promo code"
+            className="h-11"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Enter a valid code before checkout and it will apply automatically.
+          </p>
         </div>
       </main>
     </GlowBackdrop></Suspense>
