@@ -1066,7 +1066,7 @@ const VERTICAL_UPLOAD_MODE_PRESETS: VerticalUploadModePreset[] = [
     captionPreset: "mrbeast_animated",
     fontId: "display_black",
     layout: "auto",
-    webcamPlacement: "bottom",
+    webcamPlacement: "top",
     webcamHeightPct: 31,
     smartZoom: true,
     zoomProfile: "punch",
