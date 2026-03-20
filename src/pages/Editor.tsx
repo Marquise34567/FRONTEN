@@ -6,6 +6,7 @@ import { Fragment, lazy, Suspense } from "react";
 const GlowBackdrop = lazy(() => import("@/components/GlowBackdrop"));
 import Navbar from "@/components/Navbar";
 import { EditorAgentRateCard } from "@/components/editor/EditorAgentRateCard";
+import { VerticalModeMinimalLayout } from "@/components/editor/vertical-mode/VerticalModeMinimalLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -21084,59 +21085,55 @@ const Editor = () => {
 
               {isVerticalMode && (
                 <div className="vertical-opus-shell editor-landing-skin p-3">
-                  <div className="vertical-reboot-shell">
-                    <div className="vertical-reboot-hero">
-                      <div className="vertical-opus-hero-grid">
-                        <div className="vertical-opus-hero-copy">
-                          <div className="vertical-reboot-kicker-row">
-                            <div className="pill-badge">
-                              <Sparkles className="h-3.5 w-3.5" />
-                              Vertical Clip Studio
-                            </div>
-                            <Badge className="vertical-reboot-kicker-pill">Landing-grade workflow</Badge>
+                  <VerticalModeMinimalLayout
+                    statusLabel={verticalVariantStatusLabel}
+                    progressPercent={totalPipelineProgress}
+                    activeStageLabel={activeVerticalJobProcessing ? activeStageLabel : "Ready"}
+                    etaLabel={activeVerticalJobProcessing ? etaLabel : "Waiting"}
+                    clipCounterLabel={`${Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/${VERTICAL_VARIANT_TOTAL_CLIPS}`}
+                    presetLabel={activeVerticalShortFormPresetLabel}
+                    onOpenExtras={() => navigate(verticalExtrasHref)}
+                    rightRail={(
+                      <div className="vertical-minimal-rail-stack">
+                        <section className="vertical-minimal-rail-card">
+                          <div className="vertical-minimal-rail-card-head">
+                            <p>Statistics</p>
+                            <span>Live</span>
                           </div>
-                          <h3 className="vertical-reboot-title">Vertical Command Deck</h3>
-                          <p className="vertical-reboot-subtitle">
-                            Landing-page energy for clip selection, caption edits, and export-ready previews in one space.
-                          </p>
-                        </div>
-                        <div className="vertical-opus-hero-card">
-                          <div className="vertical-opus-hero-card-header">
-                            <p className="vertical-opus-hero-card-kicker">Live Clip Score</p>
-                            <Badge className="vertical-opus-hero-card-pill">{activeVerticalShortFormPresetLabel}</Badge>
-                          </div>
-                          <div className="vertical-opus-hero-metrics">
-                            <div className="vertical-opus-hero-metric">
+                          <div className="vertical-minimal-rail-list">
+                            <div>
                               <span>Status</span>
                               <strong>{verticalVariantStatusLabel}</strong>
                             </div>
-                            <div className="vertical-opus-hero-metric">
+                            <div>
                               <span>Progress</span>
                               <strong>{Math.round(totalPipelineProgress)}%</strong>
                             </div>
-                            <div className="vertical-opus-hero-metric">
-                              <span>Clips</span>
-                              <strong>{Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}</strong>
+                            <div>
+                              <span>Stage</span>
+                              <strong>{activeVerticalJobProcessing ? activeStageLabel : "Ready"}</strong>
+                            </div>
+                            <div>
+                              <span>ETA</span>
+                              <strong>{activeVerticalJobProcessing ? etaLabel : "Waiting"}</strong>
                             </div>
                           </div>
-                          <div className="vertical-opus-hero-progress" aria-hidden>
-                            <span style={{ width: `${Math.round(totalPipelineProgress)}%` }} />
+                        </section>
+                        <section className="vertical-minimal-rail-card">
+                          <div className="vertical-minimal-rail-card-head">
+                            <p>Workflow</p>
+                            <span>Checklist</span>
                           </div>
-                          <p className="vertical-opus-hero-note">
-                            {activeVerticalJobReadyForDownload
-                              ? "Clips ready for download and caption tuning."
-                              : activeVerticalJobProcessing
-                                ? `Stage ${activeStageLabel} · ETA ${etaLabel}`
-                                : "Ready as soon as your source metadata finishes loading."}
-                          </p>
-                        </div>
+                          <ul className="vertical-minimal-rail-timeline">
+                            <li>Upload or choose source footage.</li>
+                            <li>Pick moments and caption overlays.</li>
+                            <li>Render clips and download finalists.</li>
+                          </ul>
+                        </section>
                       </div>
-                      <div className="vertical-reboot-step-grid">
-                        <div className="vertical-reboot-step">Upload or select a source clip.</div>
-                        <div className="vertical-reboot-step">Tune moments, captions, and overlays.</div>
-                        <div className="vertical-reboot-step">Render and download your vertical cuts.</div>
-                      </div>
-                    </div>
+                    )}
+                  >
+                    <div className="vertical-reboot-shell vertical-minimal-content-shell">
                   {hasVerticalVariantWorkspace && (
                     <div className="vertical-reboot-gallery-shell space-y-4">
                       {verticalPreviewUrl ? (
@@ -21173,15 +21170,6 @@ const Editor = () => {
                           <span className="vertical-reboot-mini-pill text-[10px]">
                             {Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}
                           </span>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 rounded-full border-border/60 bg-background/60 px-2.5 text-[10px] text-foreground"
-                            onClick={() => navigate(verticalExtrasHref)}
-                          >
-                            Vertical Extras
-                          </Button>
                         </div>
                       </div>
                       {activeVerticalJobReadyForDownload ? exportReadyCard : null}
@@ -21724,7 +21712,13 @@ const Editor = () => {
                       ) : null}
                     </div>
                   )}
+                  {!hasVerticalVariantWorkspace ? (
+                    <div className="vertical-minimal-empty-state">
+                      Upload or select source footage to open the vertical clip workspace.
+                    </div>
+                  ) : null}
                   </div>
+                  </VerticalModeMinimalLayout>
                 </div>
               )}
 
