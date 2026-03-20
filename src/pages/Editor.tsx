@@ -455,12 +455,12 @@ const MAX_CUTS_MIN = 1;
 const MAX_CUTS_MAX = 15;
 const DEFAULT_MAX_CUTS = 9;
 const DEFAULT_VERTICAL_OUTPUT = { width: 1080, height: 1920 } as const;
-const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 30;
+const DEFAULT_WEBCAM_TOP_HEIGHT_PCT = 26;
 const DEFAULT_WEBCAM_PADDING_PX = 0;
-const DEFAULT_WEBCAM_CROP_WIDTH_RATIO = 0.28;
-const DEFAULT_WEBCAM_CROP_HEIGHT_RATIO = 0.34;
-const DEFAULT_WEBCAM_CROP_INSET_X_RATIO = 0.02;
-const DEFAULT_WEBCAM_CROP_INSET_Y_RATIO = 0.02;
+const DEFAULT_WEBCAM_CROP_WIDTH_RATIO = 0.24;
+const DEFAULT_WEBCAM_CROP_HEIGHT_RATIO = 0.3;
+const DEFAULT_WEBCAM_CROP_INSET_X_RATIO = 0.03;
+const DEFAULT_WEBCAM_CROP_INSET_Y_RATIO = 0.08;
 const DEFAULT_VERTICAL_CAPTION_POSITION_Y = Number((1300 / DEFAULT_VERTICAL_OUTPUT.height).toFixed(4));
 const VERTICAL_VARIANT_VERSION_COUNT = 3;
 const VERTICAL_VARIANT_TOTAL_CLIPS = 8;
@@ -8820,18 +8820,19 @@ const Editor = () => {
     });
   }, [buildDefaultWebcamCrop, normalizeWebcamCrop]);
 
-  const toggleVerticalWebcamStrip = useCallback(() => {
+  const setVerticalAutoWebcamEnabled = useCallback((enabled: boolean) => {
     setCropInteraction(null);
-    setSkipManualWebcamCrop((prev) => {
-      const nextSkipManualCrop = !prev;
-      if (!nextSkipManualCrop && sourceVideoMeta) {
+    const nextSkipManualCrop = !enabled;
+    setSkipManualWebcamCrop(nextSkipManualCrop);
+    if (enabled) {
+      setVerticalWebcamPlacement("top");
+      if (sourceVideoMeta) {
         setWebcamCrop((current) => {
           if (current) return normalizeWebcamCrop(current, sourceVideoMeta);
           return buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height);
         });
       }
-      return nextSkipManualCrop;
-    });
+    }
   }, [buildDefaultWebcamCrop, normalizeWebcamCrop, sourceVideoMeta]);
 
   const beginCropInteraction = useCallback((handle: CropHandle, event: React.PointerEvent<HTMLElement>) => {
@@ -9011,6 +9012,7 @@ const Editor = () => {
 
   const effectiveVerticalBottomFitMode: VerticalFitMode =
     skipManualWebcamCrop ? AUTO_VERTICAL_SINGLE_FIT_MODE : bottomFitMode;
+  const verticalAutoWebcamEnabled = !skipManualWebcamCrop;
 
   const verticalSelectionReady = Boolean(pendingVerticalFile && sourceVideoMeta);
   const verticalCaptionPreviewActive = captionSettingsDialogOpen && isVerticalMode && !captionPreviewDrawFallback;
@@ -10082,7 +10084,7 @@ const Editor = () => {
       return false;
     }
     const hasCustomWebcamCrop = webcamCropWasAdjusted || webcamPaddingPx > 0;
-    const useAutoWebcamCrop = !skipManualWebcamCrop && !hasCustomWebcamCrop;
+    const useAutoWebcamCrop = verticalAutoWebcamEnabled && !hasCustomWebcamCrop;
     const uploadPreset =
       VERTICAL_UPLOAD_MODE_PRESETS.find((preset) => preset.id === selectedVerticalUploadPresetId) ??
       DEFAULT_VERTICAL_UPLOAD_MODE_PRESET;
@@ -10090,23 +10092,18 @@ const Editor = () => {
     const manualVariantMomentsForRender = hasExplicitMomentOverrides
       ? verticalVariantMomentsRef.current
       : null;
-    const resolvedVerticalLayout: VerticalLayoutMode =
-      uploadPreset.layout === "single"
-        ? "single"
-        : uploadPreset.layout === "stacked"
-          ? "stacked"
-          : skipManualWebcamCrop
-            ? "single"
-            : useAutoWebcamCrop
-              ? "auto"
-              : "stacked";
+    const resolvedVerticalLayout: VerticalLayoutMode = !verticalAutoWebcamEnabled
+      ? "single"
+      : uploadPreset.layout === "stacked"
+        ? "stacked"
+        : "auto";
     const clampedVerticalZoomIntensity = Number(clamp(verticalZoomIntensity, 0, 1).toFixed(3));
-    const fixedWebcamCrop = useAutoWebcamCrop
-      ? null
-      : normalizeWebcamCrop(
+    const fixedWebcamCrop = verticalAutoWebcamEnabled
+      ? normalizeWebcamCrop(
           correctedEffectiveWebcamCrop || webcamCrop || buildDefaultWebcamCrop(sourceVideoMeta.width, sourceVideoMeta.height),
           sourceVideoMeta,
-        );
+        )
+      : null;
     const ok = await handleFile(pendingVerticalFile, {
       mode: "vertical",
       verticalClipCount: Math.max(VERTICAL_VARIANT_TOTAL_CLIPS, verticalClipCount || VERTICAL_VARIANT_TOTAL_CLIPS),
@@ -10153,7 +10150,7 @@ const Editor = () => {
     webcamCrop,
     normalizeWebcamCrop,
     selectedVerticalUploadPresetId,
-    skipManualWebcamCrop,
+    verticalAutoWebcamEnabled,
     verticalWebcamPlacement,
     verticalZoomProfile,
     verticalZoomIntensity,
@@ -18736,10 +18733,7 @@ const Editor = () => {
     const autoFontId: VerticalCaptionFontOptionId =
       VERTICAL_CAPTION_PRESET_DEFAULTS[autoCaptionPreset]?.fontId ??
       VERTICAL_CAPTION_PRESET_DEFAULTS[DEFAULT_VERTICAL_CAPTION_STYLE].fontId;
-    const autoPlacement: VerticalWebcamPlacementOption =
-      editorMode === "gaming" || editorMode === "reaction" || editorMode === "sports"
-        ? "bottom"
-        : "top";
+    const autoPlacement: VerticalWebcamPlacementOption = "top";
     const autoZoomProfile: VerticalZoomProfileId =
       retentionStrategyProfile === "viral"
         ? "kinetic"
@@ -18765,7 +18759,7 @@ const Editor = () => {
         }
       : basePreset;
     const layoutIsSingle = preset.layout === "single";
-    const clampedHeightPct = Math.round(clamp(preset.webcamHeightPct, 18, 42));
+    const clampedHeightPct = Math.round(clamp(preset.webcamHeightPct, 18, 34));
     const clampedZoomIntensity = Number(clamp(preset.zoomIntensity, 0, 1).toFixed(3));
     setSelectedVerticalUploadPresetId(preset.id);
     setVerticalWebcamPlacement(preset.webcamPlacement);
@@ -20188,7 +20182,9 @@ const Editor = () => {
     <Suspense fallback={<Fragment />}><GlowBackdrop>
       <Navbar />
       <main
-        className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen min-h-[100dvh] max-w-6xl overflow-x-clip px-4 pt-24 pb-12 ${
+        className={`editor-landing-skin responsive-main adaptive-editor-shell mx-auto min-h-screen min-h-[100dvh] overflow-x-clip px-4 pt-24 pb-12 ${
+          isVerticalMode ? "w-full max-w-none" : "max-w-6xl"
+        } ${
           performanceConstrained ? "network-constrained editor-performance-safe" : ""
         } ${autoShortScreenMode ? "editor-auto-short-mode" : ""}`}
         data-network={runtimeProfile.effectiveType ?? "unknown"}
@@ -21094,7 +21090,7 @@ const Editor = () => {
               ) : null}
 
               {isVerticalMode && (
-                <div className="vertical-opus-shell editor-landing-skin p-3">
+                <div className="vertical-opus-shell vertical-opus-fullscreen editor-landing-skin p-3">
                   <VerticalModeMinimalLayout
                     statusLabel={verticalVariantStatusLabel}
                     progressPercent={totalPipelineProgress}
@@ -21181,6 +21177,23 @@ const Editor = () => {
                             {Math.min(activeOutputUrls.length, VERTICAL_VARIANT_TOTAL_CLIPS)}/{VERTICAL_VARIANT_TOTAL_CLIPS}
                           </span>
                         </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 bg-background/35 px-3 py-2">
+                        <label className="flex items-center gap-2">
+                          <Switch
+                            checked={verticalAutoWebcamEnabled}
+                            onCheckedChange={setVerticalAutoWebcamEnabled}
+                            aria-label="Toggle auto webcam layout"
+                          />
+                          <span className="text-[11px] font-medium text-foreground">
+                            Auto Webcam {verticalAutoWebcamEnabled ? "On" : "Off"}
+                          </span>
+                        </label>
+                        <p className="text-[10px] text-muted-foreground">
+                          {verticalAutoWebcamEnabled
+                            ? "Webcam strip stays at the top with eye-level framing."
+                            : "No webcam mode: source fills the full 9:16 frame."}
+                        </p>
                       </div>
                       {activeVerticalJobReadyForDownload ? exportReadyCard : null}
                       <div className="vertical-variant-preview-list">
@@ -23386,6 +23399,30 @@ const Editor = () => {
                       ))}
                     </div>
                   </div>
+                  <div className={`${uploadFormatCardClass(false, true)} min-h-[70px] py-2`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Auto Webcam</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          On keeps webcam at top. Off fills full 9:16 with source video.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          className={verticalAutoWebcamEnabled
+                            ? "border-primary/45 bg-primary/15 text-primary"
+                            : "border-border/50 bg-background/45 text-muted-foreground"}
+                        >
+                          {verticalAutoWebcamEnabled ? "On" : "Off"}
+                        </Badge>
+                        <Switch
+                          checked={verticalAutoWebcamEnabled}
+                          onCheckedChange={setVerticalAutoWebcamEnabled}
+                          aria-label="Toggle auto webcam for vertical upload"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -23992,7 +24029,7 @@ const Editor = () => {
                 const previewCaptionBg = preset.previewCaptionTone === "dark"
                   ? "rgba(248,250,252,0.9)"
                   : "rgba(15,23,42,0.72)";
-                const webcamStripHeightPct = Math.round(clamp(preset.webcamHeightPct, 20, 42));
+                const webcamStripHeightPct = Math.round(clamp(preset.webcamHeightPct, 18, 34));
                 const webcamStripAtTop = preset.layout !== "single" && preset.webcamPlacement !== "bottom";
                 return (
                   <button
