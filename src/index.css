@@ -3012,7 +3012,13 @@ html[data-performance='constrained'] .trial-takeover-active * {
   }
 
   .vertical-opus-fullscreen {
-    min-height: calc(100dvh - 7.5rem);
+    min-height: max(620px, calc(100dvh - var(--ae-main-pt) - var(--ae-main-pb) - 1rem));
+    display: flex;
+  }
+
+  .vertical-opus-fullscreen .vertical-minimal-shell {
+    flex: 1 1 auto;
+    min-height: 100%;
   }
 
   .vertical-reboot-shell {
@@ -3455,8 +3461,13 @@ html[data-performance='constrained'] .trial-takeover-active * {
   }
 
   .vertical-variant-subversion-list.is-gallery-only {
-    gap: 0.95rem;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.72rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .vertical-variant-subversion-list.is-gallery-only .vertical-variant-subversion-media {
+    width: min(100%, 104px);
+    min-height: 152px;
   }
 
   .vertical-variant-subversion-list.is-gallery-only .vertical-variant-subversion-card {
@@ -4092,6 +4103,10 @@ html[data-performance='constrained'] .trial-takeover-active * {
 
     .vertical-variant-subversion-list {
       grid-template-columns: 1fr;
+    }
+
+    .vertical-variant-subversion-list.is-gallery-only {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .vertical-variant-preview-content {

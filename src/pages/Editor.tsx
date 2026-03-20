@@ -24262,13 +24262,13 @@ const Editor = () => {
                   {renderSettingsSection("captions")}
                 </div>
               ) : (
-                <div className="mt-4 grid gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
-                  <aside className="rounded-xl border border-border/60 bg-muted/15 p-2.5">
+                <div className="mt-4 space-y-3">
+                  <aside className="rounded-xl border border-border/60 bg-muted/15 p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Clips</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       Select a clip to edit its captions.
                     </p>
-                    <div className="mt-2 max-h-[62vh] space-y-2 overflow-y-auto pr-1">
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {captionPopupClipIndexes.map((clipIndex) => {
                         const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
                         const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
@@ -24295,7 +24295,7 @@ const Editor = () => {
                                     muted
                                     playsInline
                                     preload="metadata"
-                                    className="h-16 w-full object-cover"
+                                    className="h-14 w-full object-cover"
                                     onLoadedData={() => {
                                       setVerticalClipPreviewLoadedByIndex((prev) => (
                                         prev[clipIndex] ? prev : { ...prev, [clipIndex]: true }
@@ -24327,7 +24327,7 @@ const Editor = () => {
                                   ) : null}
                                 </>
                               ) : (
-                                <div className="flex h-16 items-center justify-center text-[11px] text-muted-foreground">
+                                <div className="flex h-14 items-center justify-center text-[11px] text-muted-foreground">
                                   {clipPreviewError ? "Preview unavailable" : "Clip preview pending"}
                                 </div>
                               )}
