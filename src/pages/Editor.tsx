@@ -1995,6 +1995,95 @@ const YOUTUBE_NICHE_PRESET_OPTIONS: YouTubeNichePreset[] = [
     autoCaptions: true,
   },
 ];
+const YOUTUBE_NICHE_PRESET_BY_ID: Record<string, YouTubeNichePreset> = Object.fromEntries(
+  YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => [preset.id, preset]),
+) as Record<string, YouTubeNichePreset>;
+const UPLOAD_LONG_FORM_NICHE_OPTIONS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  benchmark: string;
+  youtubePresetId: string;
+}> = [
+  {
+    id: "long_vlogs_storytime",
+    label: "Vlogs / Storytimes",
+    description: "Narrative-first pacing for lifestyle and personal story videos.",
+    benchmark: "Benchmark: ~21.5% long-form retention. Prioritize first 8s hook + smooth arc.",
+    youtubePresetId: "youtube_storytime_vlog",
+  },
+  {
+    id: "long_commentary",
+    label: "Commentary",
+    description: "Keeps arguments crisp and trims filler to maintain momentum.",
+    benchmark: "Benchmark: ~28-32% retention. Keep thought transitions tight.",
+    youtubePresetId: "youtube_commentary_drama",
+  },
+  {
+    id: "long_reaction",
+    label: "Reaction",
+    description: "Faster cleanup with emphasis on reaction beats and payoff moments.",
+    benchmark: "Benchmark: ~28-32% retention. Front-load standout reactions.",
+    youtubePresetId: "youtube_reaction_stream",
+  },
+  {
+    id: "long_sports",
+    label: "Sports",
+    description: "High-momentum recap flow tuned for highlights and quick resets.",
+    benchmark: "Target: hold viewers through first 60s using highlight density.",
+    youtubePresetId: "youtube_sports_recap",
+  },
+  {
+    id: "long_unboxing",
+    label: "Unboxing",
+    description: "Value-first product pacing with clearer chapter handoffs.",
+    benchmark: "Benchmark: ~30-35% retention. Show payoff details early.",
+    youtubePresetId: "youtube_tech_review",
+  },
+  {
+    id: "long_twitch_clips",
+    label: "Twitch Clips",
+    description: "Gameplay-first pacing for stream moments and chat-driven highlights.",
+    benchmark: "Benchmark: ~20-28% retention. Cut dead air aggressively.",
+    youtubePresetId: "youtube_gaming_highlights",
+  },
+];
+const UPLOAD_SHORT_FORM_NICHE_OPTIONS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  benchmark: string;
+  selectionMode: VerticalSelectionMode;
+}> = [
+  {
+    id: "short_skits_entertainment",
+    label: "Skits / Entertainment",
+    description: "Fast hook pressure with high-energy beat-to-beat pacing.",
+    benchmark: "Target: ~55-64% completion, with strongest hold in first 8-15s.",
+    selectionMode: "hook_storm",
+  },
+  {
+    id: "short_storytime",
+    label: "Storytime",
+    description: "Narrative clip ordering for clearer setup-to-payoff flow.",
+    benchmark: "Target: ~64% completion and high average watch time.",
+    selectionMode: "story_arc",
+  },
+  {
+    id: "short_unboxing",
+    label: "Unboxing",
+    description: "Product-moment extraction focused on value reveals and demos.",
+    benchmark: "Target: 60-70% completion with value beats every few seconds.",
+    selectionMode: "best_moments",
+  },
+  {
+    id: "short_reaction",
+    label: "Reaction",
+    description: "Loop-friendly reaction cadence with quick context and punchline.",
+    benchmark: "Target: 55-64% completion with replay-friendly endings.",
+    selectionMode: "loop_builder",
+  },
+];
 const SUBTITLE_PRESET_OPTIONS: Array<{ id: SubtitlePresetId; label: string; description: string }> = [
   { id: "basic_clean", label: "Minimal White", description: "Clean white captions with subtle outline." },
   { id: "bold_pop", label: "Bold Influencer", description: "High-contrast styling that pops on mobile." },
@@ -18715,8 +18804,6 @@ const Editor = () => {
         ? "border-primary/55 bg-primary/12 text-foreground shadow-sm"
         : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:bg-primary/5"
     }`;
-  const verticalModeChipClass = (active: boolean) =>
-    `vertical-opus-chip rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${active ? "is-active" : ""}`;
   const activeVerticalUploadModePreset = useMemo(
     () =>
       VERTICAL_UPLOAD_MODE_PRESETS.find((preset) => preset.id === selectedVerticalUploadPresetId) ??
@@ -18730,6 +18817,18 @@ const Editor = () => {
     [verticalSelectionMode],
   );
   const activeVerticalShortFormPresetLabel = activeVerticalShortFormPreset?.label ?? "Vertical Mode";
+  const activeLongFormUploadNicheLabel = useMemo(
+    () =>
+      UPLOAD_LONG_FORM_NICHE_OPTIONS.find((option) => option.youtubePresetId === selectedYouTubeNichePresetId)?.label ??
+      "Pick a niche",
+    [selectedYouTubeNichePresetId],
+  );
+  const activeShortFormUploadNicheLabel = useMemo(
+    () =>
+      UPLOAD_SHORT_FORM_NICHE_OPTIONS.find((option) => option.selectionMode === verticalSelectionMode)?.label ??
+      activeVerticalShortFormPresetLabel,
+    [activeVerticalShortFormPresetLabel, verticalSelectionMode],
+  );
   const applyVerticalUploadModePreset = useCallback((
     presetId: VerticalUploadPresetId,
     source: "mode_select" | "preset_popup" | "preset_chip" = "preset_popup",
@@ -23359,6 +23458,50 @@ const Editor = () => {
                   </button>
                 </div>
               )}
+              {pendingUploadMode === "horizontal" ? (
+                <div className={`${uploadFormatCardClass(false, true)} mt-2 min-h-[108px] py-2 space-y-2`}>
+                  <div className="flex flex-wrap items-start justify-between gap-1.5">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Long-Form Niche Preset</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Uses YouTube retention benchmarks to tune pacing for this upload.
+                      </p>
+                    </div>
+                    <Badge className="border-primary/40 bg-primary/12 text-primary">
+                      {activeLongFormUploadNicheLabel}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {UPLOAD_LONG_FORM_NICHE_OPTIONS.map((option) => {
+                      const active = selectedYouTubeNichePresetId === option.youtubePresetId;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                            active
+                              ? "border-primary/55 bg-primary/14 shadow-sm"
+                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                          }`}
+                          onClick={() => {
+                            const preset = YOUTUBE_NICHE_PRESET_BY_ID[option.youtubePresetId];
+                            if (!preset) return;
+                            applyYouTubeNichePreset(preset);
+                            handleSelectUploadModePrompt("standard");
+                          }}
+                          aria-pressed={active}
+                          aria-label={`Select ${option.label} long-form niche preset`}
+                          title={option.benchmark}
+                        >
+                          <p className="text-xs font-semibold text-foreground">{option.label}</p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{option.description}</p>
+                          <p className="mt-1 text-[10px] text-muted-foreground">{option.benchmark}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
               {pendingUploadMode === "vertical" ? (
                 <div className="mt-2 space-y-2">
                   <button
@@ -23382,28 +23525,34 @@ const Editor = () => {
                       </Badge>
                     </div>
                   </button>
-                  <div className={`${uploadFormatCardClass(false, true)} min-h-[80px] py-2 space-y-2`}>
+                  <div className={`${uploadFormatCardClass(false, true)} min-h-[108px] py-2 space-y-2`}>
                     <div className="flex flex-wrap items-start justify-between gap-1.5">
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-foreground">Clip Style</p>
-                        <p className="text-[11px] text-muted-foreground">Applies to vertical clip selection and ranking.</p>
+                        <p className="text-sm font-semibold text-foreground">Short-Form Niche Preset</p>
+                        <p className="text-[11px] text-muted-foreground">Uses completion-rate targets to tune clip ranking and pacing.</p>
                       </div>
                       <Badge className="border-primary/40 bg-primary/12 text-primary">
-                        {activeVerticalShortFormPresetLabel}
+                        {activeShortFormUploadNicheLabel}
                       </Badge>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {VERTICAL_SHORT_FORM_MODE_PRESETS.map((preset) => (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {UPLOAD_SHORT_FORM_NICHE_OPTIONS.map((option) => (
                         <button
-                          key={`upload-vertical-style-${preset.id}`}
+                          key={`upload-vertical-niche-${option.id}`}
                           type="button"
-                          className={verticalModeChipClass(verticalSelectionMode === preset.id)}
-                          onClick={() => applyVerticalShortFormPreset(preset.id)}
-                          aria-label={`Select ${preset.label} clip style`}
-                          aria-pressed={verticalSelectionMode === preset.id}
-                          title={preset.description}
+                          className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                            verticalSelectionMode === option.selectionMode
+                              ? "border-primary/55 bg-primary/14 shadow-sm"
+                              : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
+                          }`}
+                          onClick={() => applyVerticalShortFormPreset(option.selectionMode)}
+                          aria-label={`Select ${option.label} short-form niche preset`}
+                          aria-pressed={verticalSelectionMode === option.selectionMode}
+                          title={option.benchmark}
                         >
-                          {preset.label}
+                          <p className="text-xs font-semibold text-foreground">{option.label}</p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{option.description}</p>
+                          <p className="mt-1 text-[10px] text-muted-foreground">{option.benchmark}</p>
                         </button>
                       ))}
                     </div>
@@ -23732,41 +23881,6 @@ const Editor = () => {
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Higher cut density with stronger momentum.</p>
                 </button>
-              </div>
-
-              <div className="mt-3 rounded-xl border border-border/55 bg-background/30 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">YouTube niche presets</p>
-                    <p className="mt-1 text-xs text-foreground/85">Pick a niche to auto-apply pacing, then start upload instantly in Standard mode.</p>
-                  </div>
-                  <Badge className="border-primary/35 bg-primary/10 text-primary">In Upload Mode</Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {YOUTUBE_NICHE_PRESET_OPTIONS.map((preset) => {
-                    const active = selectedYouTubeNichePresetId === preset.id;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => {
-                          applyYouTubeNichePreset(preset);
-                          handleSelectUploadModePrompt("standard");
-                        }}
-                        className={`min-h-[82px] rounded-xl border px-3 py-2 text-left transition-all ${
-                          active
-                            ? "border-primary/55 bg-primary/14 shadow-sm"
-                            : "border-border/60 bg-background/35 text-muted-foreground hover:border-primary/35 hover:text-foreground"
-                        }`}
-                        aria-pressed={active}
-                        aria-label={`Apply ${preset.label} preset`}
-                      >
-                        <p className="text-sm font-semibold text-foreground">{preset.label}</p>
-                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{preset.description}</p>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               <div className="mt-3 rounded-xl border border-primary/30 bg-[linear-gradient(140deg,rgba(59,130,246,0.16),rgba(10,14,30,0.56))] p-3">
