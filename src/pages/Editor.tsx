@@ -23118,7 +23118,7 @@ const Editor = () => {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">TikTok Animated Text</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Pick a TikTok-style animated text preview before the upload starts.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Tap any TikTok animated text style to apply it and auto-start render.</p>
                     </div>
                     <Badge className="border-primary/40 bg-primary/12 text-primary">
                       {autoCaptionsEnabled ? "Captions On" : "Captions Off"}
@@ -23188,6 +23188,7 @@ const Editor = () => {
                             applyVerticalCaptionPreset(option.id);
                             if (!autoCaptionsEnabled) setAutoCaptionsEnabled(true);
                             setSubtitleStyleDirty(true);
+                            handleSelectUploadModePrompt(uploadModePromptActiveSelection);
                           }}
                           aria-pressed={active}
                           aria-label={`Select ${option.label} TikTok text style`}
