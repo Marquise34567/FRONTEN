@@ -4936,15 +4936,15 @@ const buildVerticalCaptionSnapshotFromConfig = (
     ? config.removeFillers
     : presetDefaults.removeFillers;
   const text = normalizeVerticalCaptionTextForJob(String(config.text ?? config.captionText ?? ""));
+  const enabled = typeof config.enabled === "boolean" ? config.enabled : true;
+  const autoGenerate = typeof config.autoGenerate === "boolean" ? config.autoGenerate : enabled && text.length === 0;
   const variantTextByKey = normalizeVerticalCaptionVariantTextByKey(
     config.variantCaptions ??
       config.verticalVariantCaptions ??
       config["variant_captions"] ??
       config["vertical_variant_captions"],
-    text,
+    autoGenerate ? "" : text,
   );
-  const enabled = typeof config.enabled === "boolean" ? config.enabled : true;
-  const autoGenerate = typeof config.autoGenerate === "boolean" ? config.autoGenerate : enabled && text.length === 0;
   const positionX = clampCaptionPosition(Number(config.positionX ?? 0.5));
   const positionY = clampCaptionPosition(Number(config.positionY ?? DEFAULT_VERTICAL_CAPTION_POSITION_Y));
   const variantPositions = normalizeVerticalCaptionVariantPositions(config.variantPositions, positionX, positionY);
@@ -11588,10 +11588,14 @@ const Editor = () => {
     const clipTextBySlot = normalizeVerticalCaptionTextBySlot(verticalClipCaptionTextBySlotForJob);
     const clipOverlayToneBySlot = normalizeVerticalCaptionOverlayToneBySlot(verticalClipCaptionOverlayBySlotForJob);
     const text = normalizeVerticalCaptionTextForJob(resolvedVerticalCaptionText);
-    const variantTextByKey = normalizeVerticalCaptionVariantTextByKey(verticalCaptionTextByVariant, text);
+    const autoGenerate = captionsEnabledForJob && text.length === 0;
+    const variantTextByKey = normalizeVerticalCaptionVariantTextByKey(
+      verticalCaptionTextByVariant,
+      autoGenerate ? "" : text,
+    );
     return {
       enabled: captionsEnabledForJob,
-      autoGenerate: captionsEnabledForJob && text.length === 0,
+      autoGenerate,
       preset: verticalCaptionPreset,
       text,
       variantTextByKey,
@@ -16697,13 +16701,14 @@ const Editor = () => {
   const useSelectedClipTranscriptAsCaption = useCallback(() => {
     if (selectedCaptionClipIndex < 0 || !selectedCaptionClipTranscriptText) return;
     const slotKey = getVerticalVariantSlotKeyForClipIndex(selectedCaptionClipIndex);
-    setVerticalClipCaptionTextBySlot((prev) => ({
-      ...prev,
-      [slotKey]: selectedCaptionClipTranscriptText,
-    }));
+    setVerticalClipCaptionTextBySlot((prev) => {
+      const next = { ...prev };
+      delete next[slotKey];
+      return next;
+    });
     toast({
-      title: "Transcript linked",
-      description: `${selectedCaptionClipLabel} now uses transcript text in the caption preview.`,
+      title: "Transcript source enabled",
+      description: `${selectedCaptionClipLabel} now follows clip transcript timing in renders.`,
     });
   }, [
     selectedCaptionClipIndex,
@@ -17361,11 +17366,15 @@ const Editor = () => {
     }
     const snapshot = activeVerticalCaptionSnapshot;
     const normalizedText = sanitizeVerticalCaptionDraftText(snapshot.text);
-    const variantTextByKey = snapshot.variantTextByKey ?? {
-      instagram: normalizedText,
-      youtube: normalizedText,
-      tiktok: normalizedText,
-    };
+    const variantTextByKey = snapshot.autoGenerate
+      ? { instagram: "", youtube: "", tiktok: "" }
+      : (
+        snapshot.variantTextByKey ?? {
+          instagram: normalizedText,
+          youtube: normalizedText,
+          tiktok: normalizedText,
+        }
+      );
     const motionProfile =
       VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS.find((profile) => profile.id === verticalCaptionMotionProfile) ??
       VERTICAL_CAPTION_MOTION_PROFILE_OPTIONS[0];
@@ -24263,12 +24272,12 @@ const Editor = () => {
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
-                  <aside className="rounded-xl border border-border/60 bg-muted/15 p-3">
+                  <aside className="rounded-xl border border-border/60 bg-muted/15 p-3.5">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Clips</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       Select a clip to edit its captions.
                     </p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                       {captionPopupClipIndexes.map((clipIndex) => {
                         const clipUrl = String(verticalVariantPreviewUrls[clipIndex] || "").trim();
                         const clipReady = Boolean(activeVerticalJobReadyForDownload && clipUrl);
@@ -24280,14 +24289,14 @@ const Editor = () => {
                           <button
                             key={`caption-side-clip-${clipIndex}`}
                             type="button"
-                            className={`w-full rounded-lg border p-1.5 text-left transition ${
+                            className={`w-full rounded-xl border p-2 text-left transition ${
                               selected
-                                ? "border-primary/70 bg-primary/15"
-                                : "border-border/60 bg-background/50 hover:border-primary/45"
+                                ? "border-primary/70 bg-primary/15 shadow-[0_10px_24px_-18px_hsl(var(--primary)/0.75)]"
+                                : "border-border/60 bg-background/50 hover:border-primary/45 hover:bg-primary/5"
                             }`}
                             onClick={() => handleCaptionPreviewSourceChange(clipIndex)}
                           >
-                            <div className="relative overflow-hidden rounded-md border border-border/55 bg-black/70">
+                            <div className="relative aspect-video overflow-hidden rounded-lg border border-border/55 bg-black/70">
                               {clipVideoReady ? (
                                 <>
                                   <video
@@ -24295,7 +24304,7 @@ const Editor = () => {
                                     muted
                                     playsInline
                                     preload="metadata"
-                                    className="h-14 w-full object-cover"
+                                    className="absolute inset-0 h-full w-full object-cover"
                                     onLoadedData={() => {
                                       setVerticalClipPreviewLoadedByIndex((prev) => (
                                         prev[clipIndex] ? prev : { ...prev, [clipIndex]: true }
@@ -24327,12 +24336,12 @@ const Editor = () => {
                                   ) : null}
                                 </>
                               ) : (
-                                <div className="flex h-14 items-center justify-center text-[11px] text-muted-foreground">
+                                <div className="absolute inset-0 flex items-center justify-center text-[11px] text-muted-foreground">
                                   {clipPreviewError ? "Preview unavailable" : "Clip preview pending"}
                                 </div>
                               )}
                             </div>
-                            <div className="mt-1 flex items-center justify-between text-[11px]">
+                            <div className="mt-1.5 flex items-center justify-between text-[11px]">
                               <span className="font-medium text-foreground">Clip #{clipIndex + 1}</span>
                               <span className={selected ? "text-primary" : "text-muted-foreground"}>
                                 {selected ? "Selected" : clipReady ? "Ready" : "Queued"}
