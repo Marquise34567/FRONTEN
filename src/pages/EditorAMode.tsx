@@ -174,6 +174,53 @@ const parseBooleanLike = (value: unknown) => {
   }
   return null;
 };
+const parseTimelineStampToSeconds = (value: string) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) return Math.max(0, numeric);
+  const parts = trimmed.split(":").map((part) => Number(part.trim()));
+  if (!parts.length || parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+  if (parts.length === 2) return Math.round(parts[0] * 60 + parts[1]);
+  if (parts.length === 3) return Math.round(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  return null;
+};
+const extractRangeStartLabel = (range: string) => {
+  const normalized = String(range || "").trim();
+  if (!normalized) return "";
+  const [start] = normalized.split("-");
+  return String(start || "").trim();
+};
+
+type TimelineSeriesPoint = {
+  stamp: string;
+  energy: number;
+  emotion: number;
+  retention?: number;
+  timeSec?: number | null;
+};
+
+type DropoffHeatmapRow = {
+  label: string;
+  range: string;
+  risk: number;
+  detail: string;
+  startSec: number | null;
+  endSec: number | null;
+};
+
+type RetentionMiniSample = {
+  stamp: string;
+  value: number;
+  sourceIndex: number;
+  timeSec: number | null;
+};
+
+type RetentionMiniPlotPoint = RetentionMiniSample & {
+  plotIndex: number;
+  x: number;
+  y: number;
+};
 
 const EditorAMode = () => {
   const [searchParams] = useSearchParams();
@@ -374,20 +421,20 @@ const EditorAMode = () => {
     return raw.filter((entry) => entry && typeof entry === "object") as Record<string, any>[];
   }, [jobAnalysis]);
   const timelineSeries = useMemo(() => {
-    if (!jobAnalysis) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+    if (!jobAnalysis) return [] as TimelineSeriesPoint[];
     const pickArray = (...values: unknown[]) => values.find((value) => Array.isArray(value)) as unknown[] | undefined;
     const buildFromEngagement = (windows: Record<string, any>[]) => {
-      if (!windows.length) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+      if (!windows.length) return [] as TimelineSeriesPoint[];
       const usable = windows
         .map((entry) => {
           const time = Number(entry.time ?? entry.t ?? entry.second ?? entry.seconds);
           return Number.isFinite(time) ? { ...entry, time } : null;
         })
         .filter((entry): entry is Record<string, any> & { time: number } => Boolean(entry));
-      if (!usable.length) return [] as { stamp: string; energy: number; emotion: number; retention?: number }[];
+      if (!usable.length) return [] as TimelineSeriesPoint[];
       const targetCount = Math.min(12, Math.max(6, Math.round(usable.length / 90)));
       const maxIndex = usable.length - 1;
-      const points: { stamp: string; energy: number; emotion: number; retention?: number }[] = [];
+      const points: TimelineSeriesPoint[] = [];
       for (let i = 0; i < targetCount; i += 1) {
         const idx = Math.round((i / Math.max(1, targetCount - 1)) * maxIndex);
         const entry = usable[idx];
@@ -401,12 +448,13 @@ const EditorAMode = () => {
           energy,
           emotion,
           retention: retention ?? undefined,
+          timeSec: Math.max(0, entry.time),
         });
       }
       return points;
     };
     const parseObjectSeries = (series: unknown[]) => {
-      const points: { stamp: string; energy: number; emotion: number; retention?: number }[] = [];
+      const points: TimelineSeriesPoint[] = [];
       series.forEach((entry, index) => {
         if (!entry || typeof entry !== "object") return;
         const energy = normalizePercent((entry as any).energy ?? (entry as any).energyScore ?? (entry as any).energy_score);
@@ -423,14 +471,19 @@ const EditorAMode = () => {
           (entry as any).seconds ??
           index;
         const stampNumber = Number(stampValue);
-        const stamp = Number.isFinite(stampNumber)
-          ? formatTimelineStamp(stampNumber)
-          : String((entry as any).stamp || "").trim();
+        const rawStampText = String((entry as any).stamp ?? "").trim();
+        const resolvedTimeSec = Number.isFinite(stampNumber)
+          ? Math.max(0, stampNumber)
+          : parseTimelineStampToSeconds(rawStampText);
+        const stamp = resolvedTimeSec !== null
+          ? formatTimelineStamp(resolvedTimeSec)
+          : rawStampText || formatTimelineStamp(index);
         points.push({
-          stamp: stamp || formatTimelineStamp(index),
+          stamp,
           energy,
           emotion,
           retention: retention ?? undefined,
+          timeSec: resolvedTimeSec,
         });
       });
       return points;
@@ -457,8 +510,9 @@ const EditorAMode = () => {
             stamp: formatTimelineStamp(index),
             energy,
             emotion,
+            timeSec: index,
           };
-        }).filter((point): point is { stamp: string; energy: number; emotion: number } => Boolean(point));
+        }).filter((point): point is TimelineSeriesPoint => Boolean(point));
       }
     }
     if (!points.length && engagementWindows.length) {
@@ -484,17 +538,42 @@ const EditorAMode = () => {
     () => (timelineSeries.length ? toPoints(timelineSeries, "emotion") : ""),
     [timelineSeries],
   );
-  const retentionMiniValues = useMemo(() => {
+  const retentionMiniSamples = useMemo(() => {
+    const fallbackValues = [68, 65, 62, 58, 52, 49, 44];
     if (timelineSeries.length > 1) {
-      const values = timelineSeries
-        .map((row) => (row.retention ?? row.energy ?? row.emotion))
-        .filter((value): value is number => Number.isFinite(value));
-      if (values.length > 3) {
-        return values.slice(0, 7).map((value) => clampPercent(value));
+      const baseSamples = timelineSeries
+        .map((row, index) => {
+          const value = row.retention ?? row.energy ?? row.emotion;
+          if (!Number.isFinite(value)) return null;
+          const safeStamp = String(row.stamp || "").trim();
+          const parsedTime = row.timeSec ?? parseTimelineStampToSeconds(safeStamp);
+          return {
+            stamp: safeStamp || formatTimelineStamp(parsedTime ?? index * 8),
+            value: clampPercent(Number(value)),
+            sourceIndex: index,
+            timeSec: parsedTime ?? null,
+          };
+        })
+        .filter((row): row is RetentionMiniSample => Boolean(row));
+      if (baseSamples.length > 3) {
+        const sampleCount = Math.min(9, baseSamples.length);
+        return Array.from({ length: sampleCount }, (_, index) => {
+          const sourceIndex = Math.round((index / Math.max(1, sampleCount - 1)) * Math.max(0, baseSamples.length - 1));
+          return baseSamples[sourceIndex];
+        });
       }
     }
-    return [68, 65, 62, 58, 52, 49, 44];
+    return fallbackValues.map((value, index) => ({
+      stamp: formatTimelineStamp(index * 8),
+      value,
+      sourceIndex: index,
+      timeSec: index * 8,
+    }));
   }, [timelineSeries]);
+  const retentionMiniValues = useMemo(
+    () => retentionMiniSamples.map((sample) => sample.value),
+    [retentionMiniSamples],
+  );
   const retentionMiniPoints = useMemo(
     () => (retentionMiniValues.length ? toValuePoints(retentionMiniValues) : ""),
     [retentionMiniValues],
@@ -503,8 +582,21 @@ const EditorAMode = () => {
     if (!retentionMiniPoints) return "";
     return `${retentionMiniPoints} 100,100 0,100`;
   }, [retentionMiniPoints]);
+  const retentionMiniPlotPoints = useMemo(
+    () => retentionMiniSamples.map((sample, index) => {
+      const x = retentionMiniSamples.length <= 1 ? 0 : (index / (retentionMiniSamples.length - 1)) * 100;
+      const y = 100 - clampPercent(sample.value);
+      return {
+        ...sample,
+        plotIndex: index,
+        x,
+        y,
+      } as RetentionMiniPlotPoint;
+    }),
+    [retentionMiniSamples],
+  );
   const dropoffHeatmapRows = useMemo(() => {
-    if (!jobAnalysis) return [] as { label: string; range: string; risk: number; detail: string }[];
+    if (!jobAnalysis) return [] as DropoffHeatmapRow[];
     const explicitSpans =
       jobAnalysis?.dropoff_heatmap?.spans ??
       jobAnalysis?.dropoffHeatmap?.spans ??
@@ -525,16 +617,20 @@ const EditorAMode = () => {
           const scoreFromEngagement = normalizePercent(entry.score ?? entry.engagement ?? entry.retention);
           const risk = riskFromHeat ?? (scoreFromEngagement !== null ? clampPercent(100 - scoreFromEngagement) : null);
           if (risk === null) return null;
-          const range = formatRangeLabel(Number.isFinite(start) ? start : null, Number.isFinite(end) ? end : null);
+          const safeStart = Number.isFinite(start) ? Math.max(0, start) : null;
+          const safeEnd = Number.isFinite(end) ? Math.max(0, end) : null;
+          const range = formatRangeLabel(safeStart, safeEnd);
           const detail = String(entry.reason ?? entry.note ?? entry.detail ?? "").trim();
           return {
             label: `Drop Zone ${index + 1}`,
             range,
             risk,
             detail,
+            startSec: safeStart,
+            endSec: safeEnd,
           };
         })
-        .filter((entry): entry is { label: string; range: string; risk: number; detail: string } => Boolean(entry))
+        .filter((entry): entry is DropoffHeatmapRow => Boolean(entry))
         .sort((a, b) => b.risk - a.risk)
         .slice(0, 6);
     }
@@ -558,10 +654,11 @@ const EditorAMode = () => {
           range: formatRangeLabel(time, time + 8),
           risk,
           detail: detailParts.join(" · "),
-          time,
+          startSec: time,
+          endSec: time + 8,
         };
       })
-      .filter((entry): entry is { label: string; range: string; risk: number; detail: string; time: number } => Boolean(entry))
+      .filter((entry): entry is DropoffHeatmapRow => Boolean(entry))
       .sort((a, b) => b.risk - a.risk)
       .slice(0, 6)
       .map((entry, index) => ({
@@ -569,8 +666,133 @@ const EditorAMode = () => {
         range: entry.range,
         risk: entry.risk,
         detail: entry.detail,
+        startSec: entry.startSec,
+        endSec: entry.endSec,
       }));
   }, [engagementWindows, jobAnalysis]);
+  const retentionHighMoments = useMemo(() => {
+    if (!retentionMiniPlotPoints.length) {
+      return [] as {
+        id: string;
+        stamp: string;
+        value: number;
+        x: number;
+        y: number;
+        detail: string;
+        sourceIndex: number;
+      }[];
+    }
+    const average =
+      retentionMiniPlotPoints.reduce((sum, point) => sum + point.value, 0) /
+      Math.max(1, retentionMiniPlotPoints.length);
+    const threshold = Math.max(62, Math.min(88, Math.round(average + 4)));
+    const ranked = [...retentionMiniPlotPoints]
+      .filter((point) => point.value >= threshold)
+      .sort((a, b) => b.value - a.value);
+    const selected: {
+      id: string;
+      stamp: string;
+      value: number;
+      x: number;
+      y: number;
+      detail: string;
+      sourceIndex: number;
+    }[] = [];
+    for (const point of ranked) {
+      if (selected.some((existing) => Math.abs(existing.sourceIndex - point.sourceIndex) <= 1)) continue;
+      selected.push({
+        id: `high-${point.sourceIndex}-${point.value}`,
+        stamp: point.stamp,
+        value: point.value,
+        x: point.x,
+        y: point.y,
+        detail: `High hold ${point.value}%`,
+        sourceIndex: point.sourceIndex,
+      });
+      if (selected.length >= 3) break;
+    }
+    if (!selected.length) {
+      const fallback = [...retentionMiniPlotPoints].sort((a, b) => b.value - a.value)[0];
+      if (fallback) {
+        selected.push({
+          id: `high-${fallback.sourceIndex}-${fallback.value}`,
+          stamp: fallback.stamp,
+          value: fallback.value,
+          x: fallback.x,
+          y: fallback.y,
+          detail: `High hold ${fallback.value}%`,
+          sourceIndex: fallback.sourceIndex,
+        });
+      }
+    }
+    return selected;
+  }, [retentionMiniPlotPoints]);
+  const retentionDropoffMoments = useMemo(() => {
+    if (!dropoffHeatmapRows.length || !retentionMiniPlotPoints.length) {
+      return [] as {
+        id: string;
+        stamp: string;
+        range: string;
+        risk: number;
+        x: number;
+        y: number;
+        detail: string;
+      }[];
+    }
+    const pointsWithTime = retentionMiniPlotPoints.filter((point) => point.timeSec !== null);
+    const limit = Math.min(3, dropoffHeatmapRows.length);
+    return dropoffHeatmapRows.slice(0, limit).map((row, index) => {
+      const fallbackPoint =
+        retentionMiniPlotPoints[
+          Math.round((index / Math.max(1, limit - 1)) * Math.max(0, retentionMiniPlotPoints.length - 1))
+        ] ?? null;
+      let anchorPoint = fallbackPoint;
+      const targetSec = row.startSec ?? row.endSec;
+      if (targetSec !== null && pointsWithTime.length) {
+        anchorPoint = pointsWithTime.reduce((closest, point) => {
+          if (!closest) return point;
+          const pointDistance = Math.abs((point.timeSec ?? targetSec) - targetSec);
+          const closestDistance = Math.abs((closest.timeSec ?? targetSec) - targetSec);
+          return pointDistance < closestDistance ? point : closest;
+        }, pointsWithTime[0] ?? fallbackPoint);
+      }
+      const rangeStartLabel = extractRangeStartLabel(row.range);
+      if (rangeStartLabel) {
+        const byLabel = retentionMiniPlotPoints.find((point) => point.stamp === rangeStartLabel);
+        if (byLabel) anchorPoint = byLabel;
+      }
+      return {
+        id: `drop-${index}-${row.range}-${row.risk}`,
+        stamp: rangeStartLabel || anchorPoint?.stamp || "--",
+        range: row.range,
+        risk: row.risk,
+        x: anchorPoint?.x ?? 0,
+        y: anchorPoint ? Math.max(anchorPoint.y, 24) : 70,
+        detail: row.detail || `Drop-off risk ${row.risk}%`,
+      };
+    });
+  }, [dropoffHeatmapRows, retentionMiniPlotPoints]);
+  const retentionTimelineMoments = useMemo(() => {
+    const combined = [
+      ...retentionDropoffMoments.map((moment) => ({
+        id: moment.id,
+        tone: "drop" as const,
+        stamp: moment.stamp,
+        detail: `${moment.range} · ${moment.risk}% risk`,
+        x: moment.x,
+        y: moment.y,
+      })),
+      ...retentionHighMoments.map((moment) => ({
+        id: moment.id,
+        tone: "high" as const,
+        stamp: moment.stamp,
+        detail: `${moment.detail} · strong audience hold`,
+        x: moment.x,
+        y: moment.y,
+      })),
+    ];
+    return combined.sort((a, b) => a.x - b.x).slice(0, 6);
+  }, [retentionDropoffMoments, retentionHighMoments]);
   const facialZones = useMemo(() => {
     if (!jobAnalysis) return [] as { label: string; at: string; intensity: number; detail: string }[];
     const raw =
@@ -1480,26 +1702,95 @@ const EditorAMode = () => {
                 <p className="a-mode-visual-kicker">AI Analysis</p>
                 <h2 className="a-mode-visual-title">Retention Detection</h2>
                 <p className="a-mode-visual-subtitle">AutoEditor scans for audience drop-off points</p>
-                <div className="a-mode-mini-card">
+                <div className="a-mode-mini-card a-mode-mini-card-premium">
                   <div className="a-mode-mini-header">
                     <span className="a-mode-mini-label">Signal</span>
                     <span className="a-mode-mini-score">II {retentionDetectionScore !== null ? `${retentionDetectionScore}%` : "--"}</span>
                   </div>
-                  <div className="a-mode-mini-graph">
+                  <div className="a-mode-mini-legend-row">
+                    <span className="a-mode-mini-legend-chip is-drop">Drop-off</span>
+                    <span className="a-mode-mini-legend-chip is-high">High retention</span>
+                    <span className="a-mode-mini-legend-chip is-trace">Live trace</span>
+                  </div>
+                  <div className="a-mode-mini-graph a-mode-mini-graph-premium">
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                       <defs>
                         <linearGradient id="a-mode-mini-line" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="rgba(124, 92, 255, 0.9)" />
-                          <stop offset="100%" stopColor="rgba(99, 102, 241, 0.95)" />
+                          <stop offset="0%" stopColor="rgba(56, 189, 248, 0.95)" />
+                          <stop offset="52%" stopColor="rgba(124, 92, 255, 0.94)" />
+                          <stop offset="100%" stopColor="rgba(52, 211, 153, 0.94)" />
                         </linearGradient>
                         <linearGradient id="a-mode-mini-fill" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="rgba(124, 92, 255, 0.18)" />
+                          <stop offset="0%" stopColor="rgba(56, 189, 248, 0.24)" />
+                          <stop offset="65%" stopColor="rgba(124, 92, 255, 0.1)" />
                           <stop offset="100%" stopColor="rgba(124, 92, 255, 0.02)" />
                         </linearGradient>
+                        <filter id="a-mode-mini-line-glow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feGaussianBlur stdDeviation="1.8" result="blur" />
+                          <feMerge>
+                            <feMergeNode in="blur" />
+                            <feMergeNode in="SourceGraphic" />
+                          </feMerge>
+                        </filter>
                       </defs>
+                      <line x1="0" y1="20" x2="100" y2="20" className="a-mode-mini-grid-line" />
+                      <line x1="0" y1="40" x2="100" y2="40" className="a-mode-mini-grid-line" />
+                      <line x1="0" y1="60" x2="100" y2="60" className="a-mode-mini-grid-line" />
+                      <line x1="0" y1="80" x2="100" y2="80" className="a-mode-mini-grid-line" />
                       <polyline points={retentionMiniArea} fill="url(#a-mode-mini-fill)" stroke="none" />
-                      <polyline points={retentionMiniPoints} fill="none" stroke="url(#a-mode-mini-line)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline
+                        points={retentionMiniPoints}
+                        fill="none"
+                        stroke="url(#a-mode-mini-line)"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        filter="url(#a-mode-mini-line-glow)"
+                      />
+                      {retentionDropoffMoments.map((event) => (
+                        <g key={event.id}>
+                          <circle className="a-mode-mini-marker-glow is-drop" cx={event.x} cy={event.y} r="7" />
+                          <circle className="a-mode-mini-marker-core is-drop" cx={event.x} cy={event.y} r="2.8" />
+                        </g>
+                      ))}
+                      {retentionHighMoments.map((event) => (
+                        <g key={event.id}>
+                          <circle className="a-mode-mini-marker-glow is-high" cx={event.x} cy={event.y} r="6.4" />
+                          <circle className="a-mode-mini-marker-core is-high" cx={event.x} cy={event.y} r="2.6" />
+                        </g>
+                      ))}
                     </svg>
+                  </div>
+                  <div className="a-mode-mini-signal-grid">
+                    <div className="a-mode-mini-signal-box is-drop">
+                      <p className="a-mode-mini-signal-value">
+                        {retentionDropoffMoments.length > 0 ? `${retentionDropoffMoments.length} zone${retentionDropoffMoments.length > 1 ? "s" : ""}` : "No risk zones"}
+                      </p>
+                      <p className="a-mode-mini-signal-note">Drop-off moments</p>
+                    </div>
+                    <div className="a-mode-mini-signal-box is-high">
+                      <p className="a-mode-mini-signal-value">
+                        {retentionHighMoments.length > 0 ? `${retentionHighMoments.length} peak${retentionHighMoments.length > 1 ? "s" : ""}` : "No peaks yet"}
+                      </p>
+                      <p className="a-mode-mini-signal-note">High-retention moments</p>
+                    </div>
+                  </div>
+                  <div className="a-mode-mini-timestamp-rail">
+                    {retentionTimelineMoments.length > 0 ? (
+                      retentionTimelineMoments.map((moment) => (
+                        <div
+                          key={`retention-moment-${moment.id}`}
+                          className={`a-mode-mini-time-chip ${moment.tone === "drop" ? "is-drop" : "is-high"}`}
+                        >
+                          <p className="a-mode-mini-time-stamp">{moment.stamp}</p>
+                          <p className="a-mode-mini-time-note">{moment.detail}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="a-mode-mini-time-fallback">
+                        Timestamp moments appear after retention traces are synced.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
