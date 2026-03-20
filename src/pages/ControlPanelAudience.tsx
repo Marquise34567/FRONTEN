@@ -152,11 +152,11 @@ const ControlPanelAudience = () => {
       const response = await apiFetch<GeneratePromoCodeResponse>("/api/admin/promo-codes/generate", {
         method: "POST",
         token: accessToken,
-        body: JSON.stringify({ trialDays: 14 })
+        body: JSON.stringify({ trialDays: 14, requireStripe: true })
       })
       const generatedCode = response?.code?.code
       if (generatedCode) {
-        setPromoStatus(`Generated promo code ${generatedCode}`)
+        setPromoStatus(`Generated Stripe promo code ${generatedCode}`)
       } else {
         setPromoStatus("Generated a new promo code.")
       }
@@ -236,7 +236,7 @@ const ControlPanelAudience = () => {
             <CardContent className="space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Generate private referral/promo codes for Starter subscriptions. These codes stay hidden from the pricing UI.
+                  Generate private Stripe referral/promo codes for Starter subscriptions.
                 </p>
                 <Button
                   type="button"
@@ -244,7 +244,7 @@ const ControlPanelAudience = () => {
                   disabled={!canLoad || promoGenerating}
                   className="w-full sm:w-auto"
                 >
-                  {promoGenerating ? "Generating..." : "Generate 14-day Starter code"}
+                  {promoGenerating ? "Generating..." : "Generate Stripe Starter code"}
                 </Button>
               </div>
 
