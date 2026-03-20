@@ -73,14 +73,15 @@ const PricingCards = ({
   const currentIndex = PLAN_TIERS.indexOf(currentPlan);
   const founderSlots = Math.max(0, founderSlotsRemaining ?? 0);
   const showFounderForLayout = founderSlots > 0;
+  const paidTiers = PLAN_TIERS.filter((tier) => tier !== "free" && tier !== "founder");
   const displayTiers: PlanTier[] = showFounderForLayout
-    ? ["founder", ...PLAN_TIERS.filter((tier) => tier !== "founder")]
-    : PLAN_TIERS.filter((tier) => tier !== "founder");
+    ? ["founder", ...paidTiers]
+    : paidTiers;
   const visibleTiers = displayTiers;
 
   return (
     <motion.div
-      className={cn("grid grid-cols-1 gap-3 items-stretch sm:gap-4 md:grid-cols-2", showFounderForLayout ? "xl:grid-cols-5" : "xl:grid-cols-4")}
+      className={cn("grid grid-cols-1 gap-3 items-stretch sm:gap-4 md:grid-cols-2", showFounderForLayout ? "xl:grid-cols-4" : "xl:grid-cols-3")}
       variants={gridVariants}
       initial="hidden"
       animate="show"
