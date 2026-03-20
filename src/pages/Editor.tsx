@@ -15708,54 +15708,6 @@ const Editor = () => {
     return new Date(platformRateUpdatedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
   }, [activeAnalysisUpdatedAt, activeJobUpdatedAt, platformRateUpdatedAtMs]);
   const dopamineRateActive = platformRateScores.overallScore !== null && platformRateScores.overallScore >= RATE_CARD_DOPAMINE_THRESHOLD;
-  const aModePageHref = useMemo(() => {
-    const params = new URLSearchParams();
-    const hasActiveJob = Boolean(activeJob?.id);
-    const scanProgress = Math.round(totalPipelineProgress);
-
-    if (activeJob?.id) {
-      params.set("jobId", activeJob.id);
-    }
-    params.set("mode", isVerticalMode ? "vertical" : "horizontal");
-    params.set("fullScanProgress", String(scanProgress));
-    params.set(
-      "fullScanLabel",
-      hasActiveJob
-        ? `${activeStatusLabel} · ${activeStageLabel} · ${scanProgress}%`
-        : "No active render selected",
-    );
-    params.set("rateDecisionReady", platformRateDecisionReady ? "1" : "0");
-    params.set("rateAverage", String(platformRateScores.averageScore));
-    params.set("rateYoutube", String(platformRateScores.scoreByPlatform.youtube));
-    params.set("rateTiktok", String(platformRateScores.scoreByPlatform.tiktok));
-    params.set("rateInstagram", String(platformRateScores.scoreByPlatform.instagram_reels));
-    params.set("rateSelected", String(selectedRateSuggestionIds.length));
-    params.set("rateSuggestions", String(editorRateSuggestions.length));
-    params.set("rateUpdated", platformRateUpdatedLabel);
-    if (platformRateScores.overallScore !== null) {
-      params.set("rateOverall", String(platformRateScores.overallScore));
-    }
-    if (platformRateScores.topEntry) {
-      params.set("rateTopLabel", platformRateScores.topEntry.label);
-      params.set("rateTopScore", String(platformRateScores.topEntry.score));
-    }
-    return `/editor/a-mode?${params.toString()}`;
-  }, [
-    activeJob?.id,
-    activeStageLabel,
-    activeStatusLabel,
-    editorRateSuggestions.length,
-    platformRateDecisionReady,
-    platformRateScores.averageScore,
-    platformRateScores.overallScore,
-    platformRateScores.scoreByPlatform.instagram_reels,
-    platformRateScores.scoreByPlatform.tiktok,
-    platformRateScores.scoreByPlatform.youtube,
-    platformRateScores.topEntry,
-    platformRateUpdatedLabel,
-    selectedRateSuggestionIds.length,
-    totalPipelineProgress,
-  ]);
   const retentionBeforeBar = retentionScoreBeforeDisplay !== null
     ? clamp(retentionScoreBeforeDisplay, 0, 100)
     : null;
@@ -22334,18 +22286,6 @@ const Editor = () => {
                           </div>
                         ))}
                       </div>
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-8 rounded-full px-3 text-[11px]"
-                          onClick={() => navigate(aModePageHref)}
-                        >
-                          <Gauge className="mr-1.5 h-3.5 w-3.5" />
-                          Advanced Metrics
-                        </Button>
-                      </div>
                     </div>
                     {!isVerticalMode ? reviewPendingCard : null}
                     {!isVerticalMode ? exportReadyCard : null}
@@ -22579,7 +22519,7 @@ const Editor = () => {
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">A-Mode</p>
                           <p className="text-xs text-muted-foreground">
-                            Facial scan, binge-flow, retention, emotion, and autonomous editing details are now on a dedicated page.
+                            Facial scan, binge-flow, retention, emotion, and autonomous editing signals for this render.
                           </p>
                         </div>
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
@@ -22591,13 +22531,6 @@ const Editor = () => {
                               aria-label="Toggle A-Mode quick stats card"
                             />
                           </label>
-                          <Button
-                            type="button"
-                            className="min-h-10 w-full gap-2 sm:w-auto"
-                            onClick={() => navigate(aModePageHref)}
-                          >
-                            Open Mode Page
-                          </Button>
                         </div>
                       </div>
                       {!showAModeQuickCard ? (
@@ -22634,22 +22567,10 @@ const Editor = () => {
                       </>
                     ) : (
                       <div className="rounded-xl border border-border/55 bg-background/35 p-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Mode Page</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Transcript editor, outcome loop, and video stats now live on the Mode Page.
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            className="min-h-10 w-full gap-2 sm:w-auto"
-                            onClick={() => navigate(aModePageHref)}
-                          >
-                            <Gauge className="h-4 w-4" />
-                            Open Mode Page
-                          </Button>
-                        </div>
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Panel Hidden</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Transcript editor, outcome loop, and video stats are currently hidden. Turn insights on to view them here.
+                        </p>
                       </div>
                     )}
                     {isVerticalMode ? reviewPendingCard : null}

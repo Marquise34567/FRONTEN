@@ -4513,6 +4513,29 @@ html[data-performance='constrained'] .trial-takeover-active * {
     box-shadow: 0 0 10px -8px rgba(56, 189, 248, 0.9);
   }
 
+  .a-mode-mini-plain-summary {
+    margin-top: 0.42rem;
+    border-radius: 0.72rem;
+    border: 1px solid rgba(148, 163, 184, 0.23);
+    background: rgba(9, 13, 24, 0.72);
+    padding: 0.4rem 0.5rem;
+    display: grid;
+    gap: 0.22rem;
+  }
+
+  .a-mode-mini-plain-line {
+    font-size: 0.6rem;
+    line-height: 1.3;
+    color: rgba(226, 232, 240, 0.9);
+  }
+
+  .a-mode-mini-plain-line span {
+    color: rgba(148, 163, 184, 0.94);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+
   .a-mode-mini-graph-premium {
     height: 128px;
     border-color: rgba(129, 140, 248, 0.26);

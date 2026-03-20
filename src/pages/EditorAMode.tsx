@@ -1490,6 +1490,171 @@ const EditorAMode = () => {
     retentionScoreAfter,
     retentionScoreDelta,
   ]);
+  const oneMinuteHoldTarget = useMemo(
+    () => normalizePercent(readNumberFrom(retentionGateSummary, ["one_minute_hold_target"])),
+    [retentionGateSummary],
+  );
+  const oneMinuteHoldEstimate = useMemo(
+    () => normalizePercent(readNumberFrom(longFormGateSummary, ["one_minute_hold_estimate"])),
+    [longFormGateSummary],
+  );
+  const topDropoffMoment = useMemo(
+    () => (retentionDropoffMoments.length > 0 ? retentionDropoffMoments[0] : null),
+    [retentionDropoffMoments],
+  );
+  const topHighRetentionMoment = useMemo(
+    () => (retentionHighMoments.length > 0 ? retentionHighMoments[0] : null),
+    [retentionHighMoments],
+  );
+  const strongestDropoffRisk = useMemo(
+    () => (dropoffHeatmapRows.length > 0 ? Math.round(dropoffHeatmapRows[0].risk) : null),
+    [dropoffHeatmapRows],
+  );
+  const qualityGateProgress = useMemo(() => {
+    const passedChecks = Number(qualityGate?.passedChecks ?? qualityGate?.passed_checks);
+    const totalChecks = Number(qualityGate?.totalChecks ?? qualityGate?.total_checks);
+    if (Number.isFinite(passedChecks) && Number.isFinite(totalChecks) && totalChecks > 0) {
+      return clampPercent(Math.round((passedChecks / totalChecks) * 100));
+    }
+    return null;
+  }, [qualityGate?.passedChecks, qualityGate?.passed_checks, qualityGate?.totalChecks, qualityGate?.total_checks]);
+  const analyticsOverviewCards = useMemo(() => {
+    const benchmarkTarget = benchmarkTargets?.goodTarget ?? null;
+    const retentionDeltaLabel = retentionScoreDelta !== null
+      ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta.toFixed(1)} pts`
+      : "No delta yet";
+    const retentionNote = retentionScoreBefore !== null
+      ? `Started at ${retentionScoreBefore}% · ${retentionDeltaLabel}`
+      : retentionDeltaLabel;
+    const minuteHoldNote = oneMinuteHoldTarget !== null
+      ? `Target ${oneMinuteHoldTarget}%`
+      : "Waiting for target";
+    const dropoffNote = topDropoffMoment
+      ? `${topDropoffMoment.range} flagged as the weakest segment`
+      : "No severe drop-off detected";
+    const strongMomentNote = topHighRetentionMoment
+      ? `Strongest hold around ${topHighRetentionMoment.stamp}`
+      : "Waiting for high-hold moment";
+    const hookNote = hookConfidence !== null
+      ? hookConfidence >= 70
+        ? "Strong opening signal"
+        : hookConfidence >= 50
+          ? "Average opening signal"
+          : "Hook needs strengthening"
+      : "Waiting for hook audit";
+    const likelihoodNote = highRetentionLikelihood
+      ? `Benchmark ${benchmarkTargets?.label ?? "dataset"} · ${highRetentionLikelihood.bandLabel.toLowerCase()} confidence`
+      : "Awaiting benchmark comparison";
+    return [
+      {
+        id: "retention_now",
+        label: "Average retention",
+        value: retentionScoreAfter !== null ? `${retentionScoreAfter}%` : "--",
+        note: retentionNote,
+        progress: retentionScoreAfter,
+        target: benchmarkTarget,
+        tone: retentionScoreAfter !== null && benchmarkTarget !== null
+          ? (retentionScoreAfter >= benchmarkTarget ? "good" : "warn")
+          : "neutral",
+      },
+      {
+        id: "minute_hold",
+        label: "Minute-1 hold",
+        value: oneMinuteHoldEstimate !== null ? `${oneMinuteHoldEstimate}%` : "--",
+        note: minuteHoldNote,
+        progress: oneMinuteHoldEstimate ?? oneMinuteHoldTarget,
+        target: oneMinuteHoldTarget,
+        tone: oneMinuteHoldEstimate !== null && oneMinuteHoldTarget !== null
+          ? (oneMinuteHoldEstimate >= oneMinuteHoldTarget ? "good" : "warn")
+          : "neutral",
+      },
+      {
+        id: "dropoff",
+        label: "Highest drop-off risk",
+        value: strongestDropoffRisk !== null ? `${strongestDropoffRisk}%` : "--",
+        note: dropoffNote,
+        progress: strongestDropoffRisk,
+        target: null,
+        tone: strongestDropoffRisk !== null && strongestDropoffRisk >= 45 ? "warn" : "neutral",
+      },
+      {
+        id: "best_moment",
+        label: "Top retention moment",
+        value: topHighRetentionMoment ? `${topHighRetentionMoment.value}%` : "--",
+        note: strongMomentNote,
+        progress: topHighRetentionMoment?.value ?? null,
+        target: null,
+        tone: topHighRetentionMoment ? "good" : "neutral",
+      },
+      {
+        id: "hook_confidence",
+        label: "Hook confidence",
+        value: hookConfidence !== null ? `${hookConfidence}%` : "--",
+        note: hookNote,
+        progress: hookConfidence,
+        target: null,
+        tone: hookConfidence !== null && hookConfidence < 52 ? "warn" : "neutral",
+      },
+      {
+        id: "retention_likelihood",
+        label: "High-retention likelihood",
+        value: highRetentionLikelihood ? `${highRetentionLikelihood.score}%` : "--",
+        note: likelihoodNote,
+        progress: highRetentionLikelihood?.score ?? null,
+        target: null,
+        tone: highRetentionLikelihood && highRetentionLikelihood.score >= 68 ? "good" : "neutral",
+      },
+      {
+        id: "quality_gate",
+        label: "Quality gate coverage",
+        value: qualityGateScore ?? "--",
+        note: qualityGatePassed === true
+          ? "All required checks passed"
+          : qualityGatePassed === false
+            ? "Some checks still failing"
+            : "Awaiting quality gate data",
+        progress: qualityGateProgress,
+        target: qualityGateProgress !== null ? 100 : null,
+        tone: qualityGatePassed === false ? "warn" : qualityGatePassed === true ? "good" : "neutral",
+      },
+      {
+        id: "target_platform",
+        label: "Primary platform",
+        value: retentionTargetPlatformLabel,
+        note: hasRateCard && rateTopScore !== null ? `Best current score: ${rateTopLabel} ${rateTopScore}/100` : "Platform score is still loading",
+        progress: rateTopScore,
+        target: null,
+        tone: hasRateCard && rateTopScore !== null && rateTopScore >= 70 ? "good" : "neutral",
+      },
+    ] as Array<{
+      id: string;
+      label: string;
+      value: string;
+      note: string;
+      progress: number | null;
+      target: number | null;
+      tone: "good" | "warn" | "neutral";
+    }>;
+  }, [
+    benchmarkTargets,
+    hasRateCard,
+    highRetentionLikelihood,
+    hookConfidence,
+    oneMinuteHoldEstimate,
+    oneMinuteHoldTarget,
+    qualityGatePassed,
+    qualityGateProgress,
+    qualityGateScore,
+    rateTopLabel,
+    rateTopScore,
+    retentionScoreAfter,
+    retentionScoreBefore,
+    retentionScoreDelta,
+    retentionTargetPlatformLabel,
+    strongestDropoffRisk,
+    topDropoffMoment,
+    topHighRetentionMoment,
+  ]);
   const humanReviewRequired = useMemo(() => {
     return parseBooleanLike(
       jobAnalysis?.humanReviewRequired ??
@@ -1701,16 +1866,26 @@ const EditorAMode = () => {
               <div className="a-mode-visual-content">
                 <p className="a-mode-visual-kicker">AI Analysis</p>
                 <h2 className="a-mode-visual-title">Retention Detection</h2>
-                <p className="a-mode-visual-subtitle">AutoEditor scans for audience drop-off points</p>
+                <p className="a-mode-visual-subtitle">Red markers show where viewers leave. Green markers show where viewers stay locked in.</p>
                 <div className="a-mode-mini-card a-mode-mini-card-premium">
                   <div className="a-mode-mini-header">
-                    <span className="a-mode-mini-label">Signal</span>
+                    <span className="a-mode-mini-label">Predicted retention</span>
                     <span className="a-mode-mini-score">II {retentionDetectionScore !== null ? `${retentionDetectionScore}%` : "--"}</span>
                   </div>
                   <div className="a-mode-mini-legend-row">
                     <span className="a-mode-mini-legend-chip is-drop">Drop-off</span>
                     <span className="a-mode-mini-legend-chip is-high">High retention</span>
                     <span className="a-mode-mini-legend-chip is-trace">Live trace</span>
+                  </div>
+                  <div className="a-mode-mini-plain-summary">
+                    <p className="a-mode-mini-plain-line">
+                      <span>Biggest drop:</span>{" "}
+                      {topDropoffMoment ? `${topDropoffMoment.range} (${topDropoffMoment.risk}% risk)` : "No severe drop-off detected"}
+                    </p>
+                    <p className="a-mode-mini-plain-line">
+                      <span>Strongest hold:</span>{" "}
+                      {topHighRetentionMoment ? `${topHighRetentionMoment.stamp} (${topHighRetentionMoment.value}% hold)` : "Waiting for high-retention peak"}
+                    </p>
                   </div>
                   <div className="a-mode-mini-graph a-mode-mini-graph-premium">
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
@@ -1865,121 +2040,60 @@ const EditorAMode = () => {
         </motion.section>
 
         <motion.section
-          className="mx-auto mt-4 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-6"
+          className="mx-auto mt-4 max-w-6xl"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4 }}
         >
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention score</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">
-              {retentionScoreAfter !== null ? `${retentionScoreAfter}%` : "--"}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {retentionScoreAfter !== null ? "Latest retention score" : "Awaiting retention score"}
-            </p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">High-retention likelihood</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">
-              {highRetentionLikelihood ? `${highRetentionLikelihood.score}%` : "--"}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {highRetentionLikelihood ? `${highRetentionLikelihood.bandLabel} confidence` : "Awaiting benchmark + edit signals"}
-            </p>
-            {highRetentionLikelihood ? (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {highRetentionLikelihood.detailLine}
+          <article className="rounded-2xl border border-primary/30 bg-[linear-gradient(150deg,rgba(30,38,70,0.65),rgba(13,18,36,0.88))] p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <BarChart3 className="h-3.5 w-3.5 text-primary" />
+                Audience Analytics Overview
               </p>
-            ) : null}
-            {highRetentionLikelihood ? (
-              <p className="mt-1 text-[10px] text-muted-foreground">{highRetentionLikelihood.benchmarkLine}</p>
-            ) : null}
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Peak energy</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">
-              {peakEnergyPoint ? peakEnergyPoint.energy : "--"}
+              <Badge className="border-primary/35 bg-primary/10 text-foreground">YouTube-style clarity</Badge>
+            </div>
+            <p className="mt-1.5 text-xs text-foreground/85">
+              Fast read on retention performance, risk zones, and benchmark alignment.
             </p>
-            <p className="text-[10px] text-muted-foreground">
-              {peakEnergyPoint ? `At ${peakEnergyPoint.stamp}` : "Awaiting energy scan"}
-            </p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Emotion sync</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">{avgEmotion ?? "--"}</p>
-            <p className="text-[10px] text-muted-foreground">
-              {avgEmotion !== null ? "Facial + audio weighted" : "Awaiting emotion scan"}
-            </p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Quality gate</p>
-            <p
-              className={`mt-1 text-xl font-semibold ${
-                qualityGatePassed === false
-                  ? "text-rose-200"
-                  : qualityGatePassed === true
-                    ? "text-emerald-200"
-                    : "text-foreground"
-              }`}
-            >
-              {qualityGateScore ?? "--"}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {qualityGatePassed === false
-                ? "Gate needs attention"
-                : qualityGatePassed === true
-                  ? "All hard checks passed"
-                  : "Quality gate awaiting signal"}
-            </p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Rate Card Winner</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">{rateTopScore ?? "--"}</p>
-            <p className="text-[10px] text-muted-foreground">{rateTopScore !== null ? rateTopLabel : "Pending"}</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {rateDecisionReady && hasRateCard
-                ? "Locked on ready render"
-                : hasRateCard
-                  ? "Live estimate"
-                  : "Awaiting rate data"}
-            </p>
-          </article>
-        </motion.section>
-
-        <motion.section
-          className="mx-auto mt-3 grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-4"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.06, duration: 0.35 }}
-        >
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention before</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">{retentionScoreBefore ?? "--"}</p>
-            <p className="text-[10px] text-muted-foreground">Baseline signal</p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Retention delta</p>
-            <p className={`mt-1 text-xl font-semibold ${
-              retentionScoreDelta === null
-                ? "text-foreground"
-                : retentionScoreDelta >= 0
-                  ? "text-emerald-200"
-                  : "text-rose-200"
-            }`}>
-              {retentionScoreDelta !== null ? `${retentionScoreDelta > 0 ? "+" : ""}${retentionScoreDelta}` : "--"}
-            </p>
-            <p className="text-[10px] text-muted-foreground">After - before</p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Hook confidence</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">{hookConfidence ?? "--"}{hookConfidence !== null ? "%" : ""}</p>
-            <p className="text-[10px] text-muted-foreground">Opener signal</p>
-          </article>
-          <article className="rounded-xl border border-primary/25 bg-background/55 p-2.5">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Target platform</p>
-            <p className="mt-1 text-xl font-semibold text-foreground">{retentionTargetPlatformLabel}</p>
-            <p className="text-[10px] text-muted-foreground">Retention focus</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {analyticsOverviewCards.map((card) => {
+                const toneClass = card.tone === "good"
+                  ? "border-emerald-400/35 bg-emerald-500/8"
+                  : card.tone === "warn"
+                    ? "border-rose-400/35 bg-rose-500/8"
+                    : "border-primary/25 bg-background/45";
+                const barClass = card.tone === "good"
+                  ? "from-emerald-300/90 to-emerald-500/90"
+                  : card.tone === "warn"
+                    ? "from-amber-300/90 via-orange-300/90 to-rose-400/90"
+                    : "from-cyan-300/90 to-primary/90";
+                return (
+                  <article key={card.id} className={`rounded-xl border p-2.5 ${toneClass}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{card.label}</p>
+                      {card.target !== null ? (
+                        <Badge variant="outline" className="border-border/55 bg-background/35 px-1.5 py-0 text-[10px] text-muted-foreground">
+                          Target {card.target}%
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{card.value}</p>
+                    <p className="mt-1 text-[11px] text-foreground/80">{card.note}</p>
+                    {card.progress !== null ? (
+                      <div className="mt-2">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted/65">
+                          <div
+                            className={`h-full rounded-full bg-gradient-to-r ${barClass}`}
+                            style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
           </article>
         </motion.section>
 
