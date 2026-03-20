@@ -142,6 +142,9 @@ const statusClass = (status: PremiumTitleLengthStatus) => {
   return "bg-amber-500/15 text-amber-200 border-amber-400/30";
 };
 
+const premiumPanelClass =
+  "border border-amber-200/15 bg-gradient-to-br from-slate-950/85 via-slate-900/80 to-zinc-950/85 shadow-[0_18px_70px_-34px_rgba(250,204,21,0.48)] backdrop-blur";
+
 const PremiumTitleGenerator = () => {
   const { accessToken } = useAuth();
   const { plan, loading: subscriptionLoading } = useSubscription();
@@ -230,83 +233,90 @@ const PremiumTitleGenerator = () => {
           transition={{ duration: 0.35 }}
           className="mx-auto mb-6 max-w-6xl"
         >
-          <div className="rounded-2xl border border-border/60 bg-card/50 p-5 sm:p-6">
+          <div className="rounded-2xl border border-amber-200/20 bg-gradient-to-br from-zinc-950/85 via-slate-900/80 to-zinc-900/80 p-5 shadow-[0_24px_80px_-36px_rgba(250,204,21,0.45)] sm:p-6">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className="border border-emerald-300/30 bg-emerald-500/15 text-emerald-100">Premium Tool</Badge>
-              <Badge variant="outline" className="border-cyan-300/30 bg-cyan-500/10 text-cyan-100">
+              <Badge className="border border-amber-300/40 bg-amber-500/15 text-amber-100">Premium Tool</Badge>
+              <Badge variant="outline" className="border-cyan-300/35 bg-cyan-500/10 text-cyan-100">
                 {subscriptionLoading ? "Checking plan..." : premiumUnlocked ? `Plan: ${plan}` : "Plan: free"}
               </Badge>
             </div>
-            <h1 className="mt-3 text-3xl font-bold font-display text-foreground sm:text-4xl">Premium Title Generator</h1>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            <h1 className="mt-3 text-3xl font-bold font-display tracking-tight text-foreground sm:text-4xl">Premium Title Generator</h1>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground/95">
               Generate title variants for any topic with Gemini using your 2026 CTR framework: length control, odd-number bias,
               emotional triggers, thumbnail-title synergy, and A/B testing logic.
             </p>
           </div>
         </motion.div>
 
-        <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card className="border-border/60 bg-card/60">
-            <CardHeader>
-              <CardTitle className="text-xl">Generate</CardTitle>
-              <CardDescription>Add your video context. The model will generate premium title variants.</CardDescription>
+        <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[0.98fr_1.02fr]">
+          <Card className={premiumPanelClass}>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-lg font-display tracking-tight">Generate</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground/90">
+                Compact inputs for faster packaging ideation.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Topic</p>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Video Topic</p>
                 <Input
                   value={topic}
                   onChange={(event) => setTopic(event.target.value)}
                   placeholder="Example: faceless YouTube automation with AI tools"
                   maxLength={220}
+                  className="h-9 border-amber-100/20 bg-black/20 text-sm placeholder:text-muted-foreground/60"
                 />
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Video Summary (optional)</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Video Summary (optional)</p>
                 <Textarea
                   value={videoSummary}
                   onChange={(event) => setVideoSummary(event.target.value)}
                   placeholder="Briefly describe what the viewer will learn, outcome, and tone."
-                  rows={3}
+                  rows={2}
                   maxLength={1600}
+                  className="min-h-[68px] border-amber-100/20 bg-black/20 text-sm placeholder:text-muted-foreground/60"
                 />
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Thumbnail Context (optional)</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Thumbnail Context (optional)</p>
                 <Textarea
                   value={thumbnailContext}
                   onChange={(event) => setThumbnailContext(event.target.value)}
                   placeholder='Example: Thumbnail text says "99% Fail". Image shows shocked face + red arrow.'
-                  rows={3}
+                  rows={2}
                   maxLength={360}
+                  className="min-h-[68px] border-amber-100/20 bg-black/20 text-sm placeholder:text-muted-foreground/60"
                 />
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Previous Winning Titles (optional)</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Previous Winning Titles (optional)</p>
                 <Textarea
                   value={previousTitles}
                   onChange={(event) => setPreviousTitles(event.target.value)}
                   placeholder="Paste one title per line from your channel that already performed well."
-                  rows={4}
+                  rows={3}
                   maxLength={2200}
+                  className="min-h-[86px] border-amber-100/20 bg-black/20 text-sm placeholder:text-muted-foreground/60"
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Target Audience</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Target Audience</p>
                   <Input
                     value={targetAudience}
                     onChange={(event) => setTargetAudience(event.target.value)}
                     placeholder="Example: beginner creators"
                     maxLength={180}
+                    className="h-9 border-amber-100/20 bg-black/20 text-sm placeholder:text-muted-foreground/60"
                   />
                 </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Variant Count</p>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Variant Count</p>
                   <select
                     value={count}
                     onChange={(event) => setCount(Number(event.target.value))}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+                    className="h-9 w-full rounded-md border border-amber-100/20 bg-black/25 px-3 text-sm text-foreground"
                   >
                     <option value={5}>5 variants</option>
                     <option value={8}>8 variants</option>
@@ -315,13 +325,17 @@ const PremiumTitleGenerator = () => {
                   </select>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <Button onClick={() => void handleGenerate()} disabled={loading || !premiumUnlocked || !topic.trim()} className="gap-2">
+              <div className="flex flex-wrap items-center gap-3 pt-1.5">
+                <Button
+                  onClick={() => void handleGenerate()}
+                  disabled={loading || !premiumUnlocked || !topic.trim()}
+                  className="h-9 gap-2 bg-amber-300/90 px-4 text-black hover:bg-amber-200"
+                >
                   <Sparkles className="h-4 w-4" />
                   {loading ? "Generating..." : "Generate Premium Titles"}
                 </Button>
                 {!premiumUnlocked ? (
-                  <Link to="/pricing" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                  <Link to="/pricing" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
                     Upgrade to Starter+ to unlock this tool
                   </Link>
                 ) : null}
@@ -329,21 +343,33 @@ const PremiumTitleGenerator = () => {
             </CardContent>
           </Card>
 
-          <Card className="border-border/60 bg-card/60">
-            <CardHeader>
-              <CardTitle className="text-xl">2026 Framework</CardTitle>
-              <CardDescription>Your premium title ruleset used for generation and scoring.</CardDescription>
+          <Card className={premiumPanelClass}>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-lg font-display tracking-tight">2026 Framework</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground/90">
+                Compact scorecard used by the generator.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="grid gap-2 sm:grid-cols-2">
               {frameworkRows.map((row) => (
-                <div key={`${row.section}-${row.signal}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{row.section}</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{row.signal}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Baseline: {row.baseline}</p>
-                  <p className="text-xs text-muted-foreground">Optimized: {row.optimized}</p>
-                  <p className="text-xs text-muted-foreground">Elite: {row.elite}</p>
-                  <p className="mt-1 text-xs text-foreground/90">Example: {row.example}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground/90">Source: {row.source}</p>
+                <div
+                  key={`${row.section}-${row.signal}`}
+                  className="rounded-lg border border-amber-100/15 bg-black/25 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{row.section}</p>
+                    <p className="text-[10px] text-muted-foreground/80">2026</p>
+                  </div>
+                  <p className="mt-1 text-[13px] font-semibold leading-4 text-foreground">{row.signal}</p>
+                  <div className="mt-1.5 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1 text-[11px] leading-4">
+                    <span className="text-muted-foreground/90">Base</span>
+                    <span className="text-muted-foreground">{row.baseline}</span>
+                    <span className="text-muted-foreground/90">Opt</span>
+                    <span className="text-muted-foreground">{row.optimized}</span>
+                    <span className="text-muted-foreground/90">Elite</span>
+                    <span className="text-foreground/90">{row.elite}</span>
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-4 text-foreground/85">{row.example}</p>
                 </div>
               ))}
             </CardContent>
@@ -351,10 +377,10 @@ const PremiumTitleGenerator = () => {
         </div>
 
         <section className="mx-auto mt-6 max-w-6xl space-y-4">
-          <Card className="border-border/60 bg-card/60">
-            <CardHeader>
-              <CardTitle className="text-xl">Generated Title Variants</CardTitle>
-              <CardDescription>
+          <Card className={premiumPanelClass}>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-lg font-display tracking-tight">Generated Title Variants</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground/90">
                 {result
                   ? `Provider: ${result.provider}${result.model ? ` (${result.model})` : ""}${result.usedFallback ? " · fallback assist active" : ""}`
                   : "Run generation to get scored title ideas."}
@@ -363,13 +389,13 @@ const PremiumTitleGenerator = () => {
             <CardContent className="space-y-3">
               {result?.titles?.length ? (
                 result.titles.map((idea, index) => (
-                  <div key={`${idea.title}-${index}`} className="rounded-xl border border-border/60 bg-background/35 p-4">
+                  <div key={`${idea.title}-${index}`} className="rounded-xl border border-amber-100/15 bg-black/25 p-3.5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-base font-semibold text-foreground">{idea.title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{idea.whyItShouldWork}</p>
+                        <p className="text-[15px] font-semibold leading-5 text-foreground">{idea.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground/95">{idea.whyItShouldWork}</p>
                       </div>
-                      <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => void handleCopy(idea.title)}>
+                      <Button variant="outline" size="sm" className="gap-1.5 shrink-0 border-amber-100/25 bg-black/20" onClick={() => void handleCopy(idea.title)}>
                         <Copy className="h-3.5 w-3.5" />
                         Copy
                       </Button>
@@ -400,20 +426,20 @@ const PremiumTitleGenerator = () => {
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-border/70 bg-background/25 p-6 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-amber-100/25 bg-black/15 p-5 text-sm text-muted-foreground">
                   No titles yet. Add your topic and click <span className="font-medium text-foreground">Generate Premium Titles</span>.
                 </div>
               )}
             </CardContent>
           </Card>
 
-          <Card className="border-border/60 bg-card/60">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
+          <Card className={premiumPanelClass}>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-lg flex items-center gap-2 font-display tracking-tight">
                 <TrendingUp className="h-4 w-4 text-emerald-300" />
                 Thumbnail + Testing Guidance
               </CardTitle>
-              <CardDescription>Use these immediately after you publish.</CardDescription>
+              <CardDescription className="text-xs text-muted-foreground/90">Use these immediately after you publish.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>{result?.thumbnailSynergyTip || "Use title and thumbnail as a combo: one creates curiosity, the other explains the payoff."}</p>
