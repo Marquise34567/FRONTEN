@@ -2442,6 +2442,18 @@ type YouTubeOAuthStatusResponse = {
   authConfigured?: boolean;
   missingConfig?: string[];
 };
+type YouTubeChannelAveragesResponse = {
+  connected?: boolean;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  sampleVideos?: number;
+  averageViewDurationSeconds?: number | null;
+  averageViewPercentage?: number | null;
+  averageEngagementRatePercent?: number | null;
+  averageHookHoldPercent?: number | null;
+  averageFirst30Retention?: number | null;
+  latestSyncedAt?: string | null;
+};
 type YouTubeLinkJobVideoResponse = {
   ok?: boolean;
   jobId?: string;
@@ -2528,6 +2540,149 @@ const PIPELINE_STEPS = [
   { key: "review", label: "AI Review" },
   { key: "ready", label: "Download Ready" },
 ] as const;
+type PipelineForecastLengthTier = {
+  id: string;
+  label: string;
+  minSec: number;
+  maxSecExclusive: number | null;
+  averageRetentionLabel: string;
+  averageRetentionMidpoint: number;
+  goodRetentionLabel: string;
+  viralRetentionLabel: string;
+  typicalAvdLabel: string;
+  notes: string;
+  benchmarkEngagementRatePercent: number;
+  typicalAvdMinSec?: number;
+  typicalAvdMaxSec?: number;
+  fallbackHighMomentSec: number;
+};
+const PIPELINE_FORECAST_LENGTH_TIERS: PipelineForecastLengthTier[] = [
+  {
+    id: "under_1_min",
+    label: "Under 1 min (Shorts)",
+    minSec: 0,
+    maxSecExclusive: 60,
+    averageRetentionLabel: "65-85%",
+    averageRetentionMidpoint: 75,
+    goodRetentionLabel: "70%+",
+    viralRetentionLabel: "85-90%+ (often >100% loops)",
+    typicalAvdLabel: "30-50s+",
+    notes: "High due to format; Zebracat/Shortimize benchmarks",
+    benchmarkEngagementRatePercent: 7.8,
+    typicalAvdMinSec: 30,
+    typicalAvdMaxSec: 50,
+    fallbackHighMomentSec: 10,
+  },
+  {
+    id: "1_3_min",
+    label: "1-3 min",
+    minSec: 60,
+    maxSecExclusive: 180,
+    averageRetentionLabel: "60%+",
+    averageRetentionMidpoint: 62,
+    goodRetentionLabel: "75%+",
+    viralRetentionLabel: "N/A",
+    typicalAvdLabel: "High completion common",
+    notes: "High completion common",
+    benchmarkEngagementRatePercent: 6.1,
+    fallbackHighMomentSec: 24,
+  },
+  {
+    id: "3_5_min",
+    label: "3-5 min",
+    minSec: 180,
+    maxSecExclusive: 300,
+    averageRetentionLabel: "50%+",
+    averageRetentionMidpoint: 52,
+    goodRetentionLabel: "65%+",
+    viralRetentionLabel: "N/A",
+    typicalAvdLabel: "2-3+ min AVD",
+    notes: "Front-load value",
+    benchmarkEngagementRatePercent: 5.2,
+    typicalAvdMinSec: 120,
+    typicalAvdMaxSec: 210,
+    fallbackHighMomentSec: 42,
+  },
+  {
+    id: "5_10_min",
+    label: "5-10 min",
+    minSec: 300,
+    maxSecExclusive: 600,
+    averageRetentionLabel: "~31-40%",
+    averageRetentionMidpoint: 36,
+    goodRetentionLabel: "45-60%",
+    viralRetentionLabel: "55-65%+",
+    typicalAvdLabel: "4-6 min AVD",
+    notes: "Sweet spot for many niches",
+    benchmarkEngagementRatePercent: 4.4,
+    typicalAvdMinSec: 240,
+    typicalAvdMaxSec: 360,
+    fallbackHighMomentSec: 84,
+  },
+  {
+    id: "10_20_min",
+    label: "10-20 min",
+    minSec: 600,
+    maxSecExclusive: 1200,
+    averageRetentionLabel: "20-35%",
+    averageRetentionMidpoint: 28,
+    goodRetentionLabel: "40-55%",
+    viralRetentionLabel: "50-60%+",
+    typicalAvdLabel: "4-8 min AVD",
+    notes: "Chapters help",
+    benchmarkEngagementRatePercent: 3.6,
+    typicalAvdMinSec: 240,
+    typicalAvdMaxSec: 480,
+    fallbackHighMomentSec: 168,
+  },
+  {
+    id: "20_60_min",
+    label: "20-60 min",
+    minSec: 1200,
+    maxSecExclusive: 3600,
+    averageRetentionLabel: "25-35%",
+    averageRetentionMidpoint: 30,
+    goodRetentionLabel: "35-50%",
+    viralRetentionLabel: "45-55%+",
+    typicalAvdLabel: "Higher absolute AVD possible",
+    notes: "Higher absolute AVD possible",
+    benchmarkEngagementRatePercent: 3.1,
+    typicalAvdMinSec: 420,
+    typicalAvdMaxSec: 1080,
+    fallbackHighMomentSec: 480,
+  },
+  {
+    id: "over_60_min",
+    label: "Over 60 min",
+    minSec: 3600,
+    maxSecExclusive: null,
+    averageRetentionLabel: "15-30%",
+    averageRetentionMidpoint: 23,
+    goodRetentionLabel: "30-45%",
+    viralRetentionLabel: "N/A",
+    typicalAvdLabel: "Long podcasts/tutorials",
+    notes: "Long podcasts/tutorials",
+    benchmarkEngagementRatePercent: 2.6,
+    typicalAvdMinSec: 720,
+    typicalAvdMaxSec: 1800,
+    fallbackHighMomentSec: 780,
+  },
+];
+const resolvePipelineForecastLengthTier = (durationSec: number | null, verticalMode: boolean) => {
+  if (durationSec === null || !Number.isFinite(durationSec)) {
+    return verticalMode
+      ? PIPELINE_FORECAST_LENGTH_TIERS[0]
+      : PIPELINE_FORECAST_LENGTH_TIERS[3];
+  }
+  const safeDuration = Math.max(0, durationSec);
+  return (
+    PIPELINE_FORECAST_LENGTH_TIERS.find((tier) => (
+      safeDuration >= tier.minSec &&
+      (tier.maxSecExclusive === null || safeDuration < tier.maxSecExclusive)
+    )) ||
+    PIPELINE_FORECAST_LENGTH_TIERS[PIPELINE_FORECAST_LENGTH_TIERS.length - 1]
+  );
+};
 const RETENTION_GOAL_PERCENT = 70;
 const DEFAULT_AUTO_HOOK_DURATION_SEC = 8;
 const REALTIME_HOOK_MUTABLE_STATUSES = new Set([
@@ -5335,6 +5490,8 @@ const Editor = () => {
   const [youtubeOAuthStatus, setYouTubeOAuthStatus] = useState<YouTubeOAuthStatusResponse | null>(null);
   const [youtubeOAuthStatusLoading, setYouTubeOAuthStatusLoading] = useState(false);
   const [youtubeOAuthBusyAction, setYouTubeOAuthBusyAction] = useState<"connect" | "exchange" | "disconnect" | null>(null);
+  const [youtubeChannelAverages, setYouTubeChannelAverages] = useState<YouTubeChannelAveragesResponse | null>(null);
+  const [youtubeChannelAveragesLoading, setYouTubeChannelAveragesLoading] = useState(false);
   const [youtubeVideoDraftLoose, setYouTubeVideoDraftLoose] = useState("");
   const [youtubeVideoDraftByJob, setYouTubeVideoDraftByJob] = useState<Record<string, string>>({});
   const [youtubeVideoLinkingJobId, setYoutubeVideoLinkingJobId] = useState<string | null>(null);
@@ -6273,6 +6430,8 @@ const Editor = () => {
     if (!accessToken) {
       setYouTubeOAuthStatus(null);
       setYouTubeOAuthStatusLoading(false);
+      setYouTubeChannelAverages(null);
+      setYouTubeChannelAveragesLoading(false);
       return;
     }
     setYouTubeOAuthStatusLoading(true);
@@ -6294,6 +6453,35 @@ const Editor = () => {
       }
     } finally {
       setYouTubeOAuthStatusLoading(false);
+    }
+  }, [accessToken, signOut, toast]);
+
+  const fetchYouTubeChannelAverages = useCallback(async () => {
+    if (!accessToken) {
+      setYouTubeChannelAverages(null);
+      setYouTubeChannelAveragesLoading(false);
+      return;
+    }
+    setYouTubeChannelAveragesLoading(true);
+    try {
+      const data = await apiFetch<YouTubeChannelAveragesResponse>("/api/feedback/youtube/channel-averages", {
+        token: accessToken,
+      });
+      setYouTubeChannelAverages(data || null);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAuthError(true);
+        toast({ title: "Session expired", description: "Please sign in again." });
+        try {
+          await signOut();
+        } catch {
+          // ignore
+        }
+      } else {
+        setYouTubeChannelAverages(null);
+      }
+    } finally {
+      setYouTubeChannelAveragesLoading(false);
     }
   }, [accessToken, signOut, toast]);
 
@@ -6357,6 +6545,7 @@ const Editor = () => {
         token: accessToken,
       });
       await fetchYouTubeOAuthStatus();
+      setYouTubeChannelAverages(null);
       toast({
         title: "YouTube disconnected",
         description: "Channel access was removed from this account.",
@@ -6435,6 +6624,7 @@ const Editor = () => {
         setYouTubeSignalByJob((prev) => ({ ...prev, [jobId]: normalizedSignal }));
       }
       await fetchJob(jobId);
+      await fetchYouTubeChannelAverages();
       toast({
         title: normalizedSignal?.coldStartMode ? "Synced in cold-start mode" : "YouTube analytics synced",
         description: normalizedSignal
@@ -6449,7 +6639,7 @@ const Editor = () => {
     } finally {
       setYoutubeSyncingJobId((current) => (current === jobId ? null : current));
     }
-  }, [accessToken, activeJob?.id, fetchJob, toast, youtubeVideoDraftByJob]);
+  }, [accessToken, activeJob?.id, fetchJob, fetchYouTubeChannelAverages, toast, youtubeVideoDraftByJob]);
 
   const handleApplyYouTubeReferenceStyle = useCallback(async () => {
     if (!accessToken) return;
@@ -6955,6 +7145,20 @@ const Editor = () => {
     }
     void fetchYouTubeOAuthStatus();
   }, [accessToken, authError, fetchYouTubeOAuthStatus]);
+
+  useEffect(() => {
+    if (!accessToken || authError) {
+      setYouTubeChannelAverages(null);
+      setYouTubeChannelAveragesLoading(false);
+      return;
+    }
+    if (!youtubeOAuthStatus?.connected) {
+      setYouTubeChannelAverages(null);
+      setYouTubeChannelAveragesLoading(false);
+      return;
+    }
+    void fetchYouTubeChannelAverages();
+  }, [accessToken, authError, fetchYouTubeChannelAverages, youtubeOAuthStatus?.connected]);
 
   useEffect(() => {
     if (!accessToken || authError) {
@@ -11300,6 +11504,26 @@ const Editor = () => {
       ? `${Math.round(clamp01(youtubeReferenceStyleApplied.confidence) * 100)}% confidence`
       : null;
   const youtubeConnected = Boolean(youtubeOAuthStatus?.connected);
+  const youtubeChannelSampleVideos = Math.max(
+    0,
+    Math.round(firstFiniteNumber(youtubeChannelAverages?.sampleVideos, 0) ?? 0),
+  );
+  const youtubeChannelAverageViewDurationSeconds = firstFiniteNumber(
+    youtubeChannelAverages?.averageViewDurationSeconds,
+  );
+  const youtubeChannelAverageViewPercentage = firstFiniteNumber(
+    youtubeChannelAverages?.averageViewPercentage,
+  );
+  const youtubeChannelAverageEngagementRatePercent = firstFiniteNumber(
+    youtubeChannelAverages?.averageEngagementRatePercent,
+  );
+  const youtubeChannelAverageHookHoldPercent = firstFiniteNumber(
+    youtubeChannelAverages?.averageHookHoldPercent,
+  );
+  const youtubeChannelAverageFirst30Retention = firstFiniteNumber(
+    youtubeChannelAverages?.averageFirst30Retention,
+  );
+  const youtubeChannelAveragesAvailable = youtubeConnected && youtubeChannelSampleVideos > 0;
   const youtubeOAuthConfigured = youtubeOAuthStatus?.authConfigured !== false;
   const youtubeConnectBusy = youtubeOAuthBusyAction === "connect" || youtubeOAuthBusyAction === "exchange";
   const youtubeDisconnectBusy = youtubeOAuthBusyAction === "disconnect";
@@ -13267,6 +13491,230 @@ const Editor = () => {
     () => retentionTimelineSegments.filter((segment) => segment.category === "weak").slice(0, 3),
     [retentionTimelineSegments],
   );
+  const pipelineForecastDurationSec = useMemo(() => {
+    const fromCurve = retentionCurvePoints.length > 0
+      ? retentionCurvePoints[retentionCurvePoints.length - 1].atSec
+      : null;
+    const resolved = firstFiniteNumber(
+      estimatedDurationSec,
+      activeJob?.inputDurationSeconds,
+      previewVideoDurationSec,
+      fromCurve,
+    );
+    if (resolved === null) return null;
+    return Math.max(8, resolved);
+  }, [activeJob?.inputDurationSeconds, estimatedDurationSec, previewVideoDurationSec, retentionCurvePoints]);
+  const pipelineForecastTier = useMemo(
+    () => resolvePipelineForecastLengthTier(pipelineForecastDurationSec, isVerticalMode),
+    [isVerticalMode, pipelineForecastDurationSec],
+  );
+  const pipelinePredictedRetentionPercent = useMemo(() => (
+    clamp(
+      Math.round(
+        firstFiniteNumber(
+          latestRetentionPoint?.predicted,
+          retentionScoreAfterDisplay,
+          retentionScoreDisplay,
+          pipelineForecastTier.averageRetentionMidpoint,
+        ) ?? pipelineForecastTier.averageRetentionMidpoint,
+      ),
+      0,
+      100,
+    )
+  ), [
+    latestRetentionPoint?.predicted,
+    pipelineForecastTier.averageRetentionMidpoint,
+    retentionScoreAfterDisplay,
+    retentionScoreDisplay,
+  ]);
+  const pipelineBenchmarkWatchtimeSeconds = useMemo(() => {
+    const fallbackDuration = Math.max(
+      30,
+      pipelineForecastTier.typicalAvdMaxSec ??
+      pipelineForecastTier.typicalAvdMinSec ??
+      180,
+    );
+    const durationBase = pipelineForecastDurationSec ?? fallbackDuration;
+    let predicted = durationBase * (pipelinePredictedRetentionPercent / 100);
+    if (
+      pipelineForecastTier.typicalAvdMinSec !== undefined ||
+      pipelineForecastTier.typicalAvdMaxSec !== undefined
+    ) {
+      const minBound = pipelineForecastTier.typicalAvdMinSec ?? 6;
+      const maxBound = pipelineForecastTier.typicalAvdMaxSec ?? Math.max(minBound + 1, durationBase);
+      predicted = clamp(predicted, minBound, maxBound);
+    }
+    if (pipelineForecastDurationSec !== null) {
+      predicted = clamp(predicted, 6, Math.max(6, pipelineForecastDurationSec));
+    }
+    return predicted;
+  }, [pipelineForecastDurationSec, pipelineForecastTier, pipelinePredictedRetentionPercent]);
+  const pipelinePredictedAverageWatchtimeSeconds = useMemo(() => {
+    if (!youtubeChannelAveragesAvailable || youtubeChannelAverageViewDurationSeconds === null) {
+      return pipelineBenchmarkWatchtimeSeconds;
+    }
+    const cap = pipelineForecastDurationSec !== null
+      ? Math.max(6, pipelineForecastDurationSec)
+      : Math.max(30, youtubeChannelAverageViewDurationSeconds, pipelineBenchmarkWatchtimeSeconds);
+    return clamp(
+      youtubeChannelAverageViewDurationSeconds * 0.68 + pipelineBenchmarkWatchtimeSeconds * 0.32,
+      6,
+      cap,
+    );
+  }, [
+    pipelineBenchmarkWatchtimeSeconds,
+    pipelineForecastDurationSec,
+    youtubeChannelAverageViewDurationSeconds,
+    youtubeChannelAveragesAvailable,
+  ]);
+  const pipelineBenchmarkEngagementRatePercent = useMemo(() => {
+    const retentionDelta = pipelinePredictedRetentionPercent - pipelineForecastTier.averageRetentionMidpoint;
+    return Number(
+      clamp(
+        pipelineForecastTier.benchmarkEngagementRatePercent + (retentionDelta * 0.055),
+        0.5,
+        25,
+      ).toFixed(2),
+    );
+  }, [pipelineForecastTier.averageRetentionMidpoint, pipelineForecastTier.benchmarkEngagementRatePercent, pipelinePredictedRetentionPercent]);
+  const pipelinePredictedEngagementRatePercent = useMemo(() => {
+    if (!youtubeChannelAveragesAvailable || youtubeChannelAverageEngagementRatePercent === null) {
+      return pipelineBenchmarkEngagementRatePercent;
+    }
+    return Number(
+      clamp(
+        (youtubeChannelAverageEngagementRatePercent * 0.72) + (pipelineBenchmarkEngagementRatePercent * 0.28),
+        0.5,
+        25,
+      ).toFixed(2),
+    );
+  }, [
+    pipelineBenchmarkEngagementRatePercent,
+    youtubeChannelAverageEngagementRatePercent,
+    youtubeChannelAveragesAvailable,
+  ]);
+  const pipelineHighRetentionWindow = useMemo(() => {
+    if (bestRetentionSegments.length > 0) {
+      const best = bestRetentionSegments[0];
+      return {
+        startSec: best.startSec,
+        endSec: best.endSec,
+        source: "Detected from the active retention timeline.",
+      };
+    }
+    if (highestEnergyMoment) {
+      const startSec = Math.max(0, highestEnergyMoment.timestampSec - 6);
+      const endSec = startSec + 12;
+      return {
+        startSec,
+        endSec,
+        source: "Estimated from energy + emotion peaks.",
+      };
+    }
+    const fallbackDuration = Math.max(20, pipelineForecastDurationSec ?? 180);
+    const earlyHoldWeak = youtubeChannelAveragesAvailable && (
+      (youtubeChannelAverageHookHoldPercent !== null && youtubeChannelAverageHookHoldPercent < 60) ||
+      (youtubeChannelAverageFirst30Retention !== null && youtubeChannelAverageFirst30Retention < 55)
+    );
+    const earlyHoldStrong = youtubeChannelAveragesAvailable && (
+      (youtubeChannelAverageHookHoldPercent !== null && youtubeChannelAverageHookHoldPercent >= 76) ||
+      (youtubeChannelAverageFirst30Retention !== null && youtubeChannelAverageFirst30Retention >= 70)
+    );
+    let startSec = clamp(
+      Math.min(
+        pipelineForecastTier.fallbackHighMomentSec,
+        Math.max(0, fallbackDuration - 14),
+      ),
+      0,
+      Math.max(0, fallbackDuration - 6),
+    );
+    if (earlyHoldWeak) startSec = Math.max(startSec, Math.round(fallbackDuration * 0.18));
+    if (earlyHoldStrong) startSec = Math.min(startSec, Math.round(fallbackDuration * 0.08));
+    const endSec = clamp(startSec + 14, startSec + 6, fallbackDuration);
+    return {
+      startSec,
+      endSec,
+      source: earlyHoldWeak
+        ? "Shifted later using connected-channel early-hold averages."
+        : earlyHoldStrong
+          ? "Pulled earlier using connected-channel early-hold averages."
+          : "Estimated from retention length benchmark tier.",
+    };
+  }, [
+    bestRetentionSegments,
+    highestEnergyMoment,
+    pipelineForecastDurationSec,
+    pipelineForecastTier.fallbackHighMomentSec,
+    youtubeChannelAverageFirst30Retention,
+    youtubeChannelAverageHookHoldPercent,
+    youtubeChannelAveragesAvailable,
+  ]);
+  const pipelineForecastSourceLabel = useMemo(() => {
+    if (!youtubeConnected) {
+      return `Benchmark-only (${pipelineForecastTier.label}). Connect YouTube to personalize from channel averages.`;
+    }
+    if (youtubeChannelAveragesLoading) {
+      return "Connected to YouTube. Loading channel averages...";
+    }
+    if (!youtubeChannelAveragesAvailable) {
+      return `Connected to YouTube. Waiting for synced analytics to personalize ${pipelineForecastTier.label} benchmarks.`;
+    }
+    return `Channel-weighted using ${youtubeChannelSampleVideos} synced video${youtubeChannelSampleVideos === 1 ? "" : "s"} + ${pipelineForecastTier.label} benchmark.`;
+  }, [
+    pipelineForecastTier.label,
+    youtubeChannelAveragesAvailable,
+    youtubeChannelAveragesLoading,
+    youtubeChannelSampleVideos,
+    youtubeConnected,
+  ]);
+  const pipelineForecastCards = useMemo(() => {
+    const watchtimeValue = formatDurationClock(Math.round(pipelinePredictedAverageWatchtimeSeconds));
+    const watchtimeLine = youtubeChannelAveragesAvailable && youtubeChannelAverageViewDurationSeconds !== null
+      ? `Channel avg ${formatDurationClock(Math.round(youtubeChannelAverageViewDurationSeconds))} · Typical ${pipelineForecastTier.typicalAvdLabel}`
+      : `Typical AVD ${pipelineForecastTier.typicalAvdLabel}`;
+    const engagementValue = `${pipelinePredictedEngagementRatePercent.toFixed(pipelinePredictedEngagementRatePercent >= 10 ? 1 : 2)}%`;
+    const engagementLine = youtubeChannelAveragesAvailable && youtubeChannelAverageEngagementRatePercent !== null
+      ? `Channel avg ${youtubeChannelAverageEngagementRatePercent.toFixed(2)}% · Bench ${pipelineBenchmarkEngagementRatePercent.toFixed(2)}%`
+      : `Benchmark baseline ${pipelineBenchmarkEngagementRatePercent.toFixed(2)}%`;
+    const highMomentValue = `${formatDurationClock(Math.round(pipelineHighRetentionWindow.startSec))}-${formatDurationClock(Math.round(pipelineHighRetentionWindow.endSec))}`;
+    return [
+      {
+        key: "predicted_watchtime",
+        title: "Predicted Avg Watchtime",
+        value: watchtimeValue,
+        line: watchtimeLine,
+        note: `Avg retention ${pipelineForecastTier.averageRetentionLabel} · Good ${pipelineForecastTier.goodRetentionLabel}`,
+      },
+      {
+        key: "predicted_engagement",
+        title: "Predicted Engagement Rate",
+        value: engagementValue,
+        line: engagementLine,
+        note: `${pipelineForecastTier.notes} · Viral target ${pipelineForecastTier.viralRetentionLabel}`,
+      },
+      {
+        key: "predicted_high_retention_moment",
+        title: "High Retention Moment",
+        value: highMomentValue,
+        line: pipelineHighRetentionWindow.source,
+        note: youtubeChannelAverageViewPercentage !== null
+          ? `Channel avg watched ${youtubeChannelAverageViewPercentage.toFixed(1)}%`
+          : `Tier ${pipelineForecastTier.label}`,
+      },
+    ];
+  }, [
+    pipelineBenchmarkEngagementRatePercent,
+    pipelineForecastTier,
+    pipelineHighRetentionWindow.endSec,
+    pipelineHighRetentionWindow.source,
+    pipelineHighRetentionWindow.startSec,
+    pipelinePredictedAverageWatchtimeSeconds,
+    pipelinePredictedEngagementRatePercent,
+    youtubeChannelAverageEngagementRatePercent,
+    youtubeChannelAverageViewDurationSeconds,
+    youtubeChannelAverageViewPercentage,
+    youtubeChannelAveragesAvailable,
+  ]);
   const previewStoryBeatTimelineDurationSec = useMemo(
     () => Math.max(
       24,
@@ -21830,6 +22278,73 @@ const Editor = () => {
                             </li>
                           ))}
                         </ol>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-card/45 p-3 sm:p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/90">
+                            Pipeline Prediction Cards
+                          </p>
+                          <p className="text-xs text-muted-foreground">{pipelineForecastSourceLabel}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {youtubeConnected ? (
+                            <>
+                              <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-[11px] text-emerald-200">
+                                {youtubeOAuthStatus?.channelTitle || "YouTube connected"}
+                              </Badge>
+                              <Badge variant="outline" className="border-border/60 bg-background/55 text-[11px] text-muted-foreground">
+                                {youtubeChannelAveragesAvailable
+                                  ? `${youtubeChannelSampleVideos} synced`
+                                  : youtubeChannelAveragesLoading
+                                    ? "Syncing averages"
+                                    : "No synced averages yet"}
+                              </Badge>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full px-3 text-[11px]"
+                              disabled={!youtubeOAuthConfigured || youtubeConnectBusy}
+                              onClick={() => void handleConnectYouTubeOAuth()}
+                            >
+                              {youtubeConnectBusy ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Youtube className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Connect YouTube
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {pipelineForecastCards.map((card) => (
+                          <div
+                            key={card.key}
+                            className="rounded-xl border border-border/60 bg-background/45 px-3 py-2.5 shadow-[0_14px_30px_-28px_rgba(8,14,30,0.92)]"
+                          >
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{card.title}</p>
+                            <p className="mt-1 text-lg font-semibold text-foreground">{card.value}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{card.line}</p>
+                            <p className="mt-1 text-[10px] text-foreground/75">{card.note}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 rounded-full px-3 text-[11px]"
+                          onClick={() => navigate(aModePageHref)}
+                        >
+                          <Gauge className="mr-1.5 h-3.5 w-3.5" />
+                          Advanced Metrics
+                        </Button>
                       </div>
                     </div>
                     {!isVerticalMode ? reviewPendingCard : null}
