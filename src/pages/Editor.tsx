@@ -12877,24 +12877,10 @@ const Editor = () => {
     () => normalizeEnergyMoments(energyMomentsSource),
     [energyMomentsSource],
   );
-  const fallbackEnergyAnchorSec = clamp(
-    firstFiniteNumber(selectedHookCandidate?.start, transcriptHookCandidate?.start, 18) ?? 18,
-    6,
-    Number.isFinite(verticalMomentSourceDurationSec)
-      ? Math.max(6, Number(verticalMomentSourceDurationSec) - 4)
-      : 360,
+  const energyTimelineMoments = useMemo(
+    () => energyMomentsFromAnalysis,
+    [energyMomentsFromAnalysis],
   );
-  const energyTimelineMoments = useMemo(() => {
-    if (energyMomentsFromAnalysis.length > 0) return energyMomentsFromAnalysis;
-    const synthetic = [
-      { timestampSec: Math.max(6, fallbackEnergyAnchorSec - 120), energy: 66, motion: 62, audio: 67, visual: 64, facial: 61 },
-      { timestampSec: Math.max(12, fallbackEnergyAnchorSec - 62), energy: 73, motion: 75, audio: 71, visual: 72, facial: 70 },
-      { timestampSec: Math.max(18, fallbackEnergyAnchorSec), energy: 94, motion: 91, audio: 90, visual: 95, facial: 92 },
-      { timestampSec: Math.max(24, fallbackEnergyAnchorSec + 58), energy: 82, motion: 80, audio: 78, visual: 83, facial: 84 },
-      { timestampSec: Math.max(30, fallbackEnergyAnchorSec + 124), energy: 76, motion: 72, audio: 74, visual: 79, facial: 78 },
-    ] satisfies EnergyMoment[];
-    return synthetic;
-  }, [energyMomentsFromAnalysis, fallbackEnergyAnchorSec]);
   const estimatedTimelineDurationSec = useMemo(() => {
     const fromPreview = previewVideoDurationSec !== null ? Math.max(1, previewVideoDurationSec) : null;
     const fromDuration = estimatedDurationSec !== null ? Math.max(1, estimatedDurationSec) : null;
@@ -13125,27 +13111,49 @@ const Editor = () => {
     if (normalizedActiveStatus === "failed" && retentionScoreAfterDisplay === null && retentionScoreDisplay === null) {
       return [];
     }
-    const durationSec = Math.max(60, estimatedTimelineDurationSec);
-    const baseline = clamp(
-      Math.round(retentionScoreAfterDisplay ?? retentionScoreDisplay ?? verticalPredictedAverage ?? 78),
-      55,
-      96,
+    const baselineInput = firstFiniteNumber(
+      retentionScoreAfterDisplay,
+      retentionScoreDisplay,
+      verticalPredictedAverage,
+      autonomousCutQualityPercent,
+      timelineMomentumScore,
     );
+    if (baselineInput === null) {
+      return [];
+    }
+    const durationSec = Math.max(60, estimatedTimelineDurationSec);
+    const baseline = clamp(Math.round(baselineInput), 0, 100);
+    const driftStrength = clamp(
+      Math.round(
+        11 +
+        Math.max(0, 70 - baseline) * 0.22 +
+        Math.max(0, 68 - timelineMomentumScore) * 0.16,
+      ),
+      7,
+      34,
+    );
+    const wobble = clamp(Math.round(Math.max(2, 9 - (autonomousCutQualityPercent ?? 62) * 0.08)), 1, 8);
     const ratios = [0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1];
     return ratios.map((ratio, idx) => {
-      const organicDrift = baseline - (ratio * 17) + (idx % 2 === 0 ? 2 : -1) + (ratio > 0.72 ? 3 : 0);
+      const variance = idx % 2 === 0 ? wobble : -wobble;
+      const tailStability = ratio > 0.72
+        ? Math.round(Math.max(0, timelineMomentumScore - 58) * 0.08)
+        : 0;
+      const organicDrift = baseline - (ratio * driftStrength) + variance + tailStability;
       return {
         atSec: Math.round(durationSec * ratio),
-        predicted: clamp(Math.round(organicDrift), 50, 100),
+        predicted: clamp(Math.round(organicDrift), 0, 100),
       } as RetentionPoint;
     });
   }, [
     activeAnalysis,
+    autonomousCutQualityPercent,
     metadataRetention,
     normalizedActiveStatus,
     estimatedTimelineDurationSec,
     retentionScoreAfterDisplay,
     retentionScoreDisplay,
+    timelineMomentumScore,
     verticalClipPredictions,
     verticalPredictedAverage,
   ]);
