@@ -35,7 +35,7 @@ const Index = () => {
             transition={{ delay: 0.3, duration: 0.7 }}
           >
             <span className="block leading-[0.95]">YOU VIDEOS DON'T NEED MORE EFFORT</span>
-            <span className="block leading-[0.95]">THEY NEED SMART EDITTING</span>
+            <span className="block leading-[0.95]">THEY NEED SMARTER EDITTING</span>
           </motion.h1>
 
           <motion.p
