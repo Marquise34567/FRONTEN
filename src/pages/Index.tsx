@@ -29,13 +29,15 @@ const Index = () => {
           </motion.div>
 
           <motion.h1
-            className="text-[2.05rem] sm:text-5xl lg:text-6xl font-black font-display leading-[1.01] tracking-[-0.03em] text-foreground drop-shadow-[0_10px_28px_rgba(110,73,214,0.4)] mb-6"
+            className="mb-6 mx-auto max-w-[18ch] text-[clamp(1.62rem,8.4vw,5rem)] font-black font-display leading-[0.9] tracking-[-0.022em] text-foreground drop-shadow-[0_6px_16px_rgba(88,63,196,0.22)] sm:max-w-[16ch] sm:leading-[0.92] lg:max-w-[15ch]"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
           >
-            <span className="block leading-[0.95]">YOU VIDEOS DON'T NEED MORE EFFORT</span>
-            <span className="block leading-[0.95]">THEY NEED SMARTER EDITTING</span>
+            <span className="block text-balance">YOU VIDEOS DON'T NEED MORE EFFORT</span>
+            <span className="mt-1.5 block text-balance text-primary drop-shadow-[0_8px_18px_rgba(110,73,214,0.34)] sm:mt-2">
+              THEY NEED SMARTER EDITTING
+            </span>
           </motion.h1>
 
           <motion.p
