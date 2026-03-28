@@ -29,12 +29,13 @@ const Index = () => {
           </motion.div>
 
           <motion.h1
-            className="text-5xl sm:text-6xl lg:text-7xl font-bold font-display leading-[1.1] tracking-tight text-foreground mb-6"
+            className="text-[2.05rem] sm:text-5xl lg:text-6xl font-black font-display leading-[1.01] tracking-[-0.03em] text-foreground drop-shadow-[0_10px_28px_rgba(110,73,214,0.4)] mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
           >
-            We Built an Editor That Thinks Like Top Creators.
+            <span className="block leading-[0.95]">YOU VIDEOS DON'T NEED MORE EFFORT</span>
+            <span className="block leading-[0.95]">THEY NEED SMART EDITTING</span>
           </motion.h1>
 
           <motion.p
