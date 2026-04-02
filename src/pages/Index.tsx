@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { motion } from "framer-motion";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
@@ -11,7 +10,7 @@ const Index = () => {
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="flex flex-col items-center justify-center min-h-screen px-4 pt-24 pb-20">
+      <main className="flex w-full flex-col items-center px-4 pb-10 pt-20 sm:px-6 sm:pt-24 sm:pb-16 md:min-h-screen md:justify-center lg:pb-20">
         {/* Hero */}
         <motion.div
           className="flex flex-col items-center text-center max-w-3xl mx-auto"
@@ -20,7 +19,7 @@ const Index = () => {
           transition={{ duration: 0.7, ease: "easeOut" }}
         >
           <motion.div
-            className="pill-badge mb-8"
+            className="pill-badge mb-5 sm:mb-8"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.2, duration: 0.5 }}
@@ -30,7 +29,7 @@ const Index = () => {
           </motion.div>
 
           <motion.h1
-            className="mb-6 mx-auto max-w-[18ch] text-[clamp(1.92rem,9.4vw,6rem)] font-black font-display leading-[0.9] tracking-[-0.022em] text-foreground drop-shadow-[0_6px_16px_rgba(88,63,196,0.22)] sm:max-w-[16ch] sm:leading-[0.92] lg:max-w-[15ch]"
+            className="mb-4 mx-auto max-w-[18ch] text-[clamp(1.72rem,8.2vw,6rem)] font-black font-display leading-[0.9] tracking-[-0.022em] text-foreground drop-shadow-[0_6px_16px_rgba(88,63,196,0.22)] sm:mb-6 sm:max-w-[16ch] sm:leading-[0.92] lg:max-w-[15ch]"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
@@ -42,7 +41,7 @@ const Index = () => {
           </motion.h1>
 
           <motion.p
-            className="text-lg text-muted-foreground max-w-xl mb-10 leading-relaxed"
+            className="max-w-xl mb-7 text-base leading-relaxed text-muted-foreground sm:mb-10 sm:text-lg"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.6 }}
@@ -51,19 +50,19 @@ const Index = () => {
           </motion.p>
 
           <motion.div
-            className="flex items-center gap-4"
+            className="flex w-full flex-col items-stretch gap-2.5 sm:w-auto sm:flex-row sm:items-center sm:gap-4"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.65, duration: 0.6 }}
           >
-            <Link to="/editor">
-              <Button size="lg" className="rounded-full px-8 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground glow-sm">
+            <Link to="/editor" className="w-full sm:w-auto">
+              <Button size="lg" className="h-11 w-full gap-2 rounded-full bg-primary px-6 text-primary-foreground glow-sm hover:bg-primary/90 sm:h-12 sm:w-auto sm:px-8">
                 Get Started Free
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/pricing">
-              <Button variant="ghost" size="lg" className="rounded-full px-8 text-muted-foreground hover:text-foreground">
+            <Link to="/pricing" className="w-full sm:w-auto">
+              <Button variant="ghost" size="lg" className="h-11 w-full rounded-full px-6 text-muted-foreground hover:text-foreground sm:h-12 sm:w-auto sm:px-8">
                 View Pricing
               </Button>
             </Link>
@@ -72,7 +71,7 @@ const Index = () => {
 
         {/* Demo Card */}
         <motion.div
-          className="mt-20 w-full max-w-6xl"
+          className="mt-10 w-full max-w-6xl sm:mt-16 lg:mt-20"
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8, ease: "easeOut" }}
