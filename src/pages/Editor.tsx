@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
+import { VerticalModeMinimalLayout } from "@/components/editor/vertical-mode/VerticalModeMinimalLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -1413,6 +1414,20 @@ const Editor = () => {
   const [useTranscriptForCaptions, setUseTranscriptForCaptions] = useState<boolean>(true);
   const [editableTranscriptText, setEditableTranscriptText] = useState<string>("");
   const [transcriptSourceJobId, setTranscriptSourceJobId] = useState<string | null>(null);
+  const transcriptCaptionTextForJob = useMemo(
+    () => buildCaptionTextFromTranscriptLines(editableTranscriptText.split(/\r?\n/g)),
+    [editableTranscriptText],
+  );
+  const manualCaptionTextForJob = useMemo(
+    () => normalizeVerticalCaptionTextForJob(verticalCaptionText),
+    [verticalCaptionText],
+  );
+  const effectiveVerticalCaptionText = useMemo(() => {
+    if (useTranscriptForCaptions && transcriptCaptionTextForJob.length > 0) {
+      return transcriptCaptionTextForJob;
+    }
+    return manualCaptionTextForJob;
+  }, [manualCaptionTextForJob, transcriptCaptionTextForJob, useTranscriptForCaptions]);
   const [reprocessingJobId, setReprocessingJobId] = useState<string | null>(null);
   const [pendingVerticalFile, setPendingVerticalFile] = useState<File | null>(null);
   const [isVerticalBuilderHidden, setIsVerticalBuilderHidden] = useState(false);
@@ -2609,20 +2624,6 @@ const Editor = () => {
     }
   }, [activeJob?.id, activeTranscriptCueTexts, editableTranscriptText, transcriptSourceJobId]);
 
-  const transcriptCaptionTextForJob = useMemo(
-    () => buildCaptionTextFromTranscriptLines(editableTranscriptText.split(/\r?\n/g)),
-    [editableTranscriptText],
-  );
-  const manualCaptionTextForJob = useMemo(
-    () => normalizeVerticalCaptionTextForJob(verticalCaptionText),
-    [verticalCaptionText],
-  );
-  const effectiveVerticalCaptionText = useMemo(() => {
-    if (useTranscriptForCaptions && transcriptCaptionTextForJob.length > 0) {
-      return transcriptCaptionTextForJob;
-    }
-    return manualCaptionTextForJob;
-  }, [manualCaptionTextForJob, transcriptCaptionTextForJob, useTranscriptForCaptions]);
   const verticalCaptionPreviewScale = useMemo(
     () => clamp(verticalPreviewFrameWidth / CAPTION_PREVIEW_BASE_WIDTH, 0.18, 1),
     [verticalPreviewFrameWidth],
@@ -3849,11 +3850,22 @@ const Editor = () => {
 
   const verticalModeChipClass = (active: boolean) =>
     `vertical-mode-chip inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all ${active ? "is-active" : ""}`;
+  const activeStageLabel = activeStepKey
+    ? PIPELINE_STEPS.find((step) => step.key === activeStepKey)?.label ?? "Queued"
+    : "Queued";
+  const verticalClipCounterLabel = `${Math.min(activeOutputUrls.length, Math.max(1, verticalClipCount))}/${Math.max(1, verticalClipCount)}`;
+  const verticalPresetLabel = selectedVerticalStyle?.label || "Custom";
+  const verticalCaptionLabel = selectedVerticalAnimation?.label || "Animated";
+  const verticalRenderEngineLabel = "Auto Pipeline";
 
   return (
     <GlowBackdrop>
       <Navbar />
-      <main className="min-h-screen px-4 pt-24 pb-12 max-w-6xl mx-auto">
+      <main
+        className={`min-h-screen px-4 pt-24 pb-12 ${
+          isVerticalMode ? "vertical-studio-fullpage-main" : "max-w-6xl mx-auto"
+        }`}
+      >
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -3914,7 +3926,8 @@ const Editor = () => {
             }}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+          <div className={`grid gap-6 ${isVerticalMode ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[280px_1fr]"}`}>
+            {!isVerticalMode ? (
             <aside className="glass-card p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">Recent Jobs</h2>
@@ -3961,6 +3974,7 @@ const Editor = () => {
                 ))}
               </div>
             </aside>
+            ) : null}
 
             <section className="space-y-6">
               <div
@@ -3998,7 +4012,83 @@ const Editor = () => {
               </div>
 
               {isVerticalMode && !isVerticalBuilderHidden && (
-                <div className="glass-card vertical-mode-shell p-5 sm:p-6">
+                <div className="vertical-opus-shell vertical-opus-fullscreen vertical-landing-host vertical-opus-stage">
+                  <VerticalModeMinimalLayout
+                    statusLabel={activeStatusLabel}
+                    progressPercent={activeJob?.progress ?? 0}
+                    activeStageLabel={activeStageLabel}
+                    etaLabel={etaLabel}
+                    clipCounterLabel={verticalClipCounterLabel}
+                    presetLabel={verticalPresetLabel}
+                    accelerationLabel={verticalRenderEngineLabel}
+                    captionLabel={verticalCaptionLabel}
+                    onOpenExtras={() => navigate("/settings")}
+                    rightRail={(
+                      <div className="vertical-opus-min-rail-stack">
+                        <section className="vertical-opus-min-rail-card is-highlight">
+                          <div className="vertical-opus-min-rail-card-head">
+                            <p>Render Core</p>
+                            <span>{activeStatusLabel}</span>
+                          </div>
+                          <div className="vertical-opus-min-rail-callout">
+                            <div className="vertical-opus-min-rail-callout-icon" aria-hidden>
+                              <Gauge className="h-4 w-4" />
+                            </div>
+                            <div className="vertical-opus-min-rail-callout-copy">
+                              <strong>{verticalRenderEngineLabel}</strong>
+                              <p>Highest-retention moments are clipped first, then exported as short-form 9:16 cuts.</p>
+                            </div>
+                          </div>
+                          <div className="vertical-opus-min-rail-pill-row">
+                            <span className="vertical-opus-min-rail-pill">
+                              <Lock className="h-3.5 w-3.5" aria-hidden />
+                              Best moments
+                            </span>
+                            <span className="vertical-opus-min-rail-pill">
+                              <TrendingUp className="h-3.5 w-3.5" aria-hidden />
+                              {Math.round(activeJob?.progress ?? 0)}%
+                            </span>
+                          </div>
+                        </section>
+                        <section className="vertical-opus-min-rail-card">
+                          <div className="vertical-opus-min-rail-card-head">
+                            <p>Checklist</p>
+                            <span>Minimal</span>
+                          </div>
+                          <div className="vertical-opus-min-rail-feature-list">
+                            <div className="vertical-opus-min-rail-feature-item">
+                              <div className="vertical-opus-min-rail-feature-icon" aria-hidden>
+                                <BrainCircuit className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <strong>Retention ranking</strong>
+                                <p>Pipeline focuses only on high-retention moments before rendering clips.</p>
+                              </div>
+                            </div>
+                            <div className="vertical-opus-min-rail-feature-item">
+                              <div className="vertical-opus-min-rail-feature-icon" aria-hidden>
+                                <Play className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <strong>Webcam top lock</strong>
+                                <p>Vertical outputs keep webcam framing in the top strip for consistency.</p>
+                              </div>
+                            </div>
+                            <div className="vertical-opus-min-rail-feature-item">
+                              <div className="vertical-opus-min-rail-feature-icon" aria-hidden>
+                                <ScissorsSquare className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <strong>Animated text</strong>
+                                <p>Caption styling and animation stay active across generated clips.</p>
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+                    )}
+                  >
+                    <div className="vertical-opus-min-content-shell">
                   <div className="vertical-mode-layout">
                     <div className="vertical-mode-column space-y-4">
                       <div className="vertical-mode-panel rounded-2xl border p-4 space-y-3">
@@ -4538,6 +4628,8 @@ const Editor = () => {
                       </div>
                     </div>
                   </div>
+                  </div>
+                  </VerticalModeMinimalLayout>
                 </div>
               )}
 

@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import GlowBackdrop from "@/components/GlowBackdrop";
 import Navbar from "@/components/Navbar";
-import { Progress } from "@/components/ui/progress";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
+import LandingDemoEditorModal from "@/components/landing/LandingDemoEditorModal";
 
 const Index = () => {
   return (
@@ -29,14 +30,14 @@ const Index = () => {
           </motion.div>
 
           <motion.h1
-            className="mb-6 mx-auto max-w-[18ch] text-[clamp(1.62rem,8.4vw,5rem)] font-black font-display leading-[0.9] tracking-[-0.022em] text-foreground drop-shadow-[0_6px_16px_rgba(88,63,196,0.22)] sm:max-w-[16ch] sm:leading-[0.92] lg:max-w-[15ch]"
+            className="mb-6 mx-auto max-w-[18ch] text-[clamp(1.92rem,9.4vw,6rem)] font-black font-display leading-[0.9] tracking-[-0.022em] text-foreground drop-shadow-[0_6px_16px_rgba(88,63,196,0.22)] sm:max-w-[16ch] sm:leading-[0.92] lg:max-w-[15ch]"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
           >
-            <span className="block text-balance">YOU VIDEOS DON'T NEED MORE EFFORT</span>
-            <span className="mt-1.5 block text-balance text-primary drop-shadow-[0_8px_18px_rgba(110,73,214,0.34)] sm:mt-2">
-              THEY NEED SMARTER EDITTING
+            <span className="block text-balance">The Fastest Way to Edit</span>
+            <span className="mt-2 inline-block rounded-[0.6rem] bg-primary px-3 py-1 text-white shadow-[0_20px_34px_-24px_hsl(var(--primary)/0.92)] sm:mt-3 sm:px-4">
+              Viral Videos
             </span>
           </motion.h1>
 
@@ -71,34 +72,12 @@ const Index = () => {
 
         {/* Demo Card */}
         <motion.div
-          className="mt-20 w-full max-w-2xl"
+          className="mt-20 w-full max-w-6xl"
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8, ease: "easeOut" }}
         >
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                </div>
-                <span className="font-display font-semibold text-foreground">Auto-Editor</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                <span className="text-xs text-muted-foreground">Processing</span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">Video Analysis</span>
-                <span className="text-xs text-muted-foreground">68%</span>
-              </div>
-              <Progress value={68} className="h-2 bg-muted [&>div]:bg-primary" />
-              <p className="text-xs text-muted-foreground">Analyzing video for hooks, pacing, and boring segments...</p>
-            </div>
-          </div>
+          <LandingDemoEditorModal />
         </motion.div>
       </main>
     </GlowBackdrop>
